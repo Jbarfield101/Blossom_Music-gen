@@ -146,3 +146,127 @@ def render_drums(pattern: Dict[str, List[int]], meter: str, tempo: float, seed: 
     notes.sort(key=lambda n: n.start)
     return notes
 
+
+def _fold_pitch_to_register(pitch: int, low: int, high: int) -> int:
+    """Fold ``pitch`` into the inclusive ``[low, high]`` MIDI register.
+
+    The function shifts ``pitch`` by octaves until it falls within the range
+    and clamps the result as a last resort.  This mirrors the clamping strategy
+    used in other modules but is kept local to avoid a heavier dependency.
+    """
+
+    while pitch < low:
+        pitch += 12
+    while pitch > high:
+        pitch -= 12
+    if pitch < low:
+        pitch = low
+    if pitch > high:
+        pitch = high
+    return pitch
+
+
+def render_bass(
+    pattern: List[int],
+    voiced_chords: List[List[int]],
+    register: Dict[str, List[int]],
+    meter: str,
+    tempo: float,
+    seed: int,
+) -> List[Stem]:
+    """Render a bass line ``pattern`` into :class:`Stem` note events.
+
+    Parameters
+    ----------
+    pattern:
+        Sequence of hits on a 16th‑note grid.  Non‑zero entries denote note
+        onsets.
+    voiced_chords:
+        List of chord tone lists aligned by bar with ``pattern``.  For each
+        onset the nearest chord tone (or its chromatic approach notes) is
+        selected.
+    register:
+        Register policy dictionary from which ``"bass"`` is used to fold pitches
+        into an allowed range.
+    meter:
+        Meter string like ``"4/4"`` describing the rhythmic grid.
+    tempo:
+        Tempo in BPM used to convert beats to seconds.
+    seed:
+        Random seed controlling subtle humanisation.
+
+    Returns
+    -------
+    List[Stem]
+        List of rendered bass notes.
+    """
+
+    steps = len(pattern)
+    if steps == 0:
+        return []
+
+    beats_per_bar = bars_to_beats(meter)
+    spb = _steps_per_beat(meter)
+    steps_per_bar = beats_per_bar * spb
+
+    sec_per_beat = beats_to_secs(tempo)
+    sec_per_step = sec_per_beat / spb
+
+    rng = random.Random(seed)
+
+    low, high = (register or {}).get("bass", (0, 127))
+
+    notes: List[Stem] = []
+    prev_pitch: int | None = None
+
+    for idx, hit in enumerate(pattern):
+        if not hit:
+            continue
+
+        bar_idx = idx // steps_per_bar
+        chord = voiced_chords[bar_idx] if bar_idx < len(voiced_chords) else []
+        if not chord:
+            continue
+
+        # Candidate pitches: chord tones and chromatic neighbours
+        base_cands = set(chord)
+        for tone in chord:
+            base_cands.add(tone + 1)
+            base_cands.add(tone - 1)
+
+        candidates: List[int] = []
+        for t in base_cands:
+            # consider octave shifts so the pitch falls into the register and
+            # stays near the previous note
+            for shift in range(-4, 5):
+                p = t + 12 * shift
+                if low <= p <= high:
+                    candidates.append(p)
+        if not candidates:
+            candidates = [_fold_pitch_to_register(t, low, high) for t in base_cands]
+
+        if prev_pitch is None:
+            # Choose the candidate closest to the centre of the register for the
+            # first note to keep things predictable.
+            centre = (low + high) // 2
+            pitch = min(candidates, key=lambda p: abs(p - centre))
+        else:
+            pitch = min(candidates, key=lambda p: abs(p - prev_pitch))
+            # Smooth excessive leaps by moving an octave towards ``prev_pitch``
+            if prev_pitch is not None and abs(pitch - prev_pitch) > 7:
+                direction = -12 if pitch > prev_pitch else 12
+                while low <= pitch + direction <= high and abs((pitch + direction) - prev_pitch) < abs(pitch - prev_pitch):
+                    pitch += direction
+
+        prev_pitch = pitch
+
+        start = idx * sec_per_step
+        start = _humanize(start, 0.004, rng)
+        vel = int(_humanize(96, 4, rng))
+        vel = max(1, min(127, vel))
+
+        notes.append(Stem(start=start, dur=sec_per_step, pitch=pitch, vel=vel, chan=0))
+
+    notes.sort(key=lambda n: n.start)
+    return notes
+
