@@ -2,11 +2,11 @@ import os
 import sys
 import json
 import math
-import struct
-import wave
 from pathlib import Path
 
 import pytest
+
+sf = pytest.importorskip("soundfile")
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -41,20 +41,16 @@ def test_render_piano(tmp_path):
     # Prepare SFZ and matching sample in the temporary directory
     sfz_src = Path("assets/sfz/piano.sfz")
     sfz_path = tmp_path / "piano.sfz"
-    sfz_path.write_text(sfz_src.read_text())
+    sfz_text = sfz_src.read_text().replace(".wav", ".flac")
+    sfz_path.write_text(sfz_text)
 
-    sample_path = tmp_path / "piano_C4.wav"
+    sample_path = tmp_path / "piano_C4.flac"
     sr = 44100
     freq = 440.0
     dur = 0.5
     frames = int(sr * dur)
     samples = [math.sin(2 * math.pi * freq * i / sr) for i in range(frames)]
-    pcm = [int(s * 32767) for s in samples]
-    with wave.open(str(sample_path), "w") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sr)
-        wf.writeframes(struct.pack("<" + "h" * len(pcm), *pcm))
+    sf.write(sample_path, samples, sr)
 
     # Build stems and render using the piano SFZ
     stems = build_stems_for_song(spec, spec.seed)
