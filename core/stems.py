@@ -270,3 +270,139 @@ def render_bass(
     notes.sort(key=lambda n: n.start)
     return notes
 
+
+def render_keys(
+    pattern: Dict[str, List[int]],
+    voiced_chords: List[List[int]],
+    register: Dict[str, List[int]],
+    meter: str,
+    tempo: float,
+    seed: int,
+) -> List[Stem]:
+    """Render a simple keyboard ``pattern`` into :class:`Stem` events.
+
+    Parameters
+    ----------
+    pattern:
+        Mapping that may contain ``"stabs"`` and/or ``"arp"`` grids on a
+        16th‑note resolution.  ``1`` entries denote note onsets.  Optionally a
+        ``"tension_policy"`` mapping of bar index -> list of semitone tensions
+        can be supplied to extend chord stabs.
+    voiced_chords:
+        List of SATB voicings aligned by bar.  Each entry is expected to be a
+        list of MIDI pitches ordered from lowest (bass) to highest (soprano).
+    register:
+        Register policy from which the ``"keys"`` range is used to fold pitches
+        into the allowed span.
+    meter:
+        Meter string like ``"4/4"`` describing the rhythmic grid.
+    tempo:
+        Tempo in BPM used to convert beats to seconds.
+    seed:
+        Random seed controlling subtle humanisation.
+
+    Returns
+    -------
+    List[Stem]
+        Rendered key part note events.
+    """
+
+    # Determine overall length from whichever grid is longer
+    steps = max(len(pattern.get("stabs", [])), len(pattern.get("arp", [])))
+    if steps == 0:
+        return []
+
+    beats_per_bar = bars_to_beats(meter)
+    spb = _steps_per_beat(meter)
+    steps_per_bar = beats_per_bar * spb
+
+    sec_per_beat = beats_to_secs(tempo)
+    sec_per_step = sec_per_beat / spb
+
+    rng = random.Random(seed)
+
+    low, high = (register or {}).get("keys", (0, 127))
+    tension_policy = pattern.get("tension_policy", {}) or {}
+
+    notes: List[Stem] = []
+
+    # Helper to fold and humanise note creation
+    def _emit(start_idx: int, pitch: int, vel_base: int = 80) -> None:
+        p = _fold_pitch_to_register(pitch, low, high)
+        start = start_idx * sec_per_step
+        start = _humanize(start, 0.005, rng)
+        vel = int(_humanize(vel_base, 5, rng))
+        vel = max(1, min(127, vel))
+        notes.append(Stem(start=start, dur=sec_per_step, pitch=p, vel=vel, chan=1))
+
+    # ------------------------------------------------------------------
+    # Chord stabs (guide tones + tensions)
+    # ------------------------------------------------------------------
+    stabs = pattern.get("stabs", [])
+    for idx, hit in enumerate(stabs):
+        if not hit:
+            continue
+
+        bar_idx = idx // steps_per_bar
+        step_in_bar = idx % steps_per_bar
+        chord = voiced_chords[bar_idx] if bar_idx < len(voiced_chords) else []
+        if not chord:
+            continue
+
+        root = min(chord)
+
+        third: int | None = None
+        seventh: int | None = None
+        for p in chord:
+            iv = (p - root) % 12
+            if iv in (3, 4) and third is None:
+                third = p
+            elif iv in (10, 11) and seventh is None:
+                seventh = p
+
+        cand: List[int] = []
+        if third is not None:
+            cand.append(third)
+        if seventh is not None:
+            cand.append(seventh)
+
+        for interval in tension_policy.get(bar_idx) or tension_policy.get(str(bar_idx), []) or []:
+            cand.append(root + interval)
+
+        strong = step_in_bar % spb == 0
+        if strong:
+            leading_pc = (root + 11) % 12
+            seen = False
+            dedup: List[int] = []
+            for p in cand:
+                if p % 12 == leading_pc:
+                    if seen:
+                        continue
+                    seen = True
+                dedup.append(p)
+            cand = dedup
+
+        for p in cand:
+            _emit(idx, p, 88)
+
+    # ------------------------------------------------------------------
+    # Arpeggios (iterate through SATB voicing)
+    # ------------------------------------------------------------------
+    arp = pattern.get("arp", [])
+    voice_order = [3, 2, 1, 0]  # S, A, T, B if ``chord`` sorted low->high
+    arp_count = 0
+    for idx, hit in enumerate(arp):
+        if not hit:
+            continue
+        bar_idx = idx // steps_per_bar
+        chord = voiced_chords[bar_idx] if bar_idx < len(voiced_chords) else []
+        if not chord:
+            continue
+        voice = voice_order[arp_count % len(voice_order)]
+        if voice < len(chord):
+            _emit(idx, chord[voice], 72)
+        arp_count += 1
+
+    notes.sort(key=lambda n: n.start)
+    return notes
+
