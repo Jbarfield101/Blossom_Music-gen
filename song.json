@@ -1,0 +1,10 @@
+{
+  "title": "Demo",
+  "seed": 42,
+  "key": "C",
+  "mode": "ionian",
+  "tempo": 120,
+  "meter": "4/4",
+  "sections": [{"name": "A", "length": 4}],
+  "harmony_grid": [{"section": "A", "chords": ["C", "F", "G", "C"]}]
+}
