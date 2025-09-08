@@ -6,6 +6,9 @@ from dataclasses import dataclass
 from typing import Dict, List
 import random
 
+from .song_spec import SongSpec
+from . import pattern_synth, theory
+
 
 @dataclass
 class Note:
@@ -566,3 +569,137 @@ def dedupe_collisions(
         keys.sort(key=lambda n: n.start)
 
     return stems
+
+
+def build_stems_for_song(spec: SongSpec, seed: int) -> Dict[str, List[Stem]]:
+    """Generate and render stems for all sections/instruments of ``spec``.
+
+    The function orchestrates pattern generation via :mod:`core.pattern_synth`
+    and translates the resulting patterns into :class:`Stem` note events using
+    the render helpers defined in this module.  Returned stem times are in
+    seconds and absolute to the beginning of the song.
+    """
+
+    # ------------------------------------------------------------------
+    # Prepare global resources: chord timeline and SATB voicings
+    # ------------------------------------------------------------------
+    chords = spec.all_chords()
+    bass_v, tenor_v, alto_v, sop_v = theory.generate_satb(chords)
+    voiced_all = [[b, t, a, s] for b, t, a, s in zip(bass_v, tenor_v, alto_v, sop_v)]
+
+    meter = spec.meter
+    tempo = float(spec.tempo)
+    beats_per_bar = bars_to_beats(meter)
+    spb = _steps_per_beat(meter)
+    sec_map = spec.bars_by_section()
+
+    stems: Dict[str, List[Stem]] = {"drums": [], "bass": [], "keys": [], "pads": []}
+
+    for sec in spec.sections:
+        bar_range = sec_map.get(sec.name, range(0))
+        start_bar = bar_range.start
+        end_bar = bar_range.stop
+
+        # Slice the global timelines for the current section
+        sec_chords = chords[start_bar:end_bar]
+        sec_voiced = voiced_all[start_bar:end_bar]
+
+        density = float(spec.density_curve.get(sec.name, 0.5))
+        register = spec.register_policy or {}
+
+        # Offsets to convert section-relative beats to absolute seconds
+        offset_beats = start_bar * beats_per_bar
+        offset_secs = offset_beats * beats_to_secs(tempo)
+
+        total_steps = sec.length * beats_per_bar * spb
+
+        # ------------------------------------------------------------------
+        # Drum stems
+        # ------------------------------------------------------------------
+        rng_d = pattern_synth._seeded_rng(seed, sec.name, "drums")
+        drum_events = pattern_synth.gen_drums(sec.length, meter, density, rng_d, spec)
+        kick = [0] * total_steps
+        snare = [0] * total_steps
+        hat = [0] * total_steps
+        for ev in drum_events:
+            idx = int(round(ev["start"] * spb))
+            if idx >= total_steps:
+                continue
+            p = ev["pitch"]
+            if p == pattern_synth.clamp_pitch(36, "drums", spec):
+                kick[idx] = 1
+            elif p == pattern_synth.clamp_pitch(38, "drums", spec):
+                snare[idx] = 1
+            elif p == pattern_synth.clamp_pitch(42, "drums", spec):
+                hat[idx] = 1
+        drum_pattern = {"kick": kick, "snare": snare, "hat": hat, "density": density}
+        drum_notes = render_drums(drum_pattern, meter, tempo, seed)
+        for n in drum_notes:
+            n.start += offset_secs
+        stems["drums"].extend(drum_notes)
+
+        # ------------------------------------------------------------------
+        # Bass stems
+        # ------------------------------------------------------------------
+        rng_b = pattern_synth._seeded_rng(seed, sec.name, "bass")
+        bass_events = pattern_synth.gen_bass(sec_chords, meter, density, rng_b, spec)
+        bass_grid = [0] * total_steps
+        for ev in bass_events:
+            idx = int(round(ev["start"] * spb))
+            if idx < total_steps:
+                bass_grid[idx] = 1
+        bass_notes = render_bass(bass_grid, sec_voiced, register, meter, tempo, seed)
+        for n in bass_notes:
+            n.start += offset_secs
+        stems["bass"].extend(bass_notes)
+
+        # ------------------------------------------------------------------
+        # Key stems
+        # ------------------------------------------------------------------
+        rng_k = pattern_synth._seeded_rng(seed, sec.name, "keys")
+        key_events = pattern_synth.gen_keys(sec_chords, meter, density, rng_k, spec)
+        stabs = [0] * total_steps
+        arp = [0] * total_steps
+        starts: Dict[int, int] = {}
+        for ev in key_events:
+            idx = int(round(ev["start"] * spb))
+            if idx >= total_steps:
+                continue
+            starts[idx] = starts.get(idx, 0) + 1
+        for idx, count in starts.items():
+            if count > 1:
+                stabs[idx] = 1
+            else:
+                arp[idx] = 1
+        key_pattern: Dict[str, object] = {"stabs": stabs, "arp": arp}
+        # Extract tension policy for the section
+        tp: Dict[int, List[int]] = {}
+        for bar in bar_range:
+            if bar in spec.tension_policy:
+                tp[bar - start_bar] = spec.tension_policy[bar]
+            elif str(bar) in spec.tension_policy:
+                tp[bar - start_bar] = spec.tension_policy[str(bar)]
+        if tp:
+            key_pattern["tension_policy"] = tp
+        key_notes = render_keys(key_pattern, sec_voiced, register, meter, tempo, seed)
+        for n in key_notes:
+            n.start += offset_secs
+        stems["keys"].extend(key_notes)
+
+        # ------------------------------------------------------------------
+        # Pad stems
+        # ------------------------------------------------------------------
+        rng_p = pattern_synth._seeded_rng(seed, sec.name, "pads")
+        pattern_synth.gen_pads(sec_chords, meter, density, rng_p, spec)  # generated for determinism
+        pad_pattern = {"density": density}
+        pad_notes = render_pads(pad_pattern, sec_voiced, register, meter, tempo, seed)
+        for n in pad_notes:
+            n.start += offset_secs
+        stems["pads"].extend(pad_notes)
+
+    # Ensure chronological order per instrument
+    for notes in stems.values():
+        notes.sort(key=lambda n: n.start)
+
+    return stems
+
