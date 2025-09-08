@@ -61,6 +61,28 @@ def probability_grid(probs: Sequence[float], rng: random.Random) -> List[bool]:
 
 
 # ---------------------------------------------------------------------------
+# Register helpers
+# ---------------------------------------------------------------------------
+
+def clamp_pitch(pitch: int, inst: str, spec: SongSpec) -> int:
+    """Clamp ``pitch`` to the MIDI register range for ``inst``.
+
+    If ``inst`` does not have a policy entry, ``pitch`` is returned unchanged.
+    """
+
+    policy = getattr(spec, "register_policy", {}) or {}
+    rng = policy.get(inst)
+    if not rng:
+        return pitch
+    low, high = rng
+    if pitch < low:
+        return low
+    if pitch > high:
+        return high
+    return pitch
+
+
+# ---------------------------------------------------------------------------
 # Density mapping helpers
 # ---------------------------------------------------------------------------
 
@@ -90,7 +112,7 @@ def density_to_note_rate(density: float, max_rate: int = 4) -> int:
 # Instrument generators
 # ---------------------------------------------------------------------------
 
-def gen_drums(n_bars: int, meter: str, density: float, rng: random.Random) -> List[Event]:
+def gen_drums(n_bars: int, meter: str, density: float, rng: random.Random, spec: SongSpec) -> List[Event]:
     """Generate drum events using a simple Euclidean approach."""
 
     steps = _steps_per_bar(meter)
@@ -125,15 +147,18 @@ def gen_drums(n_bars: int, meter: str, density: float, rng: random.Random) -> Li
         for i in range(steps):
             start = bar_start + i / step_per_beat
             if kick[i] and rng.random() < hit_prob:
-                events.append({"start": start, "dur": step_dur, "pitch": 36, "vel": 100, "chan": 9})
+                p = clamp_pitch(36, "drums", spec)
+                events.append({"start": start, "dur": step_dur, "pitch": p, "vel": 100, "chan": 9})
             if snare[i] and rng.random() < hit_prob:
-                events.append({"start": start, "dur": step_dur, "pitch": 38, "vel": 100, "chan": 9})
+                p = clamp_pitch(38, "drums", spec)
+                events.append({"start": start, "dur": step_dur, "pitch": p, "vel": 100, "chan": 9})
             if hat[i] and rng.random() < hit_prob:
-                events.append({"start": start, "dur": step_dur, "pitch": 42, "vel": 80, "chan": 9})
+                p = clamp_pitch(42, "drums", spec)
+                events.append({"start": start, "dur": step_dur, "pitch": p, "vel": 80, "chan": 9})
     return events
 
 
-def gen_bass(chords: Sequence[str], meter: str, density: float, rng: random.Random) -> List[Event]:
+def gen_bass(chords: Sequence[str], meter: str, density: float, rng: random.Random, spec: SongSpec) -> List[Event]:
     """Generate root-note bass line events."""
 
     steps = _steps_per_bar(meter)
@@ -145,7 +170,7 @@ def gen_bass(chords: Sequence[str], meter: str, density: float, rng: random.Rand
     note_rate = density_to_note_rate(density, 3)
     for bar_idx, chord in enumerate(chords):
         root_pc, _ = parse_chord_symbol(chord)
-        root = midi_note(root_pc, 2)
+        root = clamp_pitch(midi_note(root_pc, 2), "bass", spec)
         pulses = note_rate
         hits = euclid(pulses, steps)
         bar_start = bar_idx * beats
@@ -156,7 +181,7 @@ def gen_bass(chords: Sequence[str], meter: str, density: float, rng: random.Rand
     return events
 
 
-def gen_keys(chords: Sequence[str], meter: str, density: float, rng: random.Random) -> List[Event]:
+def gen_keys(chords: Sequence[str], meter: str, density: float, rng: random.Random, spec: SongSpec) -> List[Event]:
     """Generate block-chord keyboard part events."""
 
     steps = _steps_per_bar(meter)
@@ -169,7 +194,7 @@ def gen_keys(chords: Sequence[str], meter: str, density: float, rng: random.Rand
     for bar_idx, chord in enumerate(chords):
         root_pc, intervals = parse_chord_symbol(chord)
         base = midi_note(root_pc, 4)
-        notes = [base + iv for iv in intervals]
+        notes = [clamp_pitch(base + iv, "keys", spec) for iv in intervals]
         pulses = note_rate
         hits = euclid(pulses, steps)
         bar_start = bar_idx * beats
@@ -184,7 +209,7 @@ def gen_keys(chords: Sequence[str], meter: str, density: float, rng: random.Rand
     return events
 
 
-def gen_pads(chords: Sequence[str], meter: str, density: float, rng: random.Random) -> List[Event]:
+def gen_pads(chords: Sequence[str], meter: str, density: float, rng: random.Random, spec: SongSpec) -> List[Event]:
     """Generate sustained pad chords (one event per bar)."""
 
     beats = int(meter.split("/")[0])
@@ -193,7 +218,7 @@ def gen_pads(chords: Sequence[str], meter: str, density: float, rng: random.Rand
     for bar_idx, chord in enumerate(chords):
         root_pc, intervals = parse_chord_symbol(chord)
         base = midi_note(root_pc, 4)
-        notes = [base + iv for iv in intervals]
+        notes = [clamp_pitch(base + iv, "pads", spec) for iv in intervals]
         if rng.random() < min(1.0, hit_prob + 0.1):
             start = bar_idx * beats
             for n in notes:
@@ -215,10 +240,10 @@ def build_patterns_for_song(spec: SongSpec, seed: int) -> Dict:
         chords = chords_row.get("chords", ["C"] * sec.length)
 
         sec_plan = {"section": sec.name, "length_bars": sec.length, "patterns": {}}
-        sec_plan["patterns"]["drums"] = gen_drums(sec.length, meter, density, _seeded_rng(seed, sec.name, "drums"))
-        sec_plan["patterns"]["bass"] = gen_bass(chords, meter, density, _seeded_rng(seed, sec.name, "bass"))
-        sec_plan["patterns"]["keys"] = gen_keys(chords, meter, density, _seeded_rng(seed, sec.name, "keys"))
-        sec_plan["patterns"]["pads"] = gen_pads(chords, meter, density, _seeded_rng(seed, sec.name, "pads"))
+        sec_plan["patterns"]["drums"] = gen_drums(sec.length, meter, density, _seeded_rng(seed, sec.name, "drums"), spec)
+        sec_plan["patterns"]["bass"] = gen_bass(chords, meter, density, _seeded_rng(seed, sec.name, "bass"), spec)
+        sec_plan["patterns"]["keys"] = gen_keys(chords, meter, density, _seeded_rng(seed, sec.name, "keys"), spec)
+        sec_plan["patterns"]["pads"] = gen_pads(chords, meter, density, _seeded_rng(seed, sec.name, "pads"), spec)
 
         plan["sections"].append(sec_plan)
     return plan
