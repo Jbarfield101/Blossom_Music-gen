@@ -61,6 +61,32 @@ def probability_grid(probs: Sequence[float], rng: random.Random) -> List[bool]:
 
 
 # ---------------------------------------------------------------------------
+# Density mapping helpers
+# ---------------------------------------------------------------------------
+
+def density_to_hit_prob(density: float) -> float:
+    """Map ``density`` in ``[0, 1]`` to a hit probability.
+
+    The function clamps the value to the valid probability range so callers do
+    not need to worry about out-of-bound densities.
+    """
+
+    return max(0.0, min(1.0, density))
+
+
+def density_to_note_rate(density: float, max_rate: int = 4) -> int:
+    """Map ``density`` in ``[0, 1]`` to an integer note rate.
+
+    ``max_rate`` denotes the maximum number of evenly spaced notes that should
+    be produced in a bar when ``density`` equals ``1``.  The minimum rate is
+    always ``1``.
+    """
+
+    rate = 1 + density * (max_rate - 1)
+    return max(1, min(max_rate, int(rate + 0.5)))
+
+
+# ---------------------------------------------------------------------------
 # Instrument generators
 # ---------------------------------------------------------------------------
 
@@ -72,8 +98,10 @@ def gen_drums(n_bars: int, meter: str, density: float, rng: random.Random) -> Li
     step_per_beat = steps // beats
     step_dur = 1 / step_per_beat
     events: List[Event] = []
+    hit_prob = density_to_hit_prob(density)
+    note_rate = density_to_note_rate(density, 4)
     for bar_idx in range(n_bars):
-        pulses = max(1, int(round(1 + density * 3)))
+        pulses = note_rate
         kick = euclid(pulses, steps)
 
         snare = [0] * steps
@@ -83,24 +111,24 @@ def gen_drums(n_bars: int, meter: str, density: float, rng: random.Random) -> Li
         else:
             snare[steps // 2] = 1
         for i in range(steps):
-            if not snare[i] and rng.random() < density * 0.1:
+            if not snare[i] and rng.random() < 0.1 * hit_prob:
                 snare[i] = 1
 
         hat = [0] * steps
         for i in range(steps):
             if step_per_beat // 2 == 0 or i % (step_per_beat // 2) == 0:
                 hat[i] = 1
-            elif rng.random() < density * 0.5:
+            elif rng.random() < 0.5 * hit_prob:
                 hat[i] = 1
 
         bar_start = bar_idx * beats
         for i in range(steps):
             start = bar_start + i / step_per_beat
-            if kick[i]:
+            if kick[i] and rng.random() < hit_prob:
                 events.append({"start": start, "dur": step_dur, "pitch": 36, "vel": 100, "chan": 9})
-            if snare[i]:
+            if snare[i] and rng.random() < hit_prob:
                 events.append({"start": start, "dur": step_dur, "pitch": 38, "vel": 100, "chan": 9})
-            if hat[i]:
+            if hat[i] and rng.random() < hit_prob:
                 events.append({"start": start, "dur": step_dur, "pitch": 42, "vel": 80, "chan": 9})
     return events
 
@@ -113,14 +141,16 @@ def gen_bass(chords: Sequence[str], meter: str, density: float, rng: random.Rand
     step_per_beat = steps // beats
     step_dur = 1 / step_per_beat
     events: List[Event] = []
+    hit_prob = density_to_hit_prob(density)
+    note_rate = density_to_note_rate(density, 3)
     for bar_idx, chord in enumerate(chords):
         root_pc, _ = parse_chord_symbol(chord)
         root = midi_note(root_pc, 2)
-        pulses = max(1, int(round(1 + density * 2)))
+        pulses = note_rate
         hits = euclid(pulses, steps)
         bar_start = bar_idx * beats
         for i, h in enumerate(hits):
-            if h:
+            if h and rng.random() < hit_prob:
                 start = bar_start + i / step_per_beat
                 events.append({"start": start, "dur": step_dur, "pitch": root, "vel": 100, "chan": 0})
     return events
@@ -134,19 +164,21 @@ def gen_keys(chords: Sequence[str], meter: str, density: float, rng: random.Rand
     step_per_beat = steps // beats
     step_dur = 1 / step_per_beat
     events: List[Event] = []
+    hit_prob = density_to_hit_prob(density)
+    note_rate = density_to_note_rate(density, 4)
     for bar_idx, chord in enumerate(chords):
         root_pc, intervals = parse_chord_symbol(chord)
         base = midi_note(root_pc, 4)
         notes = [base + iv for iv in intervals]
-        pulses = max(1, int(round(1 + density * 3)))
+        pulses = note_rate
         hits = euclid(pulses, steps)
         bar_start = bar_idx * beats
         for i, h in enumerate(hits):
             start = bar_start + i / step_per_beat
-            if h:
+            if h and rng.random() < hit_prob:
                 for n in notes:
                     events.append({"start": start, "dur": step_dur, "pitch": n, "vel": 90, "chan": 1})
-            elif rng.random() < density * 0.05:
+            elif rng.random() < 0.05 * hit_prob:
                 n = rng.choice(notes)
                 events.append({"start": start, "dur": step_dur, "pitch": n, "vel": 90, "chan": 1})
     return events
@@ -157,11 +189,12 @@ def gen_pads(chords: Sequence[str], meter: str, density: float, rng: random.Rand
 
     beats = int(meter.split("/")[0])
     events: List[Event] = []
+    hit_prob = density_to_hit_prob(density)
     for bar_idx, chord in enumerate(chords):
         root_pc, intervals = parse_chord_symbol(chord)
         base = midi_note(root_pc, 4)
         notes = [base + iv for iv in intervals]
-        if rng.random() < density + 0.1:
+        if rng.random() < min(1.0, hit_prob + 0.1):
             start = bar_idx * beats
             for n in notes:
                 events.append({"start": start, "dur": beats, "pitch": n, "vel": 80, "chan": 2})
