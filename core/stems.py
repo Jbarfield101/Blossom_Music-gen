@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List
 import random
 
@@ -702,4 +703,93 @@ def build_stems_for_song(spec: SongSpec, seed: int) -> Dict[str, List[Stem]]:
         notes.sort(key=lambda n: n.start)
 
     return stems
+
+
+def export_midi(stems: Dict[str, List[Stem]], path: str | Path) -> None:
+    """Export ``stems`` as a Standard MIDI file to ``path``.
+
+    Parameters
+    ----------
+    stems:
+        Mapping of instrument name to a list of :class:`Stem` events.  This is
+        typically the structure returned by :func:`build_stems_for_song`.
+    path:
+        Destination file path.  Parent directories are created automatically.
+
+    Notes
+    -----
+    The function attempts to use :mod:`mido` for MIDI serialisation.  If the
+    dependency is not available a small built‑in writer is used instead which
+    produces type‑1 MIDI files with one track per channel.  The fallback is
+    deliberately minimal but sufficient for testing and simple examples.
+    """
+
+    try:  # Prefer mido when available
+        import mido  # type: ignore
+    except Exception:  # pragma: no cover - optional dependency
+        mido = None  # type: ignore
+
+    ticks_per_beat = 480
+    tempo_bpm = 120.0
+    ticks_per_second = ticks_per_beat * tempo_bpm / 60.0
+
+    events_by_chan: Dict[int, List[tuple[int, bool, int, int]]] = {}
+    for note_list in stems.values():
+        for n in note_list:
+            start_tick = int(round(n.start * ticks_per_second))
+            end_tick = int(round((n.start + n.dur) * ticks_per_second))
+            events_by_chan.setdefault(n.chan, []).append((start_tick, True, n.pitch, n.vel))
+            events_by_chan.setdefault(n.chan, []).append((end_tick, False, n.pitch, 0))
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if mido is not None:
+        mid = mido.MidiFile(type=1, ticks_per_beat=ticks_per_beat)
+        for chan, evs in sorted(events_by_chan.items()):
+            track = mido.MidiTrack()
+            evs.sort(key=lambda e: e[0])
+            prev_tick = 0
+            for tick, is_on, pitch, vel in evs:
+                delta = tick - prev_tick
+                msg = 'note_on' if is_on else 'note_off'
+                track.append(
+                    mido.Message(msg, note=int(pitch), velocity=int(vel), channel=chan, time=delta)
+                )
+                prev_tick = tick
+            track.append(mido.MetaMessage('end_of_track', time=0))
+            mid.tracks.append(track)
+        mid.save(path)
+        return
+
+    def _varlen(value: int) -> bytes:
+        out = bytearray([value & 0x7F])
+        value >>= 7
+        while value:
+            out.insert(0, (value & 0x7F) | 0x80)
+            value >>= 7
+        return bytes(out)
+
+    with open(path, 'wb') as fh:
+        header = (
+            b'MThd'
+            + (6).to_bytes(4, 'big')
+            + (1).to_bytes(2, 'big')
+            + len(events_by_chan).to_bytes(2, 'big')
+            + ticks_per_beat.to_bytes(2, 'big')
+        )
+        fh.write(header)
+        for chan, evs in sorted(events_by_chan.items()):
+            evs.sort(key=lambda e: e[0])
+            track_data = bytearray()
+            prev_tick = 0
+            for tick, is_on, pitch, vel in evs:
+                delta = tick - prev_tick
+                track_data.extend(_varlen(delta))
+                status = (0x90 if is_on else 0x80) | (chan & 0x0F)
+                track_data.extend(bytes([status, pitch & 0x7F, vel & 0x7F]))
+                prev_tick = tick
+            track_data.extend(b"\x00\xFF\x2F\x00")
+            fh.write(b'MTrk' + len(track_data).to_bytes(4, 'big') + track_data)
+
 
