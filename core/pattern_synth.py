@@ -18,6 +18,7 @@ import random
 
 from .song_spec import SongSpec
 from .theory import parse_chord_symbol, midi_note
+from .utils import Event
 
 
 # ---------------------------------------------------------------------------
@@ -63,13 +64,15 @@ def probability_grid(probs: Sequence[float], rng: random.Random) -> List[bool]:
 # Instrument generators
 # ---------------------------------------------------------------------------
 
-def gen_drums(n_bars: int, meter: str, density: float, rng: random.Random) -> Dict[str, List[List[int]]]:
-    """Generate very small drum patterns as euclidean grids."""
+def gen_drums(n_bars: int, meter: str, density: float, rng: random.Random) -> List[Event]:
+    """Generate drum events using a simple Euclidean approach."""
+
     steps = _steps_per_bar(meter)
     beats = int(meter.split("/")[0])
     step_per_beat = steps // beats
-    out = {"kick": [], "snare": [], "hat": []}
-    for _ in range(n_bars):
+    step_dur = 1 / step_per_beat
+    events: List[Event] = []
+    for bar_idx in range(n_bars):
         pulses = max(1, int(round(1 + density * 3)))
         kick = euclid(pulses, steps)
 
@@ -90,62 +93,79 @@ def gen_drums(n_bars: int, meter: str, density: float, rng: random.Random) -> Di
             elif rng.random() < density * 0.5:
                 hat[i] = 1
 
-        out["kick"].append(kick)
-        out["snare"].append(snare)
-        out["hat"].append(hat)
-    return out
+        bar_start = bar_idx * beats
+        for i in range(steps):
+            start = bar_start + i / step_per_beat
+            if kick[i]:
+                events.append({"start": start, "dur": step_dur, "pitch": 36, "vel": 100, "chan": 9})
+            if snare[i]:
+                events.append({"start": start, "dur": step_dur, "pitch": 38, "vel": 100, "chan": 9})
+            if hat[i]:
+                events.append({"start": start, "dur": step_dur, "pitch": 42, "vel": 80, "chan": 9})
+    return events
 
 
-def gen_bass(chords: Sequence[str], meter: str, density: float, rng: random.Random) -> List[List[int | None]]:
-    """Generate root-note bass lines."""
+def gen_bass(chords: Sequence[str], meter: str, density: float, rng: random.Random) -> List[Event]:
+    """Generate root-note bass line events."""
+
     steps = _steps_per_bar(meter)
-    out: List[List[int | None]] = []
-    for chord in chords:
+    beats = int(meter.split("/")[0])
+    step_per_beat = steps // beats
+    step_dur = 1 / step_per_beat
+    events: List[Event] = []
+    for bar_idx, chord in enumerate(chords):
         root_pc, _ = parse_chord_symbol(chord)
         root = midi_note(root_pc, 2)
         pulses = max(1, int(round(1 + density * 2)))
         hits = euclid(pulses, steps)
-        bar = [None] * steps
+        bar_start = bar_idx * beats
         for i, h in enumerate(hits):
             if h:
-                bar[i] = root
-        out.append(bar)
-    return out
+                start = bar_start + i / step_per_beat
+                events.append({"start": start, "dur": step_dur, "pitch": root, "vel": 100, "chan": 0})
+    return events
 
 
-def gen_keys(chords: Sequence[str], meter: str, density: float, rng: random.Random) -> List[List[Sequence[int]]]:
-    """Generate block-chord keyboard parts."""
+def gen_keys(chords: Sequence[str], meter: str, density: float, rng: random.Random) -> List[Event]:
+    """Generate block-chord keyboard part events."""
+
     steps = _steps_per_bar(meter)
-    out: List[List[Sequence[int]]] = []
-    for chord in chords:
+    beats = int(meter.split("/")[0])
+    step_per_beat = steps // beats
+    step_dur = 1 / step_per_beat
+    events: List[Event] = []
+    for bar_idx, chord in enumerate(chords):
         root_pc, intervals = parse_chord_symbol(chord)
         base = midi_note(root_pc, 4)
         notes = [base + iv for iv in intervals]
         pulses = max(1, int(round(1 + density * 3)))
         hits = euclid(pulses, steps)
-        bar: List[List[int]] = [[] for _ in range(steps)]
+        bar_start = bar_idx * beats
         for i, h in enumerate(hits):
+            start = bar_start + i / step_per_beat
             if h:
-                bar[i] = notes
+                for n in notes:
+                    events.append({"start": start, "dur": step_dur, "pitch": n, "vel": 90, "chan": 1})
             elif rng.random() < density * 0.05:
-                bar[i] = [rng.choice(notes)]
-        out.append(bar)
-    return out
+                n = rng.choice(notes)
+                events.append({"start": start, "dur": step_dur, "pitch": n, "vel": 90, "chan": 1})
+    return events
 
 
-def gen_pads(chords: Sequence[str], meter: str, density: float, rng: random.Random) -> List[List[Sequence[int]]]:
-    """Generate sustained pad chords (one per bar)."""
-    steps = _steps_per_bar(meter)
-    out: List[List[Sequence[int]]] = []
-    for chord in chords:
+def gen_pads(chords: Sequence[str], meter: str, density: float, rng: random.Random) -> List[Event]:
+    """Generate sustained pad chords (one event per bar)."""
+
+    beats = int(meter.split("/")[0])
+    events: List[Event] = []
+    for bar_idx, chord in enumerate(chords):
         root_pc, intervals = parse_chord_symbol(chord)
         base = midi_note(root_pc, 4)
         notes = [base + iv for iv in intervals]
-        bar: List[List[int]] = [[] for _ in range(steps)]
         if rng.random() < density + 0.1:
-            bar[0] = notes
-        out.append(bar)
-    return out
+            start = bar_idx * beats
+            for n in notes:
+                events.append({"start": start, "dur": beats, "pitch": n, "vel": 80, "chan": 2})
+    return events
 
 
 # ---------------------------------------------------------------------------
