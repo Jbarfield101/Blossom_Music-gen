@@ -2,12 +2,22 @@
 
 Simple demos for algorithmic music pattern generation.
 
+## Dependencies
+
+SFZ instruments may reference WAV or FLAC samples. Loading FLAC samples requires the
+[soundfile](https://pysoundfile.readthedocs.io/) library, which can be installed with:
+
+```bash
+pip install soundfile
+```
+
 ## Generate N minutes of music
 
 1. Create a song specification JSON (see `core/song_spec.py` for fields).
 2. Run the synth and specify the number of minutes you want:
 
 ```bash
+pip install soundfile  # enables FLAC support
 python -m core.main_synth --spec path/to/spec.json --minutes 3 --seed 42 --print-stats > plan.json
 ```
 
@@ -18,6 +28,7 @@ python -m core.main_synth --spec path/to/spec.json --minutes 3 --seed 42 --print
 To render the piano part with external SFZ samples, pass the path using the `--piano-sfz` flag. The default configuration points to `assets/sfz/piano.sfz` in `render_config.json`.
 
 ```bash
+pip install soundfile  # enables FLAC support
 python main_render.py --spec path/to/spec.json --piano-sfz /path/to/custom/piano.sfz --mix out/piano.wav
 ```
 
