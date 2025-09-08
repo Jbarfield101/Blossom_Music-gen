@@ -2,6 +2,11 @@
 
 Simple demos for algorithmic music pattern generation.
 
+## Dependencies
+
+This project uses the [soundfile](https://pysoundfile.readthedocs.io/) library to load
+WAV and FLAC samples for the SFZ sampler.
+
 ## Generate N minutes of music
 
 1. Create a song specification JSON (see `core/song_spec.py` for fields).
