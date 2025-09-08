@@ -38,7 +38,14 @@ class SFZSampler:
 
     def __init__(self, sfz_path: Path):
         self.sfz_path = sfz_path
+        if not sfz_path.exists():
+            raise FileNotFoundError(f"SFZ instrument not found: {sfz_path}")
         self.regions = self._parse(sfz_path)
+        missing = [r.sample_path for r in self.regions if not r.sample_path.exists()]
+        if missing:
+            raise FileNotFoundError(
+                f"Missing SFZ sample(s): {', '.join(str(p) for p in missing)}"
+            )
 
     # ------------------------------------------------------------------ parsing
     def _parse(self, path: Path) -> List[SFZRegion]:
