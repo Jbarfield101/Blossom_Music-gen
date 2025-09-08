@@ -2,6 +2,7 @@
 from __future__ import annotations
 from pathlib import Path
 import json
+from typing import TypedDict
 
 def read_json(path: str | Path):
     path = Path(path)
@@ -30,3 +31,35 @@ def density_bucket_from_float(x: float) -> str:
     if x <= 0.66:
         return "med"
     return "busy"
+
+
+# ---------------------------------------------------------------------------
+# Musical helpers
+# ---------------------------------------------------------------------------
+
+
+class Event(TypedDict):
+    """Canonical event description used by pattern generators."""
+
+    start: float
+    dur: float
+    pitch: int
+    vel: int
+    chan: int
+
+
+def bars_to_beats(n_bars: float, meter: str) -> float:
+    """Convert ``n_bars`` to beats for ``meter`` (e.g., ``'4/4'``)."""
+
+    beats_per_bar = int(meter.split("/", 1)[0])
+    return n_bars * beats_per_bar
+
+
+def beats_to_bars(n_beats: float, meter: str) -> float:
+    """Convert ``n_beats`` to bars for ``meter`` (e.g., ``'4/4'``)."""
+
+    beats_per_bar = int(meter.split("/", 1)[0])
+    if beats_per_bar == 0:
+        raise ValueError("Invalid meter string")
+    return n_beats / beats_per_bar
+
