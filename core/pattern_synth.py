@@ -13,22 +13,16 @@ be combined to generate musical material.
 """
 
 from typing import Dict, List, Sequence
-import hashlib
 import random
 
 from .song_spec import SongSpec
 from .theory import parse_chord_symbol, midi_note
-from .utils import Event
+from .utils import Event, _seeded_rng
 
 
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
-
-def _seeded_rng(seed: int, *tokens: str) -> random.Random:
-    """Return a ``random.Random`` seeded from ``seed`` and extra tokens."""
-    h = hashlib.sha256("|".join([str(seed), *map(str, tokens)]).encode("utf-8")).hexdigest()
-    return random.Random(int(h[:16], 16))
 
 
 def _steps_per_bar(meter: str, subdivision: int = 16) -> int:

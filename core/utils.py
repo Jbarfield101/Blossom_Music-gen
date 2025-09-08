@@ -2,6 +2,8 @@
 from __future__ import annotations
 from pathlib import Path
 import json
+import hashlib
+import random
 from typing import TypedDict
 
 def read_json(path: str | Path):
@@ -19,6 +21,18 @@ def ensure_file(path: str | Path, err: str = "File missing"):
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"{err}: {p}")
+
+
+def _seeded_rng(seed: int, *tokens: str) -> random.Random:
+    """Return a ``random.Random`` seeded from ``seed`` and optional tokens.
+
+    ``tokens`` help derive independent streams from a common ``seed``.
+    The values are combined with the seed, hashed, and the first 16 hex
+    characters are used as the numeric seed for ``random.Random``.
+    """
+
+    h = hashlib.sha256("|".join([str(seed), *map(str, tokens)]).encode("utf-8")).hexdigest()
+    return random.Random(int(h[:16], 16))
 
 def density_bucket_from_float(x: float) -> str:
     """Map [0..1] -> 'sparse' | 'med' | 'busy'."""

@@ -2,6 +2,15 @@
 
 `core/pattern_synth.py` implements simple deterministic pattern generation for the demo instruments.
 
+## Seeding conventions
+
+Generators never touch the module-level ``random`` state.  Instead they call
+``_seeded_rng`` from ``core.utils`` which hashes a base seed together with
+additional tokens to derive independent pseudorandom streams.  In practice the
+tokens are the section name and instrument, e.g. ``_seeded_rng(seed,
+section, instrument)``.  Passing the same combination yields repeatable results
+while different tokens produce unrelated sequences.
+
 ## Rhythm generation
 
 Rhythms are built from a meter-aware step grid.  The helper `_steps_per_bar` derives how many 16th‑note subdivisions live in a bar and the `euclid()` function spreads a requested number of pulses evenly across that grid.  Additional events (such as hi‑hat accents) are pulled from `probability_grid`, which samples Boolean hits from supplied probabilities.

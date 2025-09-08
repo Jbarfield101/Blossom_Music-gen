@@ -3,10 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 from pathlib import Path
-import hashlib, random
 
 from .song_spec import SongSpec
-from .utils import density_bucket_from_float, read_json, ensure_file
+from .utils import density_bucket_from_float, read_json, ensure_file, _seeded_rng
 
 # ---------- Data model ----------
 
@@ -54,11 +53,6 @@ def load_pattern_index(index_path: str | Path, patterns_root: str | Path = None)
     return registry
 
 # ---------- Selection helpers ----------
-
-def _seeded_rng(seed: int, *tokens: str) -> random.Random:
-    h = hashlib.sha256(("|".join([str(seed), *map(str, tokens)])).encode("utf-8")).hexdigest()
-    # Use first 16 hex chars as int seed
-    return random.Random(int(h[:16], 16))
 
 def _filter_candidates(
     registry: Dict[str, List[Pattern]],
