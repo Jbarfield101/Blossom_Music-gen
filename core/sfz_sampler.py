@@ -5,9 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 import math
-import wave
-import struct
 import numpy as np
+import soundfile as sf
 
 from .stems import Stem
 
@@ -24,13 +23,13 @@ class SFZRegion:
     def load(self) -> None:
         if self.samples is not None:
             return
-        with wave.open(str(self.sample_path), "rb") as wf:
-            self.sample_rate = wf.getframerate()
-            frames = wf.getnframes()
-            raw = wf.readframes(frames)
-            fmt = "<" + "h" * frames
-            data = struct.unpack(fmt, raw)
-            self.samples = [s / 32768.0 for s in data]
+        data, sr = sf.read(str(self.sample_path), always_2d=True, dtype="float32")
+        self.sample_rate = sr
+        if data.shape[1] > 1:
+            data = np.mean(data, axis=1)
+        else:
+            data = data[:, 0]
+        self.samples = data.tolist()
 
 
 class SFZSampler:
