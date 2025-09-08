@@ -81,3 +81,38 @@ def test_top_line_monotonic(song_spec):
                 continue
             tops = _top_line(events)
             assert all(a <= b for a, b in zip(tops, tops[1:]))
+
+
+def test_clamp_pitch_out_of_range():
+    spec = SongSpec.from_dict({
+        "title": "Clamp Test",
+        "seed": 1,
+        "key": "C",
+        "mode": "ionian",
+        "tempo": 120,
+        "meter": "4/4",
+        "sections": [{"name": "A", "length": 1}],
+        "harmony_grid": [{"section": "A", "chords": ["C"]}],
+        "density_curve": {"A": 1.0},
+        "register_policy": {
+            "drums": [42, 43],
+            "bass": [40, 41],
+            "keys": [60, 62],
+            "pads": [70, 71],
+        },
+    })
+    spec.validate()
+    plan = build_patterns_for_song(spec, spec.seed)
+    sec = plan["sections"][0]
+
+    drum_pitches = [e["pitch"] for e in sec["patterns"]["drums"]]
+    assert drum_pitches and all(p == 42 for p in drum_pitches)
+
+    bass_pitches = [e["pitch"] for e in sec["patterns"]["bass"]]
+    assert bass_pitches and all(p == 40 for p in bass_pitches)
+
+    key_pitches = [e["pitch"] for e in sec["patterns"]["keys"]]
+    assert key_pitches and set(key_pitches) == {60, 62}
+
+    pad_pitches = [e["pitch"] for e in sec["patterns"]["pads"]]
+    assert pad_pitches and all(p == 70 for p in pad_pitches)
