@@ -4,7 +4,6 @@
 from __future__ import annotations
 from typing import List, Tuple
 from .song_spec import SongSpec
-import math
 
 # ------------------------------------
 # Chord parsing + basic dictionary
