@@ -85,6 +85,22 @@ def _humanize(val: float, spread: float, rng: random.Random) -> float:
     return val + rng.uniform(-spread, spread)
 
 
+def enforce_register(stem: Stem, low: int, high: int) -> Stem:
+    """Clamp ``stem.pitch`` into the inclusive ``[low, high]`` range.
+
+    The function mutates ``stem`` in-place and also returns it for
+    convenience so it can be used in expressions.  Values outside the
+    register boundaries are simply clipped; notes already within the range
+    are returned unchanged.
+    """
+
+    if stem.pitch < low:
+        stem.pitch = low
+    elif stem.pitch > high:
+        stem.pitch = high
+    return stem
+
+
 def render_drums(pattern: Dict[str, List[int]], meter: str, tempo: float, seed: int) -> List[Stem]:
     """Render a drum ``pattern`` into ``Stem`` note events.
 
@@ -145,6 +161,8 @@ def render_drums(pattern: Dict[str, List[int]], meter: str, tempo: float, seed: 
 
     notes.sort(key=lambda n: n.start)
     return notes
+
+
 
 
 def render_pads(
@@ -488,3 +506,63 @@ def render_keys(
     notes.sort(key=lambda n: n.start)
     return notes
 
+
+def dedupe_collisions(
+    stems: Dict[str, List[Stem]],
+    min_semitone_gap: int = 0,
+    min_overlap: float = 0.02,
+) -> Dict[str, List[Stem]]:
+    """Remove overlapping note events and resolve cross-part collisions.
+
+    Parameters
+    ----------
+    stems:
+        Mapping of instrument name to a list of :class:`Stem` events. The
+        lists are modified in-place.
+    min_semitone_gap:
+        Maximum allowed pitch distance (in semitones) for events to be
+        considered duplicates.
+    min_overlap:
+        Minimum time overlap in seconds for events to collide.
+
+    Returns
+    -------
+    Dict[str, List[Stem]]
+        The ``stems`` mapping with mutated note lists for convenience.
+    """
+
+    def _overlap(a: Stem, b: Stem) -> float:
+        start = max(a.start, b.start)
+        end = min(a.start + a.dur, b.start + b.dur)
+        return max(0.0, end - start)
+
+    for inst, notes in stems.items():
+        if not notes:
+            continue
+        notes.sort(key=lambda n: (n.start, n.pitch))
+        deduped: List[Stem] = []
+        for n in notes:
+            remove = False
+            for m in deduped:
+                if abs(n.pitch - m.pitch) <= min_semitone_gap and _overlap(n, m) >= min_overlap:
+                    remove = True
+                    break
+            if not remove:
+                deduped.append(n)
+        stems[inst] = deduped
+
+    # ------------------------------------------------------------------
+    # Cross instrument handling: identical bass/key collisions
+    # ------------------------------------------------------------------
+    bass = stems.get("bass")
+    keys = stems.get("keys")
+    if bass and keys:
+        for k in keys:
+            for b in bass:
+                if k.pitch == b.pitch and _overlap(k, b) >= min_overlap and abs(k.start - b.start) < min_overlap:
+                    rng = random.Random(hash((b.start, b.pitch)))
+                    k.start += rng.uniform(0.005, 0.01)
+                    break
+        keys.sort(key=lambda n: n.start)
+
+    return stems
