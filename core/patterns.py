@@ -1,9 +1,9 @@
 # core/patterns.py
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional
 from pathlib import Path
-import json, hashlib, random
+import hashlib, random
 
 from .song_spec import SongSpec
 from .utils import density_bucket_from_float, read_json, ensure_file
@@ -151,7 +151,6 @@ def build_section_plan(spec: SongSpec, registry: Dict[str, List[Pattern]], seed:
     """
     meter = spec.meter
     plan = {"sections": []}
-    section_ranges = spec.bars_by_section()
 
     for sec in spec.sections:
         n_bars = sec.length
