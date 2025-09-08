@@ -50,8 +50,19 @@ class SFZSampler:
     # ------------------------------------------------------------------ parsing
     def _parse(self, path: Path) -> List[SFZRegion]:
         regions: List[SFZRegion] = []
-        current: dict[str, str] = {}
+        global_attrs: dict[str, str] = {}
+        group_attrs: dict[str, str] = {}
+        region_attrs: dict[str, str] = {}
+        current = global_attrs
         root = path.parent
+
+        def finalize_region() -> None:
+            nonlocal region_attrs
+            if region_attrs.get("sample"):
+                attrs = {**global_attrs, **group_attrs, **region_attrs}
+                regions.append(self._region_from(attrs, root))
+            region_attrs = {}
+
         with open(path, "r", encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
@@ -59,15 +70,22 @@ class SFZSampler:
                     continue
                 tokens = line.split()
                 for tok in tokens:
-                    if tok.lower() == "<region>":
-                        if current:
-                            regions.append(self._region_from(current, root))
-                            current = {}
+                    tl = tok.lower()
+                    if tl == "<region>":
+                        finalize_region()
+                        current = region_attrs
+                    elif tl == "<group>":
+                        finalize_region()
+                        group_attrs = {}
+                        current = group_attrs
+                    elif tl == "<control>":
+                        finalize_region()
+                        global_attrs = {}
+                        current = global_attrs
                     elif "=" in tok:
                         k, v = tok.split("=", 1)
                         current[k.lower()] = v
-        if current:
-            regions.append(self._region_from(current, root))
+        finalize_region()
         return regions
 
     def _region_from(self, attrs: dict[str, str], root: Path) -> SFZRegion:
