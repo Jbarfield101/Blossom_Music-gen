@@ -147,6 +147,88 @@ def render_drums(pattern: Dict[str, List[int]], meter: str, tempo: float, seed: 
     return notes
 
 
+def render_pads(
+    pattern: Dict[str, List[int]],
+    voiced_chords: List[List[int]],
+    register: Dict[str, List[int]],
+    meter: str,
+    tempo: float,
+    seed: int,
+) -> List[Stem]:
+    """Render sustained pad chords into :class:`Stem` events.
+
+    Parameters
+    ----------
+    pattern:
+        Mapping that may optionally contain a ``"density"`` float in ``[0, 1]``
+        controlling textural thickness.
+    voiced_chords:
+        List of SATB style chord voicings aligned by bar.  Consecutive
+        identical voicings are merged into a single multi-bar note event.
+    register:
+        Register policy from which the ``"pads"`` range is used to fold pitches
+        into the allowed span.
+    meter:
+        Meter string like ``"4/4"`` describing the rhythmic grid.
+    tempo:
+        Tempo in BPM used to convert beats to seconds.
+    seed:
+        Random seed controlling subtle humanisation.
+
+    Returns
+    -------
+    List[Stem]
+        Rendered pad note events.
+    """
+
+    if not voiced_chords:
+        return []
+
+    beats_per_bar = bars_to_beats(meter)
+    sec_per_beat = beats_to_secs(tempo)
+
+    rng = random.Random(seed)
+    density = float(pattern.get("density", 1.0))
+
+    low, high = (register or {}).get("pads", (0, 127))
+
+    notes: List[Stem] = []
+
+    start_bar = 0
+    prev_chord = voiced_chords[0]
+
+    def _emit_group(start_bar: int, end_bar: int, chord: List[int]) -> None:
+        dur_beats = (end_bar - start_bar) * beats_per_bar
+        start = start_bar * beats_per_bar * sec_per_beat
+        chord_notes = list(chord)
+        if density < 0.4 and len(chord_notes) > 2:
+            chord_notes = [chord_notes[0], chord_notes[-1]]
+        for p in chord_notes:
+            pitch = _fold_pitch_to_register(p, low, high)
+            s = _humanize(start, 0.01, rng)
+            vel = int(_humanize(48, 3, rng))
+            vel = max(1, min(127, vel))
+            notes.append(
+                Stem(
+                    start=s,
+                    dur=dur_beats * sec_per_beat,
+                    pitch=pitch,
+                    vel=vel,
+                    chan=2,
+                )
+            )
+
+    for bar_idx in range(1, len(voiced_chords) + 1):
+        chord = voiced_chords[bar_idx] if bar_idx < len(voiced_chords) else None
+        if chord != prev_chord:
+            _emit_group(start_bar, bar_idx, prev_chord)
+            start_bar = bar_idx
+            prev_chord = chord
+
+    notes.sort(key=lambda n: n.start)
+    return notes
+
+
 def _fold_pitch_to_register(pitch: int, low: int, high: int) -> int:
     """Fold ``pitch`` into the inclusive ``[low, high]`` MIDI register.
 
