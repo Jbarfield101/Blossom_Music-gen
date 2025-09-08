@@ -1,4 +1,5 @@
 import argparse
+import json
 from pathlib import Path
 from typing import List
 
@@ -34,7 +35,11 @@ def _write_wav(path: Path, audio: np.ndarray, sr: int) -> None:
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--spec", required=True)
-    ap.add_argument("--sfz", default="assets/sfz/piano.sfz")
+    ap.add_argument(
+        "--piano-sfz",
+        dest="piano_sfz",
+        help="Path to piano SFZ file or directory. If omitted, uses render_config.json",
+    )
     ap.add_argument("--mix", default="out/piano.wav")
     args = ap.parse_args()
 
@@ -44,7 +49,19 @@ if __name__ == "__main__":
     stems = build_stems_for_song(spec, seed=42)
     keys: List[Stem] = stems.get("keys", [])
 
-    sfz_path = Path(args.sfz)
+    if args.piano_sfz:
+        sfz_path = Path(args.piano_sfz)
+    else:
+        cfg_path = Path("render_config.json")
+        if cfg_path.exists():
+            with cfg_path.open("r", encoding="utf-8") as fh:
+                cfg = json.load(fh)
+            sfz_path = Path(cfg.get("piano_sfz", "assets/sfz"))
+        else:
+            sfz_path = Path("assets/sfz")
+
+    if sfz_path.is_dir():
+        sfz_path = sfz_path / "piano.sfz"
     if not sfz_path.exists():
         raise SystemExit(f"Missing SFZ instrument: {sfz_path}")
 
