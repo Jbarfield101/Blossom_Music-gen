@@ -138,71 +138,79 @@ def render():
         messagebox.showerror("Error", str(exc))
 
 
-root = tk.Tk()
-root.title("Blossom Renderer")
 
-spec_var = tk.StringVar(value="song.json")
-keys_var = tk.StringVar(value=_initial_sfz_path("keys"))
-pads_var = tk.StringVar(value=_initial_sfz_path("pads"))
-bass_var = tk.StringVar(value=_initial_sfz_path("bass"))
-drums_var = tk.StringVar(value=_initial_sfz_path("drums"))
-seed_var = tk.StringVar(value="42")
-mix_var = tk.StringVar(value="out/mix.wav")
-stems_var = tk.StringVar(value="out/stems")
+def run_ui():
+    global root, spec_var, keys_var, pads_var, bass_var, drums_var, seed_var, mix_var, stems_var
 
-row = 0
-tk.Label(root, text="Song Spec").grid(row=row, column=0, sticky="e")
-E0 = tk.Entry(root, textvariable=spec_var, width=40)
-E0.grid(row=row, column=1)
-tk.Button(root, text="Browse", command=lambda: _browse_file(spec_var, [("JSON", "*.json")])).grid(row=row, column=2)
+    root = tk.Tk()
+    root.title("Blossom Renderer")
 
-row += 1
-tk.Label(root, text="Keys SFZ").grid(row=row, column=0, sticky="e")
-E1 = tk.Entry(root, textvariable=keys_var, width=40)
-E1.grid(row=row, column=1)
-tk.Button(root, text="Browse", command=lambda: _browse_file(keys_var, [("SFZ", "*.sfz")])).grid(row=row, column=2)
-_make_option_menu(keys_var, "keys", row)
+    spec_var = tk.StringVar(value="song.json")
+    keys_var = tk.StringVar(value=_initial_sfz_path("keys"))
+    pads_var = tk.StringVar(value=_initial_sfz_path("pads"))
+    bass_var = tk.StringVar(value=_initial_sfz_path("bass"))
+    drums_var = tk.StringVar(value=_initial_sfz_path("drums"))
+    seed_var = tk.StringVar(value="42")
+    mix_var = tk.StringVar(value="out/mix.wav")
+    stems_var = tk.StringVar(value="out/stems")
 
-row += 1
-tk.Label(root, text="Pads SFZ").grid(row=row, column=0, sticky="e")
-E2 = tk.Entry(root, textvariable=pads_var, width=40)
-E2.grid(row=row, column=1)
-tk.Button(root, text="Browse", command=lambda: _browse_file(pads_var, [("SFZ", "*.sfz")])).grid(row=row, column=2)
-_make_option_menu(pads_var, "pads", row)
+    row = 0
+    tk.Label(root, text="Song Spec").grid(row=row, column=0, sticky="e")
+    E0 = tk.Entry(root, textvariable=spec_var, width=40)
+    E0.grid(row=row, column=1)
+    tk.Button(root, text="Browse", command=lambda: _browse_file(spec_var, [("JSON", "*.json")])).grid(row=row, column=2)
 
-row += 1
-tk.Label(root, text="Bass SFZ").grid(row=row, column=0, sticky="e")
-E3 = tk.Entry(root, textvariable=bass_var, width=40)
-E3.grid(row=row, column=1)
-tk.Button(root, text="Browse", command=lambda: _browse_file(bass_var, [("SFZ", "*.sfz")])).grid(row=row, column=2)
-_make_option_menu(bass_var, "bass", row)
+    row += 1
+    tk.Label(root, text="Keys SFZ").grid(row=row, column=0, sticky="e")
+    E1 = tk.Entry(root, textvariable=keys_var, width=40)
+    E1.grid(row=row, column=1)
+    tk.Button(root, text="Browse", command=lambda: _browse_file(keys_var, [("SFZ", "*.sfz")])).grid(row=row, column=2)
+    _make_option_menu(keys_var, "keys", row)
 
-row += 1
-tk.Label(root, text="Drums SFZ").grid(row=row, column=0, sticky="e")
-E4 = tk.Entry(root, textvariable=drums_var, width=40)
-E4.grid(row=row, column=1)
-tk.Button(root, text="Browse", command=lambda: _browse_file(drums_var, [("SFZ", "*.sfz")])).grid(row=row, column=2)
-_make_option_menu(drums_var, "drums", row)
+    row += 1
+    tk.Label(root, text="Pads SFZ").grid(row=row, column=0, sticky="e")
+    E2 = tk.Entry(root, textvariable=pads_var, width=40)
+    E2.grid(row=row, column=1)
+    tk.Button(root, text="Browse", command=lambda: _browse_file(pads_var, [("SFZ", "*.sfz")])).grid(row=row, column=2)
+    _make_option_menu(pads_var, "pads", row)
 
-row += 1
-tk.Label(root, text="Seed").grid(row=row, column=0, sticky="e")
-E5 = tk.Entry(root, textvariable=seed_var, width=10)
-E5.grid(row=row, column=1, sticky="w")
+    row += 1
+    tk.Label(root, text="Bass SFZ").grid(row=row, column=0, sticky="e")
+    E3 = tk.Entry(root, textvariable=bass_var, width=40)
+    E3.grid(row=row, column=1)
+    tk.Button(root, text="Browse", command=lambda: _browse_file(bass_var, [("SFZ", "*.sfz")])).grid(row=row, column=2)
+    _make_option_menu(bass_var, "bass", row)
 
-row += 1
-tk.Label(root, text="Mix Path").grid(row=row, column=0, sticky="e")
-E6 = tk.Entry(root, textvariable=mix_var, width=40)
-E6.grid(row=row, column=1)
-tk.Button(root, text="Browse", command=lambda: _browse_save(mix_var)).grid(row=row, column=2)
+    row += 1
+    tk.Label(root, text="Drums SFZ").grid(row=row, column=0, sticky="e")
+    E4 = tk.Entry(root, textvariable=drums_var, width=40)
+    E4.grid(row=row, column=1)
+    tk.Button(root, text="Browse", command=lambda: _browse_file(drums_var, [("SFZ", "*.sfz")])).grid(row=row, column=2)
+    _make_option_menu(drums_var, "drums", row)
 
-row += 1
-tk.Label(root, text="Stems Dir").grid(row=row, column=0, sticky="e")
-E7 = tk.Entry(root, textvariable=stems_var, width=40)
-E7.grid(row=row, column=1)
-tk.Button(root, text="Browse", command=lambda: _browse_dir(stems_var)).grid(row=row, column=2)
+    row += 1
+    tk.Label(root, text="Seed").grid(row=row, column=0, sticky="e")
+    E5 = tk.Entry(root, textvariable=seed_var, width=10)
+    E5.grid(row=row, column=1, sticky="w")
 
-row += 1
-R = tk.Button(root, text="Render", command=render)
-R.grid(row=row, column=1, pady=10)
+    row += 1
+    tk.Label(root, text="Mix Path").grid(row=row, column=0, sticky="e")
+    E6 = tk.Entry(root, textvariable=mix_var, width=40)
+    E6.grid(row=row, column=1)
+    tk.Button(root, text="Browse", command=lambda: _browse_save(mix_var)).grid(row=row, column=2)
 
-root.mainloop()
+    row += 1
+    tk.Label(root, text="Stems Dir").grid(row=row, column=0, sticky="e")
+    E7 = tk.Entry(root, textvariable=stems_var, width=40)
+    E7.grid(row=row, column=1)
+    tk.Button(root, text="Browse", command=lambda: _browse_dir(stems_var)).grid(row=row, column=2)
+
+    row += 1
+    R = tk.Button(root, text="Render", command=render)
+    R.grid(row=row, column=1, pady=10)
+
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    run_ui()
