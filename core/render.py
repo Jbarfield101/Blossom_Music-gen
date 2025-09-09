@@ -210,9 +210,9 @@ def render_song(
     Returns
     -------
     Dict[str, np.ndarray]
-        A dictionary containing one buffer per instrument and an additional
-        ``"mix"`` key with the summed output.  All returned arrays share a
-        common length so they can be processed in parallel.
+        A dictionary containing one buffer per instrument.  All returned
+        arrays share a common length so they can be processed in parallel or
+        fed into a downstream mixer.
     """
     rendered: Dict[str, np.ndarray] = {}
     sfz_paths = dict(sfz_paths or {})
@@ -237,15 +237,6 @@ def render_song(
     for k, arr in rendered.items():
         if len(arr) < max_len:
             rendered[k] = np.pad(arr, (0, max_len - len(arr)))
-
-    if rendered:
-        mix = sum(rendered.values())
-        peak = float(np.max(np.abs(mix))) if len(mix) else 1.0
-        if peak > 1.0:
-            mix /= peak
-    else:
-        mix = np.zeros(0, dtype=np.float32)
-    rendered["mix"] = mix.astype(np.float32)
     return rendered
 
 
