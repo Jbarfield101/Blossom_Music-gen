@@ -10,6 +10,7 @@ if sys.version_info[:2] != (3, 10):
     raise RuntimeError("Blossom requires Python 3.10")
 
 import json
+import traceback
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -141,8 +142,26 @@ def render():
             _maybe_export_mp3(path)
 
         messagebox.showinfo("Done", f"Wrote mix to {mix_path}")
-    except Exception as exc:
-        messagebox.showerror("Error", str(exc))
+    except Exception:
+        trace = traceback.format_exc()
+        dialog = tk.Toplevel(root)
+        dialog.title("Error")
+        text = tk.Text(dialog, wrap="word")
+        text.insert("1.0", trace)
+        text.configure(state="disabled")
+        text.pack(expand=True, fill="both", padx=10, pady=10)
+
+        def copy() -> None:
+            dialog.clipboard_clear()
+            dialog.clipboard_append(trace)
+
+        btn_frame = tk.Frame(dialog)
+        btn_frame.pack(pady=(0, 10))
+        tk.Button(btn_frame, text="Copy to Clipboard", command=copy).pack(side="left", padx=5)
+        tk.Button(btn_frame, text="Close", command=dialog.destroy).pack(side="left", padx=5)
+
+        dialog.grab_set()
+        dialog.focus_force()
 
 
 
