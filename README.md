@@ -33,6 +33,12 @@ To render the piano/keys part with a different SFZ, pass the path using the
 `--piano-sfz` flag. The default configuration points to
 `assets/sf2/keys.sfz` in `render_config.json`.
 
+The `render_config.json` file now also defines default sample locations for
+all instruments along with simple mix parameters.  Each track exposes gain,
+pan and reverb send values while the master bus includes a basic limiter
+configuration.  All paths are relative so the repository works out of the box
+after cloning.
+
 ```bash
 pip install soundfile  # enables FLAC support
 python main_render.py --spec path/to/spec.json --piano-sfz /path/to/custom/piano.sfz --mix out/piano.wav
