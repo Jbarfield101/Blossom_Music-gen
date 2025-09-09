@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 
 def _venv_paths(env_dir: str) -> tuple[Path, Path]:
@@ -24,14 +25,43 @@ def _venv_paths(env_dir: str) -> tuple[Path, Path]:
     return bin_dir / "python", bin_dir / "pip"
 
 
+def _find_python310() -> Optional[str]:
+    """Search the ``PATH`` for a Python 3.10 interpreter."""
+    for name in ("python3.10", "python310"):
+        path = shutil.which(name)
+        if path:
+            return path
+
+    if os.name == "nt":
+        try:
+            out = subprocess.run(
+                ["py", "-3.10", "-c", "import sys; print(sys.executable)"] ,
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            path = out.stdout.strip()
+            if path:
+                return path
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
+
+    return None
+
+
 def main() -> None:
+    python310_path = sys.executable
     if sys.version_info[:2] != (3, 10):
-        sys.exit("Python 3.10 required")
+        python310_path = _find_python310()
+        if python310_path is None:
+            sys.exit("Python 3.10 required")
+        subprocess.run([python310_path, __file__, *sys.argv[1:]], check=True)
+        return
 
     env_dir = tempfile.mkdtemp(prefix="start-env-")
     atexit.register(shutil.rmtree, env_dir, True)
 
-    subprocess.run([sys.executable, "-m", "venv", env_dir], check=True)
+    subprocess.run([python310_path, "-m", "venv", env_dir], check=True)
     python_path, pip_path = _venv_paths(env_dir)
 
     try:
