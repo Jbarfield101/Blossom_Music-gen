@@ -1,0 +1,5 @@
+<region>
+sample=bass.wav
+lokey=0
+hikey=127
+pitch_keycenter=36
