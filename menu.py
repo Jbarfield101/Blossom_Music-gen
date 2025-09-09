@@ -17,8 +17,10 @@ def _open_renderer() -> None:
 
 root = tk.Tk()
 root.title("Music Generator")
+root.geometry("400x400")
 
 _img = tk.PhotoImage(file=str(ICON_PATH))
+_img = _img.subsample(2, 2)
 btn = tk.Label(root, image=_img, cursor="hand2")
 btn.image = _img  # keep a reference so image persists
 btn.pack(padx=20, pady=10)
