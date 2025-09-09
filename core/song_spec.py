@@ -143,6 +143,10 @@ class SongSpec:
 
     def _validate_policies(self) -> None:
         # register_policy ranges should be valid MIDI note numbers (0..127) and low<high
+        if not isinstance(self.register_policy, dict):
+            raise ValueError(
+                "register_policy must be an object mapping instrument→[low, high]."
+            )
         for inst, rng in (self.register_policy or {}).items():
             if not (isinstance(rng, list) and len(rng) == 2 and all(isinstance(x, int) for x in rng)):
                 raise ValueError(f"register_policy[{inst!r}] must be [low, high] MIDI ints.")
