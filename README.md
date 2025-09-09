@@ -2,10 +2,10 @@
 
 Simple demos for algorithmic music pattern generation.
 
-**Python 3.10 required.** The `start.py` helper creates a temporary virtual
-environment, installs the packages from `requirements.txt`, and aborts if
-installation fails. After setup it opens a minimal main menu where clicking the
-music icon launches the renderer UI.
+**64-bit Python 3.10 required.** The `start.py` helper creates a temporary
+virtual environment, installs the packages from `requirements.txt`, and aborts
+if installation fails. After setup it opens a minimal main menu where clicking
+the music icon launches the renderer UI.
 
 ## Dependencies
 
@@ -60,8 +60,8 @@ files.
 
 ### Prerequisites
 
-- Python 3.10 with the `tkinter` module available. On many Linux systems this
-  can be installed via `sudo apt install python3-tk`.
+- 64-bit Python 3.10 with the `tkinter` module available. On many Linux
+  systems this can be installed via `sudo apt install python3-tk`.
 - Optional: [`soundfile`](https://pysoundfile.readthedocs.io/) for FLAC
   support when rendering.
 
