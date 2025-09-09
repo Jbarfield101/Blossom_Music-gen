@@ -17,6 +17,7 @@ import numpy as np
 from .stems import Stem
 from .sfz_sampler import SFZSampler
 from .utils import note_to_sample_indices
+from . import synth
 
 try:  # pragma: no cover - optional dependency
     import soundfile as sf  # type: ignore
@@ -70,19 +71,6 @@ def _schedule(
 # ---------------------------------------------------------------------------
 # Fallback synthesisers
 # ---------------------------------------------------------------------------
-
-def _sine_note(note: Stem, sr: int) -> np.ndarray:
-    """Render ``note`` as a decaying sine wave."""
-    dur = max(0, note.dur)
-    n = int(round(dur * sr))
-    if n <= 0:
-        return np.zeros(0, dtype=np.float32)
-    t = np.arange(n) / sr
-    freq = _midi_to_freq(note.pitch)
-    env = np.linspace(1.0, 0.0, n, dtype=np.float32)
-    data = np.sin(2 * math.pi * freq * t) * env
-    return (note.vel / 127.0) * data.astype(np.float32)
-
 
 def _noise_burst(note: Stem, sr: int) -> np.ndarray:
     """Render ``note`` as a short noise burst used for drums."""
@@ -174,7 +162,20 @@ def _render_instrument(
             # Fall back to simple synthesis if SFZ loading or rendering fails
             pass
 
-    return _schedule(notes, lambda n: _sine_note(n, sr), sr, tempo=tempo, meter=meter)
+    params_map = {
+        "bass": synth.SynthParams(wave="sine"),
+        "keys": synth.SynthParams(wave="saw", detune=0.1),
+        "pads": synth.SynthParams(wave="saw", detune=0.3),
+    }
+    params = params_map.get(name, synth.SynthParams())
+
+    return _schedule(
+        notes,
+        lambda n, p=params: synth.render_note(n, sr, p),
+        sr,
+        tempo=tempo,
+        meter=meter,
+    )
 
 
 # ---------------------------------------------------------------------------
