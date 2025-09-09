@@ -84,19 +84,25 @@ def _noise_burst(note: Stem, sr: int) -> np.ndarray:
     return (note.vel / 127.0) * data * env
 
 
-def _load_drum_samples(directory: Path, sr: int) -> Dict[int, np.ndarray]:
-    """Return a mapping of drum ``pitch`` to waveform arrays.
+def _load_drum_samples(
+    directory: Path,
+    sr: int,
+    mapping: Mapping[str, int] | None = None,
+) -> Dict[int, List[np.ndarray]]:
+    """Return a mapping of drum ``pitch`` to lists of waveform arrays.
 
-    The function looks for ``kick.wav`` (MIDI 36), ``snare.wav`` (38) and
-    ``hat.wav`` (42) inside ``directory``.  Samples are loaded as mono float
-    arrays and resampled to ``sr`` if needed.  Missing files are simply
-    ignored.
+    ``mapping`` should provide a relation of ``filename`` → ``MIDI pitch``.  If
+    omitted, the function falls back to ``{"kick.wav": 36, "snare.wav": 38,
+    "hat.wav": 42}``.  Multiple filenames may map to the same pitch allowing
+    for round‑robin playback.  Samples are loaded as mono float arrays and
+    resampled to ``sr`` if needed.  Missing files are simply ignored.
     """
     if sf is None:
         return {}
-    mapping: Dict[int, np.ndarray] = {}
-    names = {36: "kick.wav", 38: "snare.wav", 42: "hat.wav"}
-    for pitch, fname in names.items():
+
+    names = mapping or {"kick.wav": 36, "snare.wav": 38, "hat.wav": 42}
+    out: Dict[int, List[np.ndarray]] = {}
+    for fname, pitch in names.items():
         path = directory / fname
         if not path.exists():
             continue
@@ -106,29 +112,42 @@ def _load_drum_samples(directory: Path, sr: int) -> Dict[int, np.ndarray]:
         else:
             data = data[:, 0]
         if rate != sr:
-            data = np.array(SFZSampler._resample(data.tolist(), rate / sr), dtype="float32")
-        mapping[pitch] = data
-    return mapping
+            data = np.array(
+                SFZSampler._resample(data.tolist(), rate / sr), dtype="float32"
+            )
+        out.setdefault(pitch, []).append(data)
+    return out
 
 
 def _render_drums(
     notes: List[Stem],
     sr: int,
     sample_dir: Path | None,
+    sample_map: Mapping[str, int] | None = None,
     tempo: float | None = None,
     meter: str | None = None,
 ) -> np.ndarray:
-    """Render ``notes`` using drum samples or noise fallbacks."""
+    """Render ``notes`` using drum samples or noise fallbacks.
+
+    ``sample_map`` can specify a ``filename`` → ``pitch`` mapping for loading
+    samples.  When multiple files map to the same pitch, they are cycled in a
+    round‑robin fashion for successive triggers.
+    """
     if not notes:
         return np.zeros(0, dtype=np.float32)
-    samples = {}
+    samples: Dict[int, List[np.ndarray]] = {}
     if sample_dir is not None and sample_dir.exists():
-        samples = _load_drum_samples(sample_dir, sr)
+        samples = _load_drum_samples(sample_dir, sr, mapping=sample_map)
+
+    rr_indices: Dict[int, int] = {p: 0 for p in samples}
 
     def render_note(n: Stem) -> np.ndarray:
-        data = samples.get(n.pitch)
-        if data is None:
+        data_list = samples.get(n.pitch)
+        if not data_list:
             return _noise_burst(n, sr)
+        idx = rr_indices[n.pitch]
+        rr_indices[n.pitch] = (idx + 1) % len(data_list)
+        data = data_list[idx]
         length = min(len(data), int(round(n.dur * sr)))
         return (n.vel / 127.0) * data[:length]
 
