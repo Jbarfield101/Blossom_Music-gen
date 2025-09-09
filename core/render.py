@@ -84,30 +84,50 @@ def _noise_burst(note: Stem, sr: int) -> np.ndarray:
     return (note.vel / 127.0) * data * env
 
 
-def _load_drum_samples(directory: Path, sr: int) -> Dict[int, np.ndarray]:
+def _load_drum_samples(
+    directory: Path,
+    sr: int,
+    patterns: Mapping[int, str] | None = None,
+) -> Dict[int, np.ndarray]:
     """Return a mapping of drum ``pitch`` to waveform arrays.
 
-    The function looks for ``kick.wav`` (MIDI 36), ``snare.wav`` (38) and
-    ``hat.wav`` (42) inside ``directory``.  Samples are loaded as mono float
-    arrays and resampled to ``sr`` if needed.  Missing files are simply
-    ignored.
+    Parameters
+    ----------
+    directory:
+        Directory searched for drum samples.
+    sr:
+        Target sampling rate.
+    patterns:
+        Optional mapping of MIDI pitch to glob patterns.  The default searches
+        for ``kick.*`` (MIDI 36), ``snare.*`` (38) and ``hat.*`` (42).
+
+    The first file matching each pattern is loaded as a mono float array and
+    resampled to ``sr`` if needed.  Missing files are ignored.
     """
     if sf is None:
         return {}
+
     mapping: Dict[int, np.ndarray] = {}
-    names = {36: "kick.wav", 38: "snare.wav", 42: "hat.wav"}
-    for pitch, fname in names.items():
-        path = directory / fname
-        if not path.exists():
-            continue
-        data, rate = sf.read(str(path), always_2d=True, dtype="float32")
-        if data.shape[1] > 1:
-            data = np.mean(data, axis=1)
-        else:
-            data = data[:, 0]
-        if rate != sr:
-            data = np.array(SFZSampler._resample(data.tolist(), rate / sr), dtype="float32")
-        mapping[pitch] = data
+    default_patterns = {36: "kick.*", 38: "snare.*", 42: "hat.*"}
+    patterns = {**default_patterns, **(patterns or {})}
+
+    for pitch, pattern in patterns.items():
+        for path in sorted(directory.glob(pattern)):
+            try:
+                data, rate = sf.read(str(path), always_2d=True, dtype="float32")
+            except Exception:
+                # Skip files that soundfile cannot decode
+                continue
+            if data.shape[1] > 1:
+                data = np.mean(data, axis=1)
+            else:
+                data = data[:, 0]
+            if rate != sr:
+                data = np.array(
+                    SFZSampler._resample(data.tolist(), rate / sr), dtype="float32"
+                )
+            mapping[pitch] = data
+            break
     return mapping
 
 
@@ -117,13 +137,14 @@ def _render_drums(
     sample_dir: Path | None,
     tempo: float | None = None,
     meter: str | None = None,
+    sample_patterns: Mapping[int, str] | None = None,
 ) -> np.ndarray:
     """Render ``notes`` using drum samples or noise fallbacks."""
     if not notes:
         return np.zeros(0, dtype=np.float32)
     samples = {}
     if sample_dir is not None and sample_dir.exists():
-        samples = _load_drum_samples(sample_dir, sr)
+        samples = _load_drum_samples(sample_dir, sr, patterns=sample_patterns)
 
     def render_note(n: Stem) -> np.ndarray:
         data = samples.get(n.pitch)
@@ -146,10 +167,18 @@ def _render_instrument(
     sfz: Path | None,
     tempo: float | None = None,
     meter: str | None = None,
+    drum_patterns: Mapping[int, str] | None = None,
 ) -> np.ndarray:
     """Render ``notes`` for ``name`` either via SFZ or synth fallback."""
     if name == "drums":
-        return _render_drums(notes, sr, sfz, tempo=tempo, meter=meter)
+        return _render_drums(
+            notes,
+            sr,
+            sfz,
+            tempo=tempo,
+            meter=meter,
+            sample_patterns=drum_patterns,
+        )
 
     if not notes:
         return np.zeros(0, dtype=np.float32)
@@ -188,6 +217,7 @@ def render_song(
     tempo: float | None = None,
     meter: str | None = None,
     sfz_paths: Mapping[str, Path] | None = None,
+    drum_sample_patterns: Mapping[int, str] | None = None,
 ) -> Dict[str, np.ndarray]:
     """Render ``stems`` into audio buffers.
 
@@ -206,6 +236,9 @@ def render_song(
         Only used when ``tempo`` is provided.
     sfz_paths:
         Optional mapping of instrument name to SFZ file paths.
+    drum_sample_patterns:
+        Optional mapping of drum MIDI pitches to glob patterns used when
+        searching for sample files.  Defaults to ``{"kick.*", "snare.*", "hat.*"}``.
 
     Returns
     -------
@@ -251,7 +284,13 @@ def render_song(
     for name in ("drums", "bass", "keys", "pads"):
         notes = stems.get(name, [])
         rendered[name] = _render_instrument(
-            name, notes, sr, sfz_paths.get(name), tempo=tempo, meter=meter
+            name,
+            notes,
+            sr,
+            sfz_paths.get(name),
+            tempo=tempo,
+            meter=meter,
+            drum_patterns=drum_sample_patterns,
         )
 
     max_len = max((len(arr) for arr in rendered.values()), default=0)
