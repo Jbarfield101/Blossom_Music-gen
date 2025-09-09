@@ -1,7 +1,10 @@
 # tester.py
+import sys
+if sys.version_info[:2] != (3, 10):
+    raise RuntimeError("Blossom requires Python 3.10")
+
 import pathlib
 import subprocess
-import sys
 
 
 def main() -> None:
