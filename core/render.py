@@ -16,6 +16,7 @@ import numpy as np
 
 from .stems import Stem
 from .sfz_sampler import SFZSampler
+from .utils import note_to_sample_indices
 
 try:  # pragma: no cover - optional dependency
     import soundfile as sf  # type: ignore
@@ -36,16 +37,25 @@ def _schedule(
     notes: Iterable[Stem],
     render_note: Callable[[Stem], np.ndarray],
     sr: int,
+    tempo: float | None = None,
+    meter: str | None = None,
 ) -> np.ndarray:
     """Render ``notes`` by placing waveforms into a sample‑accurate buffer."""
-    end_time = 0.0
+    end_sample = 0
+    starts: List[int] = []
     for n in notes:
-        end_time = max(end_time, n.start + n.dur)
-    total_len = int(math.ceil(end_time * sr))
-    out = np.zeros(total_len, dtype=np.float32)
+        if tempo is not None and meter is not None:
+            start_idx, length = note_to_sample_indices(n.start, n.dur, tempo, meter, sr)
+        else:
+            start_idx = int(round(n.start * sr))
+            length = int(round(n.dur * sr))
+        starts.append(start_idx)
+        end_sample = max(end_sample, start_idx + length)
 
-    for n in notes:
-        start = int(round(n.start * sr))
+    out = np.zeros(end_sample, dtype=np.float32)
+
+    for idx, n in enumerate(notes):
+        start = starts[idx]
         data = render_note(n)
         end = start + len(data)
         if end > len(out):
@@ -113,7 +123,13 @@ def _load_drum_samples(directory: Path, sr: int) -> Dict[int, np.ndarray]:
     return mapping
 
 
-def _render_drums(notes: List[Stem], sr: int, sample_dir: Path | None) -> np.ndarray:
+def _render_drums(
+    notes: List[Stem],
+    sr: int,
+    sample_dir: Path | None,
+    tempo: float | None = None,
+    meter: str | None = None,
+) -> np.ndarray:
     """Render ``notes`` using drum samples or noise fallbacks."""
     if not notes:
         return np.zeros(0, dtype=np.float32)
@@ -128,7 +144,7 @@ def _render_drums(notes: List[Stem], sr: int, sample_dir: Path | None) -> np.nda
         length = min(len(data), int(round(n.dur * sr)))
         return (n.vel / 127.0) * data[:length]
 
-    return _schedule(notes, render_note, sr)
+    return _schedule(notes, render_note, sr, tempo=tempo, meter=meter)
 
 
 # ---------------------------------------------------------------------------
@@ -140,10 +156,12 @@ def _render_instrument(
     notes: List[Stem],
     sr: int,
     sfz: Path | None,
+    tempo: float | None = None,
+    meter: str | None = None,
 ) -> np.ndarray:
     """Render ``notes`` for ``name`` either via SFZ or synth fallback."""
     if name == "drums":
-        return _render_drums(notes, sr, sfz)
+        return _render_drums(notes, sr, sfz, tempo=tempo, meter=meter)
 
     if not notes:
         return np.zeros(0, dtype=np.float32)
@@ -156,7 +174,7 @@ def _render_instrument(
             # Fall back to simple synthesis if SFZ loading or rendering fails
             pass
 
-    return _schedule(notes, lambda n: _sine_note(n, sr), sr)
+    return _schedule(notes, lambda n: _sine_note(n, sr), sr, tempo=tempo, meter=meter)
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +184,8 @@ def _render_instrument(
 def render_song(
     stems: Mapping[str, List[Stem]],
     sr: int,
+    tempo: float | None = None,
+    meter: str | None = None,
     sfz_paths: Mapping[str, Path] | None = None,
 ) -> Dict[str, np.ndarray]:
     """Render ``stems`` into audio buffers.
@@ -176,6 +196,13 @@ def render_song(
         Mapping of instrument name to lists of :class:`Stem` events.
     sr:
         Target sampling rate.
+    tempo:
+        Optional tempo in BPM used when converting musical positions to
+        sample indices.  If omitted, ``note.start`` and ``note.dur`` are
+        interpreted directly as seconds.
+    meter:
+        Optional meter string like ``"4/4"`` describing beats per bar.
+        Only used when ``tempo`` is provided.
     sfz_paths:
         Optional mapping of instrument name to SFZ file paths.
 
@@ -201,7 +228,9 @@ def render_song(
 
     for name in ("drums", "bass", "keys", "pads"):
         notes = stems.get(name, [])
-        rendered[name] = _render_instrument(name, notes, sr, sfz_paths.get(name))
+        rendered[name] = _render_instrument(
+            name, notes, sr, sfz_paths.get(name), tempo=tempo, meter=meter
+        )
 
     max_len = max((len(arr) for arr in rendered.values()), default=0)
     for k, arr in rendered.items():
