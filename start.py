@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import struct
 from pathlib import Path
 from typing import Optional
 
@@ -57,6 +58,9 @@ def main() -> None:
             sys.exit("Python 3.10 required")
         subprocess.run([python310_path, __file__, *sys.argv[1:]], check=True)
         return
+
+    if struct.calcsize("P") * 8 != 64:
+        sys.exit("64-bit Python 3.10 required")
 
     env_dir = tempfile.mkdtemp(prefix="start-env-")
     atexit.register(shutil.rmtree, env_dir, True)
