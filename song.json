@@ -6,20 +6,59 @@
   "tempo": 120,
   "meter": "4/4",
   "sections": [
-    {"name": "A", "length": 8},
-    {"name": "B", "length": 8}
+    {
+      "name": "A",
+      "length": 8
+    },
+    {
+      "name": "B",
+      "length": 8
+    }
   ],
   "harmony_grid": [
-    {"section": "A", "chords": ["C", "Am", "F", "G", "C", "Em", "F", "G"]},
-    {"section": "B", "chords": ["Am", "F", "C", "G", "Am", "F", "C", "G"]}
+    {
+      "section": "A",
+      "chords": [
+        "C",
+        "Am",
+        "F",
+        "G",
+        "C",
+        "Em",
+        "F",
+        "G"
+      ]
+    },
+    {
+      "section": "B",
+      "chords": [
+        "Am",
+        "F",
+        "C",
+        "G",
+        "Am",
+        "F",
+        "C",
+        "G"
+      ]
+    }
   ],
-  "density_curve": [
-    {"section": "A", "curve": [0.2, 0.3, 0.4, 0.5, 0.4, 0.3, 0.2, 0.1]},
-    {"section": "B", "curve": [0.3, 0.4, 0.5, 0.6, 0.5, 0.4, 0.3, 0.2]}
-  ],
+  "density_curve": {
+    "A": 0.35,
+    "B": 0.45
+  },
   "register_policy": {
-    "bass": [28, 48],
-    "keys": [48, 72],
-    "pads": [60, 84]
+    "bass": [
+      28,
+      48
+    ],
+    "keys": [
+      48,
+      72
+    ],
+    "pads": [
+      60,
+      84
+    ]
   }
 }
