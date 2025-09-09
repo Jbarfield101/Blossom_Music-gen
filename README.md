@@ -46,3 +46,44 @@ python main_render.py --spec path/to/spec.json --keys-sfz /path/to/custom/keys.s
 ```
 
 This command renders the keys using the specified SFZ instrument and writes the mix to `out/piano.wav`.
+
+## Basic UI
+
+For quick experiments the project includes a small Tkinter based user interface
+(`ui.py`). The UI mirrors the command line options and writes the same output
+files.
+
+### Prerequisites
+
+- Python 3 with the `tkinter` module available. On many Linux systems this can
+  be installed via `sudo apt install python3-tk`.
+- Optional: [`soundfile`](https://pysoundfile.readthedocs.io/) for FLAC
+  support when rendering.
+
+### Launching
+
+Run the UI from the repository root:
+
+```bash
+python ui.py
+```
+
+### Fields
+
+The window exposes a handful of text fields:
+
+| Field | Purpose |
+| ----- | ------- |
+| **Spec JSON** | Path to the song specification used for generation. |
+| **Seed** | Random seed for reproducible results. |
+| **Minutes** | Optional length of music to generate; sections repeat as needed. |
+| **Mix Path** | Destination of the rendered master mix WAV file. |
+| **Stems Dir** | Directory where individual instrument stems are written. |
+| **Keys/Pads/Bass SFZ** | Optional overrides for instrument sample mappings. |
+
+### Example workflow
+
+1. Prepare a song specification such as `song.json`.
+2. Start the interface with `python ui.py`.
+3. Browse to the spec JSON and adjust any desired parameters.
+4. Click **Render** to create the mix and stems in the specified locations.
