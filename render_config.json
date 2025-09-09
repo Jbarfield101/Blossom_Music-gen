@@ -10,22 +10,26 @@
     "drums": {
       "gain": -3.0,
       "pan": 0.0,
-      "reverb_send": 0.1
+      "reverb_send": 0.1,
+      "eq": {"freq": 1000.0, "gain": 0.0, "q": 1.0}
     },
     "bass": {
       "gain": -6.0,
       "pan": -0.1,
-      "reverb_send": 0.05
+      "reverb_send": 0.05,
+      "eq": {"freq": 1000.0, "gain": 0.0, "q": 1.0}
     },
     "keys": {
       "gain": -3.0,
       "pan": 0.1,
-      "reverb_send": 0.25
+      "reverb_send": 0.25,
+      "eq": {"freq": 1000.0, "gain": 0.0, "q": 1.0}
     },
     "pads": {
       "gain": -6.0,
       "pan": 0.0,
-      "reverb_send": 0.4
+      "reverb_send": 0.4,
+      "eq": {"freq": 1000.0, "gain": 0.0, "q": 1.0}
     }
   },
   "reverb": {
@@ -33,6 +37,13 @@
     "wet": 0.3
   },
   "master": {
+    "compressor": {
+      "enabled": true,
+      "threshold": -6.0,
+      "ratio": 2.0,
+      "attack": 0.01,
+      "release": 0.1
+    },
     "limiter": {
       "enabled": true,
       "threshold": -0.1,
