@@ -63,6 +63,10 @@ def render():
             p = Path(bass_var.get())
             if p.exists():
                 sfz_map["bass"] = p
+        if drums_var.get():
+            p = Path(drums_var.get())
+            if p.exists():
+                sfz_map["drums"] = p
 
         rendered = render_song(stems, sr=44100, sfz_paths=sfz_map)
         mix_audio = mix(rendered, 44100, cfg)
@@ -89,6 +93,7 @@ spec_var = tk.StringVar(value="song.json")
 keys_var = tk.StringVar()
 pads_var = tk.StringVar()
 bass_var = tk.StringVar()
+drums_var = tk.StringVar()
 seed_var = tk.StringVar(value="42")
 mix_var = tk.StringVar(value="out/mix.wav")
 stems_var = tk.StringVar(value="out/stems")
@@ -118,20 +123,26 @@ E3.grid(row=row, column=1)
 tk.Button(root, text="Browse", command=lambda: _browse_file(bass_var, [("SFZ", "*.sfz")])).grid(row=row, column=2)
 
 row += 1
+tk.Label(root, text="Drums SFZ").grid(row=row, column=0, sticky="e")
+E4 = tk.Entry(root, textvariable=drums_var, width=40)
+E4.grid(row=row, column=1)
+tk.Button(root, text="Browse", command=lambda: _browse_file(drums_var, [("SFZ", "*.sfz")])).grid(row=row, column=2)
+
+row += 1
 tk.Label(root, text="Seed").grid(row=row, column=0, sticky="e")
-E4 = tk.Entry(root, textvariable=seed_var, width=10)
-E4.grid(row=row, column=1, sticky="w")
+E5 = tk.Entry(root, textvariable=seed_var, width=10)
+E5.grid(row=row, column=1, sticky="w")
 
 row += 1
 tk.Label(root, text="Mix Path").grid(row=row, column=0, sticky="e")
-E5 = tk.Entry(root, textvariable=mix_var, width=40)
-E5.grid(row=row, column=1)
+E6 = tk.Entry(root, textvariable=mix_var, width=40)
+E6.grid(row=row, column=1)
 tk.Button(root, text="Browse", command=lambda: _browse_save(mix_var)).grid(row=row, column=2)
 
 row += 1
 tk.Label(root, text="Stems Dir").grid(row=row, column=0, sticky="e")
-E6 = tk.Entry(root, textvariable=stems_var, width=40)
-E6.grid(row=row, column=1)
+E7 = tk.Entry(root, textvariable=stems_var, width=40)
+E7.grid(row=row, column=1)
 tk.Button(root, text="Browse", command=lambda: _browse_dir(stems_var)).grid(row=row, column=2)
 
 row += 1
