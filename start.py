@@ -1,16 +1,14 @@
-"""Bootstraps the demo in a temporary virtual environment.
+"""Bootstraps the demo in a persistent virtual environment.
 
-The launcher creates an isolated environment, installs ``requirements.txt``
-dependencies, and refuses to continue if installation fails.  Once setup
-completes it opens the small Tkinter menu used to access the renderer UI.
+The launcher reuses a ``.venv`` directory, creating it and installing
+``requirements.txt`` dependencies on the first run. After setup completes it
+opens the small Tkinter menu used to access the renderer UI.
 """
 
-import atexit
 import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import struct
 from pathlib import Path
 from typing import Optional
@@ -62,17 +60,19 @@ def main() -> None:
     if struct.calcsize("P") * 8 != 64:
         sys.exit("64-bit Python 3.10 required")
 
-    env_dir = tempfile.mkdtemp(prefix="start-env-")
-    atexit.register(shutil.rmtree, env_dir, True)
-
-    subprocess.run([python310_path, "-m", "venv", env_dir], check=True)
-    python_path, pip_path = _venv_paths(env_dir)
-
-    try:
-        subprocess.check_call([str(pip_path), "install", "-r", "requirements.txt"])
-    except subprocess.CalledProcessError:
-        print("Failed to install dependencies", file=sys.stderr)
-        sys.exit(1)
+    env_dir = Path(".venv")
+    if not env_dir.exists():
+        subprocess.run([python310_path, "-m", "venv", str(env_dir)], check=True)
+        python_path, pip_path = _venv_paths(str(env_dir))
+        try:
+            subprocess.check_call(
+                [str(pip_path), "install", "-r", "requirements.txt"]
+            )
+        except subprocess.CalledProcessError:
+            print("Failed to install dependencies", file=sys.stderr)
+            sys.exit(1)
+    else:
+        python_path, _ = _venv_paths(str(env_dir))
 
     subprocess.run([str(python_path), "-m", "menu"], check=True)
 
