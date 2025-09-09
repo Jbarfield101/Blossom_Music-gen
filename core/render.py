@@ -58,6 +58,10 @@ def _schedule(
     for idx, n in enumerate(notes):
         start = starts[idx]
         data = render_note(n)
+        if start < 0:
+            cut = min(len(data), -start)
+            data = data[cut:]
+            start = 0
         end = start + len(data)
         if end > len(out):
             out = np.pad(out, (0, end - len(out)))
@@ -78,7 +82,9 @@ def _noise_burst(note: Stem, sr: int) -> np.ndarray:
     n = int(round(dur * sr))
     if n <= 0:
         return np.zeros(0, dtype=np.float32)
-    rng = np.random.default_rng(int(note.start * sr) + note.pitch)
+    seed = int(note.start * sr) + note.pitch
+    seed = int(seed % (2 ** 32))
+    rng = np.random.default_rng(seed)
     data = rng.standard_normal(n).astype(np.float32)
     env = np.exp(-np.linspace(0, 6, n)).astype(np.float32)
     return (note.vel / 127.0) * data * env

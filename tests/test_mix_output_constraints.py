@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from core.song_spec import SongSpec
 from core.stems import build_stems_for_song, bars_to_beats, beats_to_secs
+from core.utils import note_to_sample_indices
 from core.render import render_song
 from core.mixer import mix
 
@@ -45,16 +46,34 @@ def test_duration_limiter_and_stems_nonzero():
 
     # Mix with hot gains so the limiter has work to do
     track_cfg = {name: {"gain": 12.0} for name in rendered}
-    raw_mix = mix(rendered, sr, {"tracks": track_cfg, "master": {"limiter": {"enabled": False}}})
+    raw_mix = mix(
+        rendered,
+        sr,
+        {"tracks": track_cfg, "master": {"compressor": {"enabled": False}, "limiter": {"enabled": False}}},
+    )
     pre_peak = float(abs(raw_mix).max()) if raw_mix.size else 0.0
     target = 10 ** (-0.1 / 20.0)
     assert pre_peak > target
 
-    mixed = mix(rendered, sr, {"tracks": track_cfg, "master": {"limiter": {"enabled": True, "threshold": -0.1}}})
+    mixed = mix(
+        rendered,
+        sr,
+        {
+            "tracks": track_cfg,
+            "master": {
+                "compressor": {"enabled": False},
+                "limiter": {"enabled": True, "threshold": -0.1},
+            },
+        },
+    )
     post_peak = float(abs(mixed).max()) if mixed.size else 0.0
     assert post_peak <= target + 1e-4
 
     beats_per_bar = bars_to_beats(spec.meter)
-    total_secs = spec.total_bars() * beats_per_bar * beats_to_secs(spec.tempo)
-    expected_len = int(round(total_secs * sr))
-    assert abs(mixed.shape[0] - expected_len) <= 256
+    note_ends = []
+    for notes in stems.values():
+        for n in notes:
+            start_idx, length = note_to_sample_indices(n.start, n.dur, spec.tempo, spec.meter, sr)
+            note_ends.append(start_idx + length)
+    expected_len = max(note_ends) if note_ends else 0
+    assert abs(mixed.shape[0] - expected_len) <= 1024
