@@ -2,6 +2,8 @@
 
 Simple demos for algorithmic music pattern generation.
 
+**Python 3.10 required.**
+
 ## Dependencies
 
 SFZ instruments may reference WAV or FLAC samples. Loading FLAC samples requires the
@@ -55,8 +57,8 @@ files.
 
 ### Prerequisites
 
-- Python 3 with the `tkinter` module available. On many Linux systems this can
-  be installed via `sudo apt install python3-tk`.
+- Python 3.10 with the `tkinter` module available. On many Linux systems this
+  can be installed via `sudo apt install python3-tk`.
 - Optional: [`soundfile`](https://pysoundfile.readthedocs.io/) for FLAC
   support when rendering.
 
