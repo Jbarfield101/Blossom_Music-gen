@@ -73,9 +73,19 @@ if __name__ == "__main__":
         help="Directory to write individual stem WAVs",
     )
     ap.add_argument(
-        "--piano-sfz",
-        dest="piano_sfz",
-        help="Path to piano SFZ file or directory. If omitted, uses render_config.json",
+        "--keys-sfz",
+        dest="keys_sfz",
+        help="Path to keys SFZ file or directory. If omitted, uses render_config.json",
+    )
+    ap.add_argument(
+        "--pads-sfz",
+        dest="pads_sfz",
+        help="Path to pads SFZ file or directory. If omitted, uses render_config.json",
+    )
+    ap.add_argument(
+        "--bass-sfz",
+        dest="bass_sfz",
+        help="Path to bass SFZ file or directory. If omitted, uses render_config.json",
     )
     args = ap.parse_args()
 
@@ -90,22 +100,29 @@ if __name__ == "__main__":
 
     stems = build_stems_for_song(spec, seed=args.seed)
 
-    sfz_map = {}
-    if args.piano_sfz:
-        sfz_path = Path(args.piano_sfz)
-    else:
-        sfz_path = Path(cfg.get("piano_sfz", "assets/sf2/keys.sfz"))
-    if sfz_path.is_dir():
-        sfz_path = sfz_path / "keys.sfz"
-    if sfz_path.exists():
-        sfz_map["keys"] = sfz_path
-    elif args.piano_sfz:
-        raise SystemExit(f"Missing SFZ instrument: {sfz_path}")
+    sample_paths = dict(cfg.get("sample_paths", {}))
+    if "keys" not in sample_paths and cfg.get("piano_sfz"):
+        sample_paths["keys"] = cfg["piano_sfz"]
 
-    for name, path in cfg.get("sample_paths", {}).items():
+    sfz_map = {}
+    for name, path in sample_paths.items():
         p = Path(path)
         if p.exists():
-            sfz_map.setdefault(name, p)
+            sfz_map[name] = p
+
+    def _apply_override(name: str, override: str | None) -> None:
+        if override:
+            p = Path(override)
+            if p.is_dir():
+                p = p / f"{name}.sfz"
+            if p.exists():
+                sfz_map[name] = p
+            else:
+                raise SystemExit(f"Missing SFZ instrument: {p}")
+
+    _apply_override("keys", args.keys_sfz)
+    _apply_override("pads", args.pads_sfz)
+    _apply_override("bass", args.bass_sfz)
 
     rendered = render_song(stems, sr=44100, sfz_paths=sfz_map)
     mix_audio = mix_stems(rendered, 44100, cfg)

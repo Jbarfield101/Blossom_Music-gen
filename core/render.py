@@ -217,15 +217,36 @@ def render_song(
     rendered: Dict[str, np.ndarray] = {}
     sfz_paths = dict(sfz_paths or {})
 
+    def _resolve_default(path: Path | None) -> Path | None:
+        """Return a usable SFZ file within ``path`` if available.
+
+        ``path`` may point directly to an SFZ file or to a directory that
+        contains one or more variants.  The first matching ``*.sfz`` file is
+        chosen.  Missing paths simply return ``None`` allowing the caller to
+        fall back to synthesis.
+        """
+
+        if path is None:
+            return None
+        if path.is_file() and path.suffix.lower() == ".sfz":
+            return path
+        if path.is_dir():
+            for candidate in sorted(path.rglob("*.sfz")):
+                return candidate
+        return None
+
     # Populate with default asset locations if not explicitly provided
     defaults = {
-        "drums": Path("assets/samples/drums"),
-        "bass": Path("assets/sf2/bass.sfz"),
-        "keys": Path("assets/sf2/keys.sfz"),
-        "pads": Path("assets/sf2/pads.sfz"),
+        "drums": Path("assets/sfz/Drums"),
+        "bass": Path("assets/sfz/Bass"),
+        "keys": Path("assets/sfz/Piano"),
+        "pads": Path("assets/sfz/Pads"),
     }
+    # Resolve any user supplied paths first so we only fall back when needed
+    for name, path in list(sfz_paths.items()):
+        sfz_paths[name] = _resolve_default(path)
     for name, path in defaults.items():
-        sfz_paths.setdefault(name, path if path.exists() else None)
+        sfz_paths.setdefault(name, _resolve_default(path))
 
     for name in ("drums", "bass", "keys", "pads"):
         notes = stems.get(name, [])
