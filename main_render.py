@@ -83,6 +83,8 @@ if __name__ == "__main__":
 
     stems = build_stems_for_song(spec, seed=args.seed)
 
+    sfz_map = {}
+    sfz_path: Path | None = None
     if args.piano_sfz:
         sfz_path = Path(args.piano_sfz)
     else:
@@ -90,16 +92,18 @@ if __name__ == "__main__":
         if cfg_path.exists():
             with cfg_path.open("r", encoding="utf-8") as fh:
                 cfg = json.load(fh)
-            sfz_path = Path(cfg.get("piano_sfz", "assets/sfz"))
+            sfz_path = Path(cfg.get("piano_sfz", "assets/sf2/keys.sfz"))
         else:
-            sfz_path = Path("assets/sfz")
+            sfz_path = Path("assets/sf2/keys.sfz")
 
     if sfz_path.is_dir():
-        sfz_path = sfz_path / "piano.sfz"
-    if not sfz_path.exists():
+        sfz_path = sfz_path / "keys.sfz"
+    if sfz_path.exists():
+        sfz_map["keys"] = sfz_path
+    elif args.piano_sfz:
         raise SystemExit(f"Missing SFZ instrument: {sfz_path}")
 
-    rendered = render_song(stems, sr=44100, sfz_paths={"keys": sfz_path})
+    rendered = render_song(stems, sr=44100, sfz_paths=sfz_map)
 
     mix_path = Path(args.mix)
     mix_path.parent.mkdir(parents=True, exist_ok=True)
