@@ -23,9 +23,15 @@ python -m core.main_synth --spec path/to/spec.json --minutes 3 --seed 42 --print
 
 `main_synth.py` will extend the section list to meet the requested duration and print a JSON plan of events for each instrument.  The example above generates at least three minutes of material and writes it to `plan.json` while printing instrument event counts to the console.
 
-## Using External Piano Samples
+## Using External Samples
 
-To render the piano part with external SFZ samples, pass the path using the `--piano-sfz` flag. The default configuration points to `assets/sfz/piano.sfz` in `render_config.json`.
+If drum hits are placed under `assets/samples/drums` and simple SFZ instruments
+for bass, keys and pads live in `assets/sf2/`, the renderer will pick these up
+automatically. Missing assets trigger tiny built‑in synthesiser fallbacks.
+
+To render the piano/keys part with a different SFZ, pass the path using the
+`--piano-sfz` flag. The default configuration points to
+`assets/sf2/keys.sfz` in `render_config.json`.
 
 ```bash
 pip install soundfile  # enables FLAC support
