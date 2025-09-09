@@ -1,3 +1,7 @@
+import sys
+if sys.version_info[:2] != (3, 10):
+    raise RuntimeError("Blossom requires Python 3.10")
+
 import argparse
 import json
 import shutil

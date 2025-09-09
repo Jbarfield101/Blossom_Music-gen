@@ -1,0 +1,8 @@
+[project]
+name = "blossom-music-gen"
+version = "0.0.0"
+requires-python = ">=3.10,<3.11"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
