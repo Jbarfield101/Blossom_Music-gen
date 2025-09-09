@@ -2,10 +2,20 @@
 
 Simple demos for algorithmic music pattern generation.
 
-**Python 3.10 required.** A small launcher script, `blossom.py`, bootstraps a
-local virtual environment on first run and installs the required packages. The
-launcher then opens a minimal main menu where clicking the music icon starts
-the renderer UI.
+**Python 3.10 required.**
+
+## `start.py` entry point
+
+Run `python start.py` to bootstrap the project. The launcher:
+
+- requires Python 3.10;
+- automatically creates a local virtual environment on first run and deletes it when you close the menu;
+- verifies and installs dependencies before starting.
+
+After setup a small window appears featuring a music-note icon. Clicking the
+icon opens the familiar rendering interface.
+
+![Main menu icon](assets/images/icon.png)
 
 ## Dependencies
 
@@ -67,13 +77,13 @@ files.
 
 ### Launching
 
-The easiest way to try the project is via the menu launched by `blossom.py`:
+The easiest way to try the project is via the menu launched by `start.py`:
 
 ```bash
-python blossom.py
+python start.py
 ```
 
-The script ensures dependencies are installed and then presents a window with a
+The script ensures dependencies are installed and manages the virtual environment automatically before presenting a window with a
 music icon. Clicking the icon opens the familiar rendering interface. The UI
 can still be invoked directly with:
 
@@ -97,7 +107,7 @@ The window exposes a handful of text fields:
 ### Example workflow
 
 1. Prepare a song specification such as `song.json`.
-2. Start the launcher with `python blossom.py` and click the icon to open the
+2. Start the launcher with `python start.py` and click the icon to open the
    renderer UI.
 3. Browse to the spec JSON and adjust any desired parameters.
 4. Click **Render** to create the mix and stems in the specified locations.
