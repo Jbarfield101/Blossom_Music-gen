@@ -91,31 +91,34 @@ def _load_drum_samples(
 ) -> Dict[int, List[np.ndarray]]:
     """Return a mapping of drum ``pitch`` to lists of waveform arrays.
 
-    ``mapping`` should provide a relation of ``filename`` → ``MIDI pitch``.  If
-    omitted, the function falls back to ``{"kick.wav": 36, "snare.wav": 38,
-    "hat.wav": 42}``.  Multiple filenames may map to the same pitch allowing
-    for round‑robin playback.  Samples are loaded as mono float arrays and
-    resampled to ``sr`` if needed.  Missing files are simply ignored.
+    ``mapping`` should provide a relation of ``filename pattern`` → ``MIDI pitch``.
+    Patterns are interpreted using :func:`pathlib.Path.glob` allowing wildcards
+    like ``"kick.*"`` to match any supported audio format.  If omitted, the
+    function falls back to ``{"kick.*": 36, "snare.*": 38, "hat.*": 42}``.
+    Multiple files may map to the same pitch allowing for round‑robin playback.
+    Samples are loaded as mono float arrays and resampled to ``sr`` if needed.
+    Missing files are simply ignored.
     """
     if sf is None:
         return {}
 
-    names = mapping or {"kick.wav": 36, "snare.wav": 38, "hat.wav": 42}
+    names = mapping or {"kick.*": 36, "snare.*": 38, "hat.*": 42}
     out: Dict[int, List[np.ndarray]] = {}
-    for fname, pitch in names.items():
-        path = directory / fname
-        if not path.exists():
-            continue
-        data, rate = sf.read(str(path), always_2d=True, dtype="float32")
-        if data.shape[1] > 1:
-            data = np.mean(data, axis=1)
-        else:
-            data = data[:, 0]
-        if rate != sr:
-            data = np.array(
-                SFZSampler._resample(data.tolist(), rate / sr), dtype="float32"
-            )
-        out.setdefault(pitch, []).append(data)
+    for pattern, pitch in names.items():
+        for path in sorted(directory.glob(pattern)):
+            if not path.is_file():
+                continue
+            data, rate = sf.read(str(path), always_2d=True, dtype="float32")
+            if data.shape[1] > 1:
+                data = np.mean(data, axis=1)
+            else:
+                data = data[:, 0]
+            if rate != sr:
+                data = np.array(
+                    SFZSampler._resample(data.tolist(), rate / sr),
+                    dtype="float32",
+                )
+            out.setdefault(pitch, []).append(data)
     return out
 
 
@@ -165,10 +168,13 @@ def _render_instrument(
     sfz: Path | None,
     tempo: float | None = None,
     meter: str | None = None,
+    drum_patterns: Mapping[str, int] | None = None,
 ) -> np.ndarray:
     """Render ``notes`` for ``name`` either via SFZ or synth fallback."""
     if name == "drums":
-        return _render_drums(notes, sr, sfz, tempo=tempo, meter=meter)
+        return _render_drums(
+            notes, sr, sfz, sample_map=drum_patterns, tempo=tempo, meter=meter
+        )
 
     if not notes:
         return np.zeros(0, dtype=np.float32)
@@ -207,6 +213,7 @@ def render_song(
     tempo: float | None = None,
     meter: str | None = None,
     sfz_paths: Mapping[str, Path] | None = None,
+    drum_patterns: Mapping[str, int] | None = None,
 ) -> Dict[str, np.ndarray]:
     """Render ``stems`` into audio buffers.
 
@@ -225,6 +232,11 @@ def render_song(
         Only used when ``tempo`` is provided.
     sfz_paths:
         Optional mapping of instrument name to SFZ file paths.
+    drum_patterns:
+        Optional mapping of filename patterns to MIDI pitches used when loading
+        drum samples.  Patterns follow :func:`pathlib.Path.glob` syntax and
+        default to ``{"kick.*": 36, "snare.*": 38, "hat.*": 42}`` when
+        omitted.
 
     Returns
     -------
@@ -270,7 +282,13 @@ def render_song(
     for name in ("drums", "bass", "keys", "pads"):
         notes = stems.get(name, [])
         rendered[name] = _render_instrument(
-            name, notes, sr, sfz_paths.get(name), tempo=tempo, meter=meter
+            name,
+            notes,
+            sr,
+            sfz_paths.get(name),
+            tempo=tempo,
+            meter=meter,
+            drum_patterns=drum_patterns,
         )
 
     max_len = max((len(arr) for arr in rendered.values()), default=0)
