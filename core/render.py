@@ -17,6 +17,11 @@ import numpy as np
 from .stems import Stem
 from .sfz_sampler import SFZSampler
 
+try:  # pragma: no cover - optional dependency
+    import soundfile as sf  # type: ignore
+except Exception:  # pragma: no cover - handled at runtime
+    sf = None  # type: ignore
+
 
 # ---------------------------------------------------------------------------
 # Generic helpers
@@ -81,6 +86,51 @@ def _noise_burst(note: Stem, sr: int) -> np.ndarray:
     return (note.vel / 127.0) * data * env
 
 
+def _load_drum_samples(directory: Path, sr: int) -> Dict[int, np.ndarray]:
+    """Return a mapping of drum ``pitch`` to waveform arrays.
+
+    The function looks for ``kick.wav`` (MIDI 36), ``snare.wav`` (38) and
+    ``hat.wav`` (42) inside ``directory``.  Samples are loaded as mono float
+    arrays and resampled to ``sr`` if needed.  Missing files are simply
+    ignored.
+    """
+    if sf is None:
+        return {}
+    mapping: Dict[int, np.ndarray] = {}
+    names = {36: "kick.wav", 38: "snare.wav", 42: "hat.wav"}
+    for pitch, fname in names.items():
+        path = directory / fname
+        if not path.exists():
+            continue
+        data, rate = sf.read(str(path), always_2d=True, dtype="float32")
+        if data.shape[1] > 1:
+            data = np.mean(data, axis=1)
+        else:
+            data = data[:, 0]
+        if rate != sr:
+            data = np.array(SFZSampler._resample(data.tolist(), rate / sr), dtype="float32")
+        mapping[pitch] = data
+    return mapping
+
+
+def _render_drums(notes: List[Stem], sr: int, sample_dir: Path | None) -> np.ndarray:
+    """Render ``notes`` using drum samples or noise fallbacks."""
+    if not notes:
+        return np.zeros(0, dtype=np.float32)
+    samples = {}
+    if sample_dir is not None and sample_dir.exists():
+        samples = _load_drum_samples(sample_dir, sr)
+
+    def render_note(n: Stem) -> np.ndarray:
+        data = samples.get(n.pitch)
+        if data is None:
+            return _noise_burst(n, sr)
+        length = min(len(data), int(round(n.dur * sr)))
+        return (n.vel / 127.0) * data[:length]
+
+    return _schedule(notes, render_note, sr)
+
+
 # ---------------------------------------------------------------------------
 # Instrument rendering
 # ---------------------------------------------------------------------------
@@ -92,6 +142,9 @@ def _render_instrument(
     sfz: Path | None,
 ) -> np.ndarray:
     """Render ``notes`` for ``name`` either via SFZ or synth fallback."""
+    if name == "drums":
+        return _render_drums(notes, sr, sfz)
+
     if not notes:
         return np.zeros(0, dtype=np.float32)
 
@@ -103,8 +156,7 @@ def _render_instrument(
             # Fall back to simple synthesis if SFZ loading or rendering fails
             pass
 
-    synth = _noise_burst if name == "drums" else lambda n: _sine_note(n, sr)
-    return _schedule(notes, synth, sr)
+    return _schedule(notes, lambda n: _sine_note(n, sr), sr)
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +187,17 @@ def render_song(
         common length so they can be processed in parallel.
     """
     rendered: Dict[str, np.ndarray] = {}
-    sfz_paths = sfz_paths or {}
+    sfz_paths = dict(sfz_paths or {})
+
+    # Populate with default asset locations if not explicitly provided
+    defaults = {
+        "drums": Path("assets/samples/drums"),
+        "bass": Path("assets/sf2/bass.sfz"),
+        "keys": Path("assets/sf2/keys.sfz"),
+        "pads": Path("assets/sf2/pads.sfz"),
+    }
+    for name, path in defaults.items():
+        sfz_paths.setdefault(name, path if path.exists() else None)
 
     for name in ("drums", "bass", "keys", "pads"):
         notes = stems.get(name, [])
