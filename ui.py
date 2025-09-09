@@ -14,6 +14,58 @@ from core.mixer import mix
 from main_render import _write_wav, _maybe_export_mp3
 
 
+# load default sample paths from config if present
+_CFG_SAMPLE_PATHS: dict[str, str] = {}
+_cfg_path = Path("render_config.json")
+if _cfg_path.exists():
+    with _cfg_path.open("r", encoding="utf-8") as fh:
+        _CFG_SAMPLE_PATHS = json.load(fh).get("sample_paths", {})
+
+
+ASSET_DIRS = {
+    "keys": Path("assets/sfz/Piano"),
+    "pads": Path("assets/sfz/Pads"),
+    "bass": Path("assets/sfz/Bass"),
+    "drums": Path("assets/sfz/Drums"),
+}
+
+_CHOICES: dict[str, tk.StringVar] = {}
+
+
+def _initial_sfz_path(name: str) -> str:
+    cfg_path = _CFG_SAMPLE_PATHS.get(name)
+    if cfg_path:
+        p = Path(cfg_path)
+        if p.is_file():
+            return p.as_posix()
+        if p.is_dir():
+            files = sorted(p.glob("*/*.sfz"))
+            if files:
+                return files[0].as_posix()
+    files = sorted(ASSET_DIRS[name].glob("*/*.sfz"))
+    if files:
+        return files[0].as_posix()
+    return ""
+
+
+def _make_option_menu(var: tk.StringVar, name: str, row: int):
+    options = sorted([p.name for p in ASSET_DIRS[name].iterdir() if p.is_dir()])
+    choice = tk.StringVar()
+    _CHOICES[name] = choice
+
+    def _update(*_):
+        sel = choice.get()
+        path = ASSET_DIRS[name] / sel / f"{sel}.sfz"
+        var.set(path.as_posix())
+
+    if options:
+        default = Path(var.get()).parent.name if var.get() else options[0]
+        choice.set(default if default in options else options[0])
+        _update()
+    choice.trace_add("write", _update)
+    tk.OptionMenu(root, choice, *options).grid(row=row, column=3)
+
+
 def _browse_file(var: tk.StringVar, filetypes: list[tuple[str, str]]):
     path = filedialog.askopenfilename(filetypes=filetypes)
     if path:
@@ -90,10 +142,10 @@ root = tk.Tk()
 root.title("Blossom Renderer")
 
 spec_var = tk.StringVar(value="song.json")
-keys_var = tk.StringVar()
-pads_var = tk.StringVar()
-bass_var = tk.StringVar()
-drums_var = tk.StringVar()
+keys_var = tk.StringVar(value=_initial_sfz_path("keys"))
+pads_var = tk.StringVar(value=_initial_sfz_path("pads"))
+bass_var = tk.StringVar(value=_initial_sfz_path("bass"))
+drums_var = tk.StringVar(value=_initial_sfz_path("drums"))
 seed_var = tk.StringVar(value="42")
 mix_var = tk.StringVar(value="out/mix.wav")
 stems_var = tk.StringVar(value="out/stems")
@@ -109,24 +161,28 @@ tk.Label(root, text="Keys SFZ").grid(row=row, column=0, sticky="e")
 E1 = tk.Entry(root, textvariable=keys_var, width=40)
 E1.grid(row=row, column=1)
 tk.Button(root, text="Browse", command=lambda: _browse_file(keys_var, [("SFZ", "*.sfz")])).grid(row=row, column=2)
+_make_option_menu(keys_var, "keys", row)
 
 row += 1
 tk.Label(root, text="Pads SFZ").grid(row=row, column=0, sticky="e")
 E2 = tk.Entry(root, textvariable=pads_var, width=40)
 E2.grid(row=row, column=1)
 tk.Button(root, text="Browse", command=lambda: _browse_file(pads_var, [("SFZ", "*.sfz")])).grid(row=row, column=2)
+_make_option_menu(pads_var, "pads", row)
 
 row += 1
 tk.Label(root, text="Bass SFZ").grid(row=row, column=0, sticky="e")
 E3 = tk.Entry(root, textvariable=bass_var, width=40)
 E3.grid(row=row, column=1)
 tk.Button(root, text="Browse", command=lambda: _browse_file(bass_var, [("SFZ", "*.sfz")])).grid(row=row, column=2)
+_make_option_menu(bass_var, "bass", row)
 
 row += 1
 tk.Label(root, text="Drums SFZ").grid(row=row, column=0, sticky="e")
 E4 = tk.Entry(root, textvariable=drums_var, width=40)
 E4.grid(row=row, column=1)
 tk.Button(root, text="Browse", command=lambda: _browse_file(drums_var, [("SFZ", "*.sfz")])).grid(row=row, column=2)
+_make_option_menu(drums_var, "drums", row)
 
 row += 1
 tk.Label(root, text="Seed").grid(row=row, column=0, sticky="e")
