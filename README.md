@@ -29,9 +29,9 @@ If drum hits are placed under `assets/samples/drums` and simple SFZ instruments
 for bass, keys and pads live in `assets/sf2/`, the renderer will pick these up
 automatically. Missing assets trigger tiny built‑in synthesiser fallbacks.
 
-To render the piano/keys part with a different SFZ, pass the path using the
-`--piano-sfz` flag. The default configuration points to
-`assets/sf2/keys.sfz` in `render_config.json`.
+To render instruments with different SFZ files, pass paths using the
+`--keys-sfz`, `--pads-sfz`, or `--bass-sfz` flags. The default configuration
+points to files defined in `render_config.json`.
 
 The `render_config.json` file also defines default sample locations for all
 instruments along with stereo mix parameters.  Each track exposes gain, pan
@@ -42,7 +42,7 @@ cloning.
 
 ```bash
 pip install soundfile  # enables FLAC support
-python main_render.py --spec path/to/spec.json --piano-sfz /path/to/custom/piano.sfz --mix out/piano.wav
+python main_render.py --spec path/to/spec.json --keys-sfz /path/to/custom/keys.sfz --mix out/piano.wav
 ```
 
 This command renders the keys using the specified SFZ instrument and writes the mix to `out/piano.wav`.
