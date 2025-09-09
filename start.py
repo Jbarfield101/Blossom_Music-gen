@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import struct
 from pathlib import Path
 
 
@@ -27,6 +28,9 @@ def _venv_paths(env_dir: str) -> tuple[Path, Path]:
 def main() -> None:
     if sys.version_info[:2] != (3, 10):
         sys.exit("Python 3.10 required")
+
+    if struct.calcsize("P") * 8 != 64:
+        sys.exit("64-bit Python 3.10 required")
 
     env_dir = tempfile.mkdtemp(prefix="start-env-")
     atexit.register(shutil.rmtree, env_dir, True)
