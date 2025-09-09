@@ -1,3 +1,10 @@
+"""Tkinter interface for rendering music.
+
+The UI is typically launched via ``start.py`` which sets up a temporary
+virtual environment and installs dependencies automatically.  Direct execution
+is still supported when the required packages are already available.
+"""
+
 import sys
 if sys.version_info[:2] != (3, 10):
     raise RuntimeError("Blossom requires Python 3.10")

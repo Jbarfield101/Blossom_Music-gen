@@ -2,10 +2,10 @@
 
 Simple demos for algorithmic music pattern generation.
 
-**Python 3.10 required.** A small launcher script, `start.py`, bootstraps a
-temporary virtual environment and installs the required packages. The launcher
-then opens a minimal main menu where clicking the music icon starts
-the renderer UI.
+**Python 3.10 required.** The `start.py` helper creates a temporary virtual
+environment, installs the packages from `requirements.txt`, and aborts if
+installation fails. After setup it opens a minimal main menu where clicking the
+music icon launches the renderer UI.
 
 ## Dependencies
 
@@ -67,15 +67,18 @@ files.
 
 ### Launching
 
-The easiest way to try the project is via the menu launched by `start.py`:
+Launch the interface through the bootstrapper:
 
 ```bash
 python start.py
 ```
 
-The script ensures dependencies are installed and then presents a window with a
-music icon. Clicking the icon opens the familiar rendering interface. The UI
-can still be invoked directly with:
+The script sets up a throwaway virtual environment, installs dependencies,
+and then presents a window with a music icon. Clicking the icon opens the
+rendering interface.
+
+If you already have the requirements installed, the UI can still be invoked
+directly:
 
 ```bash
 python ui.py
@@ -97,7 +100,8 @@ The window exposes a handful of text fields:
 ### Example workflow
 
 1. Prepare a song specification such as `song.json`.
-2. Start the launcher with `python start.py` and click the icon to open the
+2. Start the launcher with `python start.py` (it creates a temporary
+   environment and installs dependencies) and click the icon to open the
    renderer UI.
 3. Browse to the spec JSON and adjust any desired parameters.
 4. Click **Render** to create the mix and stems in the specified locations.
