@@ -1,3 +1,10 @@
+"""Bootstraps the demo in a temporary virtual environment.
+
+The launcher creates an isolated environment, installs ``requirements.txt``
+dependencies, and refuses to continue if installation fails.  Once setup
+completes it opens the small Tkinter menu used to access the renderer UI.
+"""
+
 import atexit
 import os
 import shutil
@@ -33,7 +40,7 @@ def main() -> None:
         print("Failed to install dependencies", file=sys.stderr)
         sys.exit(1)
 
-    subprocess.run([str(python_path), "-m", "main_menu"], check=True)
+    subprocess.run([str(python_path), "-m", "menu"], check=True)
 
 
 if __name__ == "__main__":
