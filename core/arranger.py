@@ -50,8 +50,12 @@ def arrange_song(
     sec_per_step = sec_per_beat / spb
 
     onoff: Dict[str, List[int]] = {}
-    if style and isinstance(style.get("onoff"), Mapping):
-        onoff = {k: list(v) for k, v in style["onoff"].items() if isinstance(v, (list, tuple))}
+    fx: Mapping[str, object] = {}
+    if style:
+        if isinstance(style.get("onoff"), Mapping):
+            onoff = {k: list(v) for k, v in style["onoff"].items() if isinstance(v, (list, tuple))}
+        if isinstance(style.get("fx"), Mapping):
+            fx = style["fx"]
 
     out: Dict[str, List[Stem]] = {}
 
@@ -74,7 +78,7 @@ def arrange_song(
     rng = random.Random(seed)
 
     # ------------------------------------------------------------------
-    # Cadence handling: drum fills and bass approach notes
+    # Cadence handling: drum fills, bass approaches and optional FX
     # ------------------------------------------------------------------
     cadences = spec.cadence_bars()
     if cadences:
@@ -87,6 +91,22 @@ def arrange_song(
             out.setdefault("drums", []).append(
                 Stem(start=fill_start, dur=sec_per_step, pitch=38, vel=vel, chan=9)
             )
+            # Optional tom roll across the bar
+            if fx.get("cadence_toms"):
+                tom_pitches = [45, 47, 50, 47]
+                step = sec_per_bar / len(tom_pitches)
+                for i, p in enumerate(tom_pitches):
+                    start = bar_start + i * step
+                    vel_t = int(rng.uniform(80, 110))
+                    out.setdefault("drums", []).append(
+                        Stem(start=start, dur=sec_per_step, pitch=p, vel=vel_t, chan=9)
+                    )
+            # Optional noise sweep leading into cadence
+            if fx.get("cadence_noise"):
+                vel_n = int(rng.uniform(70, 100))
+                out.setdefault("fx", []).append(
+                    Stem(start=bar_start, dur=sec_per_bar, pitch=0, vel=vel_n, chan=15)
+                )
             # Bass approach: chromatic approach to first note of next bar
             next_start = (bar_idx + 1) * sec_per_bar
             next_end = next_start + sec_per_bar
@@ -109,6 +129,38 @@ def arrange_song(
                 out.setdefault("bass", []).append(
                     Stem(start=start, dur=sec_per_step, pitch=approach, vel=vel_b, chan=0)
                 )
+
+    # ------------------------------------------------------------------
+    # Chorus entry swells
+    # ------------------------------------------------------------------
+    if fx.get("chorus_swells"):
+        for name, r in spec.bars_by_section().items():
+            if "chorus" in name.lower():
+                bar_start = r.start * sec_per_bar
+                swell_start = max(0.0, bar_start - sec_per_bar)
+                swell_dur = bar_start - swell_start
+                vel_p = int(rng.uniform(60, 100))
+                out.setdefault("pads", []).append(
+                    Stem(start=swell_start, dur=swell_dur, pitch=60, vel=vel_p, chan=2)
+                )
+
+    # ------------------------------------------------------------------
+    # Drop drums on first bar of bridge sections
+    # ------------------------------------------------------------------
+    if fx.get("bridge_drop") and out.get("drums"):
+        drop_ranges: List[tuple[float, float]] = []
+        for name, r in spec.bars_by_section().items():
+            if "bridge" in name.lower():
+                start = r.start * sec_per_bar
+                end = start + sec_per_bar
+                drop_ranges.append((start, end))
+        if drop_ranges:
+            kept: List[Stem] = []
+            for n in out["drums"]:
+                if any(s <= n.start < e for s, e in drop_ranges):
+                    continue
+                kept.append(n)
+            out["drums"] = kept
 
     # ensure deterministic order
     for notes in out.values():
