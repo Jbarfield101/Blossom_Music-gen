@@ -7,12 +7,35 @@ import json
 import shutil
 import subprocess
 import shlex
+import time
+import random
 from pathlib import Path
 
 import numpy as np
 
+try:  # pragma: no cover - optional dependency
+    from tqdm import tqdm  # type: ignore
+except Exception:  # pragma: no cover - lightweight fallback
+    class tqdm:  # type: ignore
+        def __init__(self, total: int, disable: bool = False):
+            self.total = total
+            self.disable = disable
+            self.n = 0
+
+        def update(self, n: int = 1) -> None:
+            self.n += n
+
+        def set_description(self, desc: str) -> None:
+            if not self.disable:
+                print(desc)
+
+        def close(self) -> None:  # pragma: no cover - no-op fallback
+            pass
+
 from core.song_spec import SongSpec, extend_sections_to_minutes
 from core.stems import build_stems_for_song, bars_to_beats, beats_to_secs
+from core.pattern_synth import build_patterns_for_song
+from core import theory
 from core.arranger import arrange_song
 from core.render import render_song
 from core.mixer import mix as mix_stems
@@ -108,6 +131,36 @@ def _print_arrangement_summary(spec: SongSpec, mix: np.ndarray, sr: int) -> str:
     return summary
 
 
+def _rng_context() -> dict:
+    py = random.getstate()
+    np_state = np.random.get_state()
+    return {
+        "python": {
+            "version": py[0],
+            "state": list(py[1][:5]),
+            "gauss": py[2],
+        },
+        "numpy": {
+            "algorithm": np_state[0],
+            "state": np_state[1][:5].tolist(),
+            "pos": np_state[2],
+        },
+    }
+
+
+def _log_stage(logs: list, progress: tqdm, name: str, start: float, **extra) -> None:
+    entry = {
+        "stage": name,
+        "duration_sec": time.monotonic() - start,
+        "rng": _rng_context(),
+    }
+    if extra:
+        entry.update(extra)
+    logs.append(entry)
+    progress.set_description(name)
+    progress.update(1)
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--spec", required=True, help="Song specification JSON")
@@ -164,8 +217,17 @@ if __name__ == "__main__":
         default="hit",
         help="Outro style when using --minutes",
     )
+    ap.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable progress bar and JSON logging",
+    )
     args = ap.parse_args()
 
+    progress = tqdm(total=8, disable=not args.verbose)
+    logs: list = [{"seed": args.seed}]
+
+    t0 = time.monotonic()
     spec = SongSpec.from_json(args.spec)
 
     def _load_config() -> dict:
@@ -197,10 +259,25 @@ if __name__ == "__main__":
         spec.outro = args.outro
         extend_sections_to_minutes(spec, args.minutes)
     spec.validate()
+    _log_stage(logs, progress, "spec", t0)
 
+    t0 = time.monotonic()
+    chords = spec.all_chords()
+    theory.generate_satb(chords)
+    _log_stage(logs, progress, "voicing", t0)
+
+    t0 = time.monotonic()
+    build_patterns_for_song(spec, seed=args.seed)
+    _log_stage(logs, progress, "patterns", t0)
+
+    t0 = time.monotonic()
     stems = build_stems_for_song(spec, seed=args.seed, style=style)
+    _log_stage(logs, progress, "stems", t0)
+
+    t0 = time.monotonic()
     if args.arrange == "on":
         stems = arrange_song(spec, stems, style=style, seed=args.seed)
+    _log_stage(logs, progress, "arrange", t0)
 
     sample_paths = dict(cfg.get("sample_paths", {}))
     if "keys" not in sample_paths and cfg.get("piano_sfz"):
@@ -226,6 +303,7 @@ if __name__ == "__main__":
     _apply_override("pads", args.pads_sfz)
     _apply_override("bass", args.bass_sfz)
 
+    t0 = time.monotonic()
     rendered = render_song(
         stems,
         sr=44100,
@@ -234,10 +312,17 @@ if __name__ == "__main__":
         sfz_paths=sfz_map,
         style=style,
     )
+    stem_peaks = {k: float(np.max(np.abs(v))) for k, v in rendered.items()}
+    _log_stage(logs, progress, "render", t0, peaks=stem_peaks)
+
+    t0 = time.monotonic()
     mix_audio = mix_stems(rendered, 44100, cfg)
+    mix_peak = float(np.max(np.abs(mix_audio)))
+    _log_stage(logs, progress, "mix", t0, peak=mix_peak)
 
     summary = _print_arrangement_summary(spec, mix_audio, 44100)
 
+    t0 = time.monotonic()
     if args.bundle:
         bundle_dir = Path(args.bundle)
         bundle_dir.mkdir(parents=True, exist_ok=True)
@@ -286,3 +371,14 @@ if __name__ == "__main__":
             stem_path = stem_dir / f"{name}.wav"
             _write_wav(stem_path, audio, 44100)
             _maybe_export_mp3(stem_path)
+
+    _log_stage(logs, progress, "write", t0)
+
+    progress.close()
+
+    log_dir = Path(args.bundle) if args.bundle else Path(args.mix).parent
+    log_path = log_dir / "progress.jsonl"
+    with log_path.open("w", encoding="utf-8") as fh:
+        for entry in logs:
+            json.dump(entry, fh)
+            fh.write("\n")
