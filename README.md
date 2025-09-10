@@ -44,7 +44,7 @@ instruments along with stereo mix parameters.  Each track exposes gain, pan
 and reverb send values.  A shared reverb bus processes the keys and pads and
 the master mix passes through a peak limiter targeting ``-0.1`` dBFS by
 default.  All paths are relative so the repository works out of the box after
-cloning.
+cloning. Mix presets from `assets/presets` can be selected with `--mix-preset`.
 
 ```bash
 pip install soundfile  # enables FLAC support
@@ -56,7 +56,7 @@ This command renders the keys using the specified SFZ instrument and writes the 
 Alternatively, choose a built‑in song template instead of providing a spec:
 
 ```bash
-python main_render.py --song-preset pop_verse_chorus --mix out/piano.wav
+python main_render.py --preset pop_verse_chorus --mix out/piano.wav
 ```
 
 Available song templates: `pop_verse_chorus`, `lofi_loop`.

@@ -207,7 +207,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--spec", help="Song specification JSON")
     ap.add_argument(
-        "--song-preset",
+        "--preset",
         help="Song template name or JSON file in assets/presets",
     )
     ap.add_argument("--seed", type=int, default=42, help="Random seed")
@@ -226,7 +226,8 @@ if __name__ == "__main__":
         help="Directory to bundle render outputs",
     )
     ap.add_argument(
-        "--preset",
+        "--mix-preset",
+        dest="mix_preset",
         help="Mixing preset name or JSON file in assets/presets",
     )
     ap.add_argument(
@@ -291,16 +292,16 @@ if __name__ == "__main__":
     )
     args = ap.parse_args()
 
-    if not args.spec and not args.song_preset:
-        ap.error("either --spec or --song-preset is required")
+    if not args.spec and not args.preset:
+        ap.error("either --spec or --preset is required")
 
     logs: list = [{"seed": args.seed}]
 
     t0 = time.monotonic()
-    if args.song_preset:
+    if args.preset:
         from core.song_templates import load_song_template
 
-        spec = SongSpec.from_dict(load_song_template(args.song_preset))
+        spec = SongSpec.from_dict(load_song_template(args.preset))
     else:
         spec = SongSpec.from_json(args.spec)
 
@@ -319,10 +320,10 @@ if __name__ == "__main__":
         cfg: dict = {}
         style: dict = {}
 
-        if args.preset:
+        if args.mix_preset:
             from core.preset import load_preset
 
-            cfg = dict(load_preset(args.preset))
+            cfg = dict(load_preset(args.mix_preset))
         else:
             cfg_path = Path("render_config.json")
             if cfg_path.exists():
