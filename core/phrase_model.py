@@ -39,19 +39,18 @@ except Exception:  # pragma: no cover - handled gracefully
 
 MODEL_DIR = Path(__file__).resolve().parent.parent / "models"
 
+# Cache for loaded models to avoid repeated disk access. Access to the cache
+# is guarded by a lock because models may also be loaded from a background
+# thread during module import.
+MODEL_CACHE: dict[str, Tuple[Optional[str], Optional[object]]] = {}
+_cache_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # Model loading
 # ---------------------------------------------------------------------------
 
-def load_model(inst: str) -> Tuple[Optional[str], Optional[object]]:
-    """Attempt to load a model for ``inst``.
-
-    The function looks for ``<inst>_phrase.ts.pt`` (TorchScript) first and
-    ``<inst>_phrase.onnx`` second.  A tuple ``(format, model)`` is returned on
-    success where ``format`` is either ``"torchscript"`` or ``"onnx"``.
-    ``(None, None)`` is returned if no suitable model could be loaded.
-    """
+def _load_model_from_disk(inst: str) -> Tuple[Optional[str], Optional[object]]:
+    """Load a model for ``inst`` from disk."""
 
     ts_path = MODEL_DIR / f"{inst}_phrase.ts.pt"
     if ts_path.exists() and torch is not None:
@@ -71,6 +70,51 @@ def load_model(inst: str) -> Tuple[Optional[str], Optional[object]]:
             pass
 
     return None, None
+
+
+def load_model(inst: str) -> Tuple[Optional[str], Optional[object]]:
+    """Attempt to load a model for ``inst`` with caching.
+
+    The function first consults an in-memory cache.  If the model has not been
+    loaded yet it is read from disk and stored in the cache.  The returned
+    tuple follows the same convention as :func:`_load_model_from_disk`.
+    """
+
+    with _cache_lock:
+        if inst in MODEL_CACHE:
+            return MODEL_CACHE[inst]
+
+    fmt, model = _load_model_from_disk(inst)
+    with _cache_lock:
+        MODEL_CACHE[inst] = (fmt, model)
+    return fmt, model
+
+
+def _preload_models() -> None:
+    """Background task that preloads all available models.
+
+    The function scans :data:`MODEL_DIR` for files that look like phrase models
+    and loads them into :data:`MODEL_CACHE`.  Errors are ignored so the preload
+    does not interfere with application startup.
+    """
+
+    insts = set()
+    for p in MODEL_DIR.glob("*_phrase.ts.pt"):
+        insts.add(p.name.split("_phrase.ts.pt")[0])
+    for p in MODEL_DIR.glob("*_phrase.onnx"):
+        insts.add(p.name.split("_phrase.onnx")[0])
+
+    for inst in insts:
+        try:
+            load_model(inst)
+        except Exception:
+            # Best effort only – failures are logged implicitly when models are
+            # requested later.
+            pass
+
+
+# Start background preloading of models as soon as the module is imported.
+threading.Thread(target=_preload_models, daemon=True).start()
 
 
 # ---------------------------------------------------------------------------
