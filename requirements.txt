@@ -1,6 +1,5 @@
 numpy
 soundfile
-scipy
 pytest
 fastapi
 uvicorn
