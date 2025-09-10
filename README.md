@@ -45,6 +45,42 @@ Two parameters influence randomness:
 
 Providing both makes runs fully repeatable (the sampler seed defaults to `0`).
 
+## Neural phrase models
+
+Small recurrent networks can replace the deterministic pattern generators.  The
+optional models live in the `models/` directory and are loaded automatically by
+`main_synth.py` and `main_render.py`.
+
+### Training prerequisites and dataset
+
+Training requires [PyTorch](https://pytorch.org/) and, for ONNX export,
+`onnxruntime`.  Datasets consist of token sequences stored in `train.jsonl` and
+`val.jsonl` which can be created with `data/build_dataset.py` (see
+[`docs/datasets.md`](docs/datasets.md)).  Running
+
+```bash
+python training/phrase_models/train_phrase_models.py
+```
+
+trains toy GRU models and writes checkpoints.
+
+### Export and placement
+
+The training script uses `torch.jit.script` and `torch.onnx.export` to emit
+`<inst>_phrase.ts.pt` and `<inst>_phrase.onnx` files into `models/`.  Place the
+files there so they can be picked up at runtime.
+
+### Sampler seeding
+
+The `--sampler-seed` CLI option seeds Python, NumPy and PyTorch RNGs used during
+phrase sampling.  Providing this flag makes neural generation reproducible.
+
+### Missing models
+
+If a model file is absent or fails to load, the code falls back to the
+deterministic pattern generators.  See
+[`docs/phrase_models.md`](docs/phrase_models.md) for details.
+
 ## Using External Samples
 
 If drum hits are placed under `assets/samples/drums` and simple SFZ instruments

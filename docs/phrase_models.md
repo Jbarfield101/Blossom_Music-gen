@@ -1,0 +1,37 @@
+# Phrase models
+
+`core/phrase_model.py` loads optional RNNs to generate phrases for drums, bass
+and keys.  Models reside in the `models/` directory and may be supplied as
+either TorchScript (`.ts.pt`) or ONNX (`.onnx`) files.
+
+## Training prerequisites and dataset
+
+Training depends on [PyTorch](https://pytorch.org/) and, for ONNX export,
+`onnxruntime`.  The models consume token sequences stored in `train.jsonl` and
+`val.jsonl`.  These files can be produced from rendered stems or MIDI data via
+`data/build_dataset.py` (see [datasets.md](datasets.md)).
+
+## Training and export
+
+Run the demonstration script to create tiny GRU models and export them to both
+formats:
+
+```bash
+python training/phrase_models/train_phrase_models.py
+```
+
+Inside the script the `export()` helper uses `torch.jit.script` and
+`torch.onnx.export` (opset 12) to write `<name>.ts.pt` and `<name>.onnx` files in
+the `models/` directory.
+
+## Placement and seeding
+
+Place the exported files (`drum_phrase.ts.pt`, `drum_phrase.onnx`, etc.) in
+`models/` so `main_synth` and `main_render` can locate them.  Sampling can be
+made deterministic by passing `--sampler-seed` to the CLI, which seeds Python,
+NumPy and PyTorch RNGs.
+
+## Missing models
+
+If a model is missing or fails to load the application falls back to the
+built‑in deterministic pattern generators.
