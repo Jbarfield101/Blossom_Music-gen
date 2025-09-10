@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 from typing import TypedDict, Tuple
 from fractions import Fraction
+import hashlib
 
 def read_json(path: str | Path):
     path = Path(path)
@@ -20,6 +21,32 @@ def ensure_file(path: str | Path, err: str = "File missing"):
     p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"{err}: {p}")
+
+
+def render_hash(
+    spec_json: dict,
+    seed: int,
+    style: dict,
+    configs: dict,
+    git_commit: str,
+) -> str:
+    """Return a SHA256 hash summarising render inputs.
+
+    The hash is based on the song specification, random seed, style, render
+    configuration and the git commit used for rendering.  Inputs are
+    serialised deterministically using JSON with sorted keys to ensure
+    reproducible hashes across runs.
+    """
+
+    payload = {
+        "spec": spec_json,
+        "seed": seed,
+        "style": style,
+        "configs": configs,
+        "git_commit": git_commit,
+    }
+    data = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(data).hexdigest()
 
 def density_bucket_from_float(x: float) -> str:
     """Map [0..1] -> 'sparse' | 'med' | 'busy'."""
