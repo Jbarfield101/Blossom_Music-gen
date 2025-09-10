@@ -19,6 +19,7 @@ import random
 from .song_spec import SongSpec
 from .theory import parse_chord_symbol, midi_note
 from .utils import Event
+from .phrase_model import generate_phrase
 
 
 # ---------------------------------------------------------------------------
@@ -239,10 +240,33 @@ def build_patterns_for_song(spec: SongSpec, seed: int) -> Dict:
         chords_row = next((r for r in spec.harmony_grid if r.get("section") == sec.name), {})
         chords = chords_row.get("chords", ["C"] * sec.length)
 
+        def _maybe_model(inst: str, fallback):
+            try:
+                return generate_phrase(
+                    inst,
+                    n_bars=sec.length,
+                    meter=meter,
+                    chords=chords,
+                    density=density,
+                    seed=seed,
+                    timeout=0.5,
+                )
+            except Exception:
+                return fallback()
+
         sec_plan = {"section": sec.name, "length_bars": sec.length, "patterns": {}}
-        sec_plan["patterns"]["drums"] = gen_drums(sec.length, meter, density, _seeded_rng(seed, sec.name, "drums"), spec)
-        sec_plan["patterns"]["bass"] = gen_bass(chords, meter, density, _seeded_rng(seed, sec.name, "bass"), spec)
-        sec_plan["patterns"]["keys"] = gen_keys(chords, meter, density, _seeded_rng(seed, sec.name, "keys"), spec)
+        sec_plan["patterns"]["drums"] = _maybe_model(
+            "drums",
+            lambda: gen_drums(sec.length, meter, density, _seeded_rng(seed, sec.name, "drums"), spec),
+        )
+        sec_plan["patterns"]["bass"] = _maybe_model(
+            "bass",
+            lambda: gen_bass(chords, meter, density, _seeded_rng(seed, sec.name, "bass"), spec),
+        )
+        sec_plan["patterns"]["keys"] = _maybe_model(
+            "keys",
+            lambda: gen_keys(chords, meter, density, _seeded_rng(seed, sec.name, "keys"), spec),
+        )
         sec_plan["patterns"]["pads"] = gen_pads(chords, meter, density, _seeded_rng(seed, sec.name, "pads"), spec)
 
         plan["sections"].append(sec_plan)
