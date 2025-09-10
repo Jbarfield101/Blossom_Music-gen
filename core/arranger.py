@@ -7,6 +7,7 @@ import random
 
 from .song_spec import SongSpec
 from .stems import Stem, bars_to_beats, beats_to_secs, _steps_per_beat
+from . import dynamics
 
 
 def _section_index(spec: SongSpec, bar: int) -> int | None:
@@ -112,5 +113,8 @@ def arrange_song(
     # ensure deterministic order
     for notes in out.values():
         notes.sort(key=lambda n: n.start)
+
+    # Apply performance dynamics before rendering
+    out = dynamics.apply(spec, out, seed)
 
     return out
