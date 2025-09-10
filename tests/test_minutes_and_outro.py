@@ -54,3 +54,15 @@ def test_outro_ritard():
     times = [n.start for n in arr["bass"] if n.start >= start_outro]
     assert len(times) == 3
     assert times[1] - times[0] < times[2] - times[1]
+
+
+def test_runtime_within_tolerance():
+    spec = _base_spec()
+    spec.outro = "hit"
+    minutes = 1.5
+    extend_sections_to_minutes(spec, minutes)
+    beats = bars_to_beats(spec.meter)
+    sec_per_bar = beats * beats_to_secs(spec.tempo)
+    total_time = spec.total_bars() * sec_per_bar
+    target = minutes * 60.0
+    assert abs(total_time - target) <= target * 0.02
