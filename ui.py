@@ -21,6 +21,7 @@ from core.arranger import arrange_song
 from core.render import render_song
 from core.mixer import mix
 from main_render import _write_wav, _maybe_export_mp3
+from core.render_hash import render_hash
 
 
 def _load_config() -> dict:
@@ -143,18 +144,18 @@ def render():
             p = Path(drums_var.get())
             if p.exists():
                 sfz_map["drums"] = p
-
+        rhash = render_hash(spec, cfg, sfz_map, seed, None)
         rendered = render_song(stems, sr=44100, sfz_paths=sfz_map)
         mix_audio = mix(rendered, 44100, cfg)
 
         mix_path.parent.mkdir(parents=True, exist_ok=True)
-        _write_wav(mix_path, mix_audio, 44100)
+        _write_wav(mix_path, mix_audio, 44100, comment=rhash)
         _maybe_export_mp3(mix_path)
 
         stems_dir.mkdir(parents=True, exist_ok=True)
         for name, audio in rendered.items():
             path = stems_dir / f"{name}.wav"
-            _write_wav(path, audio, 44100)
+            _write_wav(path, audio, 44100, comment=rhash)
             _maybe_export_mp3(path)
 
         messagebox.showinfo("Done", f"Wrote mix to {mix_path}")
