@@ -126,14 +126,20 @@ def _rms_db(audio: np.ndarray) -> float:
     return 20 * np.log10(rms)
 
 
-def _print_arrangement_summary(spec: SongSpec, mix: np.ndarray, sr: int) -> str:
-    """Print and return a human-readable summary of the song arrangement."""
+def _print_arrangement_summary(spec: SongSpec, mix: np.ndarray, sr: int) -> tuple[str, dict]:
+    """Print and return a human-readable summary of the song arrangement.
+
+    The function also returns a machine-readable report describing the
+    arrangement which can be serialised to JSON for test assertions or other
+    tooling.
+    """
 
     beats_per_bar = bars_to_beats(spec.meter)
     sec_per_bar = beats_per_bar * beats_to_secs(spec.tempo)
     sec_map = spec.bars_by_section()
 
     lines = []
+    sections = []
     for name, bar_range in sec_map.items():
         start_bar = bar_range.start
         end_bar = bar_range.stop - 1
@@ -144,17 +150,27 @@ def _print_arrangement_summary(spec: SongSpec, mix: np.ndarray, sr: int) -> str:
             f"  {name}: entry bar {start_bar + 1}, exit bar {end_bar + 1}, "
             f"loudness {loud:.1f} dB"
         )
+        sections.append(
+            {
+                "name": name,
+                "entry_bar": start_bar + 1,
+                "exit_bar": end_bar + 1,
+                "loudness_db": round(float(loud), 1),
+            }
+        )
 
     cadence = spec.cadence_bars()
     if cadence:
-        fills = ", ".join(str(b + 1) for b in sorted(cadence))
-        lines.append(f"  Fill bars: {fills}")
+        fills = [b + 1 for b in sorted(cadence)]
+        lines.append("  Fill bars: " + ", ".join(str(b) for b in fills))
     else:
+        fills = []
         lines.append("  Fill bars: none")
 
     summary = "Arrangement summary:\n" + "\n".join(lines)
     print("\n" + summary)
-    return summary
+    report = {"sections": sections, "fills": fills}
+    return summary, report
 
 
 def _rng_context() -> dict:
@@ -429,7 +445,7 @@ if __name__ == "__main__":
         mix_peak = float(np.max(np.abs(mix_audio)))
         _log_stage(logs, progress, "mix", t0, peak=mix_peak)
 
-        summary = _print_arrangement_summary(spec, mix_audio, 44100)
+        summary, arrange_report = _print_arrangement_summary(spec, mix_audio, 44100)
 
         t0 = time.monotonic()
         if args.bundle:
@@ -455,6 +471,8 @@ if __name__ == "__main__":
                 json.dump(cfg, fh, indent=2)
 
             (bundle_dir / "arrangement.txt").write_text(summary + "\n", encoding="utf-8")
+            with (bundle_dir / "arrange_report.json").open("w", encoding="utf-8") as fh:
+                json.dump(arrange_report, fh, indent=2)
 
             cmdline = (
                 "python "
