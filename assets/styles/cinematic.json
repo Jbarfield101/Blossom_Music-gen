@@ -1,0 +1,5 @@
+{
+  "swing": 0.0,
+  "bass": {"tendencies": ["pedal", "root"]},
+  "sections": ["intro", "theme", "development", "climax", "outro"]
+}
