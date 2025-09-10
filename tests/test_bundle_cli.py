@@ -69,9 +69,13 @@ def test_bundle_creation(tmp_path):
     with log_path.open() as fh:
         entries = [json.loads(line) for line in fh]
     rhash = next(e["hash"] for e in entries if "hash" in e)
+    commit = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=repo_root
+    ).decode().strip()
 
     readme_text = (bundle_dir / "README.txt").read_text()
     assert rhash in readme_text
+    assert commit in readme_text
 
     mix_bytes = (bundle_dir / "mix.wav").read_bytes()
     idx = mix_bytes.find(b"ICMT")
