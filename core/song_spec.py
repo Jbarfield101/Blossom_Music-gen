@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Any
 import json
+import math
 import re
 
 # ---- Allowed modes & simple note parsing ----
@@ -43,6 +44,7 @@ class SongSpec:
     register_policy: Dict[str, List[int]] = field(default_factory=dict)
     density_curve: Dict[str, float] = field(default_factory=dict)
     instrument_selection: Dict[str, str] = field(default_factory=dict)
+    outro: str = "hit"
 
     # -----------------
     # Construction
@@ -83,6 +85,7 @@ class SongSpec:
         self._validate_sections()
         self._validate_harmony_grid()
         self._validate_policies()
+        self._validate_outro()
 
     def _validate_key_mode(self) -> None:
         if not _m_note.match(self.key):
@@ -158,6 +161,10 @@ class SongSpec:
             if not (0.0 <= float(val) <= 1.0):
                 raise ValueError(f"density_curve[{sec!r}] must be between 0.0 and 1.0.")
 
+    def _validate_outro(self) -> None:
+        if self.outro not in ("hit", "ritard"):
+            raise ValueError("outro must be 'hit' or 'ritard'")
+
     # -----------------
     # Helpers
     # -----------------
@@ -193,6 +200,32 @@ class SongSpec:
             if b >= 0:
                 out[b] = t
         return out
+
+
+def extend_sections_to_minutes(spec: SongSpec, minutes: float) -> None:
+    """Loop ``spec.sections`` to cover ``minutes`` of music and add an outro.
+
+    The function mutates ``spec`` in place.  Existing sections are repeated in
+    their original order until the total number of bars matches the target
+    duration.  A final ``"outro"`` section is then appended whose length depends
+    on ``spec.outro``: one bar for a final hit or two bars for a ritardando.
+    """
+
+    num, den = map(int, spec.meter.split("/", 1))
+    bars_needed = math.ceil(minutes * spec.tempo * den / (num * 4))
+    outro_bars = 2 if spec.outro == "ritard" else 1
+    main_needed = max(0, bars_needed - outro_bars)
+
+    current = spec.total_bars()
+    templates = list(spec.sections)
+    idx = 0
+    while current < main_needed and templates:
+        tmpl = templates[idx % len(templates)]
+        spec.sections.append(Section(name=tmpl.name, length=tmpl.length))
+        current += tmpl.length
+        idx += 1
+
+    spec.sections.append(Section(name="outro", length=outro_bars))
 
 
 # ---- Quick self-demo when run directly ----
