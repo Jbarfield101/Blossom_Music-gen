@@ -388,7 +388,9 @@ if __name__ == "__main__":
     _log_stage(logs, progress, "voicing", t0)
 
     t0 = time.monotonic()
-    build_patterns_for_song(spec, seed=args.seed, sampler_seed=args.sampler_seed)
+    build_patterns_for_song(
+        spec, seed=args.seed, sampler_seed=args.sampler_seed, verbose=args.verbose
+    )
     _log_stage(logs, progress, "patterns", t0)
 
     t0 = time.monotonic()
