@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from core.song_spec import SongSpec, extend_sections_to_minutes
-from core.stems import build_stems_for_song
+from core.stems import build_stems_for_song, bars_to_beats, beats_to_secs
 from core.arranger import arrange_song
 from core.render import render_song
 from core.mixer import mix as mix_stems
@@ -64,6 +64,44 @@ def _maybe_export_mp3(wav_path: Path) -> None:
         pass
 
 
+def _rms_db(audio: np.ndarray) -> float:
+    """Return RMS loudness of ``audio`` in dBFS."""
+
+    if audio.size == 0:
+        return float("-inf")
+    rms = np.sqrt(np.mean(np.square(audio)))
+    if rms <= 0:
+        return float("-inf")
+    return 20 * np.log10(rms)
+
+
+def _print_arrangement_summary(spec: SongSpec, mix: np.ndarray, sr: int) -> None:
+    """Print a human-readable summary of the song arrangement."""
+
+    beats_per_bar = bars_to_beats(spec.meter)
+    sec_per_bar = beats_per_bar * beats_to_secs(spec.tempo)
+    sec_map = spec.bars_by_section()
+
+    print("\nArrangement summary:")
+    for name, bar_range in sec_map.items():
+        start_bar = bar_range.start
+        end_bar = bar_range.stop - 1
+        start_s = int(start_bar * sec_per_bar * sr)
+        end_s = int((end_bar + 1) * sec_per_bar * sr)
+        loud = _rms_db(mix[start_s:end_s])
+        print(
+            f"  {name}: entry bar {start_bar + 1}, exit bar {end_bar + 1}, "
+            f"loudness {loud:.1f} dB"
+        )
+
+    cadence = spec.cadence_bars()
+    if cadence:
+        fills = ", ".join(str(b + 1) for b in sorted(cadence))
+        print(f"  Fill bars: {fills}")
+    else:
+        print("  Fill bars: none")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--spec", required=True, help="Song specification JSON")
@@ -99,6 +137,12 @@ if __name__ == "__main__":
         help="Arrangement style name or JSON file in assets/styles",
     )
     ap.add_argument("--minutes", type=float, help="Target duration in minutes")
+    ap.add_argument(
+        "--arrange",
+        choices=["on", "off"],
+        default="on",
+        help="Toggle arrangement stage (default: on)",
+    )
     ap.add_argument(
         "--outro",
         choices=["hit", "ritard"],
@@ -140,7 +184,8 @@ if __name__ == "__main__":
     spec.validate()
 
     stems = build_stems_for_song(spec, seed=args.seed, style=style)
-    stems = arrange_song(spec, stems, style=style, seed=args.seed)
+    if args.arrange == "on":
+        stems = arrange_song(spec, stems, style=style, seed=args.seed)
 
     sample_paths = dict(cfg.get("sample_paths", {}))
     if "keys" not in sample_paths and cfg.get("piano_sfz"):
@@ -187,3 +232,5 @@ if __name__ == "__main__":
         stem_path = stem_dir / f"{name}.wav"
         _write_wav(stem_path, audio, 44100)
         _maybe_export_mp3(stem_path)
+
+    _print_arrangement_summary(spec, mix_audio, 44100)
