@@ -108,17 +108,30 @@ if __name__ == "__main__":
     args = ap.parse_args()
 
     spec = SongSpec.from_json(args.spec)
-    cfg_path = Path("render_config.json")
-    cfg = {}
-    if cfg_path.exists():
-        with cfg_path.open("r", encoding="utf-8") as fh:
-            cfg = json.load(fh)
 
-    style = {}
+    def _load_config() -> dict:
+        cfg: dict = {}
+        cfg_path = Path("render_config.json")
+        if cfg_path.exists():
+            with cfg_path.open("r", encoding="utf-8") as fh:
+                cfg = json.load(fh)
+        arr_path = Path("arrange_config.json")
+        if arr_path.exists():
+            with arr_path.open("r", encoding="utf-8") as fh:
+                arr_cfg = json.load(fh)
+            style_cfg = cfg.setdefault("style", {})
+            for k, v in arr_cfg.items():
+                if isinstance(v, dict) and isinstance(style_cfg.get(k), dict):
+                    style_cfg[k].update(v)
+                else:
+                    style_cfg[k] = v
+        return cfg
+
+    cfg = _load_config()
+
+    style = cfg.get("style", {})
     if args.style:
         style = load_style(args.style)
-    else:
-        style = cfg.get("style", {})
     if "swing" in style:
         spec.swing = float(style["swing"])
     if args.minutes:
