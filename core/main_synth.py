@@ -12,6 +12,7 @@ if __name__ == "__main__":
     ap.add_argument("--sampler-seed", type=int, default=0)
     ap.add_argument("--minutes", type=float)
     ap.add_argument("--print-stats", action="store_true")
+    ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
 
     spec = SongSpec.from_json(args.spec)
@@ -21,7 +22,7 @@ if __name__ == "__main__":
         extend_sections_to_minutes(spec, args.minutes)
 
     plan = build_patterns_for_song(
-        spec, seed=args.seed, sampler_seed=args.sampler_seed
+        spec, seed=args.seed, sampler_seed=args.sampler_seed, verbose=args.verbose
     )
 
     if args.print_stats:
