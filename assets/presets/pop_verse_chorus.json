@@ -1,0 +1,22 @@
+{
+  "title": "Pop Verse Chorus",
+  "tempo": 110,
+  "meter": "4/4",
+  "sections": [
+    {"name": "verse", "length": 8},
+    {"name": "chorus", "length": 8}
+  ],
+  "harmony_grid": [
+    {"section": "verse", "chords": ["C", "G", "Am", "F", "C", "G", "Am", "F"]},
+    {"section": "chorus", "chords": ["F", "G", "Em", "Am", "F", "G", "C", "C"]}
+  ],
+  "density_curve": {
+    "verse": 0.3,
+    "chorus": 0.6
+  },
+  "register_policy": {
+    "bass": [28, 48],
+    "keys": [48, 72],
+    "pads": [60, 84]
+  }
+}
