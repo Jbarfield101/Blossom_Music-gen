@@ -38,11 +38,14 @@ def test_render_piano(tmp_path):
     spec = SongSpec.from_json(str(song_path))
     spec.validate()
 
-    # Prepare SFZ and matching sample in the temporary directory
-    sfz_src = Path("assets/sfz/piano.sfz")
+    # Prepare a minimal SFZ mapping to the generated sample
     sfz_path = tmp_path / "piano.sfz"
-    sfz_text = sfz_src.read_text().replace(".wav", ".flac")
-    sfz_path.write_text(sfz_text)
+    sfz_path.write_text(
+        "<region>\n"
+        "sample=piano_C4.flac\n"
+        "lokey=0 hikey=127\n"
+        "pitch_keycenter=60\n"
+    )
 
     sample_path = tmp_path / "piano_C4.flac"
     sr = 44100

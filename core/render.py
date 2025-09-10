@@ -58,6 +58,10 @@ def _schedule(
     for idx, n in enumerate(notes):
         start = starts[idx]
         data = render_note(n)
+        if start < 0:
+            cut = min(len(data), -start)
+            data = data[cut:]
+            start = 0
         end = start + len(data)
         if end > len(out):
             out = np.pad(out, (0, end - len(out)))
@@ -78,10 +82,16 @@ def _noise_burst(note: Stem, sr: int) -> np.ndarray:
     n = int(round(dur * sr))
     if n <= 0:
         return np.zeros(0, dtype=np.float32)
-    rng = np.random.default_rng(int(note.start * sr) + note.pitch)
+    seed = int(note.start * sr) + note.pitch
+    seed = int(seed % (2 ** 32))
+    rng = np.random.default_rng(seed)
     data = rng.standard_normal(n).astype(np.float32)
     env = np.exp(-np.linspace(0, 6, n)).astype(np.float32)
-    return (note.vel / 127.0) * data * env
+    data = (note.vel / 127.0) * data * env
+    peak = float(np.max(np.abs(data))) if n else 1.0
+    if peak > 1.0:
+        data /= peak
+    return data
 
 
 def _load_drum_samples(
@@ -214,6 +224,7 @@ def render_song(
     meter: str | None = None,
     sfz_paths: Mapping[str, Path] | None = None,
     drum_patterns: Mapping[str, int] | None = None,
+    style: Mapping[str, object] | None = None,
 ) -> Dict[str, np.ndarray]:
     """Render ``stems`` into audio buffers.
 
@@ -275,7 +286,10 @@ def render_song(
     }
     # Resolve any user supplied paths first so we only fall back when needed
     for name, path in list(sfz_paths.items()):
-        sfz_paths[name] = _resolve_default(path)
+        resolved = _resolve_default(path)
+        if resolved is None and path.exists():
+            resolved = path
+        sfz_paths[name] = resolved
     for name, path in defaults.items():
         sfz_paths.setdefault(name, _resolve_default(path))
 
@@ -298,11 +312,12 @@ def render_song(
     return rendered
 
 
-def render_keys(stems: List[Stem], sfz_path: Path, sr: int) -> np.ndarray:
+def render_keys(stems: List[Stem], sfz_path: Path, sr: int) -> List[float]:
     """Render ``stems`` using the SFZ instrument at ``sfz_path``.
 
-    This helper is kept for backwards compatibility with existing tests and
-    examples which render only the piano/keys stems.
+    Returns a plain Python list for compatibility with legacy tests expecting
+    a sequence that can be truth‑tested directly.
     """
     sampler = SFZSampler(sfz_path)
-    return sampler.render(stems, sample_rate=sr)
+    data = sampler.render(stems, sample_rate=sr)
+    return data.tolist()

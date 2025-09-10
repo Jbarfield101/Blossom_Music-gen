@@ -17,6 +17,7 @@ from tkinter import filedialog, messagebox
 
 from core.song_spec import SongSpec
 from core.stems import build_stems_for_song
+from core.arranger import arrange_song
 from core.render import render_song
 from core.mixer import mix
 from main_render import _write_wav, _maybe_export_mp3
@@ -109,6 +110,7 @@ def render():
                 cfg = json.load(fh)
 
         stems = build_stems_for_song(spec, seed=seed)
+        stems = arrange_song(spec, stems, style=cfg.get("style", {}), seed=seed)
 
         sfz_map = {}
         if keys_var.get():
