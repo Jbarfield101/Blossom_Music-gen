@@ -121,3 +121,19 @@ The window exposes a handful of text fields:
    installs dependencies) and click the icon to open the renderer UI.
 3. Browse to the spec JSON and adjust any desired parameters.
 4. Click **Render** to create the mix and stems in the specified locations.
+
+## Web UI
+
+A minimal FastAPI web interface lives in `webui/app.py`.  It exposes a simple
+form to choose a preset, optional style, seed and target duration.  Submitted
+jobs invoke `main_render.py` under the hood and return a zip bundle containing
+the mix and stems for download.
+
+Launch the server with:
+
+```bash
+uvicorn webui.app:app
+```
+
+Visit `http://localhost:8000/` in your browser to render audio directly from
+the browser.  A health‑check endpoint is available at `/health`.
