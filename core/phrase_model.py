@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Tuple
 import threading
 import time
+import random
 
 import numpy as np
 
@@ -149,6 +150,7 @@ def _run_with_timeout(func, timeout: float, *args, **kwargs):
 def generate_phrase(
     inst: str,
     *,
+    seed: int | None = None,
     prompt: Sequence[int] | None = None,
     max_steps: int = 128,
     top_p: float = 0.9,
@@ -170,6 +172,15 @@ def generate_phrase(
     fmt, model = load_model(inst)
     if model is None:
         raise RuntimeError(f"no model available for {inst}")
+
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
+        if torch is not None:
+            try:  # pragma: no cover - depends on optional torch
+                torch.manual_seed(seed)
+            except Exception:
+                pass
 
     prompt = list(prompt or [])
 
