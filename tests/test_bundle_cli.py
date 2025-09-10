@@ -1,8 +1,8 @@
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
-import json
 
 import pytest
 
@@ -59,7 +59,7 @@ def test_bundle_creation(tmp_path):
         report = json.load(fh)
     assert isinstance(report.get("sections"), list)
     assert isinstance(report.get("fills"), list)
-    assert (bundle_dir / "config.json").exists()
+    assert (bundle_dir / "render_config.json").exists()
     assert (bundle_dir / "README.txt").exists()
     if (bundle_dir / "stems").exists():
         assert any((bundle_dir / "stems").glob("*.wav"))
@@ -129,3 +129,36 @@ def test_bundle_creation(tmp_path):
     size2 = int.from_bytes(b2[idx2 + 4 : idx2 + 8], "little")
     comment_stem2 = b2[idx2 + 8 : idx2 + 8 + size2].rstrip(b"\x00").decode("utf-8")
     assert comment_stem2 == rhash2
+
+
+def test_bundle_default_path(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+    spec_path = tmp_path / "spec.json"
+    _write_spec(spec_path)
+
+    py310 = Path(sys.executable).resolve().parent.parent / "3.10.17/bin/python"
+    if not py310.exists():
+        pytest.skip("python3.10 not available")
+
+    export_root = repo_root / "export"
+    if export_root.exists():
+        shutil.rmtree(export_root)
+
+    cmd = [
+        str(py310),
+        "main_render.py",
+        "--spec",
+        str(spec_path),
+        "--bundle",
+        "--arrange",
+        "off",
+    ]
+    subprocess.run(cmd, cwd=repo_root, check=True)
+
+    bundles = list(export_root.glob("Render_*"))
+    assert len(bundles) == 1
+    bundle_dir = bundles[0]
+    assert (bundle_dir / "render_config.json").exists()
+    assert (bundle_dir / "mix.wav").exists()
+
+    shutil.rmtree(export_root)
