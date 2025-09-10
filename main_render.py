@@ -10,10 +10,12 @@ from pathlib import Path
 
 import numpy as np
 
-from core.song_spec import SongSpec
+from core.song_spec import SongSpec, extend_sections_to_minutes
 from core.stems import build_stems_for_song
+from core.arranger import arrange_song
 from core.render import render_song
 from core.mixer import mix as mix_stems
+from core.style import load_style
 
 
 def _write_wav(path: Path, audio: np.ndarray, sr: int) -> None:
@@ -91,18 +93,41 @@ if __name__ == "__main__":
         dest="bass_sfz",
         help="Path to bass SFZ file or directory. If omitted, uses render_config.json",
     )
+    ap.add_argument(
+        "--style",
+        dest="style",
+        help="Arrangement style name or JSON file in assets/styles",
+    )
+    ap.add_argument("--minutes", type=float, help="Target duration in minutes")
+    ap.add_argument(
+        "--outro",
+        choices=["hit", "ritard"],
+        default="hit",
+        help="Outro style when using --minutes",
+    )
     args = ap.parse_args()
 
     spec = SongSpec.from_json(args.spec)
-    spec.validate()
-
     cfg_path = Path("render_config.json")
     cfg = {}
     if cfg_path.exists():
         with cfg_path.open("r", encoding="utf-8") as fh:
             cfg = json.load(fh)
 
-    stems = build_stems_for_song(spec, seed=args.seed)
+    style = {}
+    if args.style:
+        style = load_style(args.style)
+    else:
+        style = cfg.get("style", {})
+    if "swing" in style:
+        spec.swing = float(style["swing"])
+    if args.minutes:
+        spec.outro = args.outro
+        extend_sections_to_minutes(spec, args.minutes)
+    spec.validate()
+
+    stems = build_stems_for_song(spec, seed=args.seed, style=style)
+    stems = arrange_song(spec, stems, style=style, seed=args.seed)
 
     sample_paths = dict(cfg.get("sample_paths", {}))
     if "keys" not in sample_paths and cfg.get("piano_sfz"):
@@ -128,7 +153,14 @@ if __name__ == "__main__":
     _apply_override("pads", args.pads_sfz)
     _apply_override("bass", args.bass_sfz)
 
-    rendered = render_song(stems, sr=44100, sfz_paths=sfz_map)
+    rendered = render_song(
+        stems,
+        sr=44100,
+        tempo=spec.tempo,
+        meter=spec.meter,
+        sfz_paths=sfz_map,
+        style=style,
+    )
     mix_audio = mix_stems(rendered, 44100, cfg)
 
     mix_path = Path(args.mix)

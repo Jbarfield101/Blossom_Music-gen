@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Mapping
 import random
 
 from .song_spec import SongSpec
@@ -105,7 +105,13 @@ def enforce_register(stem: Stem, low: int, high: int) -> Stem:
     return stem
 
 
-def render_drums(pattern: Dict[str, List[int]], meter: str, tempo: float, seed: int) -> List[Stem]:
+def render_drums(
+    pattern: Dict[str, List[int]],
+    meter: str,
+    tempo: float,
+    seed: int,
+    swing: float = 0.0,
+) -> List[Stem]:
     """Render a drum ``pattern`` into ``Stem`` note events.
 
     Parameters
@@ -143,6 +149,8 @@ def render_drums(pattern: Dict[str, List[int]], meter: str, tempo: float, seed: 
 
     def _add_note(start_idx: int, pitch: int, base_vel: int) -> None:
         start = start_idx * sec_per_step
+        if swing and start_idx % 2 == 1:
+            start += swing * sec_per_step
         start = _humanize(start, 0.006, rng)
         vel = int(round(base_vel * density))
         vel = int(round(_humanize(vel, 6, rng)))
@@ -572,7 +580,9 @@ def dedupe_collisions(
     return stems
 
 
-def build_stems_for_song(spec: SongSpec, seed: int) -> Dict[str, List[Stem]]:
+def build_stems_for_song(
+    spec: SongSpec, seed: int, style: Mapping[str, object] | None = None
+) -> Dict[str, List[Stem]]:
     """Generate and render stems for all sections/instruments of ``spec``.
 
     The function orchestrates pattern generation via :mod:`core.pattern_synth`
@@ -595,6 +605,7 @@ def build_stems_for_song(spec: SongSpec, seed: int) -> Dict[str, List[Stem]]:
     sec_map = spec.bars_by_section()
 
     stems: Dict[str, List[Stem]] = {"drums": [], "bass": [], "keys": [], "pads": []}
+    swing = float(style.get("swing", 0.0)) if style else 0.0
 
     for sec in spec.sections:
         bar_range = sec_map.get(sec.name, range(0))
@@ -634,7 +645,7 @@ def build_stems_for_song(spec: SongSpec, seed: int) -> Dict[str, List[Stem]]:
             elif p == pattern_synth.clamp_pitch(42, "drums", spec):
                 hat[idx] = 1
         drum_pattern = {"kick": kick, "snare": snare, "hat": hat, "density": density}
-        drum_notes = render_drums(drum_pattern, meter, tempo, seed)
+        drum_notes = render_drums(drum_pattern, meter, tempo, seed, swing=swing)
         for n in drum_notes:
             n.start += offset_secs
         stems["drums"].extend(drum_notes)
