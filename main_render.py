@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 
-from core.song_spec import SongSpec
+from core.song_spec import SongSpec, extend_sections_to_minutes
 from core.stems import build_stems_for_song
 from core.arranger import arrange_song
 from core.render import render_song
@@ -98,6 +98,13 @@ if __name__ == "__main__":
         dest="style",
         help="Arrangement style name or JSON file in assets/styles",
     )
+    ap.add_argument("--minutes", type=float, help="Target duration in minutes")
+    ap.add_argument(
+        "--outro",
+        choices=["hit", "ritard"],
+        default="hit",
+        help="Outro style when using --minutes",
+    )
     args = ap.parse_args()
 
     spec = SongSpec.from_json(args.spec)
@@ -114,6 +121,9 @@ if __name__ == "__main__":
         style = cfg.get("style", {})
     if "swing" in style:
         spec.swing = float(style["swing"])
+    if args.minutes:
+        spec.outro = args.outro
+        extend_sections_to_minutes(spec, args.minutes)
     spec.validate()
 
     stems = build_stems_for_song(spec, seed=args.seed, style=style)

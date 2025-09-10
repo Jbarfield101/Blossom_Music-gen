@@ -1,28 +1,8 @@
 import argparse
 import json
-import math
 
-from core.song_spec import SongSpec, Section
+from core.song_spec import SongSpec, extend_sections_to_minutes
 from core.pattern_synth import build_patterns_for_song
-
-
-def _extend_sections_to_minutes(spec: SongSpec, minutes: float) -> None:
-    """Extend ``spec.sections`` so total bars cover ``minutes`` of music."""
-    num, den = map(int, spec.meter.split("/", 1))
-    bars_needed = math.ceil(minutes * spec.tempo * den / (num * 4))
-    current = spec.total_bars()
-    if bars_needed <= current:
-        return
-    sections = list(spec.sections)
-    cursor = current
-    idx = 0
-    templates = list(spec.sections)
-    while cursor < bars_needed:
-        tmpl = templates[idx % len(templates)]
-        sections.append(Section(name=tmpl.name, length=tmpl.length))
-        cursor += tmpl.length
-        idx += 1
-    spec.sections = sections
 
 
 if __name__ == "__main__":
@@ -37,7 +17,7 @@ if __name__ == "__main__":
     spec.validate()
 
     if args.minutes:
-        _extend_sections_to_minutes(spec, args.minutes)
+        extend_sections_to_minutes(spec, args.minutes)
 
     plan = build_patterns_for_song(spec, seed=args.seed)
 
