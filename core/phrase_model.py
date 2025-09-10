@@ -20,6 +20,7 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 import threading
 import time
 import random
+import logging
 
 import numpy as np
 
@@ -44,12 +45,13 @@ MODEL_DIR = Path(__file__).resolve().parent.parent / "models"
 # thread during module import.
 MODEL_CACHE: dict[str, Tuple[Optional[str], Optional[object]]] = {}
 _cache_lock = threading.Lock()
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Model loading
 # ---------------------------------------------------------------------------
 
-def _load_model_from_disk(inst: str) -> Tuple[Optional[str], Optional[object]]:
+def _load_model_from_disk(inst: str, *, verbose: bool = False) -> Tuple[Optional[str], Optional[object]]:
     """Load a model for ``inst`` from disk."""
 
     ts_path = MODEL_DIR / f"{inst}_phrase.ts.pt"
@@ -58,21 +60,35 @@ def _load_model_from_disk(inst: str) -> Tuple[Optional[str], Optional[object]]:
             model = torch.jit.load(str(ts_path))
             model.eval()
             return "torchscript", model
-        except Exception:
-            pass
+        except Exception as exc:
+            if verbose:
+                logger.warning("Failed to load TorchScript model %s: %s", ts_path, exc)
+    elif verbose:
+        if not ts_path.exists():
+            logger.info("TorchScript model not found: %s", ts_path)
+        else:
+            logger.info("Torch not available, skipping TorchScript model %s", ts_path)
 
     onnx_path = MODEL_DIR / f"{inst}_phrase.onnx"
     if onnx_path.exists() and ort is not None:
         try:  # pragma: no cover - depends on optional onnxruntime
             session = ort.InferenceSession(str(onnx_path))
             return "onnx", session
-        except Exception:
-            pass
+        except Exception as exc:
+            if verbose:
+                logger.warning("Failed to load ONNX model %s: %s", onnx_path, exc)
+    elif verbose:
+        if not onnx_path.exists():
+            logger.info("ONNX model not found: %s", onnx_path)
+        else:
+            logger.info("onnxruntime not available, skipping ONNX model %s", onnx_path)
 
+    if verbose:
+        logger.warning("No model available for %s – falling back to deterministic patterns", inst)
     return None, None
 
 
-def load_model(inst: str) -> Tuple[Optional[str], Optional[object]]:
+def load_model(inst: str, *, verbose: bool = False) -> Tuple[Optional[str], Optional[object]]:
     """Attempt to load a model for ``inst`` with caching.
 
     The function first consults an in-memory cache.  If the model has not been
@@ -84,7 +100,7 @@ def load_model(inst: str) -> Tuple[Optional[str], Optional[object]]:
         if inst in MODEL_CACHE:
             return MODEL_CACHE[inst]
 
-    fmt, model = _load_model_from_disk(inst)
+    fmt, model = _load_model_from_disk(inst, verbose=verbose)
     with _cache_lock:
         MODEL_CACHE[inst] = (fmt, model)
     return fmt, model
@@ -202,6 +218,7 @@ def generate_phrase(
     temperature: float = 1.0,
     repetition_penalty: float = 1.0,
     timeout: float = 1.0,
+    verbose: bool = False,
     **_: object,
 ) -> List[int]:
     """Generate a token sequence for ``inst``.
@@ -213,7 +230,7 @@ def generate_phrase(
     ``timeout`` seconds.
     """
 
-    fmt, model = load_model(inst)
+    fmt, model = load_model(inst, verbose=verbose)
     if model is None:
         raise RuntimeError(f"no model available for {inst}")
 
