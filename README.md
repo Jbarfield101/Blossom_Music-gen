@@ -31,10 +31,19 @@ pip install mido
 
 ```bash
 pip install soundfile  # enables FLAC support
-python -m core.main_synth --spec path/to/spec.json --minutes 3 --seed 42 --print-stats > plan.json
+python -m core.main_synth --spec path/to/spec.json --minutes 3 --seed 42 --sampler-seed 0 --print-stats > plan.json
 ```
 
 `main_synth.py` will extend the section list to meet the requested duration and print a JSON plan of events for each instrument.  The example above generates at least three minutes of material and writes it to `plan.json` while printing instrument event counts to the console.
+
+### Reproducibility
+
+Two parameters influence randomness:
+
+* `--seed` controls deterministic pattern and stem generation.
+* `--sampler-seed` seeds Python, NumPy and PyTorch RNGs used for phrase model sampling.
+
+Providing both makes runs fully repeatable (the sampler seed defaults to `0`).
 
 ## Using External Samples
 

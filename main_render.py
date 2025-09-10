@@ -213,6 +213,12 @@ if __name__ == "__main__":
     )
     ap.add_argument("--seed", type=int, default=42, help="Random seed")
     ap.add_argument(
+        "--sampler-seed",
+        type=int,
+        default=0,
+        help="Seed for phrase model sampling",
+    )
+    ap.add_argument(
         "--mix",
         default="out/mix.wav",
         help="Output path for the master mix WAV",
@@ -307,7 +313,7 @@ if __name__ == "__main__":
     if not args.spec and not args.preset:
         ap.error("either --spec or --preset is required")
 
-    logs: list = [{"seed": args.seed}]
+    logs: list = [{"seed": args.seed, "sampler_seed": args.sampler_seed}]
 
     t0 = time.monotonic()
     if args.preset:
@@ -382,7 +388,7 @@ if __name__ == "__main__":
     _log_stage(logs, progress, "voicing", t0)
 
     t0 = time.monotonic()
-    build_patterns_for_song(spec, seed=args.seed)
+    build_patterns_for_song(spec, seed=args.seed, sampler_seed=args.sampler_seed)
     _log_stage(logs, progress, "patterns", t0)
 
     t0 = time.monotonic()

@@ -9,6 +9,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--spec", required=True)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--sampler-seed", type=int, default=0)
     ap.add_argument("--minutes", type=float)
     ap.add_argument("--print-stats", action="store_true")
     args = ap.parse_args()
@@ -19,7 +20,9 @@ if __name__ == "__main__":
     if args.minutes:
         extend_sections_to_minutes(spec, args.minutes)
 
-    plan = build_patterns_for_song(spec, seed=args.seed)
+    plan = build_patterns_for_song(
+        spec, seed=args.seed, sampler_seed=args.sampler_seed
+    )
 
     if args.print_stats:
         counts = {}
