@@ -231,7 +231,7 @@ def gen_pads(chords: Sequence[str], meter: str, density: float, rng: random.Rand
 # Orchestration helper
 # ---------------------------------------------------------------------------
 
-def build_patterns_for_song(spec: SongSpec, seed: int) -> Dict:
+def build_patterns_for_song(spec: SongSpec, seed: int, sampler_seed: int | None = None) -> Dict:
     """Generate patterns for all sections/instruments using ``spec``."""
     plan: Dict = {"sections": []}
     meter = spec.meter
@@ -248,7 +248,7 @@ def build_patterns_for_song(spec: SongSpec, seed: int) -> Dict:
                     meter=meter,
                     chords=chords,
                     density=density,
-                    seed=seed,
+                    seed=sampler_seed if sampler_seed is not None else seed,
                     timeout=0.5,
                 )
             except Exception:
