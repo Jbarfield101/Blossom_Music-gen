@@ -1,0 +1,19 @@
+{
+  "title": "Lofi Loop",
+  "tempo": 80,
+  "meter": "4/4",
+  "sections": [
+    {"name": "loop", "length": 4}
+  ],
+  "harmony_grid": [
+    {"section": "loop", "chords": ["Dm", "G", "C", "C"]}
+  ],
+  "density_curve": {
+    "loop": 0.25
+  },
+  "register_policy": {
+    "bass": [28, 48],
+    "keys": [48, 72],
+    "pads": [60, 84]
+  }
+}

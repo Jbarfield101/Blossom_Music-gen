@@ -53,6 +53,14 @@ python main_render.py --spec path/to/spec.json --keys-sfz /path/to/custom/keys.s
 
 This command renders the keys using the specified SFZ instrument and writes the mix to `out/piano.wav`.
 
+Alternatively, choose a built‑in song template instead of providing a spec:
+
+```bash
+python main_render.py --song-preset pop_verse_chorus --mix out/piano.wav
+```
+
+Available song templates: `pop_verse_chorus`, `lofi_loop`.
+
 ## Basic UI
 
 For quick experiments the project includes a small Tkinter based user interface
