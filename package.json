@@ -1,0 +1,10 @@
+{
+  "name": "blossom-music-gen",
+  "private": true,
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^1"
+  }
+}

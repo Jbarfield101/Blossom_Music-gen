@@ -144,3 +144,23 @@ uvicorn webui.app:app
 
 Visit `http://localhost:8000/` in your browser to render audio directly from
 the browser.  A health‑check endpoint is available at `/health`.
+
+## Tauri UI
+
+An experimental desktop interface is provided via [Tauri](https://tauri.app/). It lives in the `src-tauri` folder and renders a small window with a centered music note icon and heading.
+
+### Building
+
+1. Install the development dependencies:
+
+```bash
+npm install
+```
+
+2. Start the UI in development mode:
+
+```bash
+npm run tauri dev
+```
+
+Click **Render** to invoke the bundled command that runs `start.py` and triggers rendering through Python.
