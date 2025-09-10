@@ -5,7 +5,8 @@ if sys.version_info[:2] != (3, 10):
 import argparse
 
 from core.song_spec import SongSpec
-from core.stems import build_stems_for_song, export_midi
+from core.stems import build_stems_for_song
+from core.midi_export import stems_to_midi
 
 
 if __name__ == "__main__":
@@ -22,7 +23,7 @@ if __name__ == "__main__":
     stems = build_stems_for_song(spec, seed=args.seed)
 
     if args.write_midi:
-        export_midi(stems, args.write_midi)
+        stems_to_midi(stems, spec.tempo, spec.meter, args.write_midi)
 
     if args.print_stats:
         counts = {inst: len(notes) for inst, notes in stems.items()}
