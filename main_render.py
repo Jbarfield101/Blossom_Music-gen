@@ -189,7 +189,11 @@ def _log_stage(logs: list, progress: tqdm, name: str, start: float, **extra) -> 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--spec", required=True, help="Song specification JSON")
+    ap.add_argument("--spec", help="Song specification JSON")
+    ap.add_argument(
+        "--song-preset",
+        help="Song template name or JSON file in assets/presets",
+    )
     ap.add_argument("--seed", type=int, default=42, help="Random seed")
     ap.add_argument(
         "--mix",
@@ -271,10 +275,18 @@ if __name__ == "__main__":
     )
     args = ap.parse_args()
 
+    if not args.spec and not args.song_preset:
+        ap.error("either --spec or --song-preset is required")
+
     logs: list = [{"seed": args.seed}]
 
     t0 = time.monotonic()
-    spec = SongSpec.from_json(args.spec)
+    if args.song_preset:
+        from core.song_templates import load_song_template
+
+        spec = SongSpec.from_dict(load_song_template(args.song_preset))
+    else:
+        spec = SongSpec.from_json(args.spec)
 
     def _load_json(path: Path) -> dict:
         with path.open("r", encoding="utf-8") as fh:
