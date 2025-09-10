@@ -206,6 +206,10 @@ if __name__ == "__main__":
         help="Directory to bundle render outputs",
     )
     ap.add_argument(
+        "--preset",
+        help="Mixing preset name or JSON file in assets/presets",
+    )
+    ap.add_argument(
         "--bundle-stems",
         action="store_true",
         help="Include individual stem WAVs in bundle",
@@ -230,6 +234,12 @@ if __name__ == "__main__":
         dest="style",
         help="Arrangement style name or JSON file in assets/styles",
     )
+    ap.add_argument("--mix-config", dest="mix_config", help="Extra mix config JSON")
+    ap.add_argument(
+        "--arrange-config",
+        dest="arrange_config",
+        help="Extra arrangement config JSON",
+    )
     ap.add_argument("--minutes", type=float, help="Target duration in minutes")
     ap.add_argument(
         "--arrange",
@@ -248,43 +258,79 @@ if __name__ == "__main__":
         action="store_true",
         help="Enable progress bar and JSON logging",
     )
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Skip audio rendering and write MIDI only",
+    )
+    ap.add_argument(
+        "--preview",
+        type=int,
+        metavar="N",
+        help="Render only the first N bars",
+    )
     args = ap.parse_args()
 
-    progress = tqdm(total=8, disable=not args.verbose)
     logs: list = [{"seed": args.seed}]
 
     t0 = time.monotonic()
     spec = SongSpec.from_json(args.spec)
 
-    def _load_config() -> dict:
+    def _load_json(path: Path) -> dict:
+        with path.open("r", encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def _merge(dst: dict, src: dict) -> None:
+        for k, v in src.items():
+            if isinstance(v, dict) and isinstance(dst.get(k), dict):
+                _merge(dst[k], v)
+            else:
+                dst[k] = v
+
+    def _load_config() -> tuple[dict, dict]:
         cfg: dict = {}
-        cfg_path = Path("render_config.json")
-        if cfg_path.exists():
-            with cfg_path.open("r", encoding="utf-8") as fh:
-                cfg = json.load(fh)
-        arr_path = Path("arrange_config.json")
-        if arr_path.exists():
-            with arr_path.open("r", encoding="utf-8") as fh:
-                arr_cfg = json.load(fh)
-            style_cfg = cfg.setdefault("style", {})
-            for k, v in arr_cfg.items():
-                if isinstance(v, dict) and isinstance(style_cfg.get(k), dict):
-                    style_cfg[k].update(v)
-                else:
-                    style_cfg[k] = v
-        return cfg
+        style: dict = {}
 
-    cfg = _load_config()
+        if args.preset:
+            from core.preset import load_preset
 
-    style = cfg.get("style", {})
-    if args.style:
-        style = load_style(args.style)
+            cfg = dict(load_preset(args.preset))
+        else:
+            cfg_path = Path("render_config.json")
+            if cfg_path.exists():
+                cfg = _load_json(cfg_path)
+
+        if args.mix_config:
+            _merge(cfg, _load_json(Path(args.mix_config)))
+
+        if args.style:
+            style = dict(load_style(args.style))
+        else:
+            arr_path = Path("arrange_config.json")
+            if arr_path.exists():
+                style = _load_json(arr_path)
+
+        if args.arrange_config:
+            _merge(style, _load_json(Path(args.arrange_config)))
+
+        return cfg, style
+
+    cfg, style = _load_config()
+
     if "swing" in style:
         spec.swing = float(style["swing"])
     if args.minutes:
         spec.outro = args.outro
         extend_sections_to_minutes(spec, args.minutes)
     spec.validate()
+
+    cfg["style"] = style
+    if args.bundle or args.verbose:
+        print(json.dumps(cfg, indent=2))
+
+    total_steps = 8 if not args.dry_run else 6
+    progress = tqdm(total=total_steps, disable=not args.verbose)
+
     _log_stage(logs, progress, "spec", t0)
 
     t0 = time.monotonic()
@@ -304,6 +350,18 @@ if __name__ == "__main__":
     if args.arrange == "on":
         stems = arrange_song(spec, stems, style=style, seed=args.seed)
     _log_stage(logs, progress, "arrange", t0)
+
+    if args.preview:
+        max_beats = args.preview * bars_to_beats(spec.meter)
+        for notes in stems.values():
+            new_notes = []
+            for n in notes:
+                if n.start >= max_beats:
+                    break
+                if n.start + n.dur > max_beats:
+                    n.dur = max_beats - n.start
+                new_notes.append(n)
+            notes[:] = new_notes
 
     sample_paths = dict(cfg.get("sample_paths", {}))
     if "keys" not in sample_paths and cfg.get("piano_sfz"):
@@ -332,80 +390,122 @@ if __name__ == "__main__":
     t0 = time.monotonic()
     rhash = render_hash(spec, cfg, sfz_map, args.seed, args.minutes)
     logs.append({"stage": "hash", "hash": rhash})
-    rendered = render_song(
-        stems,
-        sr=44100,
-        tempo=spec.tempo,
-        meter=spec.meter,
-        sfz_paths=sfz_map,
-        style=style,
-    )
-    stem_peaks = {k: float(np.max(np.abs(v))) for k, v in rendered.items()}
-    _log_stage(logs, progress, "render", t0, peaks=stem_peaks)
 
-    t0 = time.monotonic()
-    mix_audio = mix_stems(rendered, 44100, cfg)
-    mix_peak = float(np.max(np.abs(mix_audio)))
-    _log_stage(logs, progress, "mix", t0, peak=mix_peak)
+    if not args.dry_run:
+        rendered = render_song(
+            stems,
+            sr=44100,
+            tempo=spec.tempo,
+            meter=spec.meter,
+            sfz_paths=sfz_map,
+            style=style,
+        )
+        stem_peaks = {k: float(np.max(np.abs(v))) for k, v in rendered.items()}
+        if args.preview:
+            max_samples = int(
+                args.preview
+                * bars_to_beats(spec.meter)
+                * beats_to_secs(spec.tempo)
+                * 44100
+            )
+            for k, v in rendered.items():
+                rendered[k] = v[:max_samples]
+        _log_stage(logs, progress, "render", t0, peaks=stem_peaks)
 
-    summary = _print_arrangement_summary(spec, mix_audio, 44100)
+        t0 = time.monotonic()
+        mix_audio = mix_stems(rendered, 44100, cfg)
+        mix_peak = float(np.max(np.abs(mix_audio)))
+        _log_stage(logs, progress, "mix", t0, peak=mix_peak)
 
-    t0 = time.monotonic()
-    if args.bundle:
-        bundle_dir = Path(args.bundle)
-        bundle_dir.mkdir(parents=True, exist_ok=True)
+        summary = _print_arrangement_summary(spec, mix_audio, 44100)
 
-        mix_path = bundle_dir / "mix.wav"
-        _write_wav(mix_path, mix_audio, 44100, comment=rhash)
-        _maybe_export_mp3(mix_path)
+        t0 = time.monotonic()
+        if args.bundle:
+            bundle_dir = Path(args.bundle)
+            bundle_dir.mkdir(parents=True, exist_ok=True)
 
-        if args.bundle_stems:
-            stem_dir = bundle_dir / "stems"
+            mix_path = bundle_dir / "mix.wav"
+            _write_wav(mix_path, mix_audio, 44100, comment=rhash)
+            _maybe_export_mp3(mix_path)
+
+            if args.bundle_stems:
+                stem_dir = bundle_dir / "stems"
+                stem_dir.mkdir(parents=True, exist_ok=True)
+                for name, audio in rendered.items():
+                    stem_path = stem_dir / f"{name}.wav"
+                    _write_wav(stem_path, audio, 44100, comment=rhash)
+                    _maybe_export_mp3(stem_path)
+
+            shutil.copy(args.spec, bundle_dir / "song.json")
+            stems_to_midi(stems, spec.tempo, spec.meter, bundle_dir / "stems.mid")
+
+            with (bundle_dir / "config.json").open("w", encoding="utf-8") as fh:
+                json.dump(cfg, fh, indent=2)
+
+            (bundle_dir / "arrangement.txt").write_text(summary + "\n", encoding="utf-8")
+
+            cmdline = (
+                "python "
+                + Path(__file__).name
+                + " "
+                + " ".join(shlex.quote(a) for a in sys.argv[1:])
+            )
+            readme = (
+                "This bundle was generated by running:\n"
+                f"{cmdline}\n\n"
+                "To reproduce, run the above command from the repository root.\n\n"
+                f"Render hash: {rhash}\n"
+            )
+            (bundle_dir / "README.txt").write_text(readme, encoding="utf-8")
+        else:
+            mix_path = Path(args.mix)
+            mix_path.parent.mkdir(parents=True, exist_ok=True)
+            _write_wav(mix_path, mix_audio, 44100, comment=rhash)
+            _maybe_export_mp3(mix_path)
+
+            stem_dir = Path(args.stems)
             stem_dir.mkdir(parents=True, exist_ok=True)
             for name, audio in rendered.items():
                 stem_path = stem_dir / f"{name}.wav"
                 _write_wav(stem_path, audio, 44100, comment=rhash)
                 _maybe_export_mp3(stem_path)
 
-        shutil.copy(args.spec, bundle_dir / "song.json")
-        stems_to_midi(stems, spec.tempo, spec.meter, bundle_dir / "stems.mid")
+        _log_stage(logs, progress, "write", t0)
 
-        with (bundle_dir / "config.json").open("w", encoding="utf-8") as fh:
-            json.dump(cfg, fh, indent=2)
+        progress.close()
 
-        (bundle_dir / "arrangement.txt").write_text(summary + "\n", encoding="utf-8")
-
-        cmdline = (
-            "python "
-            + Path(__file__).name
-            + " "
-            + " ".join(shlex.quote(a) for a in sys.argv[1:])
-        )
-        readme = (
-            "This bundle was generated by running:\n"
-            f"{cmdline}\n\n"
-            "To reproduce, run the above command from the repository root.\n\n"
-            f"Render hash: {rhash}\n"
-        )
-        (bundle_dir / "README.txt").write_text(readme, encoding="utf-8")
+        log_dir = Path(args.bundle) if args.bundle else Path(args.mix).parent
     else:
-        mix_path = Path(args.mix)
-        mix_path.parent.mkdir(parents=True, exist_ok=True)
-        _write_wav(mix_path, mix_audio, 44100, comment=rhash)
-        _maybe_export_mp3(mix_path)
+        t0 = time.monotonic()
+        if args.bundle:
+            bundle_dir = Path(args.bundle)
+            bundle_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy(args.spec, bundle_dir / "song.json")
+            stems_to_midi(stems, spec.tempo, spec.meter, bundle_dir / "stems.mid")
+            with (bundle_dir / "config.json").open("w", encoding="utf-8") as fh:
+                json.dump(cfg, fh, indent=2)
+            cmdline = (
+                "python "
+                + Path(__file__).name
+                + " "
+                + " ".join(shlex.quote(a) for a in sys.argv[1:])
+            )
+            readme = (
+                "This bundle was generated by running:\n"
+                f"{cmdline}\n\n"
+                "To reproduce, run the above command from the repository root.\n\n"
+                f"Render hash: {rhash}\n"
+            )
+            (bundle_dir / "README.txt").write_text(readme, encoding="utf-8")
+            log_dir = bundle_dir
+        else:
+            stem_dir = Path(args.stems)
+            stem_dir.mkdir(parents=True, exist_ok=True)
+            stems_to_midi(stems, spec.tempo, spec.meter, stem_dir / "stems.mid")
+            log_dir = stem_dir
+        _log_stage(logs, progress, "write", t0)
+        progress.close()
 
-        stem_dir = Path(args.stems)
-        stem_dir.mkdir(parents=True, exist_ok=True)
-        for name, audio in rendered.items():
-            stem_path = stem_dir / f"{name}.wav"
-            _write_wav(stem_path, audio, 44100, comment=rhash)
-            _maybe_export_mp3(stem_path)
-
-    _log_stage(logs, progress, "write", t0)
-
-    progress.close()
-
-    log_dir = Path(args.bundle) if args.bundle else Path(args.mix).parent
     log_path = log_dir / "progress.jsonl"
     with log_path.open("w", encoding="utf-8") as fh:
         for entry in logs:
