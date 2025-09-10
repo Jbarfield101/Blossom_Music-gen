@@ -12,11 +12,12 @@ from .stems import (
     dedupe_collisions,
     build_stems_for_song,
 )
+from .arranger import arrange_song
 
 __all__ = [
     "SongSpec", "Section",
     "generate_satb", "parse_chord_symbol",
-    "build_patterns_for_song", "build_stems_for_song",
+    "build_patterns_for_song", "build_stems_for_song", "arrange_song",
     "Note", "Stem", "Stems",
     "bars_to_beats", "beats_to_secs",
     "enforce_register", "dedupe_collisions",

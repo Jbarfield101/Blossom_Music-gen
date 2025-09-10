@@ -12,6 +12,7 @@ import numpy as np
 
 from core.song_spec import SongSpec
 from core.stems import build_stems_for_song
+from core.arranger import arrange_song
 from core.render import render_song
 from core.mixer import mix as mix_stems
 
@@ -103,6 +104,7 @@ if __name__ == "__main__":
             cfg = json.load(fh)
 
     stems = build_stems_for_song(spec, seed=args.seed)
+    stems = arrange_song(spec, stems, style=cfg.get("style", {}), seed=args.seed)
 
     sample_paths = dict(cfg.get("sample_paths", {}))
     if "keys" not in sample_paths and cfg.get("piano_sfz"):
