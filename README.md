@@ -17,6 +17,13 @@ SFZ instruments may reference WAV or FLAC samples. Loading FLAC samples requires
 pip install soundfile
 ```
 
+For enhanced MIDI import and export support, install the optional
+[mido](https://mido.readthedocs.io/) library:
+
+```bash
+pip install mido
+```
+
 ## Generate N minutes of music
 
 1. Create a song specification JSON (see `core/song_spec.py` for fields).
