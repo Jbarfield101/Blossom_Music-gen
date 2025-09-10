@@ -78,6 +78,11 @@ if __name__ == "__main__":
         help="Directory to write individual stem WAVs",
     )
     ap.add_argument(
+        "--minutes",
+        type=float,
+        help="Target song length in minutes; sections are looped as needed",
+    )
+    ap.add_argument(
         "--keys-sfz",
         dest="keys_sfz",
         help="Path to keys SFZ file or directory. If omitted, uses render_config.json",
@@ -104,7 +109,13 @@ if __name__ == "__main__":
             cfg = json.load(fh)
 
     stems = build_stems_for_song(spec, seed=args.seed)
-    stems = arrange_song(spec, stems, style=cfg.get("style", {}), seed=args.seed)
+    stems = arrange_song(
+        spec,
+        stems,
+        style=cfg.get("style", {}),
+        seed=args.seed,
+        minutes=args.minutes,
+    )
 
     sample_paths = dict(cfg.get("sample_paths", {}))
     if "keys" not in sample_paths and cfg.get("piano_sfz"):

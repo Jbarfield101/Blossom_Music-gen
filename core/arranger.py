@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Dict, List, Mapping
 import random
 
-from .song_spec import SongSpec
+from .song_spec import SongSpec, Section
 from .stems import Stem, bars_to_beats, beats_to_secs, _steps_per_beat
 from . import dynamics
 
@@ -25,6 +25,7 @@ def arrange_song(
     stems: Mapping[str, List[Stem]],
     style: Mapping[str, object] | None,
     seed: int,
+    minutes: float | None = None,
 ) -> Dict[str, List[Stem]]:
     """Return arranged copy of ``stems`` according to ``spec`` and ``style``.
 
@@ -41,6 +42,9 @@ def arrange_song(
         the instrument is active for each section.
     seed:
         Random seed for deterministic humanisation of added events.
+    minutes:
+        Optional target duration in minutes.  Sections are looped to approach
+        this duration within ±2% where possible.
     """
 
     beats_per_bar = bars_to_beats(spec.meter)
@@ -161,6 +165,143 @@ def arrange_song(
                     continue
                 kept.append(n)
             out["drums"] = kept
+
+    # ------------------------------------------------------------------
+    # Section looping to approximate target minutes
+    # ------------------------------------------------------------------
+    target_minutes = minutes
+    if target_minutes is None and style:
+        m = style.get("minutes") if isinstance(style, Mapping) else None
+        if isinstance(m, (int, float)):
+            target_minutes = float(m)
+
+    target_secs = None
+    tol = 0.0
+    current_dur = spec.total_bars() * sec_per_bar
+    if target_minutes and target_minutes > 0:
+        target_secs = target_minutes * 60.0
+        tol = target_secs * 0.02
+
+        # Pre-split notes by section for duplication
+        section_info: List[tuple[float, float]] = []
+        bar_cursor = 0
+        for sec in spec.sections:
+            start = bar_cursor * sec_per_bar
+            dur = sec.length * sec_per_bar
+            section_info.append((start, dur))
+            bar_cursor += sec.length
+
+        base_out = {inst: list(notes) for inst, notes in out.items()}
+        section_notes: List[Dict[str, List[Stem]]] = [dict() for _ in section_info]
+        for inst, notes in base_out.items():
+            for n in notes:
+                for idx, (start, dur) in enumerate(section_info):
+                    if start - 0.01 <= n.start < start + dur - 0.01:
+                        section_notes[idx].setdefault(inst, []).append(n)
+                        break
+
+        plan: List[int] = []
+        cursor = current_dur
+        sec_idx = 0
+        while target_secs and cursor + section_info[sec_idx % len(section_info)][1] <= target_secs + tol:
+            idx = sec_idx % len(section_info)
+            plan.append(idx)
+            cursor += section_info[idx][1]
+            sec_idx += 1
+            if cursor >= target_secs - tol:
+                break
+
+        if plan:
+            # Extend spec sections
+            new_secs = list(spec.sections)
+            for idx in plan:
+                tmpl = spec.sections[idx]
+                new_secs.append(Section(name=tmpl.name, length=tmpl.length))
+            spec.sections = new_secs
+
+            # Duplicate notes
+            cursor_offset = current_dur
+            for idx in plan:
+                start_off, dur = section_info[idx]
+                for inst, notes in section_notes[idx].items():
+                    for n in notes:
+                        out.setdefault(inst, []).append(
+                            Stem(
+                                start=n.start - start_off + cursor_offset,
+                                dur=n.dur,
+                                pitch=n.pitch,
+                                vel=n.vel,
+                                chan=n.chan,
+                            )
+                        )
+                cursor_offset += dur
+            current_dur = cursor_offset
+
+        leftover = 0.0
+        if target_secs:
+            leftover = max(0.0, target_secs - current_dur)
+    else:
+        leftover = 0.0
+
+    # ------------------------------------------------------------------
+    # Outro handling
+    # ------------------------------------------------------------------
+    outro_cfg = None
+    if style and isinstance(style.get("outro"), (str, Mapping)):
+        outro_cfg = style.get("outro")
+
+    outro_type = ""
+    outro_opts: Mapping[str, object] = {}
+    if isinstance(outro_cfg, str):
+        outro_type = outro_cfg
+    elif isinstance(outro_cfg, Mapping):
+        outro_type = str(outro_cfg.get("type", ""))
+        outro_opts = outro_cfg
+
+    if outro_type:
+        if outro_type == "ritard":
+            factor = float(outro_opts.get("factor", 1.5))
+            if target_secs and current_dur < target_secs:
+                # adjust factor to meet target length if needed
+                needed = target_secs - (current_dur - sec_per_bar)
+                if sec_per_bar > 0:
+                    factor = max(factor, needed / sec_per_bar)
+            last_bar_start = max(0.0, current_dur - sec_per_bar)
+            for notes in out.values():
+                for n in notes:
+                    if n.start >= last_bar_start:
+                        off = n.start - last_bar_start
+                        end_off = off + n.dur
+                        n.start = last_bar_start + off * factor
+                        new_end = last_bar_start + end_off * factor
+                        n.dur = new_end - n.start
+                    elif n.start + n.dur > last_bar_start:
+                        overlap = (n.start + n.dur) - last_bar_start
+                        n.dur += overlap * (factor - 1)
+            bar_end_new = last_bar_start + sec_per_bar * factor
+            for notes in out.values():
+                if not notes:
+                    continue
+                last = max(notes, key=lambda n: n.start + n.dur)
+                if last.start + last.dur < bar_end_new:
+                    last.dur = bar_end_new - last.start
+            current_dur = bar_end_new
+        else:  # final hit + hold
+            hold = float(outro_opts.get("hold", sec_per_bar))
+            if target_secs and current_dur + hold < target_secs:
+                hold = target_secs - current_dur
+            end_time = current_dur
+            out.setdefault("drums", []).append(
+                Stem(start=end_time, dur=hold * 2, pitch=49, vel=110, chan=9)
+            )
+            for inst, notes in out.items():
+                if inst == "drums" or not notes:
+                    continue
+                last = max(notes, key=lambda n: n.start + n.dur)
+                last.dur += hold
+            current_dur += hold
+
+    total_play_time = current_dur
 
     # ensure deterministic order
     for notes in out.values():
