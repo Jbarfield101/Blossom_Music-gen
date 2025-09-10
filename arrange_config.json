@@ -1,0 +1,22 @@
+{
+  "section_gains": {
+    "intro": -3.0,
+    "verse": 0.0,
+    "chorus": 1.5,
+    "bridge": 0.0,
+    "outro": -3.0
+  },
+  "onoff": {
+    "drums": [1, 1, 1, 1, 0],
+    "bass": [0, 1, 1, 1, 1],
+    "keys": [1, 1, 1, 1, 1],
+    "pads": [0, 1, 1, 0, 1]
+  },
+  "fills": {
+    "drums": 1,
+    "bass": 0,
+    "keys": 0,
+    "pads": 0
+  },
+  "swing": 0.05
+}

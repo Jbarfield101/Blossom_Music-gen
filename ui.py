@@ -23,12 +23,27 @@ from core.mixer import mix
 from main_render import _write_wav, _maybe_export_mp3
 
 
+def _load_config() -> dict:
+    cfg: dict = {}
+    cfg_path = Path("render_config.json")
+    if cfg_path.exists():
+        with cfg_path.open("r", encoding="utf-8") as fh:
+            cfg = json.load(fh)
+    arr_path = Path("arrange_config.json")
+    if arr_path.exists():
+        with arr_path.open("r", encoding="utf-8") as fh:
+            arr_cfg = json.load(fh)
+        style_cfg = cfg.setdefault("style", {})
+        for k, v in arr_cfg.items():
+            if isinstance(v, dict) and isinstance(style_cfg.get(k), dict):
+                style_cfg[k].update(v)
+            else:
+                style_cfg[k] = v
+    return cfg
+
+_CFG = _load_config()
 # load default sample paths from config if present
-_CFG_SAMPLE_PATHS: dict[str, str] = {}
-_cfg_path = Path("render_config.json")
-if _cfg_path.exists():
-    with _cfg_path.open("r", encoding="utf-8") as fh:
-        _CFG_SAMPLE_PATHS = json.load(fh).get("sample_paths", {})
+_CFG_SAMPLE_PATHS: dict[str, str] = _CFG.get("sample_paths", {})
 
 
 ASSET_DIRS = {
@@ -101,16 +116,15 @@ def render():
         stems_dir = Path(stems_var.get() or "out/stems")
 
         spec = SongSpec.from_json(str(spec_path))
+
+        cfg = _load_config()
+        style = cfg.get("style", {})
+        if "swing" in style:
+            spec.swing = float(style["swing"])
         spec.validate()
 
-        cfg = {}
-        cfg_path = Path("render_config.json")
-        if cfg_path.exists():
-            with cfg_path.open("r", encoding="utf-8") as fh:
-                cfg = json.load(fh)
-
-        stems = build_stems_for_song(spec, seed=seed)
-        stems = arrange_song(spec, stems, style=cfg.get("style", {}), seed=seed)
+        stems = build_stems_for_song(spec, seed=seed, style=style)
+        stems = arrange_song(spec, stems, style=style, seed=seed)
 
         sfz_map = {}
         if keys_var.get():
