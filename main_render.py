@@ -268,6 +268,11 @@ if __name__ == "__main__":
         help="Toggle arrangement stage (default: on)",
     )
     ap.add_argument(
+        "--melody-midi",
+        dest="melody_midi",
+        help="Path to a melody MIDI file to merge before arrangement",
+    )
+    ap.add_argument(
         "--outro",
         choices=["hit", "ritard"],
         default="hit",
@@ -357,6 +362,8 @@ if __name__ == "__main__":
         print(json.dumps(cfg, indent=2))
 
     total_steps = 8 if not args.dry_run else 6
+    if args.melody_midi:
+        total_steps += 1
     progress = tqdm(total=total_steps, disable=not args.verbose)
 
     _log_stage(logs, progress, "spec", t0)
@@ -373,6 +380,16 @@ if __name__ == "__main__":
     t0 = time.monotonic()
     stems = build_stems_for_song(spec, seed=args.seed, style=style)
     _log_stage(logs, progress, "stems", t0)
+
+    if args.melody_midi:
+        from core.midi_load import load_melody_midi
+
+        t0 = time.monotonic()
+        melody, m_tempo, m_meter = load_melody_midi(Path(args.melody_midi))
+        if abs(m_tempo - float(spec.tempo)) > 1e-3 or m_meter != spec.meter:
+            raise SystemExit("Melody MIDI tempo/meter mismatch")
+        stems["melody"] = melody
+        _log_stage(logs, progress, "melody", t0)
 
     t0 = time.monotonic()
     if args.arrange == "on":
