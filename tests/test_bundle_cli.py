@@ -2,6 +2,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+import json
 
 import pytest
 
@@ -57,6 +58,32 @@ def test_bundle_creation(tmp_path):
     if (bundle_dir / "stems").exists():
         assert any((bundle_dir / "stems").glob("*.wav"))
 
+    log_path = bundle_dir / "progress.jsonl"
+    assert log_path.exists()
+    with log_path.open() as fh:
+        entries = [json.loads(line) for line in fh]
+    rhash = next(e["hash"] for e in entries if "hash" in e)
+
+    readme_text = (bundle_dir / "README.txt").read_text()
+    assert rhash in readme_text
+
+    mix_bytes = (bundle_dir / "mix.wav").read_bytes()
+    idx = mix_bytes.find(b"ICMT")
+    assert idx != -1
+    size = int.from_bytes(mix_bytes[idx + 4 : idx + 8], "little")
+    comment = mix_bytes[idx + 8 : idx + 8 + size].rstrip(b"\x00").decode("utf-8")
+    assert comment == rhash
+
+    stems_dir = bundle_dir / "stems"
+    stem_files = list(stems_dir.glob("*.wav"))
+    if stem_files:
+        b = stem_files[0].read_bytes()
+        idx = b.find(b"ICMT")
+        assert idx != -1
+        size = int.from_bytes(b[idx + 4 : idx + 8], "little")
+        stem_comment = b[idx + 8 : idx + 8 + size].rstrip(b"\x00").decode("utf-8")
+        assert stem_comment == rhash
+
     mix_path = tmp_path / "mix.wav"
     stems_dir = tmp_path / "stems"
     cmd2 = [
@@ -74,3 +101,21 @@ def test_bundle_creation(tmp_path):
     subprocess.run(cmd2, cwd=repo_root, check=True)
     assert mix_path.exists()
     assert any(stems_dir.glob("*.wav"))
+
+    log_path2 = mix_path.parent / "progress.jsonl"
+    with log_path2.open() as fh:
+        entries2 = [json.loads(line) for line in fh]
+    rhash2 = next(e["hash"] for e in entries2 if "hash" in e)
+    data = mix_path.read_bytes()
+    idx = data.find(b"ICMT")
+    assert idx != -1
+    size = int.from_bytes(data[idx + 4 : idx + 8], "little")
+    comment2 = data[idx + 8 : idx + 8 + size].rstrip(b"\x00").decode("utf-8")
+    assert comment2 == rhash2
+    stem_file2 = next(stems_dir.glob("*.wav"))
+    b2 = stem_file2.read_bytes()
+    idx2 = b2.find(b"ICMT")
+    assert idx2 != -1
+    size2 = int.from_bytes(b2[idx2 + 4 : idx2 + 8], "little")
+    comment_stem2 = b2[idx2 + 8 : idx2 + 8 + size2].rstrip(b"\x00").decode("utf-8")
+    assert comment_stem2 == rhash2
