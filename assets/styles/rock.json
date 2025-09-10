@@ -1,0 +1,5 @@
+{
+  "swing": 0.0,
+  "bass": {"tendencies": ["roots", "octaves"]},
+  "sections": ["intro", "verse", "chorus", "verse", "chorus", "bridge", "chorus"]
+}
