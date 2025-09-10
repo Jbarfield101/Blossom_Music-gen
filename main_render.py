@@ -490,7 +490,11 @@ if __name__ == "__main__":
                     _write_wav(stem_path, audio, 44100, comment=rhash)
                     _maybe_export_mp3(stem_path)
 
-            shutil.copy(args.spec, bundle_dir / "song.json")
+            if args.spec:
+                shutil.copy(args.spec, bundle_dir / "song.json")
+            else:
+                with (bundle_dir / "song.json").open("w", encoding="utf-8") as fh:
+                    json.dump(spec.to_dict(), fh, indent=2)
             stems_to_midi(stems, spec.tempo, spec.meter, bundle_dir / "stems.mid")
 
             with (bundle_dir / "render_config.json").open("w", encoding="utf-8") as fh:
@@ -537,7 +541,11 @@ if __name__ == "__main__":
         if args.bundle:
             bundle_dir = Path(args.bundle)
             bundle_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy(args.spec, bundle_dir / "song.json")
+            if args.spec:
+                shutil.copy(args.spec, bundle_dir / "song.json")
+            else:
+                with (bundle_dir / "song.json").open("w", encoding="utf-8") as fh:
+                    json.dump(spec.to_dict(), fh, indent=2)
             stems_to_midi(stems, spec.tempo, spec.meter, bundle_dir / "stems.mid")
             with (bundle_dir / "render_config.json").open("w", encoding="utf-8") as fh:
                 json.dump(cfg, fh, indent=2)

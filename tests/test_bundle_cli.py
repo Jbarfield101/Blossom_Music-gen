@@ -162,3 +162,31 @@ def test_bundle_default_path(tmp_path):
     assert (bundle_dir / "mix.wav").exists()
 
     shutil.rmtree(export_root)
+
+
+def test_bundle_with_preset(tmp_path):
+    repo_root = Path(__file__).resolve().parents[1]
+
+    py310 = Path(sys.executable).resolve().parent.parent / "3.10.17/bin/python"
+    if not py310.exists():
+        pytest.skip("python3.10 not available")
+
+    bundle_dir = tmp_path / "bundle"
+    cmd = [
+        str(py310),
+        "main_render.py",
+        "--preset",
+        "lofi_loop",
+        "--bundle",
+        str(bundle_dir),
+        "--arrange",
+        "off",
+    ]
+    subprocess.run(cmd, cwd=repo_root, check=True)
+
+    song_json = bundle_dir / "song.json"
+    assert song_json.exists()
+    with song_json.open() as fh:
+        data = json.load(fh)
+    assert data.get("title") == "Lofi Loop"
+    assert (bundle_dir / "mix.wav").exists()
