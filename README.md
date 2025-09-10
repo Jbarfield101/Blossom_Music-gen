@@ -56,7 +56,14 @@ This command renders the keys using the specified SFZ instrument and writes the 
 Alternatively, choose a built‑in song template instead of providing a spec:
 
 ```bash
-python main_render.py --song-preset pop_verse_chorus --mix out/piano.wav
+python main_render.py --preset pop_verse_chorus --mix out/piano.wav
+```
+
+Mix settings can also be loaded from a preset file in `assets/presets` using
+`--mix-preset`:
+
+```bash
+python main_render.py --spec path/to/spec.json --mix-preset default
 ```
 
 Available song templates: `pop_verse_chorus`, `lofi_loop`.
