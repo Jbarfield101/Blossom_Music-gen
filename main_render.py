@@ -10,6 +10,7 @@ import shlex
 import time
 import random
 from pathlib import Path
+from datetime import datetime
 
 import numpy as np
 
@@ -223,6 +224,8 @@ if __name__ == "__main__":
     )
     ap.add_argument(
         "--bundle",
+        nargs="?",
+        const=True,
         help="Directory to bundle render outputs",
     )
     ap.add_argument(
@@ -295,6 +298,10 @@ if __name__ == "__main__":
         help="Render only the first N bars",
     )
     args = ap.parse_args()
+
+    if args.bundle is True:
+        default_dir = Path("export") / f"Render_{datetime.now().strftime('%Y%m%d_%H%M')}"
+        args.bundle = str(default_dir)
 
     if not args.spec and not args.song_preset:
         ap.error("either --spec or --song-preset is required")
@@ -485,7 +492,7 @@ if __name__ == "__main__":
             shutil.copy(args.spec, bundle_dir / "song.json")
             stems_to_midi(stems, spec.tempo, spec.meter, bundle_dir / "stems.mid")
 
-            with (bundle_dir / "config.json").open("w", encoding="utf-8") as fh:
+            with (bundle_dir / "render_config.json").open("w", encoding="utf-8") as fh:
                 json.dump(cfg, fh, indent=2)
 
             (bundle_dir / "arrangement.txt").write_text(summary + "\n", encoding="utf-8")
@@ -531,7 +538,7 @@ if __name__ == "__main__":
             bundle_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy(args.spec, bundle_dir / "song.json")
             stems_to_midi(stems, spec.tempo, spec.meter, bundle_dir / "stems.mid")
-            with (bundle_dir / "config.json").open("w", encoding="utf-8") as fh:
+            with (bundle_dir / "render_config.json").open("w", encoding="utf-8") as fh:
                 json.dump(cfg, fh, indent=2)
             cmdline = (
                 "python "
