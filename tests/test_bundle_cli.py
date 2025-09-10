@@ -53,6 +53,12 @@ def test_bundle_creation(tmp_path):
     assert (bundle_dir / "stems.mid").exists()
     assert (bundle_dir / "mix.wav").exists()
     assert (bundle_dir / "arrangement.txt").exists()
+    report_path = bundle_dir / "arrange_report.json"
+    assert report_path.exists()
+    with report_path.open() as fh:
+        report = json.load(fh)
+    assert isinstance(report.get("sections"), list)
+    assert isinstance(report.get("fills"), list)
     assert (bundle_dir / "config.json").exists()
     assert (bundle_dir / "README.txt").exists()
     if (bundle_dir / "stems").exists():
