@@ -162,6 +162,39 @@ def arrange_song(
                 kept.append(n)
             out["drums"] = kept
 
+    # ------------------------------------------------------------------
+    # Outro handling
+    # ------------------------------------------------------------------
+    if (
+        getattr(spec, "outro", None)
+        and spec.sections
+        and spec.sections[-1].name == "outro"
+    ):
+        outro_len = spec.sections[-1].length
+        start_outro = (spec.total_bars() - outro_len) * sec_per_bar
+        if spec.outro == "hit":
+            dur = outro_len * sec_per_bar
+            for inst, notes in out.items():
+                if not notes:
+                    continue
+                last = notes[-1]
+                out.setdefault(inst, []).append(
+                    Stem(start=start_outro, dur=dur, pitch=last.pitch, vel=last.vel, chan=last.chan)
+                )
+        elif spec.outro == "ritard":
+            beat = sec_per_beat
+            for inst, notes in out.items():
+                if not notes:
+                    continue
+                last = notes[-1]
+                out.setdefault(inst, []).extend(
+                    [
+                        Stem(start=start_outro, dur=beat, pitch=last.pitch, vel=last.vel, chan=last.chan),
+                        Stem(start=start_outro + beat, dur=beat * 1.5, pitch=last.pitch, vel=last.vel, chan=last.chan),
+                        Stem(start=start_outro + beat * 2.5, dur=beat * 2.0, pitch=last.pitch, vel=last.vel, chan=last.chan),
+                    ]
+                )
+
     # ensure deterministic order
     for notes in out.values():
         notes.sort(key=lambda n: n.start)
