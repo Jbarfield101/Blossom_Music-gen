@@ -1,3 +1,9 @@
+"""Render songs from specifications or presets.
+
+Running with ``--eval-only`` and ``--bundle`` computes evaluation metrics from
+an existing render bundle without synthesising new audio.
+"""
+
 import sys
 if sys.version_info[:2] != (3, 10):
     raise RuntimeError("Blossom requires Python 3.10")
@@ -253,6 +259,11 @@ if __name__ == "__main__":
         help="Include individual stem WAVs in bundle",
     )
     ap.add_argument(
+        "--eval-only",
+        action="store_true",
+        help="compute metrics from existing bundle",
+    )
+    ap.add_argument(
         "--keys-sfz",
         dest="keys_sfz",
         help="Path to keys SFZ file or directory. If omitted, uses render_config.json",
@@ -322,6 +333,26 @@ if __name__ == "__main__":
     if args.bundle is True:
         default_dir = Path("export") / f"Render_{datetime.now().strftime('%Y%m%d_%H%M')}"
         args.bundle = str(default_dir)
+
+    if args.eval_only:
+        if not args.bundle:
+            ap.error("--bundle is required with --eval-only")
+        bundle_dir = Path(args.bundle)
+        spec = SongSpec.from_json(str(bundle_dir / "song.json"))
+        from core.midi_load import load_stems_midi
+
+        stems, _tempo, _meter = load_stems_midi(bundle_dir / "stems.mid")
+        import wave
+
+        with wave.open(bundle_dir / "mix.wav", "rb") as wf:
+            frames = wf.readframes(wf.getnframes())
+            audio = np.frombuffer(frames, dtype="<i2").astype(np.float32) / 32767.0
+            if wf.getnchannels() > 1:
+                audio = audio.reshape(-1, wf.getnchannels())
+        metrics = evaluate_render(stems, spec, audio)
+        with (bundle_dir / "metrics.json").open("w", encoding="utf-8") as fh:
+            json.dump(metrics, fh, indent=2)
+        sys.exit(0)
 
     if not args.spec and not args.preset:
         ap.error("either --spec or --preset is required")
