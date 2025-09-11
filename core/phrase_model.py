@@ -225,7 +225,8 @@ def generate_phrase(
     if seed is None:
         return _run_with_timeout(_sample_loop, timeout)
 
-    # Snapshot RNG states so seeding does not leak outside this function.
+    # Snapshot Python, NumPy and (if available) torch RNG states so seeding
+    # does not leak outside this function.
     py_state = random.getstate()
     np_state = np.random.get_state()
     torch_state = None
