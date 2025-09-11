@@ -20,6 +20,8 @@ SECTION = 9
 CADENCE = 10
 METER = 11
 SEED = 12
+CADENCE_SOON = 13
+FINAL = 14
 
 # Simple vocabularies for section and chord names used in conditioning tokens.
 SECTION_NAMES = ["A", "B", "C", "D", "E"]
@@ -47,6 +49,8 @@ def encode(
     chord: str,
     seed: int,
     cadence: bool = False,
+    cadence_soon: bool = False,
+    final: bool = False,
 ) -> List[Tuple[int, int]]:
     """Encode ``notes`` into a sequence of ``(token, value)`` pairs.
 
@@ -67,6 +71,10 @@ def encode(
         Arbitrary seed value hashed into the token sequence.
     cadence:
         Optional cadence flag stored as a token.
+    cadence_soon:
+        Optional flag signaling a cadence is approaching.
+    final:
+        Optional flag indicating the final section.
     """
 
     beats_per_bar = bars_to_beats(meter)
@@ -79,6 +87,8 @@ def encode(
     tokens.append((CHORD, CHORD_TO_ID.get(chord, 0)))
     tokens.append((SEED, seed & 0xFFFF))
     tokens.append((CADENCE, 1 if cadence else 0))
+    tokens.append((CADENCE_SOON, 1 if cadence_soon else 0))
+    tokens.append((FINAL, 1 if final else 0))
 
     # Event tokens
     for n in sorted(notes, key=lambda x: x.start):
@@ -124,6 +134,10 @@ def decode(tokens: Sequence[Tuple[int, int]]) -> Tuple[List[Stem], Dict[str, int
     meta["seed"] = seed_hash
     _, cadence_flag = _next(CADENCE)
     meta["cadence"] = cadence_flag
+    _, cadence_soon_flag = _next(CADENCE_SOON)
+    meta["cadence_soon"] = cadence_soon_flag
+    _, final_flag = _next(FINAL)
+    meta["final"] = final_flag
 
     notes: List[Stem] = []
     while True:

@@ -18,6 +18,8 @@ def test_round_trip_encode_decode():
         chord="C",
         seed=1234,
         cadence=True,
+        cadence_soon=True,
+        final=True,
     )
     decoded, meta = event_vocab.decode(tokens)
     assert decoded == notes
@@ -27,3 +29,5 @@ def test_round_trip_encode_decode():
     assert meta["chord"] == event_vocab.CHORD_TO_ID["C"]
     assert meta["seed"] == (1234 & 0xFFFF)
     assert meta["cadence"] == 1
+    assert meta["cadence_soon"] == 1
+    assert meta["final"] == 1
