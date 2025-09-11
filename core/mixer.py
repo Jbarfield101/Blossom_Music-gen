@@ -110,6 +110,54 @@ def _simple_reverb(stereo: np.ndarray, sr: int, decay: float) -> np.ndarray:
     return out / len(delays)
 
 
+def _chorus(
+    stereo: np.ndarray, sr: int, depth: float, rate: float, mix: float
+) -> np.ndarray:
+    """Apply a basic stereo chorus effect.
+
+    Two modulated delay lines (around 10–20 ms) are applied to the left and
+    right channels with their low‑frequency oscillators 180° out of phase to
+    create a stereo spread.
+
+    Parameters
+    ----------
+    stereo:
+        Stereo input array.
+    sr:
+        Sample rate of ``stereo``.
+    depth:
+        Modulation depth in milliseconds. Values above roughly ``5`` ms are
+        clamped to keep the delay within a sensible ``10‑20`` ms range.
+    rate:
+        LFO rate in Hz.
+    mix:
+        Wet/dry mix ratio, ``0`` for dry, ``1`` for fully effected.
+    """
+
+    if mix <= 0.0 or depth <= 0.0 or rate <= 0.0:
+        return stereo
+
+    base_ms = 15.0
+    depth_ms = min(depth, 5.0)
+    base = int(base_ms * 0.001 * sr)
+    depth_s = depth_ms * 0.001 * sr
+
+    n = np.arange(len(stereo))
+    phase = 2.0 * math.pi * rate * n / sr
+    delay_l = base + depth_s * np.sin(phase)
+    delay_r = base + depth_s * np.sin(phase + math.pi)
+    idx = np.arange(len(stereo))
+
+    def _interp(ch: np.ndarray, d: np.ndarray) -> np.ndarray:
+        return np.interp(idx - d, idx, ch, left=0.0, right=0.0)
+
+    wet_l = _interp(stereo[:, 0], delay_l)
+    wet_r = _interp(stereo[:, 1], delay_r)
+    out_l = stereo[:, 0] * (1.0 - mix) + wet_l * mix
+    out_r = stereo[:, 1] * (1.0 - mix) + wet_r * mix
+    return np.stack([out_l, out_r], axis=1)
+
+
 def _compress_bus(
     stereo: np.ndarray,
     sr: int,
@@ -195,6 +243,12 @@ def mix(stems: Mapping[str, np.ndarray], sr: int, config: Mapping[str, Any] | No
             q = float(eq_cfg.get("q", 1.0))
             mono = _apply_peaking_eq(mono, sr, freq, eq_gain, q)
         stereo = _apply_gain_pan(mono, gain_db, pan)
+        chorus_cfg = cfg.get("chorus")
+        if chorus_cfg:
+            depth = float(chorus_cfg.get("depth", 0.0))
+            rate = float(chorus_cfg.get("rate", 0.0))
+            wet = float(chorus_cfg.get("mix", 0.0))
+            stereo = _chorus(stereo, sr, depth, rate, wet)
         mix += stereo
         reverb_bus += stereo * send
 
