@@ -71,11 +71,16 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request) -> HTMLResponse:
+async def home(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse("home.html", {"request": request})
+
+
+@app.get("/generate", response_class=HTMLResponse)
+async def generate(request: Request) -> HTMLResponse:
     presets = _options("presets")
     styles = _options("styles")
     return templates.TemplateResponse(
-        "index.html",
+        "generate.html",
         {"request": request, "presets": presets, "styles": styles},
     )
 
