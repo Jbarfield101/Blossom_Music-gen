@@ -24,6 +24,35 @@ def test_gain_pan_limiter():
     assert np.isclose(np.max(np.abs(out)), target, atol=1e-4)
 
 
+def test_limiter_preserves_level_and_peak():
+    sr = 44100
+    quiet = np.ones(1000, dtype=np.float32) * 0.5
+    loud = np.ones(2000, dtype=np.float32) * 2.0
+    stem = np.concatenate([quiet, loud, quiet])
+    stems = {"keys": stem}
+    cfg = {
+        "tracks": {"keys": {"gain": 0.0, "pan": 0.0, "reverb_send": 0.0}},
+        "master": {
+            "headroom_db": None,
+            "compressor": {"enabled": False},
+            "limiter": {"enabled": True, "attack": 0.0, "release": 0.05},
+        },
+    }
+    out = mix(stems, sr, cfg)
+    target = 10 ** (-0.8 / 20.0)
+    base = 0.5 * np.sqrt(0.5)
+    mean_quiet = float(np.mean(np.abs(out[:1000, 0])))
+    assert mean_quiet >= base * 0.9
+    mean_loud = float(np.mean(np.abs(out[1000:3000, 0])))
+    assert np.isclose(mean_loud, target, atol=1e-2)
+    idx = np.arange(len(out))
+    up_idx = np.arange(len(out) * 4) / 4
+    up_l = np.interp(up_idx, idx, out[:, 0])
+    up_r = np.interp(up_idx, idx, out[:, 1])
+    assert np.max(np.abs(up_l)) <= target + 5e-2
+    assert np.max(np.abs(up_r)) <= target + 5e-2
+
+
 def test_gain_trim_prevents_clipping():
     sr = 44100
     stem = np.ones(1000, dtype=np.float32)

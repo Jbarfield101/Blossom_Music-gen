@@ -53,7 +53,9 @@
     "limiter": {
       "enabled": true,
       "ceiling": -0.8,
-      "oversample": 4
+      "oversample": 4,
+      "attack": 0.001,
+      "release": 0.05
     }
   }
 }
