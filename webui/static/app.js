@@ -1,6 +1,19 @@
 let jobId = null;
+let outputDir = '';
 
 function $(id){ return document.getElementById(id); }
+
+$('choose_outdir').onclick = () => {
+  $('outdir_picker').click();
+};
+
+$('outdir_picker').onchange = () => {
+  const file = $('outdir_picker').files[0];
+  if (file) {
+    outputDir = file.path || file.webkitRelativePath.split('/')[0];
+    $('outdir').value = outputDir;
+  }
+};
 
 $('dice').onclick = () => {
   $('seed').value = Math.floor(Math.random()*1e9);
@@ -20,6 +33,7 @@ $('start').onclick = async () => {
   if (arr) fd.append('arrange_config', arr);
   if ($('phrase').checked) fd.append('phrase', 'true');
   if ($('preview').value) fd.append('preview', $('preview').value);
+  if (outputDir) fd.append('outdir', outputDir);
 
   const resp = await fetch('/render', {method:'POST', body: fd});
   const data = await resp.json();
