@@ -172,6 +172,7 @@ def generate_phrase(
     *,
     seed: int | None = None,
     prompt: Sequence[int] | None = None,
+    style: int | None = None,
     max_steps: int = 128,
     top_p: float = 0.9,
     top_k: int = 0,
@@ -203,14 +204,32 @@ def generate_phrase(
 
     def _sample_loop():  # pragma: no cover - relies on optional deps
         history = list(prompt)
+        style_id = 0 if style is None else int(style)
         for _ in range(max_steps):
             if fmt == "torchscript":
                 inp = torch.tensor([history], dtype=torch.long)
-                logits = model(inp)[0, -1].detach().cpu().numpy()
+                try:
+                    logits = (
+                        model(inp, torch.tensor([style_id], dtype=torch.long))[0, -1]
+                        .detach()
+                        .cpu()
+                        .numpy()
+                    )
+                except TypeError:
+                    logits = model(inp)[0, -1].detach().cpu().numpy()
             else:  # fmt == "onnx"
                 inp = np.array([history], dtype=np.int64)
-                input_name = model.get_inputs()[0].name
-                logits = model.run(None, {input_name: inp})[0][0, -1]
+                inputs = model.get_inputs()
+                if len(inputs) >= 2:
+                    logits = model.run(
+                        None,
+                        {
+                            inputs[0].name: inp,
+                            inputs[1].name: np.array([style_id], dtype=np.int64),
+                        },
+                    )[0][0, -1]
+                else:
+                    logits = model.run(None, {inputs[0].name: inp})[0][0, -1]
             next_tok = sample(
                 logits,
                 top_p=top_p,

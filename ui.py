@@ -18,6 +18,8 @@ from tkinter import filedialog, messagebox
 from core.song_spec import SongSpec
 from core.stems import build_stems_for_song
 from core.arranger import arrange_song
+from core.pattern_synth import build_patterns_for_song
+from core.style import style_to_token
 from core.render import render_song
 from core.mixer import mix
 from main_render import _write_wav, _maybe_export_mp3
@@ -120,9 +122,13 @@ def render():
 
         cfg = _load_config()
         style = cfg.get("style", {})
+        style_name = cfg.get("style_name") or style.get("name")
+        style_tok = style_to_token(style_name)
         if "swing" in style:
             spec.swing = float(style["swing"])
         spec.validate()
+
+        build_patterns_for_song(spec, seed=seed, style=style_tok)
 
         stems = build_stems_for_song(spec, seed=seed, style=style)
         stems = arrange_song(spec, stems, style=style, seed=seed)

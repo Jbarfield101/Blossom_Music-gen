@@ -3,6 +3,7 @@ import json
 
 from core.song_spec import SongSpec, extend_sections_to_minutes
 from core.pattern_synth import build_patterns_for_song
+from core.style import style_to_token
 
 
 if __name__ == "__main__":
@@ -15,6 +16,7 @@ if __name__ == "__main__":
         default=None,
         help="Seed for phrase model sampling (defaults to --seed)",
     )
+    ap.add_argument("--style")
     ap.add_argument("--minutes", type=float)
     ap.add_argument("--print-stats", action="store_true")
     ap.add_argument("--verbose", action="store_true")
@@ -26,8 +28,13 @@ if __name__ == "__main__":
     if args.minutes:
         extend_sections_to_minutes(spec, args.minutes)
 
+    style_tok = style_to_token(args.style)
     plan = build_patterns_for_song(
-        spec, seed=args.seed, sampler_seed=args.sampler_seed, verbose=args.verbose
+        spec,
+        seed=args.seed,
+        sampler_seed=args.sampler_seed,
+        verbose=args.verbose,
+        style=style_tok,
     )
 
     if args.print_stats:

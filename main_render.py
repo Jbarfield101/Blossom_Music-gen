@@ -40,7 +40,7 @@ from core import theory
 from core.arranger import arrange_song
 from core.render import render_song
 from core.mixer import mix as mix_stems
-from core.style import load_style
+from core.style import load_style, style_to_token
 from core.midi_export import stems_to_midi
 from core.render_hash import get_git_commit, render_hash
 from core.loudness import estimate_lufs
@@ -371,6 +371,12 @@ if __name__ == "__main__":
 
     cfg, style = _load_config()
 
+    style_tok = None
+    if args.style:
+        style_tok = style_to_token(args.style)
+    elif isinstance(style.get("name"), str):
+        style_tok = style_to_token(style.get("name"))
+
     if "swing" in style:
         spec.swing = float(style["swing"])
     if args.minutes:
@@ -401,6 +407,7 @@ if __name__ == "__main__":
         sampler_seed=args.sampler_seed,
         verbose=args.verbose,
         use_phrase_model=args.use_phrase_model,
+        style=style_tok,
     )
     _log_stage(logs, progress, "patterns", t0)
 
