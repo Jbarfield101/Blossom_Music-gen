@@ -184,20 +184,16 @@ def generate_phrase(
     compatibility but ignored by the current implementation.  The function
     raises an exception if the model can not be loaded or if sampling exceeds
     ``timeout`` seconds.
+
+    If ``seed`` is provided, the Python, NumPy and (if available) torch random
+    number generators are seeded only for the duration of this call.  Their
+    previous RNG states are restored afterwards so external randomness is not
+    affected.
     """
 
     fmt, model = load_model(inst, verbose=verbose)
     if model is None:
         raise RuntimeError(f"no model available for {inst}")
-
-    if seed is not None:
-        random.seed(seed)
-        np.random.seed(seed)
-        if torch is not None:
-            try:  # pragma: no cover - depends on optional torch
-                torch.manual_seed(seed)
-            except Exception:
-                pass
 
     prompt = list(prompt or [])
 
@@ -222,4 +218,34 @@ def generate_phrase(
             history.append(next_tok)
         return history[len(prompt):]
 
-    return _run_with_timeout(_sample_loop, timeout)
+    if seed is None:
+        return _run_with_timeout(_sample_loop, timeout)
+
+    # Snapshot RNG states so seeding does not leak outside this function.
+    py_state = random.getstate()
+    np_state = np.random.get_state()
+    torch_state = None
+    if torch is not None:
+        try:  # pragma: no cover - depends on optional torch
+            torch_state = torch.random.get_rng_state()
+        except Exception:
+            torch_state = None
+
+    random.seed(seed)
+    np.random.seed(seed)
+    if torch is not None:
+        try:  # pragma: no cover - depends on optional torch
+            torch.manual_seed(seed)
+        except Exception:
+            pass
+
+    try:
+        return _run_with_timeout(_sample_loop, timeout)
+    finally:
+        random.setstate(py_state)
+        np.random.set_state(np_state)
+        if torch_state is not None:
+            try:  # pragma: no cover - depends on optional torch
+                torch.random.set_rng_state(torch_state)
+            except Exception:
+                pass
