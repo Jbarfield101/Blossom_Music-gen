@@ -4,13 +4,33 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Mapping, Union, Dict
+from enum import IntEnum
 import json
 
+
+class StyleToken(IntEnum):
+    """Enumeration of supported style tokens."""
+
+    LOFI = 0
+    ROCK = 1
+    CINEMATIC = 2
+
+
 # Mapping of human readable style names to token IDs used by phrase models
-STYLE_TOKENS = {"lofi": 0, "rock": 1, "cinematic": 2}
+STYLE_TOKENS = {
+    name.lower(): token for name, token in StyleToken.__members__.items()
+}
+
+# Convenience count of available styles
+NUM_STYLES = len(StyleToken)
+
+# Backwards compatible constant aliases
+STYLE_LOFI = StyleToken.LOFI
+STYLE_ROCK = StyleToken.ROCK
+STYLE_CINEMATIC = StyleToken.CINEMATIC
 
 
-def style_to_token(name: Union[str, Path, None]) -> int | None:
+def style_to_token(name: Union[str, Path, None]) -> StyleToken | None:
     """Return token ID for style ``name`` if known."""
     if not name:
         return None
