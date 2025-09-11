@@ -213,3 +213,15 @@ npm run tauri dev
 ```
 
 Click **Render** to invoke the bundled command that runs `start.py` and triggers rendering through Python.
+
+## Cadence fill evaluation
+
+Use `scripts/eval_cadence_fills.py` to measure note densities and compare
+cadence versus non-cadence bars. The script accepts rendered stem JSON files
+or token sequences and logs whether densities rise when `CADENCE_SOON` or
+`FINAL` tokens appear.
+
+```bash
+python scripts/eval_cadence_fills.py path/to/data.jsonl
+```
+
