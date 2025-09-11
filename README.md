@@ -175,6 +175,16 @@ Mix settings can also be loaded from a preset file in `assets/presets` using
 python main_render.py --spec path/to/spec.json --mix-preset default
 ```
 
+To compute metrics from a previously rendered bundle without synthesising
+audio again, run:
+
+```bash
+python main_render.py --bundle path/to/bundle --eval-only
+```
+
+This reads `song.json`, `stems.mid` and `mix.wav` from the bundle and writes
+`metrics.json`.
+
 Available song templates: `pop_verse_chorus`, `lofi_loop`.
 
 ## Tauri desktop UI
