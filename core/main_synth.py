@@ -9,7 +9,12 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--spec", required=True)
     ap.add_argument("--seed", type=int, default=42)
-    ap.add_argument("--sampler-seed", type=int, default=0)
+    ap.add_argument(
+        "--sampler-seed",
+        type=int,
+        default=None,
+        help="Seed for phrase model sampling (defaults to --seed)",
+    )
     ap.add_argument("--minutes", type=float)
     ap.add_argument("--print-stats", action="store_true")
     ap.add_argument("--verbose", action="store_true")

@@ -215,8 +215,8 @@ if __name__ == "__main__":
     ap.add_argument(
         "--sampler-seed",
         type=int,
-        default=0,
-        help="Seed for phrase model sampling",
+        default=None,
+        help="Seed for phrase model sampling (defaults to --seed)",
     )
     ap.add_argument(
         "--use-phrase-model",
