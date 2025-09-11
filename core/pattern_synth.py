@@ -256,10 +256,17 @@ def build_patterns_for_song(
     """
     plan: Dict = {"sections": []}
     meter = spec.meter
+    cadence_map = spec.cadence_bars()
+    pre_cadences = {b - 1: t for b, t in cadence_map.items() if b > 0}
+    final_pre_cadences = {b for b, t in pre_cadences.items() if str(t).lower().startswith("fin")}
+    bars_by_section = spec.bars_by_section()
     for sec in spec.sections:
         density = float(spec.density_curve.get(sec.name, 0.5))
         chords_row = next((r for r in spec.harmony_grid if r.get("section") == sec.name), {})
         chords = chords_row.get("chords", ["C"] * sec.length)
+        sec_start = bars_by_section.get(sec.name, range(0)).start
+        cadence_soon_flags = [1 if sec_start + i in pre_cadences else 0 for i in range(sec.length)]
+        final_flags = [1 if sec_start + i in final_pre_cadences else 0 for i in range(sec.length)]
 
         def _maybe_model(inst: str, fallback):
             if use_phrase_model == "no":
@@ -283,6 +290,8 @@ def build_patterns_for_song(
                     meter=meter,
                     chords=chords,
                     density=density,
+                    cadence_soon=cadence_soon_flags,
+                    final=final_flags,
                     seed=sampler_seed if sampler_seed is not None else seed,
                     timeout=1.0,
                     verbose=verbose,

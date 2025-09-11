@@ -49,7 +49,7 @@ def test_arranger_effects():
 
     out = arrange_song(spec, stems, style=style, seed=1)
 
-    cadence_start = 3 * sec_per_bar
+    cadence_start = 2 * sec_per_bar
     tol = 0.02  # allow for micro-timing jitter applied by dynamics
     # Noise sweep added to FX instrument
     fx_notes = out.get("fx", [])
@@ -58,7 +58,7 @@ def test_arranger_effects():
         for n in fx_notes
     )
 
-    # Tom roll should add tom pitches within cadence bar
+    # Tom roll should add tom pitches within pre-cadence bar
     drum_notes = out.get("drums", [])
     assert any(
         cadence_start - tol <= n.start < cadence_start + sec_per_bar + tol
