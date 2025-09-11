@@ -1,4 +1,5 @@
 numpy
+scipy
 soundfile
 pytest
 fastapi
