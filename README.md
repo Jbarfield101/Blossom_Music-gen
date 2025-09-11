@@ -10,6 +10,14 @@ the renderer UI.
 
 ## Dependencies
 
+Mixing EQ filters now rely on `scipy`'s `lfilter` for a vectorized
+implementation that removes Python loops and speeds up filtering. Install it
+alongside the other requirements:
+
+```bash
+pip install scipy
+```
+
 SFZ instruments may reference WAV or FLAC samples. Loading FLAC samples requires the
 [soundfile](https://pysoundfile.readthedocs.io/) library, which can be installed with:
 
