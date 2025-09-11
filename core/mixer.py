@@ -440,6 +440,7 @@ def _true_peak_limiter(
     else:
         stereo[:, 0] = limited_l
         stereo[:, 1] = limited_r
+    np.clip(stereo, -target, target, out=stereo)
     return stereo
 
 

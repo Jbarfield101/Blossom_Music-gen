@@ -1,5 +1,7 @@
 import os, sys
 
+import numpy as np
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from core.song_spec import SongSpec
@@ -76,6 +78,13 @@ def test_duration_limiter_and_stems_nonzero():
     )
     post_peak = float(abs(mixed).max()) if mixed.size else 0.0
     assert post_peak <= target + 1e-4
+
+    idx = np.arange(len(mixed))
+    up_idx = np.arange(len(mixed) * 4) / 4
+    up_l = np.interp(up_idx, idx, mixed[:, 0])
+    up_r = np.interp(up_idx, idx, mixed[:, 1])
+    true_peak = float(np.maximum(np.abs(up_l), np.abs(up_r)).max()) if mixed.size else 0.0
+    assert true_peak <= target + 1e-4
 
     beats_per_bar = bars_to_beats(spec.meter)
     note_ends = []
