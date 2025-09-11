@@ -131,7 +131,7 @@ the specified output directory:
 python scripts/ab_eval.py --spec path/to/spec.json --seed 42 --out ab_bundle
 ```
 
-The resulting bundle contains WAV files, stem JSON and `metrics.json` /
+The resulting bundle contains WAV files, stem JSON and `ab_eval.json` /
 `metrics.csv` summaries.  These metrics cover note diversity, inter-onset
 interval histograms, cadence fill rates and section-wise loudness. See
 [`docs/ab_harness.md`](docs/ab_harness.md) for details on the metrics and
