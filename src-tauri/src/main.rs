@@ -1,23 +1,44 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::{
+    collections::HashMap,
     fs,
-    io::{BufRead, BufReader},
-    path::{Path, PathBuf},
-    process::{Child, Command, Stdio},
-    sync::{Arc, Mutex},
-    thread,
-    time::Duration,
+    path::Path,
+    process::{Child, Command},
+    sync::{atomic::{AtomicU64, Ordering}, Mutex},
 };
 
-use regex::Regex;
-use serde_json::{json, Value};
-use tauri::{State, Window};
-use tauri::api::dialog::blocking::FileDialogBuilder;
+use tauri::State;
 
-struct RenderState {
-    child: Arc<Mutex<Option<Child>>>,
-    bundle: Arc<Mutex<Option<PathBuf>>>,
+struct JobInfo {
+    child: Child,
+    args: Vec<String>,
+}
+
+struct JobRegistry {
+    jobs: Mutex<HashMap<u64, JobInfo>>,
+    counter: AtomicU64,
+}
+
+impl JobRegistry {
+    fn new() -> Self {
+        Self {
+            jobs: Mutex::new(HashMap::new()),
+            counter: AtomicU64::new(1),
+        }
+    }
+
+    fn add(&self, job: JobInfo) -> u64 {
+        let id = self.counter.fetch_add(1, Ordering::SeqCst);
+        self.jobs.lock().unwrap().insert(id, job);
+        id
+    }
+}
+
+impl Default for JobRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 fn list_from_dir(dir: &Path) -> Result<Vec<String>, String> {
@@ -42,169 +63,33 @@ fn list_styles() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-fn start_render(
-    window: Window,
-    state: State<RenderState>,
-    preset: String,
-    style: Option<String>,
-    seed: i32,
-    minutes: Option<f32>,
-) -> Result<(), String> {
-    let bundle_dir = FileDialogBuilder::new()
-        .pick_folder()
-        .ok_or_else(|| "no folder selected".to_string())?;
-    {
-        let mut lock = state.bundle.lock().unwrap();
-        *lock = Some(bundle_dir.clone());
-    }
-
-    let mut args = vec![
-        "main_render.py".into(),
-        "--preset".into(),
-        preset,
-        "--seed".into(),
-        seed.to_string(),
-        "--bundle".into(),
-        bundle_dir.to_string_lossy().into_owned(),
-        "--verbose".into(),
-    ];
-    if let Some(style) = style {
-        if !style.is_empty() {
-            args.push("--style".into());
-            args.push(style);
-        }
-    }
-    if let Some(m) = minutes {
-        args.push("--minutes".into());
-        args.push(m.to_string());
-    }
-
-    let mut child = Command::new("python")
+fn start_job(registry: State<JobRegistry>, args: Vec<String>) -> Result<u64, String> {
+    let child = Command::new("python")
         .args(&args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| e.to_string())?;
-
-    if let Some(stdout) = child.stdout.take() {
-        let win = window.clone();
-        thread::spawn(move || {
-            let reader = BufReader::new(stdout);
-            let re = Regex::new(r"(\d+)/(\d+)").ok();
-            for line in reader.lines().flatten() {
-                let mut pct = None;
-                if let Some(re) = &re {
-                    if let Some(caps) = re.captures(&line) {
-                        if let (Ok(cur), Ok(total)) =
-                            (caps[1].parse::<u64>(), caps[2].parse::<u64>())
-                        {
-                            pct = Some(cur as f64 / total as f64 * 100.0);
-                        }
-                    }
-                }
-                let mut eta = None;
-                if let Some(start) = line.find('<') {
-                    if let Some(end) = line[start + 1..].find(',') {
-                        eta = Some(line[start + 1..start + 1 + end].trim().to_string());
-                    }
-                }
-                let payload = json!({ "line": line, "percent": pct, "eta": eta });
-                let _ = win.emit("progress", payload);
-            }
-        });
-    }
-
-    if let Some(stderr) = child.stderr.take() {
-        let win = window.clone();
-        thread::spawn(move || {
-            let reader = BufReader::new(stderr);
-            for line in reader.lines().flatten() {
-                let payload = json!({ "line": line, "percent": null, "eta": null });
-                let _ = win.emit("progress", payload);
-            }
-        });
-    }
-
-    {
-        let mut lock = state.child.lock().unwrap();
-        *lock = Some(child);
-    }
-
-    let win = window.clone();
-    let child_state = state.child.clone();
-    let bundle_state = state.bundle.clone();
-    thread::spawn(move || loop {
-        let finished = {
-            let mut lock = child_state.lock().unwrap();
-            if let Some(child) = lock.as_mut() {
-                match child.try_wait() {
-                    Ok(Some(status)) => {
-                        *lock = None;
-                        Some(status.success())
-                    }
-                    Ok(None) => None,
-                    Err(_) => {
-                        *lock = None;
-                        Some(false)
-                    }
-                }
-            } else {
-                return;
-            }
-        };
-        if let Some(success) = finished {
-            if success {
-                if let Some(bundle_dir) = bundle_state.lock().unwrap().take() {
-                    let zip_path = bundle_dir.with_extension("zip");
-                    let _ = Command::new("python")
-                        .args([
-                            "-c",
-                            "import shutil,sys; shutil.make_archive(sys.argv[1], 'zip', sys.argv[1])",
-                            bundle_dir.to_str().unwrap(),
-                        ])
-                        .output();
-                    let metrics = fs::read_to_string(bundle_dir.join("metrics.json"))
-                        .ok()
-                        .and_then(|s| serde_json::from_str::<Value>(&s).ok());
-                    let payload = json!({
-                        "bundle": zip_path.to_string_lossy().to_string(),
-                        "metrics": metrics
-                    });
-                    let _ = win.emit("result", payload);
-                }
-            } else {
-                let _ = win.emit("error", "render failed");
-                let _ = bundle_state.lock().unwrap().take();
-            }
-            break;
-        }
-        thread::sleep(Duration::from_millis(500));
-    });
-
-    Ok(())
+    let job = JobInfo { child, args };
+    let id = registry.add(job);
+    Ok(id)
 }
 
 #[tauri::command]
-fn cancel_render(state: State<RenderState>) -> Result<(), String> {
-    if let Some(mut child) = state.child.lock().unwrap().take() {
-        let _ = child.kill();
-        let _ = child.wait();
+fn cancel_job(registry: State<JobRegistry>, job_id: u64) -> Result<(), String> {
+    if let Some(mut job) = registry.jobs.lock().unwrap().remove(&job_id) {
+        let _ = job.child.kill();
+        let _ = job.child.wait();
     }
-    let _ = state.bundle.lock().unwrap().take();
     Ok(())
 }
 
 fn main() {
     tauri::Builder::default()
-        .manage(RenderState {
-            child: Arc::new(Mutex::new(None)),
-            bundle: Arc::new(Mutex::new(None)),
-        })
+        .manage(JobRegistry::default())
         .invoke_handler(tauri::generate_handler![
             list_presets,
             list_styles,
-            start_render,
-            cancel_render
+            start_job,
+            cancel_job
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
