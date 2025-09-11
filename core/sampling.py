@@ -85,10 +85,11 @@ def sample(
     temperature: float = 1.0,
     repetition_penalty: float = 1.0,
     history: Sequence[int] = (),
+    rng: np.random.Generator = np.random.default_rng(),
 ) -> int:
     """Sample an index from ``logits`` using the configured strategies."""
 
     logits = apply_temperature(logits, temperature)
     logits = apply_repetition_penalty(logits, history, repetition_penalty)
     probs = filter_top_k_top_p(logits, top_k, top_p)
-    return int(np.random.choice(len(probs), p=probs))
+    return int(rng.choice(len(probs), p=probs))
