@@ -43,6 +43,7 @@ def _options(kind: str) -> list[str]:
 def _watch(job_id: str) -> None:
     job = jobs[job_id]
     proc: subprocess.Popen[str] = job["proc"]
+    stage_re = re.compile(r"^\s*([\w-]+):")
     for line in proc.stdout:  # type: ignore[attr-defined]
         job["log"].append(line)
         m = re.search(r"(\d+)%", line)
@@ -51,6 +52,9 @@ def _watch(job_id: str) -> None:
         m = re.search(r"ETA[:\s]+([0-9:]+)", line)
         if m:
             job["eta"] = m.group(1)
+        m = stage_re.match(line)
+        if m:
+            job["stage"] = m.group(1)
     proc.wait()
     job["returncode"] = proc.returncode
     job["progress"] = 100
@@ -154,6 +158,7 @@ async def render(
         "log": [],
         "progress": 0,
         "eta": None,
+        "stage": None,
         "name": name,
         "outdir": outdir,
     }
@@ -173,6 +178,7 @@ async def job_status(job_id: str) -> dict:
         "status": status,
         "progress": job.get("progress", 0),
         "eta": job.get("eta"),
+        "stage": job.get("stage"),
         "log": job.get("log", []),
         "metrics": job.get("metrics"),
     }
