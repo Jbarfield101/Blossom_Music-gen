@@ -3,17 +3,20 @@
 use std::{
     fs,
     io::{BufRead, BufReader},
-    path::Path,
-    process::{Command, Stdio},
+    path::{Path, PathBuf},
+    process::{Child, Command, Stdio},
     sync::{Arc, Mutex},
     thread,
+    time::Duration,
 };
 
 use regex::Regex;
+use serde_json::json;
 use tauri::{State, Window};
 
-struct PidState {
-    pid: Arc<Mutex<Option<u32>>>,
+struct RenderState {
+    child: Arc<Mutex<Option<Child>>>,
+    bundle: Arc<Mutex<Option<PathBuf>>>,
 }
 
 fn list_from_dir(dir: &Path) -> Result<Vec<String>, String> {
@@ -40,7 +43,7 @@ fn list_styles() -> Result<Vec<String>, String> {
 #[tauri::command]
 fn start_render(
     window: Window,
-    state: State<PidState>,
+    state: State<RenderState>,
     preset: String,
     style: Option<String>,
     seed: i32,
@@ -49,6 +52,10 @@ fn start_render(
     let bundle_dir = tempfile::tempdir()
         .map_err(|e| e.to_string())?
         .into_path();
+    {
+        let mut lock = state.bundle.lock().unwrap();
+        *lock = Some(bundle_dir.clone());
+    }
 
     let mut args = vec![
         "main_render.py".into(),
@@ -78,35 +85,30 @@ fn start_render(
         .spawn()
         .map_err(|e| e.to_string())?;
 
-    let pid = child.id();
-    {
-        let mut lock = state.pid.lock().unwrap();
-        *lock = Some(pid);
-    }
-
     if let Some(stdout) = child.stdout.take() {
         let win = window.clone();
         thread::spawn(move || {
             let reader = BufReader::new(stdout);
             let re = Regex::new(r"(\d+)/(\d+)").ok();
             for line in reader.lines().flatten() {
-                let _ = win.emit("log", line.clone());
+                let mut pct = None;
                 if let Some(re) = &re {
                     if let Some(caps) = re.captures(&line) {
                         if let (Ok(cur), Ok(total)) =
                             (caps[1].parse::<u64>(), caps[2].parse::<u64>())
                         {
-                            let pct = cur as f64 / total as f64 * 100.0;
-                            let _ = win.emit("progress", pct);
+                            pct = Some(cur as f64 / total as f64 * 100.0);
                         }
                     }
                 }
+                let mut eta = None;
                 if let Some(start) = line.find('<') {
                     if let Some(end) = line[start + 1..].find(',') {
-                        let eta = line[start + 1..start + 1 + end].trim().to_string();
-                        let _ = win.emit("eta", eta);
+                        eta = Some(line[start + 1..start + 1 + end].trim().to_string());
                     }
                 }
+                let payload = json!({ "line": line, "percent": pct, "eta": eta });
+                let _ = win.emit("progress", payload);
             }
         });
     }
@@ -116,53 +118,84 @@ fn start_render(
         thread::spawn(move || {
             let reader = BufReader::new(stderr);
             for line in reader.lines().flatten() {
-                let _ = win.emit("log", line);
+                let payload = json!({ "line": line, "percent": null, "eta": null });
+                let _ = win.emit("progress", payload);
             }
         });
     }
 
+    {
+        let mut lock = state.child.lock().unwrap();
+        *lock = Some(child);
+    }
+
     let win = window.clone();
-    thread::spawn(move || {
-        let status = child.wait();
-        if let Ok(status) = status {
-            if status.success() {
-                let zip_path = bundle_dir.with_extension("zip");
-                let _ = Command::new("python")
-                    .args([
-                        "-c",
-                        "import shutil,sys; shutil.make_archive(sys.argv[1], 'zip', sys.argv[1])",
-                        bundle_dir.to_str().unwrap(),
-                    ])
-                    .output();
-                let _ = win.emit("result", zip_path.to_string_lossy().to_string());
-                let _ = fs::remove_dir_all(&bundle_dir);
+    let child_state = state.child.clone();
+    let bundle_state = state.bundle.clone();
+    thread::spawn(move || loop {
+        let finished = {
+            let mut lock = child_state.lock().unwrap();
+            if let Some(child) = lock.as_mut() {
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        *lock = None;
+                        Some(status.success())
+                    }
+                    Ok(None) => None,
+                    Err(_) => {
+                        *lock = None;
+                        Some(false)
+                    }
+                }
+            } else {
+                return;
+            }
+        };
+        if let Some(success) = finished {
+            if success {
+                if let Some(bundle_dir) = bundle_state.lock().unwrap().take() {
+                    let zip_path = bundle_dir.with_extension("zip");
+                    let _ = Command::new("python")
+                        .args([
+                            "-c",
+                            "import shutil,sys; shutil.make_archive(sys.argv[1], 'zip', sys.argv[1])",
+                            bundle_dir.to_str().unwrap(),
+                        ])
+                        .output();
+                    let _ = win.emit("result", zip_path.to_string_lossy().to_string());
+                    let _ = fs::remove_dir_all(&bundle_dir);
+                }
             } else {
                 let _ = win.emit("error", "render failed");
+                if let Some(dir) = bundle_state.lock().unwrap().take() {
+                    let _ = fs::remove_dir_all(dir);
+                }
             }
-        } else {
-            let _ = win.emit("error", "render failed");
+            break;
         }
+        thread::sleep(Duration::from_millis(500));
     });
 
     Ok(())
 }
 
 #[tauri::command]
-fn cancel_render(state: State<PidState>) -> Result<(), String> {
-    let pid_opt = { state.pid.lock().unwrap().take() };
-    if let Some(pid) = pid_opt {
-        #[cfg(unix)]
-        let _ = Command::new("kill").arg(pid.to_string()).output();
-        #[cfg(windows)]
-        let _ = Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).output();
+fn cancel_render(state: State<RenderState>) -> Result<(), String> {
+    if let Some(mut child) = state.child.lock().unwrap().take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    if let Some(dir) = state.bundle.lock().unwrap().take() {
+        let _ = fs::remove_dir_all(dir);
     }
     Ok(())
 }
 
 fn main() {
     tauri::Builder::default()
-        .manage(PidState {
-            pid: Arc::new(Mutex::new(None)),
+        .manage(RenderState {
+            child: Arc::new(Mutex::new(None)),
+            bundle: Arc::new(Mutex::new(None)),
         })
         .invoke_handler(tauri::generate_handler![
             list_presets,
