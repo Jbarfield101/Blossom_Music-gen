@@ -92,6 +92,15 @@ def _watch(job_id: str) -> None:
         m = stage_re.match(line)
         if m:
             job["stage"] = m.group(1)
+        payload = {
+            "stage": job.get("stage"),
+            "percent": job.get("progress"),
+            "msg": line.rstrip(),
+        }
+        eta = job.get("eta")
+        if eta is not None:
+            payload["eta"] = eta
+        print(f"progress::{job_id} {json.dumps(payload)}", flush=True)
     proc.wait()
     job["returncode"] = proc.returncode
     job["progress"] = 100

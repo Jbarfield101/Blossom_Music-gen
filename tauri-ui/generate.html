@@ -94,18 +94,12 @@
         }
       }
 
-      window.__TAURI__.event.listen('progress', e => {
-        const { line, percent, eta: eeta } = e.payload;
-        if (typeof percent === 'number') prog.value = percent;
-        if (line) {
-          logs.textContent += line + '\n';
-          logs.scrollTop = logs.scrollHeight;
-          const m = line.match(/^\s*([\w-]+):/);
-          stage.textContent = m ? m[1] : '';
-        }
-        eta.textContent = eeta ? 'ETA: ' + eeta : '';
-      });
+      let progressUnlisten = null;
       window.__TAURI__.event.listen('result', e => {
+        if (progressUnlisten) {
+          progressUnlisten();
+          progressUnlisten = null;
+        }
         bundlePath = e.payload.bundle;
         const summary = document.getElementById('summary');
         summary.innerHTML = '';
@@ -132,6 +126,10 @@
       });
       window.__TAURI__.event.listen('error', e => {
         logs.textContent += 'Error: ' + e.payload + '\n';
+        if (progressUnlisten) {
+          progressUnlisten();
+          progressUnlisten = null;
+        }
         cancelBtn.style.display = 'none';
         startBtn.disabled = false;
       });
@@ -149,6 +147,19 @@
           style: styleSel.value,
           seed: parseInt(seedInput.value),
           minutes: minInput.value ? parseFloat(minInput.value) : null
+        });
+        if (progressUnlisten) {
+          progressUnlisten();
+        }
+        progressUnlisten = await window.__TAURI__.event.listen(`progress::${currentJobId}`, e => {
+          const { stage: stg, percent, msg, eta: eeta } = e.payload;
+          if (typeof percent === 'number') prog.value = percent;
+          if (msg) {
+            logs.textContent += msg + '\n';
+            logs.scrollTop = logs.scrollHeight;
+          }
+          stage.textContent = stg || '';
+          eta.textContent = eeta ? 'ETA: ' + eeta : '';
         });
       });
 
