@@ -93,6 +93,40 @@ def test_bus_compressor_reduces_peak():
     assert np.isclose(peak_comp, target, atol=0.02)
 
 
+def test_saturation_reduces_peak_and_adds_harmonics():
+    sr = 44100
+    t = np.arange(sr) / sr
+    sine = (2.0 * np.sin(2 * np.pi * 100 * t)).astype(np.float32)
+    stems = {"keys": sine}
+    base_cfg = {"tracks": {"keys": {"gain": 0.0, "pan": 0.0, "reverb_send": 0.0}}}
+    cfg_no = {
+        **base_cfg,
+        "master": {
+            "saturation": {"drive": 0.0},
+            "compressor": {"enabled": False},
+            "limiter": {"enabled": False},
+        },
+    }
+    cfg_sat = {
+        **base_cfg,
+        "master": {
+            "saturation": {"drive": 5.0},
+            "compressor": {"enabled": False},
+            "limiter": {"enabled": False},
+        },
+    }
+    out_no = mix(stems, sr, cfg_no)
+    out_sat = mix(stems, sr, cfg_sat)
+    peak_no = np.max(np.abs(out_no))
+    peak_sat = np.max(np.abs(out_sat))
+    assert peak_sat < peak_no
+
+    spec_no = np.abs(np.fft.rfft(out_no[:, 0]))
+    spec_sat = np.abs(np.fft.rfft(out_sat[:, 0]))
+    third = 300  # 3rd harmonic of 100 Hz when len == sr
+    assert spec_sat[third] > spec_no[third] * 10
+
+
 def test_reverb_predelay_shifts_response():
     sr = 100
     imp = np.zeros(200, dtype=np.float32)

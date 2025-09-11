@@ -226,6 +226,22 @@ def _chorus(
     return np.stack([out_l, out_r], axis=1)
 
 
+def _soft_clip(stereo: np.ndarray, drive: float) -> np.ndarray:
+    """Apply a soft clipping transfer curve to ``stereo``.
+
+    Parameters
+    ----------
+    stereo:
+        Stereo input array.
+    drive:
+        Drive amount controlling the strength of saturation. ``0`` disables
+        the effect.
+    """
+    if drive <= 0.0:
+        return stereo
+    return np.tanh(stereo * drive) / np.tanh(drive)
+
+
 def _compress_bus(
     stereo: np.ndarray,
     sr: int,
@@ -328,6 +344,11 @@ def mix(stems: Mapping[str, np.ndarray], sr: int, config: Mapping[str, Any] | No
     damp = float(rev_cfg.get("damp", 0.5))
     if wet > 0.0:
         mix += _plate_reverb(reverb_bus, sr, decay, predelay, damp) * wet
+
+    sat_cfg = config.get("master", {}).get("saturation", {})
+    drive = float(sat_cfg.get("drive", 0.0))
+    if drive > 0.0:
+        mix = _soft_clip(mix, drive)
 
     comp_cfg = config.get("master", {}).get("compressor", {})
     if comp_cfg.get("enabled", True):

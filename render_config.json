@@ -40,6 +40,7 @@
     "damp": 0.5
   },
   "master": {
+    "saturation": {"drive": 0.0},
     "compressor": {
       "enabled": true,
       "threshold": -6.0,
