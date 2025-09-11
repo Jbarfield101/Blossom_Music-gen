@@ -241,6 +241,7 @@ def build_patterns_for_song(
     *,
     verbose: bool = False,
     use_phrase_model: str = "auto",
+    style: int | None = None,
 ) -> Dict:
     """Generate patterns for all sections/instruments using ``spec``.
 
@@ -284,8 +285,7 @@ def build_patterns_for_song(
                     return fallback()
 
             try:
-                return generate_phrase(
-                    inst,
+                kwargs = dict(
                     n_bars=sec.length,
                     meter=meter,
                     chords=chords,
@@ -296,6 +296,9 @@ def build_patterns_for_song(
                     timeout=1.0,
                     verbose=verbose,
                 )
+                if style is not None:
+                    kwargs["style"] = style
+                return generate_phrase(inst, **kwargs)
             except (RuntimeError, TimeoutError) as exc:
                 logger.warning(
                     "Phrase model for %s failed: %s – using algorithmic generator",
