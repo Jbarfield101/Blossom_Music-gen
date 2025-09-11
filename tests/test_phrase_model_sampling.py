@@ -74,14 +74,14 @@ def test_sampler_seed_reproducibility(monkeypatch):
 
 @pytest.mark.parametrize("exc", [RuntimeError("no model"), TimeoutError("slow")])
 def test_algorithmic_fallback(monkeypatch, exc):
-    """When models fail, algorithmic generators should be used."""
+    """When models fail, algorithmic generators should be used even when forced."""
 
     def _raise(*_a, **_k):
         raise exc
 
     monkeypatch.setattr("core.pattern_synth.generate_phrase", _raise)
     spec = _simple_spec()
-    plan = build_patterns_for_song(spec, seed=7, sampler_seed=7)
+    plan = build_patterns_for_song(spec, seed=7, sampler_seed=7, use_phrase_model="yes")
 
     sec = spec.sections[0]
     density = spec.density_curve[sec.name]

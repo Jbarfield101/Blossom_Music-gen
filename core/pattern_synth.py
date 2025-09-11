@@ -14,6 +14,7 @@ be combined to generate musical material.
 
 from typing import Callable, Dict, List, Optional, Sequence
 import hashlib
+import logging
 import random
 
 from .song_spec import SongSpec
@@ -21,6 +22,7 @@ from .theory import parse_chord_symbol, midi_note
 from .utils import Event
 
 generate_phrase: Optional[Callable[..., List[int]]] = None
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +276,13 @@ def build_patterns_for_song(
                     timeout=0.5,
                     verbose=verbose,
                 )
+            except (RuntimeError, TimeoutError) as exc:
+                logger.warning(
+                    "Phrase model for %s failed: %s – using algorithmic generator",
+                    inst,
+                    exc,
+                )
+                return fallback()
             except Exception:
                 if use_phrase_model == "yes":
                     raise
