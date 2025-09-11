@@ -60,6 +60,15 @@ def _watch(job_id: str) -> None:
             metrics = job["tmpdir"] / "metrics.json"
             if metrics.exists():
                 job["metrics"] = json.loads(metrics.read_text())
+            outdir = job.get("outdir")
+            if outdir:
+                dest = Path(outdir)
+                dest.mkdir(parents=True, exist_ok=True)
+                for name in ["mix.wav", "stems.mid", "bundle.zip"]:
+                    src = job["tmpdir"] / name
+                    if src.exists():
+                        dst = dest / f"{job.get('name', 'output')}{Path(name).suffix}"
+                        shutil.copy2(src, dst)
         except Exception:
             pass
 
@@ -97,6 +106,7 @@ async def render(
     arrange_config: UploadFile | None = File(None),
     phrase: bool = Form(False),
     preview: int | None = Form(None),
+    outdir: str | None = Form(None),
 ) -> dict:
     tmpdir = Path(tempfile.mkdtemp())
     mix_path = tmpdir / "mix.wav"
@@ -145,6 +155,7 @@ async def render(
         "progress": 0,
         "eta": None,
         "name": name,
+        "outdir": outdir,
     }
     threading.Thread(target=_watch, args=(job_id,), daemon=True).start()
     return {"job_id": job_id}
