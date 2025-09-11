@@ -229,5 +229,5 @@ Launch the server with:
 uvicorn webui.app:app
 ```
 
-Visit `http://localhost:8000/` in your browser to render audio directly from
-the browser.  A health‑check endpoint is available at `/health`.
+Visit `http://localhost:8000/generate` in your browser to render audio directly
+from the browser.  A health‑check endpoint is available at `/health`.
