@@ -50,7 +50,55 @@ def test_track_eq_boosts_frequency():
                 "gain": 0.0,
                 "pan": 0.0,
                 "reverb_send": 0.0,
-                "eq": {"freq": 1000.0, "gain": 6.0, "q": 1.0},
+                "eq": {"type": "peaking", "freq": 1000.0, "gain": 6.0, "q": 1.0},
+            }
+        },
+        "master": {"compressor": {"enabled": False}},
+    }
+    out_no = mix(stems, sr, cfg_no)
+    out_eq = mix(stems, sr, cfg_eq)
+    amp_no = np.max(np.abs(out_no[100:, 0]))
+    amp_eq = np.max(np.abs(out_eq[100:, 0]))
+    assert amp_eq > amp_no * 1.5
+
+
+def test_low_shelf_boosts_bass():
+    sr = 44100
+    t = np.arange(int(sr * 0.1)) / sr
+    sine = 0.25 * np.sin(2 * np.pi * 100 * t).astype(np.float32)
+    stems = {"bass": sine}
+    cfg_no = {"tracks": {"bass": {"gain": 0.0, "pan": 0.0, "reverb_send": 0.0}}, "master": {"compressor": {"enabled": False}}}
+    cfg_eq = {
+        "tracks": {
+            "bass": {
+                "gain": 0.0,
+                "pan": 0.0,
+                "reverb_send": 0.0,
+                "eq": {"type": "low_shelf", "freq": 500.0, "gain": 6.0, "q": 1.0},
+            }
+        },
+        "master": {"compressor": {"enabled": False}},
+    }
+    out_no = mix(stems, sr, cfg_no)
+    out_eq = mix(stems, sr, cfg_eq)
+    amp_no = np.max(np.abs(out_no[100:, 0]))
+    amp_eq = np.max(np.abs(out_eq[100:, 0]))
+    assert amp_eq > amp_no * 1.5
+
+
+def test_high_shelf_boosts_treble():
+    sr = 44100
+    t = np.arange(int(sr * 0.1)) / sr
+    sine = 0.25 * np.sin(2 * np.pi * 5000 * t).astype(np.float32)
+    stems = {"lead": sine}
+    cfg_no = {"tracks": {"lead": {"gain": 0.0, "pan": 0.0, "reverb_send": 0.0}}, "master": {"compressor": {"enabled": False}}}
+    cfg_eq = {
+        "tracks": {
+            "lead": {
+                "gain": 0.0,
+                "pan": 0.0,
+                "reverb_send": 0.0,
+                "eq": {"type": "high_shelf", "freq": 2000.0, "gain": 6.0, "q": 1.0},
             }
         },
         "master": {"compressor": {"enabled": False}},
