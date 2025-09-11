@@ -85,6 +85,20 @@ If a model file is absent or fails to load, the code falls back to the
 deterministic pattern generators.  See
 [`docs/phrase_models.md`](docs/phrase_models.md) for details.
 
+## Cadence fill evaluation
+
+The repository includes a small helper to inspect note densities around
+cadence markers.  `scripts/eval_cadence_fills.py` accepts JSON or JSONL
+files containing token sequences or rendered stems and reports average
+note density per bar.  When `CADENCE_SOON` or `FINAL` tokens are present
+it compares their bars against ordinary ones and prints whether density
+increases:
+
+```bash
+python scripts/eval_cadence_fills.py path/to/tokens.jsonl
+```
+
+
 ## Using External Samples
 
 If drum hits are placed under `assets/samples/drums` and simple SFZ instruments
