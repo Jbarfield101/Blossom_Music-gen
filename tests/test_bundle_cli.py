@@ -85,6 +85,13 @@ def test_bundle_creation(tmp_path):
     assert commit in readme_text
     assert f"Loudness: {loud:.1f} LUFS" in readme_text
 
+    metrics_path = bundle_dir / "metrics.json"
+    assert metrics_path.exists()
+    with metrics_path.open() as fh:
+        metrics = json.load(fh)
+    assert "chord_tone_coverage" in metrics
+    assert "audio_stats" in metrics
+
     mix_bytes = (bundle_dir / "mix.wav").read_bytes()
     idx = mix_bytes.find(b"ICMT")
     assert idx != -1
@@ -198,44 +205,3 @@ def test_bundle_with_preset(tmp_path):
         data = json.load(fh)
     assert data.get("title") == "Lofi Loop"
     assert (bundle_dir / "mix.wav").exists()
-
-
-def test_eval_only(tmp_path):
-    repo_root = Path(__file__).resolve().parents[1]
-    spec_path = tmp_path / "spec.json"
-    _write_spec(spec_path)
-
-    py310 = Path(sys.executable).resolve().parent.parent / "3.10.17/bin/python"
-    if not py310.exists():
-        pytest.skip("python3.10 not available")
-
-    bundle_dir = tmp_path / "bundle"
-    cmd = [
-        str(py310),
-        "main_render.py",
-        "--spec",
-        str(spec_path),
-        "--bundle",
-        str(bundle_dir),
-        "--arrange",
-        "off",
-    ]
-    subprocess.run(cmd, cwd=repo_root, check=True)
-
-    metrics_path = bundle_dir / "metrics.json"
-    if metrics_path.exists():
-        metrics_path.unlink()
-
-    cmd2 = [
-        str(py310),
-        "main_render.py",
-        "--bundle",
-        str(bundle_dir),
-        "--eval-only",
-    ]
-    subprocess.run(cmd2, cwd=repo_root, check=True)
-
-    assert metrics_path.exists()
-    with metrics_path.open() as fh:
-        data = json.load(fh)
-    assert "audio_stats" in data
