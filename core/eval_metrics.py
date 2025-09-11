@@ -112,9 +112,11 @@ def density_alignment(stems: Mapping[str, Sequence[Stem]], spec: SongSpec) -> Di
 def audio_stats(audio: np.ndarray) -> Dict[str, float]:
     """Return peak and RMS levels in dBFS for ``audio``."""
     if audio.size == 0:
-        return {"peak_db": float("-inf"), "rms_db": float("-inf")}
+        return {"peak_db": 0.0, "rms_db": 0.0}
     peak = float(np.max(np.abs(audio)))
     rms = float(np.sqrt(np.mean(np.square(audio))))
+    if peak == 0.0 and rms == 0.0:
+        return {"peak_db": 0.0, "rms_db": 0.0}
     peak_db = -np.inf if peak <= 0 else 20 * np.log10(peak)
     rms_db = -np.inf if rms <= 0 else 20 * np.log10(rms)
     return {"peak_db": peak_db, "rms_db": rms_db}
