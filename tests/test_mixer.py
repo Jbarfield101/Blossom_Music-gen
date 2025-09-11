@@ -91,3 +91,33 @@ def test_bus_compressor_reduces_peak():
     target = 10 ** ((-20 + (0 - (-20)) / 4) / 20)
     assert peak_no > peak_comp
     assert np.isclose(peak_comp, target, atol=0.02)
+
+
+def test_chorus_modifies_signal():
+    sr = 44100
+    t = np.arange(int(sr * 0.1)) / sr
+    mono = np.sin(2 * np.pi * 220 * t).astype(np.float32)
+    stems = {"pads": mono}
+    cfg_dry = {
+        "tracks": {"pads": {"gain": 0.0, "pan": 0.0, "reverb_send": 0.0}},
+        "master": {"compressor": {"enabled": False}},
+    }
+    cfg_ch = {
+        "tracks": {
+            "pads": {
+                "gain": 0.0,
+                "pan": 0.0,
+                "reverb_send": 0.0,
+                "chorus": {"depth": 5.0, "rate": 0.5, "mix": 1.0},
+            }
+        },
+        "master": {"compressor": {"enabled": False}},
+    }
+    dry = mix(stems, sr, cfg_dry)
+    wet = mix(stems, sr, cfg_ch)
+    ac_dry = np.correlate(dry[:, 0], dry[:, 0], mode="full")
+    ac_wet = np.correlate(wet[:, 0], wet[:, 0], mode="full")
+    assert np.max(np.abs(ac_dry - ac_wet)) > 1e-3
+    fft_dry = np.abs(np.fft.rfft(dry[:, 0]))
+    fft_wet = np.abs(np.fft.rfft(wet[:, 0]))
+    assert np.max(np.abs(fft_dry - fft_wet)) > 1e-3

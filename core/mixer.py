@@ -110,6 +110,41 @@ def _simple_reverb(stereo: np.ndarray, sr: int, decay: float) -> np.ndarray:
     return out / len(delays)
 
 
+def _chorus(
+    signal: np.ndarray, sr: int, depth_ms: float, rate_hz: float, mix: float
+) -> np.ndarray:
+    """Return ``signal`` with a basic stereo chorus effect applied.
+
+    Two modulated delay lines create a stereo spread. ``depth_ms`` controls the
+    modulation depth in milliseconds, ``rate_hz`` the LFO rate and ``mix`` the
+    wet/dry balance (``0`` = dry, ``1`` = fully effected).
+    """
+
+    n = len(signal)
+    depth = max(depth_ms, 0.0) * 0.001 * sr
+    base = int(0.015 * sr)  # 15 ms base delay
+    max_delay = int(base + depth + 2)
+    padded = np.pad(signal, (max_delay + 1, 1))
+    t = np.arange(n)
+
+    lfo_l = np.sin(2 * math.pi * rate_hz * t / sr)
+    lfo_r = np.cos(2 * math.pi * rate_hz * t / sr)
+    out = np.zeros((n, 2), dtype=np.float32)
+    dry = signal.astype(np.float32)
+
+    for ch, lfo in enumerate((lfo_l, lfo_r)):
+        delays = base + lfo * depth
+        idx = max_delay + t - delays
+        i0 = np.floor(idx).astype(int)
+        frac = idx - i0
+        s0 = padded[i0]
+        s1 = padded[i0 + 1]
+        wet = (1.0 - frac) * s0 + frac * s1
+        out[:, ch] = dry * (1.0 - mix) + wet * mix
+
+    return out
+
+
 def _compress_bus(
     stereo: np.ndarray,
     sr: int,
@@ -194,7 +229,19 @@ def mix(stems: Mapping[str, np.ndarray], sr: int, config: Mapping[str, Any] | No
             eq_gain = float(eq_cfg.get("gain", 0.0))
             q = float(eq_cfg.get("q", 1.0))
             mono = _apply_peaking_eq(mono, sr, freq, eq_gain, q)
-        stereo = _apply_gain_pan(mono, gain_db, pan)
+        mono *= 10 ** (gain_db / 20.0)
+        chorus_cfg = cfg.get("chorus")
+        if chorus_cfg:
+            depth = float(chorus_cfg.get("depth", 0.0))
+            rate = float(chorus_cfg.get("rate", 0.25))
+            mix_amt = float(chorus_cfg.get("mix", 0.5))
+            stereo = _chorus(mono, sr, depth, rate, mix_amt)
+            left = math.sqrt(0.5 * (1.0 - pan))
+            right = math.sqrt(0.5 * (1.0 + pan))
+            stereo[:, 0] *= left
+            stereo[:, 1] *= right
+        else:
+            stereo = _apply_gain_pan(mono, 0.0, pan)
         mix += stereo
         reverb_bus += stereo * send
 
