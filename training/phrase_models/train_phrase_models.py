@@ -15,6 +15,7 @@ The exported TorchScript/ONNX artefacts are still compatible with
 from pathlib import Path
 from typing import Sequence, Union
 
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -150,7 +151,7 @@ def main() -> None:
         .cpu()
         .numpy()
     )
-    _ = sample(logits, top_k=4, top_p=0.9)
+    _ = sample(logits, top_k=4, top_p=0.9, rng=np.random.default_rng(0))
 
     # Bass phrase: chord conditioned
     bass_in, bass_hidden, bass_out = 12, 32, 12  # additional dims for chords
