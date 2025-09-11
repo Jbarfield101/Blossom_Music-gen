@@ -5,8 +5,8 @@ Simple demos for algorithmic music pattern generation.
 **64-bit Python 3.10 required.** The `start.py` helper creates a persistent
 virtual environment in `.venv` (reusing it on subsequent runs), installs the
 packages from `requirements.txt` if needed, and aborts if installation fails.
-After setup it opens a minimal main menu where clicking the music icon launches
-the renderer UI.
+A lightweight Tauri application now provides the graphical interface while
+`start.py` can be called directly from the command line.
 
 ## Dependencies
 
@@ -161,59 +161,22 @@ python main_render.py --spec path/to/spec.json --mix-preset default
 
 Available song templates: `pop_verse_chorus`, `lofi_loop`.
 
-## Basic UI
+## Tauri GUI
 
-For quick experiments the project includes a small Tkinter based user interface
-(`ui.py`). The UI mirrors the command line options and writes the same output
-files.
-
-### Prerequisites
-
-- 64-bit Python 3.10 with the `tkinter` module available. On many Linux systems this
-  can be installed via `sudo apt install python3-tk`.
-- Optional: [`soundfile`](https://pysoundfile.readthedocs.io/) for FLAC
-  support when rendering.
+A desktop interface built with [Tauri](https://tauri.app/) mirrors the command
+line options and writes the same output files.
 
 ### Launching
 
-Launch the interface through the bootstrapper:
+Install the development dependencies and start the UI:
 
 ```bash
-python start.py
+npm install
+npm run tauri dev
 ```
 
-On first run the script sets up a `.venv` virtual environment, installs
-dependencies, and then presents a window with a music icon. Clicking the icon
-opens the rendering interface. Later invocations reuse the existing
-environment.
-
-If you already have the requirements installed, the UI can still be invoked
-directly:
-
-```bash
-python ui.py
-```
-
-### Fields
-
-The window exposes a handful of text fields:
-
-| Field | Purpose |
-| ----- | ------- |
-| **Spec JSON** | Path to the song specification used for generation. |
-| **Seed** | Random seed for reproducible results. |
-| **Minutes** | Optional length of music to generate; sections repeat as needed. |
-| **Mix Path** | Destination of the rendered master mix WAV file. |
-| **Stems Dir** | Directory where individual instrument stems are written. |
-| **Keys/Pads/Bass SFZ** | Optional overrides for instrument sample mappings. |
-
-### Example workflow
-
-1. Prepare a song specification such as `song.json`.
-2. Start the launcher with `python start.py` (the first run creates `.venv` and
-   installs dependencies) and click the icon to open the renderer UI.
-3. Browse to the spec JSON and adjust any desired parameters.
-4. Click **Render** to create the mix and stems in the specified locations.
+Fill out the fields for the song spec, optional SFZ paths, seed, and output
+locations then click **Render** to run the Python pipeline.
 
 ## Web UI
 
@@ -230,23 +193,3 @@ uvicorn webui.app:app
 
 Visit `http://localhost:8000/` in your browser to render audio directly from
 the browser.  A health‑check endpoint is available at `/health`.
-
-## Tauri UI
-
-An experimental desktop interface is provided via [Tauri](https://tauri.app/). It lives in the `src-tauri` folder and renders a small window with a centered music note icon and heading.
-
-### Building
-
-1. Install the development dependencies:
-
-```bash
-npm install
-```
-
-2. Start the UI in development mode:
-
-```bash
-npm run tauri dev
-```
-
-Click **Render** to invoke the bundled command that runs `start.py` and triggers rendering through Python.

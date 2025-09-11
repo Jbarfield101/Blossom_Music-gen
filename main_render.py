@@ -267,6 +267,11 @@ if __name__ == "__main__":
         help="Path to bass SFZ file or directory. If omitted, uses render_config.json",
     )
     ap.add_argument(
+        "--drums-sfz",
+        dest="drums_sfz",
+        help="Path to drums SFZ file or directory. If omitted, uses render_config.json",
+    )
+    ap.add_argument(
         "--style",
         dest="style",
         help="Arrangement style name or JSON file in assets/styles",
@@ -465,6 +470,7 @@ if __name__ == "__main__":
     _apply_override("keys", args.keys_sfz)
     _apply_override("pads", args.pads_sfz)
     _apply_override("bass", args.bass_sfz)
+    _apply_override("drums", args.drums_sfz)
 
     t0 = time.monotonic()
     commit = get_git_commit()
