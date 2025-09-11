@@ -202,6 +202,7 @@ def generate_phrase(
         raise RuntimeError(f"no model available for {inst}")
 
     prompt = list(prompt or [])
+    rng = np.random.default_rng(seed)
 
     def _sample_loop():  # pragma: no cover - relies on optional deps
         history = list(prompt)
@@ -238,6 +239,7 @@ def generate_phrase(
                 temperature=temperature,
                 repetition_penalty=repetition_penalty,
                 history=history,
+                rng=rng,
             )
             history.append(next_tok)
         return history[len(prompt):]
