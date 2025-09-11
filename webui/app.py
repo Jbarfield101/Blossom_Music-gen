@@ -34,10 +34,26 @@ templates = Jinja2Templates(directory=REPO_ROOT / "webui" / "templates")
 
 jobs: dict[str, dict] = {}
 
+RECENT_FILE = REPO_ROOT / "webui" / "recent_renders.json"
+MAX_RECENT = 10
+
 
 def _options(kind: str) -> list[str]:
     base = ASSETS_DIR / kind
     return [p.stem for p in base.glob("*.json")]
+
+
+def _load_recent() -> list[dict]:
+    if RECENT_FILE.exists():
+        try:
+            return json.loads(RECENT_FILE.read_text())
+        except Exception:
+            return []
+    return []
+
+
+def _save_recent(entries: list[dict]) -> None:
+    RECENT_FILE.write_text(json.dumps(entries[-MAX_RECENT:], indent=2))
 
 
 def _watch(job_id: str) -> None:
@@ -75,6 +91,41 @@ def _watch(job_id: str) -> None:
                         shutil.copy2(src, dst)
         except Exception:
             pass
+
+    status = "completed" if proc.returncode == 0 else "error"
+    seed = job.get("seed")
+    rhash = None
+    progress_file = job["tmpdir"] / "progress.jsonl"
+    if progress_file.exists():
+        try:
+            for line in progress_file.read_text().splitlines():
+                try:
+                    entry = json.loads(line)
+                except Exception:
+                    continue
+                if seed is None and "seed" in entry:
+                    seed = entry.get("seed")
+                if entry.get("stage") == "hash":
+                    rhash = entry.get("hash")
+        except Exception:
+            pass
+    record = {
+        "id": job_id,
+        "preset": job.get("preset"),
+        "style": job.get("style"),
+        "minutes": job.get("minutes"),
+        "sections": job.get("sections"),
+        "seed": seed,
+        "name": job.get("name"),
+        "phrase": job.get("phrase"),
+        "preview": job.get("preview"),
+        "outdir": job.get("outdir"),
+        "status": status,
+        "hash": rhash,
+    }
+    recent = _load_recent()
+    recent.append(record)
+    _save_recent(recent)
 
 
 @app.get("/health")
@@ -161,6 +212,13 @@ async def render(
         "stage": None,
         "name": name,
         "outdir": outdir,
+        "preset": preset,
+        "style": style,
+        "seed": seed,
+        "minutes": minutes,
+        "sections": sections,
+        "phrase": phrase,
+        "preview": preview,
     }
     threading.Thread(target=_watch, args=(job_id,), daemon=True).start()
     return {"job_id": job_id}
@@ -182,6 +240,11 @@ async def job_status(job_id: str) -> dict:
         "log": job.get("log", []),
         "metrics": job.get("metrics"),
     }
+
+
+@app.get("/recent")
+async def recent() -> list[dict]:
+    return list(reversed(_load_recent()))
 
 
 @app.post("/jobs/{job_id}/cancel")
