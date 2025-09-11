@@ -73,9 +73,17 @@ def test_bundle_creation(tmp_path):
         ["git", "rev-parse", "HEAD"], cwd=repo_root
     ).decode().strip()
 
+    with (bundle_dir / "render_config.json").open() as fh:
+        cfg = json.load(fh)
+    loud = cfg.get("loudness_lufs")
+    assert isinstance(loud, (float, int))
+    mix_entry = next(e for e in entries if e.get("stage") == "mix")
+    assert mix_entry.get("loudness_lufs") == pytest.approx(loud, abs=0.1)
+
     readme_text = (bundle_dir / "README.txt").read_text()
     assert rhash in readme_text
     assert commit in readme_text
+    assert f"Loudness: {loud:.1f} LUFS" in readme_text
 
     mix_bytes = (bundle_dir / "mix.wav").read_bytes()
     idx = mix_bytes.find(b"ICMT")
