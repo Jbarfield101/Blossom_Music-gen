@@ -2,11 +2,19 @@
 
 Simple demos for algorithmic music pattern generation.
 
-**64-bit Python 3.10 required.** The `start.py` helper creates a persistent
-virtual environment in `.venv` (reusing it on subsequent runs), installs the
-packages from `requirements.txt` if needed, and aborts if installation fails.
-A lightweight Tauri application now provides the graphical interface while
-`start.py` can be called directly from the command line.
+A desktop interface built with [Tauri](https://tauri.app/) mirrors the
+command‑line options and is the recommended way to run the tools interactively.
+Command‑line usage via `start.py` remains available for automation.
+
+## Prerequisites
+
+- **64-bit Python 3.10**
+- [Node.js](https://nodejs.org/en/download/)
+- [Rust](https://www.rust-lang.org/tools/install)
+
+The `start.py` helper creates a persistent virtual environment in `.venv`
+(reusing it on subsequent runs), installs the packages from `requirements.txt`
+if needed, and aborts if installation fails.
 
 ## Dependencies
 
@@ -169,19 +177,29 @@ python main_render.py --spec path/to/spec.json --mix-preset default
 
 Available song templates: `pop_verse_chorus`, `lofi_loop`.
 
-## Tauri GUI
+## Tauri desktop UI
 
-A desktop interface built with [Tauri](https://tauri.app/) mirrors the command
-line options and writes the same output files.
+The Tauri application mirrors the command‑line options and writes the same
+output files.
 
 ### Launching
 
-Install the development dependencies and start the UI:
+Install the Node and Rust dependencies and start the UI in development mode:
 
 ```bash
 npm install
 npm run tauri dev
 ```
+
+### Build
+
+To produce a standalone desktop build:
+
+```bash
+npm run tauri build
+```
+
+The release bundle will appear under `src-tauri/target/release`.
 
 Fill out the fields for the song spec, optional SFZ paths, seed, and output
 locations then click **Render** to run the Python pipeline.
