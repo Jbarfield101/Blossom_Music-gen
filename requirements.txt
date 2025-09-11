@@ -5,3 +5,5 @@ pytest
 fastapi
 httpx
 uvicorn
+
+jinja2

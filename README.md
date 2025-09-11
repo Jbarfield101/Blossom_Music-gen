@@ -131,11 +131,13 @@ the specified output directory:
 python scripts/ab_eval.py --spec path/to/spec.json --seed 42 --out ab_bundle
 ```
 
-The resulting bundle contains WAV files, stem JSON and `metrics.json` /
+The resulting bundle contains WAV files, stem JSON and `ab_eval.json` /
 `metrics.csv` summaries.  These metrics cover note diversity, inter-onset
 interval histograms, cadence fill rates and section-wise loudness. See
 [`docs/ab_harness.md`](docs/ab_harness.md) for details on the metrics and
 output bundle structure.
+
+For explanations of individual metrics such as chord tone coverage and voice leading smoothness, see [`docs/evaluation.md`](docs/evaluation.md).
 
 
 ## Using External Samples
@@ -174,6 +176,16 @@ Mix settings can also be loaded from a preset file in `assets/presets` using
 ```bash
 python main_render.py --spec path/to/spec.json --mix-preset default
 ```
+
+To compute metrics from a previously rendered bundle without synthesising
+audio again, run:
+
+```bash
+python main_render.py --bundle path/to/bundle --eval-only
+```
+
+This reads `song.json`, `stems.mid` and `mix.wav` from the bundle and writes
+`metrics.json`.
 
 Available song templates: `pop_verse_chorus`, `lofi_loop`.
 

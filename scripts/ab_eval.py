@@ -227,7 +227,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     results["learned"] = _evaluate_variant("learned", spec, "yes", args.out)
 
     # Structured JSON
-    (args.out / "metrics.json").write_text(json.dumps(results, indent=2))
+    (args.out / "ab_eval.json").write_text(json.dumps(results, indent=2))
 
     # Flattened CSV for quick inspection
     rows = []

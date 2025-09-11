@@ -25,9 +25,9 @@ ab_bundle/
 ├── algorithmic_stems.json
 ├── learned.wav
 ├── learned_stems.json
-├── metrics.json
+├── ab_eval.json
 └── metrics.csv
 ```
 
-`metrics.json` stores structured data while `metrics.csv` provides a flattened table for quick inspection.
+`ab_eval.json` stores structured data while `metrics.csv` provides a flattened table for quick inspection.
 
