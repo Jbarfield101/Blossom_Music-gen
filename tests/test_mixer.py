@@ -11,16 +11,33 @@ def test_gain_pan_limiter():
     cfg = {
         "tracks": {"keys": {"gain": -6.0, "pan": 1.0, "reverb_send": 0.0}},
         "master": {
+            "headroom_db": None,
             "compressor": {"enabled": False},
-            "limiter": {"enabled": True, "threshold": -0.1},
+            "limiter": {"enabled": True},
         },
     }
     out = mix(stems, sr, cfg)
     assert out.shape == (1000, 2)
     # Hard right pan -> left channel close to zero
     assert np.max(np.abs(out[:, 0])) < 1e-4
-    target = 10 ** (-0.1 / 20.0)
+    target = 10 ** (-0.8 / 20.0)
     assert np.isclose(np.max(np.abs(out)), target, atol=1e-4)
+
+
+def test_gain_trim_prevents_clipping():
+    sr = 44100
+    stem = np.ones(1000, dtype=np.float32)
+    stems = {"a": stem, "b": stem}
+    cfg = {
+        "tracks": {
+            "a": {"gain": 0.0, "pan": 0.0, "reverb_send": 0.0},
+            "b": {"gain": 0.0, "pan": 0.0, "reverb_send": 0.0},
+        },
+        "master": {"compressor": {"enabled": False}, "limiter": {"enabled": False}},
+    }
+    out = mix(stems, sr, cfg)
+    target = 10 ** (-3.0 / 20.0)
+    assert np.max(np.abs(out)) <= target + 1e-4
 
 
 def test_reverb_send_creates_tail():
@@ -137,7 +154,9 @@ def test_bus_compressor_reduces_peak():
     peak_no = float(np.max(np.abs(out_no)))
     steady = int(len(stem) * 0.8)
     peak_comp = float(np.max(np.abs(out_comp[steady:])))
-    target = 10 ** ((-20 + (0 - (-20)) / 2) / 20)
+    peak_no_db = 20 * np.log10(peak_no + 1e-12)
+    target_db = -20.0 + (peak_no_db - (-20.0)) / 2.0
+    target = 10 ** (target_db / 20.0)
     assert np.isclose(peak_comp, target, atol=1e-2)
     assert peak_no > peak_comp
 
@@ -192,6 +211,7 @@ def test_saturation_reduces_peak_and_adds_harmonics():
     cfg_no = {
         **base_cfg,
         "master": {
+            "headroom_db": None,
             "saturation": {"drive": 0.0},
             "compressor": {"enabled": False},
             "limiter": {"enabled": False},
@@ -200,6 +220,7 @@ def test_saturation_reduces_peak_and_adds_harmonics():
     cfg_sat = {
         **base_cfg,
         "master": {
+            "headroom_db": None,
             "saturation": {"drive": 5.0},
             "compressor": {"enabled": False},
             "limiter": {"enabled": False},

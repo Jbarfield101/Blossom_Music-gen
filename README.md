@@ -112,9 +112,9 @@ points to files defined in `render_config.json`.
 The `render_config.json` file also defines default sample locations for all
 instruments along with stereo mix parameters.  Each track exposes gain, pan
 and reverb send values.  A shared reverb bus processes the keys and pads and
-the master mix passes through a peak limiter targeting ``-0.1`` dBFS by
-default.  All paths are relative so the repository works out of the box after
-cloning.
+the master mix passes through an automatic gain trim and a true‑peak limiter
+with a ``-0.8`` dBFS ceiling by default.  All paths are relative so the
+repository works out of the box after cloning.
 
 ```bash
 pip install soundfile  # enables FLAC support

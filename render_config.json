@@ -40,6 +40,7 @@
     "damp": 0.5
   },
   "master": {
+    "headroom_db": 3.0,
     "saturation": {"drive": 0.0},
     "compressor": {
       "enabled": true,
@@ -51,8 +52,8 @@
     },
     "limiter": {
       "enabled": true,
-      "threshold": -0.1,
-      "release": 0.2
+      "ceiling": -0.8,
+      "oversample": 4
     }
   }
 }

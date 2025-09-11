@@ -49,10 +49,17 @@ def test_duration_limiter_and_stems_nonzero():
     raw_mix = mix(
         rendered,
         sr,
-        {"tracks": track_cfg, "master": {"compressor": {"enabled": False}, "limiter": {"enabled": False}}},
+        {
+            "tracks": track_cfg,
+            "master": {
+                "headroom_db": None,
+                "compressor": {"enabled": False},
+                "limiter": {"enabled": False},
+            },
+        },
     )
     pre_peak = float(abs(raw_mix).max()) if raw_mix.size else 0.0
-    target = 10 ** (-0.1 / 20.0)
+    target = 10 ** (-0.8 / 20.0)
     assert pre_peak > target
 
     mixed = mix(
@@ -61,8 +68,9 @@ def test_duration_limiter_and_stems_nonzero():
         {
             "tracks": track_cfg,
             "master": {
+                "headroom_db": None,
                 "compressor": {"enabled": False},
-                "limiter": {"enabled": True, "threshold": -0.1},
+                "limiter": {"enabled": True},
             },
         },
     )
