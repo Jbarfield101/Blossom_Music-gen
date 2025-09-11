@@ -493,7 +493,7 @@ if __name__ == "__main__":
         _log_stage(logs, progress, "render", t0, peaks=stem_peaks)
 
         t0 = time.monotonic()
-        mix_audio = mix_stems(rendered, 44100, cfg)
+        mix_audio = mix_stems(rendered, 44100, cfg, style=style)
         mix_peak = float(np.max(np.abs(mix_audio)))
         mix_lufs = estimate_lufs(mix_audio, 44100)
         cfg["loudness_lufs"] = round(float(mix_lufs), 1)

@@ -3,7 +3,7 @@ from __future__ import annotations
 """Helpers for loading arrangement style data."""
 
 from pathlib import Path
-from typing import Any, Mapping, Union
+from typing import Any, Mapping, Union, Dict
 import json
 
 # Mapping of human readable style names to token IDs used by phrase models
@@ -24,6 +24,8 @@ def load_style(name_or_path: str | Path) -> Mapping[str, Any]:
 
     ``name_or_path`` may be the name of a style JSON located in
     ``assets/styles`` (without extension) or a direct path to a JSON file.
+    The loader performs light validation and normalisation of optional
+    fields such as ``synth_defaults`` and ``drums.swing``.
     """
     p = Path(name_or_path)
     if not p.suffix:
@@ -31,4 +33,18 @@ def load_style(name_or_path: str | Path) -> Mapping[str, Any]:
     if not p.exists():
         raise FileNotFoundError(f"Unknown style specification: {name_or_path}")
     with p.open("r", encoding="utf-8") as fh:
-        return json.load(fh)
+        style: Dict[str, Any] = json.load(fh)
+
+    # Normalise nested mappings -------------------------------------------------
+    synth = style.get("synth_defaults", {}) or {}
+    if synth:
+        style["synth_defaults"] = {
+            k: float(synth.get(k, 0.0))
+            for k in ("lpf_cutoff", "chorus", "saturation")
+            if k in synth
+        }
+    drums = style.get("drums", {}) or {}
+    if drums:
+        style["drums"] = {"swing": float(drums.get("swing", 0.0))}
+
+    return style

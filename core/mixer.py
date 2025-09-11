@@ -444,7 +444,12 @@ def _true_peak_limiter(
     return stereo
 
 
-def mix(stems: Mapping[str, np.ndarray], sr: int, config: Mapping[str, Any] | None = None) -> np.ndarray:
+def mix(
+    stems: Mapping[str, np.ndarray],
+    sr: int,
+    config: Mapping[str, Any] | None = None,
+    style: Mapping[str, Any] | None = None,
+) -> np.ndarray:
     """Mix ``stems`` into a stereo master bus.
 
     Parameters
@@ -463,6 +468,10 @@ def mix(stems: Mapping[str, np.ndarray], sr: int, config: Mapping[str, Any] | No
         ``master`` -> optional ``headroom_db`` for global gain trim and a
         ``limiter`` mapping with ``enabled``, ``ceiling``, ``oversample``,
         ``attack`` and ``release``.
+    style:
+        Optional style mapping. When provided, ``style['synth_defaults']`` may
+        specify ``chorus`` and ``saturation`` values that act as defaults for
+        tracks without explicit settings.
 
     Returns
     -------
@@ -472,6 +481,9 @@ def mix(stems: Mapping[str, np.ndarray], sr: int, config: Mapping[str, Any] | No
     config = dict(config or {})
     track_cfg: Dict[str, Any] = config.get("tracks", {})
     master_cfg: Dict[str, Any] = config.get("master", {})
+    synth_defaults = (style or {}).get("synth_defaults", {})
+    default_chorus = float(synth_defaults.get("chorus", 0.0) or 0.0)
+    default_sat = float(synth_defaults.get("saturation", 0.0) or 0.0)
     headroom_val = master_cfg.get("headroom_db", 3.0)
     headroom_db = float(headroom_val) if headroom_val is not None else None
     max_len = max((len(a) for a in stems.values()), default=0)
@@ -486,7 +498,9 @@ def mix(stems: Mapping[str, np.ndarray], sr: int, config: Mapping[str, Any] | No
         if len(mono) < max_len:
             mono = np.pad(mono, (0, max_len - len(mono)))
         mono = mono.astype(np.float32)
-        cfg = track_cfg.get(name, {})
+        cfg = dict(track_cfg.get(name, {}))
+        if default_chorus > 0.0 and "chorus" not in cfg and name != "drums":
+            cfg["chorus"] = {"depth": 5.0, "rate": 0.25, "mix": default_chorus}
         gain_db = float(cfg.get("gain", 0.0))
         pan = float(cfg.get("pan", 0.0))
         send = float(cfg.get("reverb_send", 0.0))
@@ -532,7 +546,10 @@ def mix(stems: Mapping[str, np.ndarray], sr: int, config: Mapping[str, Any] | No
     if wet > 0.0:
         mix += _plate_reverb(reverb_bus, sr, decay, predelay, damp) * wet
 
-    sat_cfg = master_cfg.get("saturation", {})
+    sat_cfg = dict(master_cfg.get("saturation", {}))
+    if default_sat > 0.0 and "drive" not in sat_cfg:
+        sat_cfg["drive"] = default_sat
+    master_cfg["saturation"] = sat_cfg
     drive = float(sat_cfg.get("drive", 0.0))
     if drive > 0.0:
         mix = _soft_clip(mix, drive)

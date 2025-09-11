@@ -151,8 +151,8 @@ def render():
             if p.exists():
                 sfz_map["drums"] = p
         rhash = render_hash(spec, cfg, sfz_map, seed, None)
-        rendered = render_song(stems, sr=44100, sfz_paths=sfz_map)
-        mix_audio = mix(rendered, 44100, cfg)
+        rendered = render_song(stems, sr=44100, sfz_paths=sfz_map, style=style)
+        mix_audio = mix(rendered, 44100, cfg, style=style)
 
         mix_path.parent.mkdir(parents=True, exist_ok=True)
         _write_wav(mix_path, mix_audio, 44100, comment=rhash)
