@@ -64,7 +64,9 @@ def test_sampler_seed_reproducibility(monkeypatch):
     """Identical sampler seed should yield identical patterns."""
 
     monkeypatch.setattr(
-        phrase_model, "load_model", lambda inst: ("onnx", DummyOnnxSession())
+        phrase_model,
+        "load_model",
+        lambda inst, *, timeout=1.0, verbose=False: ("onnx", DummyOnnxSession()),
     )
     spec = _simple_spec()
     plan1 = build_patterns_for_song(spec, seed=0, sampler_seed=123)
