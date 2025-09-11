@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tauri = { version = "1" }
+tauri = { version = "1", features = [] }
 regex = "1"
 tempfile = "3"
 
