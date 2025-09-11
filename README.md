@@ -93,6 +93,12 @@ If a model file is absent or fails to load, the code falls back to the
 deterministic pattern generators.  See
 [`docs/phrase_models.md`](docs/phrase_models.md) for details.
 
+## Style profiles
+
+Built-in arrangement styles adjust swing and mixing defaults. See
+[`docs/style_profiles.md`](docs/style_profiles.md) for the current token IDs
+and guidance on adding new styles.
+
 ## Cadence fill evaluation
 
 The repository includes a small helper to inspect note densities around
@@ -119,7 +125,9 @@ python scripts/ab_eval.py --spec path/to/spec.json --seed 42 --out ab_bundle
 
 The resulting bundle contains WAV files, stem JSON and `metrics.json` /
 `metrics.csv` summaries.  These metrics cover note diversity, inter-onset
-interval histograms, cadence fill rates and section-wise loudness.
+interval histograms, cadence fill rates and section-wise loudness. See
+[`docs/ab_harness.md`](docs/ab_harness.md) for details on the metrics and
+output bundle structure.
 
 
 ## Using External Samples
