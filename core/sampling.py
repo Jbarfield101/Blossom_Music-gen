@@ -57,6 +57,11 @@ def apply_repetition_penalty(
 def filter_top_k_top_p(logits: np.ndarray, top_k: int, top_p: float) -> np.ndarray:
     """Convert ``logits`` to probabilities after top-k and top-p filtering."""
 
+    if top_k < 0:
+        raise ValueError("top_k must be >= 0")
+    if not 0.0 <= top_p <= 1.0:
+        raise ValueError("top_p must be between 0 and 1")
+
     # Top-k filtering in logit space to avoid numerical issues with very small
     # probabilities.
     if top_k > 0 and top_k < len(logits):
