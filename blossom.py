@@ -33,7 +33,7 @@ def main() -> None:
     if sys.version_info[:2] != (3, 10):
         sys.exit("Blossom requires Python 3.10")
     py_path = _ensure_venv()
-    subprocess.check_call([str(py_path), str(ROOT / "menu.py")])
+    subprocess.check_call([str(py_path), str(ROOT / "start.py"), *sys.argv[1:]])
 
 
 if __name__ == "__main__":

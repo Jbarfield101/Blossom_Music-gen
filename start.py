@@ -2,7 +2,7 @@
 
 The launcher reuses a ``.venv`` directory, creating it and installing
 ``requirements.txt`` dependencies on the first run. After setup completes it
-opens the small Tkinter menu used to access the renderer UI.
+executes the renderer with the provided command line arguments.
 """
 
 import os
@@ -74,7 +74,7 @@ def main() -> None:
     else:
         python_path, _ = _venv_paths(str(env_dir))
 
-    subprocess.run([str(python_path), "-m", "menu"], check=True)
+    subprocess.run([str(python_path), "-m", "main_render", *sys.argv[1:]], check=True)
 
 
 if __name__ == "__main__":

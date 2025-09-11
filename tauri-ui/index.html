@@ -8,17 +8,16 @@
         margin: 0;
         display: flex;
         flex-direction: column;
-        justify-content: center;
         align-items: center;
-        height: 100vh;
         font-family: sans-serif;
+        padding: 1rem;
       }
-      svg {
-        width: 80px;
-        height: 80px;
+      label {
+        display: block;
+        margin-top: 0.5rem;
       }
-      h1 {
-        margin-top: 1rem;
+      input {
+        width: 300px;
       }
       button {
         margin-top: 1rem;
@@ -27,15 +26,34 @@
     </style>
   </head>
   <body>
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor">
-      <path d="M9 13.5V3h4V1H8v10.5a3.5 3.5 0 1 0 1 0z"/>
-    </svg>
     <h1>Music Generator</h1>
+    <label>Song Spec <input id="spec" value="song.json" /></label>
+    <label>Keys SFZ <input id="keys" /></label>
+    <label>Pads SFZ <input id="pads" /></label>
+    <label>Bass SFZ <input id="bass" /></label>
+    <label>Drums SFZ <input id="drums" /></label>
+    <label>Seed <input id="seed" type="number" value="42" /></label>
+    <label>Mix Path <input id="mix" value="out/mix.wav" /></label>
+    <label>Stems Dir <input id="stems" value="out/stems" /></label>
     <button id="render">Render</button>
     <script>
       document.getElementById('render').addEventListener('click', async () => {
+        const args = [
+          '--spec', document.getElementById('spec').value,
+          '--seed', document.getElementById('seed').value,
+          '--mix', document.getElementById('mix').value,
+          '--stems', document.getElementById('stems').value,
+        ];
+        const keys = document.getElementById('keys').value;
+        if (keys) args.push('--keys-sfz', keys);
+        const pads = document.getElementById('pads').value;
+        if (pads) args.push('--pads-sfz', pads);
+        const bass = document.getElementById('bass').value;
+        if (bass) args.push('--bass-sfz', bass);
+        const drums = document.getElementById('drums').value;
+        if (drums) args.push('--drums-sfz', drums);
         try {
-          await window.__TAURI__.invoke('run_python_script', { script: 'start.py' });
+          await window.__TAURI__.invoke('run_python_script', { script: 'start.py', args });
         } catch (e) {
           console.error(e);
         }
