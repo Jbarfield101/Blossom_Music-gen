@@ -199,8 +199,22 @@ def _render_instrument(
 
     params_map = {
         "bass": synth.SynthParams(wave="sine"),
-        "keys": synth.SynthParams(wave="saw", detune=0.1),
-        "pads": synth.SynthParams(wave="saw", detune=0.3),
+        "keys": synth.SynthParams(
+            wave="saw",
+            detune=0.1,
+            lpf_order=2,
+            keytrack=1.0,
+            cutoff_min=200.0,
+            cutoff_max=5000.0,
+        ),
+        "pads": synth.SynthParams(
+            wave="pulse",
+            detune=0.3,
+            lpf_order=4,
+            keytrack=0.5,
+            cutoff_min=100.0,
+            cutoff_max=4000.0,
+        ),
     }
     params = params_map.get(name, synth.SynthParams())
 
