@@ -110,6 +110,83 @@ def _simple_reverb(stereo: np.ndarray, sr: int, decay: float) -> np.ndarray:
     return out / len(delays)
 
 
+def _plate_reverb(
+    stereo: np.ndarray,
+    sr: int,
+    decay: float,
+    predelay: float = 0.0,
+    damp: float = 0.5,
+) -> np.ndarray:
+    """Plate reverb built from comb and all‑pass filters.
+
+    The design uses four parallel feedback comb filters followed by two serial
+    all‑pass filters. ``predelay`` introduces an initial delay before the reverb
+    begins while ``damp`` controls high‑frequency damping in the comb feedback
+    paths.
+    """
+
+    n = len(stereo)
+
+    # Pre‑delay: shift the input by ``predelay`` seconds
+    pd_samples = int(predelay * sr)
+    if pd_samples > 0:
+        delayed = np.zeros_like(stereo)
+        if pd_samples < n:
+            delayed[pd_samples:] = stereo[:-pd_samples]
+        stereo = delayed
+
+    # Delays for comb and all‑pass filters (seconds -> samples)
+    comb_delays = [int(sr * t) for t in (0.0297, 0.0371, 0.0411, 0.0437)]
+    ap_delays = [int(sr * t) for t in (0.005, 0.0017)]
+
+    out = np.zeros_like(stereo, dtype=np.float32)
+
+    for ch in (0, 1):
+        sig = stereo[:, ch]
+        tmp = np.zeros(n, dtype=np.float32)
+
+        # Parallel comb filters with damping in the feedback path
+        for d in comb_delays:
+            if d <= 0:
+                continue
+            buf = np.zeros(d, dtype=np.float32)
+            lp = 0.0
+            idx = 0
+            g = 0.0 if decay <= 0 else 10 ** (-3 * d / (sr * decay))
+            for i in range(n):
+                y = buf[idx]
+                lp = (1.0 - damp) * y + damp * lp
+                buf[idx] = sig[i] + g * lp
+                tmp[i] += y
+                idx += 1
+                if idx >= d:
+                    idx = 0
+        tmp /= len(comb_delays)
+
+        # Two serial all‑pass filters for diffusion
+        for d in ap_delays:
+            if d <= 0:
+                continue
+            buf = np.zeros(d, dtype=np.float32)
+            idx = 0
+            g = 0.5
+            ap_out = np.zeros(n, dtype=np.float32)
+            for i in range(n):
+                b = buf[idx]
+                x = tmp[i]
+                y = -g * x + b
+                buf[idx] = x + g * b
+                ap_out[i] = y
+                idx += 1
+                if idx >= d:
+                    idx = 0
+            tmp = ap_out
+
+        out[:, ch] = tmp
+
+    return out
+
+
 def _compress_bus(
     stereo: np.ndarray,
     sr: int,
@@ -201,8 +278,10 @@ def mix(stems: Mapping[str, np.ndarray], sr: int, config: Mapping[str, Any] | No
     rev_cfg = config.get("reverb", {})
     decay = float(rev_cfg.get("decay", 0.5))
     wet = float(rev_cfg.get("wet", 0.3))
+    predelay = float(rev_cfg.get("predelay", 0.0))
+    damp = float(rev_cfg.get("damp", 0.5))
     if wet > 0.0:
-        mix += _simple_reverb(reverb_bus, sr, decay) * wet
+        mix += _plate_reverb(reverb_bus, sr, decay, predelay, damp) * wet
 
     comp_cfg = config.get("master", {}).get("compressor", {})
     if comp_cfg.get("enabled", True):

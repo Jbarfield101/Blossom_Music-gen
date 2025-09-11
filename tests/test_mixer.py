@@ -1,6 +1,6 @@
 import numpy as np
 
-from core.mixer import mix
+from core.mixer import mix, _plate_reverb
 
 
 def test_gain_pan_limiter():
@@ -36,6 +36,28 @@ def test_reverb_send_creates_tail():
     out = mix(stems, sr, cfg)
     # Expect some energy in the tail from the reverb
     assert np.any(np.abs(out[10:, 0]) > 1e-5) or np.any(np.abs(out[10:, 1]) > 1e-5)
+
+
+def test_plate_reverb_predelay():
+    sr = 1000
+    stereo = np.zeros((200, 2), dtype=np.float32)
+    stereo[0, 0] = 1.0
+    out = _plate_reverb(stereo, sr, decay=0.3, predelay=0.01, damp=0.0)
+    pd = int(0.01 * sr)
+    assert np.all(np.abs(out[:pd, 0]) < 1e-6)
+    assert np.any(np.abs(out[pd:, 0]) > 1e-6)
+
+
+def test_plate_reverb_damping_reduces_high_freq():
+    sr = 1000
+    stereo = np.zeros((500, 2), dtype=np.float32)
+    stereo[0, 0] = 1.0
+    out_low = _plate_reverb(stereo, sr, decay=0.5, predelay=0.0, damp=0.0)
+    out_high = _plate_reverb(stereo, sr, decay=0.5, predelay=0.0, damp=0.9)
+    fft_low = np.abs(np.fft.rfft(out_low[:, 0]))
+    fft_high = np.abs(np.fft.rfft(out_high[:, 0]))
+    hf_slice = slice(len(fft_low) // 2, None)
+    assert np.sum(fft_high[hf_slice]) < np.sum(fft_low[hf_slice])
 
 
 def test_track_eq_boosts_frequency():

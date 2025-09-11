@@ -34,7 +34,9 @@
   },
   "reverb": {
     "decay": 0.6,
-    "wet": 0.3
+    "wet": 0.3,
+    "predelay": 0.01,
+    "damp": 0.5
   },
   "master": {
     "compressor": {
