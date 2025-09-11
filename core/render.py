@@ -14,7 +14,7 @@ import math
 
 import numpy as np
 
-from .stems import Stem
+from .stems import Stem, _steps_per_beat
 from .sfz_sampler import SFZSampler
 from .utils import note_to_sample_indices
 from . import synth
@@ -139,6 +139,7 @@ def _render_drums(
     sample_map: Mapping[str, int] | None = None,
     tempo: float | None = None,
     meter: str | None = None,
+    swing: float = 0.0,
 ) -> np.ndarray:
     """Render ``notes`` using drum samples or noise fallbacks.
 
@@ -148,6 +149,20 @@ def _render_drums(
     """
     if not notes:
         return np.zeros(0, dtype=np.float32)
+
+    if swing and tempo is not None and meter is not None:
+        spb = _steps_per_beat(meter)
+        sec_per_step = (60.0 / tempo) / spb
+        beats_per_bar = int(meter.split("/", 1)[0])
+        sec_per_bar = beats_per_bar * 60.0 / tempo
+        shifted: List[Stem] = []
+        for n in notes:
+            idx = int(((n.start % sec_per_bar) / sec_per_step))
+            start = n.start
+            if idx % 2 == 1:
+                start += swing * sec_per_step
+            shifted.append(Stem(start=start, dur=n.dur, pitch=n.pitch, vel=n.vel, chan=n.chan))
+        notes = shifted
     samples: Dict[int, List[np.ndarray]] = {}
     if sample_dir is not None and sample_dir.exists():
         samples = _load_drum_samples(sample_dir, sr, mapping=sample_map)
@@ -179,11 +194,19 @@ def _render_instrument(
     tempo: float | None = None,
     meter: str | None = None,
     drum_patterns: Mapping[str, int] | None = None,
+    style: Mapping[str, object] | None = None,
 ) -> np.ndarray:
     """Render ``notes`` for ``name`` either via SFZ or synth fallback."""
     if name == "drums":
+        drum_style = float((style or {}).get("drums", {}).get("swing", 0.0))
         return _render_drums(
-            notes, sr, sfz, sample_map=drum_patterns, tempo=tempo, meter=meter
+            notes,
+            sr,
+            sfz,
+            sample_map=drum_patterns,
+            tempo=tempo,
+            meter=meter,
+            swing=drum_style,
         )
 
     if not notes:
@@ -217,6 +240,10 @@ def _render_instrument(
         ),
     }
     params = params_map.get(name, synth.SynthParams())
+    synth_defaults = (style or {}).get("synth_defaults", {})
+    cutoff = synth_defaults.get("lpf_cutoff")
+    if cutoff is not None:
+        params.cutoff_max = float(cutoff)
 
     return _schedule(
         notes,
@@ -317,6 +344,7 @@ def render_song(
             tempo=tempo,
             meter=meter,
             drum_patterns=drum_patterns,
+            style=style,
         )
 
     max_len = max((len(arr) for arr in rendered.values()), default=0)
