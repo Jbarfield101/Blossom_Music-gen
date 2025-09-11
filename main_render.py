@@ -219,6 +219,12 @@ if __name__ == "__main__":
         help="Seed for phrase model sampling",
     )
     ap.add_argument(
+        "--use-phrase-model",
+        choices=["auto", "yes", "no"],
+        default="auto",
+        help="Use neural phrase models: auto, yes, or no (default: auto)",
+    )
+    ap.add_argument(
         "--mix",
         default="out/mix.wav",
         help="Output path for the master mix WAV",
@@ -389,7 +395,11 @@ if __name__ == "__main__":
 
     t0 = time.monotonic()
     build_patterns_for_song(
-        spec, seed=args.seed, sampler_seed=args.sampler_seed, verbose=args.verbose
+        spec,
+        seed=args.seed,
+        sampler_seed=args.sampler_seed,
+        verbose=args.verbose,
+        use_phrase_model=args.use_phrase_model,
     )
     _log_stage(logs, progress, "patterns", t0)
 
