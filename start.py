@@ -75,8 +75,20 @@ def main() -> None:
         python_path, _ = _venv_paths(str(env_dir))
 
     os.environ["PATH"] = f"{python_path.parent}{os.pathsep}{os.environ['PATH']}"
+
+    npm_env = os.environ.get("NPM_PATH")
+    default_npm = shutil.which("npm")
+    npm_path = shutil.which(npm_env) if npm_env else default_npm
+    if npm_path is None:
+        print(
+            "Could not find 'npm'. Install Node.js and ensure 'npm' is on your PATH "
+            "or set the NPM_PATH environment variable to the npm executable.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     try:
-        subprocess.run(["npm", "run", "tauri", "dev"], check=True)
+        subprocess.run([npm_path, "run", "tauri", "dev"], check=True)
     except subprocess.CalledProcessError:
         print("Failed to launch Tauri UI", file=sys.stderr)
         sys.exit(1)
