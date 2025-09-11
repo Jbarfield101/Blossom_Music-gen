@@ -13,10 +13,12 @@ The exported TorchScript/ONNX artefacts are still compatible with
 """
 
 from pathlib import Path
-from typing import Optional, List, Sequence, Union
+from typing import Sequence, Union
 
 import torch
 import torch.nn as nn
+
+from core.sampling import sample
 
 REPO_DIR = Path(__file__).resolve().parents[2]
 MODELS_DIR = REPO_DIR / "models"
@@ -81,42 +83,6 @@ def train_model(model: nn.Module, data: torch.Tensor, epochs: int = 2) -> nn.Mod
     return model
 
 
-# Sampling utilities ---------------------------------------------------------
-
-def top_k_top_p_sampling(logits: torch.Tensor,
-                         top_k: int = 0,
-                         top_p: float = 1.0,
-                         temperature: float = 1.0,
-                         repetition_penalty: float = 1.0,
-                         prev_tokens: Optional[List[int]] = None) -> int:
-    """Samples a token from logits applying temperature, top-k, top-p and repetition penalty."""
-    logits = logits.clone()
-
-    if prev_tokens is not None and repetition_penalty != 1.0:
-        for token in set(prev_tokens):
-            logits[..., token] /= repetition_penalty
-
-    logits = logits / temperature
-
-    if top_k > 0:
-        values, _ = torch.topk(logits, top_k)
-        min_values = values[..., -1, None]
-        logits[logits < min_values] = -float("inf")
-
-    if top_p < 1.0:
-        sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-        cumulative_probs = torch.softmax(sorted_logits, dim=-1).cumsum(dim=-1)
-        sorted_indices_to_remove = cumulative_probs > top_p
-        sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
-        sorted_indices_to_remove[..., 0] = 0
-        indices_to_remove = sorted_indices[sorted_indices_to_remove]
-        logits[indices_to_remove] = -float("inf")
-
-    probs = torch.softmax(logits, dim=-1)
-    next_token = torch.multinomial(probs, num_samples=1)
-    return int(next_token.item())
-
-
 # Export helpers -------------------------------------------------------------
 
 def export(model: nn.Module, example: Union[torch.Tensor, Sequence[torch.Tensor]], name: str) -> None:
@@ -147,6 +113,10 @@ def main() -> None:
     drum_model = train_model(TransformerEncoder(drum_in, drum_hidden, drum_out), drum_data)
     torch.save(drum_model.state_dict(), Path(__file__).with_name("drum_phrase.pt"))
     export(drum_model.eval(), drum_data[:1], "drum_phrase")
+
+    # Demonstrate sampling with the centralized utilities
+    logits = drum_model(drum_data[:1])[0, -1].detach().cpu().numpy()
+    _ = sample(logits, top_k=4, top_p=0.9)
 
     # Bass phrase: chord conditioned
     bass_in, bass_hidden, bass_out = 12, 32, 12  # additional dims for chords
