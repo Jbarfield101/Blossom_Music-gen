@@ -112,7 +112,7 @@ def test_high_shelf_boosts_treble():
 
 def test_bus_compressor_reduces_peak():
     sr = 44100
-    stem = np.ones(int(sr * 0.1), dtype=np.float32)
+    stem = np.ones(int(sr * 0.1), dtype=np.float32) * np.sqrt(2.0)
     stems = {"keys": stem}
     cfg_no = {
         "tracks": {"keys": {"gain": 0.0, "pan": 0.0, "reverb_send": 0.0}},
@@ -124,9 +124,10 @@ def test_bus_compressor_reduces_peak():
             "compressor": {
                 "enabled": True,
                 "threshold": -20.0,
-                "ratio": 4.0,
                 "attack": 0.001,
                 "release": 0.05,
+                "knee_db": 0.0,
+                "lookahead_ms": 0.0,
             },
             "limiter": {"enabled": False},
         },
@@ -136,9 +137,50 @@ def test_bus_compressor_reduces_peak():
     peak_no = float(np.max(np.abs(out_no)))
     steady = int(len(stem) * 0.8)
     peak_comp = float(np.max(np.abs(out_comp[steady:])))
-    target = 10 ** ((-20 + (0 - (-20)) / 4) / 20)
+    target = 10 ** ((-20 + (0 - (-20)) / 2) / 20)
+    assert np.isclose(peak_comp, target, atol=1e-2)
     assert peak_no > peak_comp
-    assert np.isclose(peak_comp, target, atol=0.02)
+
+
+def test_bus_compressor_lookahead_catches_transient():
+    sr = 44100
+    stem = np.zeros(int(sr * 0.1), dtype=np.float32)
+    step = int(sr * 0.01)
+    stem[step:] = np.sqrt(2.0)
+    stems = {"keys": stem}
+    lookahead_ms = 5.0
+    cfg_no = {
+        "tracks": {"keys": {"gain": 0.0, "pan": 0.0, "reverb_send": 0.0}},
+        "master": {
+            "compressor": {
+                "enabled": True,
+                "threshold": -20.0,
+                "attack": 0.005,
+                "release": 0.05,
+                "knee_db": 0.0,
+                "lookahead_ms": 0.0,
+            },
+            "limiter": {"enabled": False},
+        },
+    }
+    cfg_la = {
+        "tracks": {"keys": {"gain": 0.0, "pan": 0.0, "reverb_send": 0.0}},
+        "master": {
+            "compressor": {
+                "enabled": True,
+                "threshold": -20.0,
+                "attack": 0.005,
+                "release": 0.05,
+                "knee_db": 0.0,
+                "lookahead_ms": lookahead_ms,
+            },
+            "limiter": {"enabled": False},
+        },
+    }
+    out_no = mix(stems, sr, cfg_no)
+    out_la = mix(stems, sr, cfg_la)
+    lookahead = int(sr * (lookahead_ms / 1000.0))
+    assert out_no[step, 0] > out_la[step + lookahead, 0]
 
 
 def test_saturation_reduces_peak_and_adds_harmonics():
