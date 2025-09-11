@@ -89,17 +89,25 @@ fn start_job(registry: State<JobRegistry>, args: Vec<String>) -> Result<u64, Str
 }
 
 #[tauri::command]
-fn cancel_job(registry: State<JobRegistry>, job_id: u64) -> Result<(), String> {
-    let mut jobs = registry.jobs.lock().unwrap();
-    if let Some(job) = jobs.get_mut(&job_id) {
-        if let Some(child) = job.child.as_mut() {
-            let _ = child.kill();
-            let status = child.wait();
-            job.status = Some(status.map(|s| s.success()).unwrap_or(false));
-            job.child = None;
+fn cancel_render(registry: State<JobRegistry>, job_id: u64) -> Result<(), String> {
+    let mut jobs = registry.jobs.lock().map_err(|e| e.to_string())?;
+    match jobs.get_mut(&job_id) {
+        Some(job) => {
+            if job.status.is_some() || job.child.is_none() {
+                return Err("Job already completed".into());
+            }
+            if let Some(child) = job.child.as_mut() {
+                child.kill().map_err(|e| e.to_string())?;
+                let status = child.wait().map_err(|e| e.to_string())?;
+                job.status = Some(status.success());
+                job.child = None;
+                Ok(())
+            } else {
+                Err("Job already completed".into())
+            }
         }
+        None => Err("Unknown job_id".into()),
     }
-    Ok(())
 }
 
 #[tauri::command]
@@ -139,7 +147,7 @@ fn main() {
             list_presets,
             list_styles,
             start_job,
-            cancel_job,
+            cancel_render,
             job_status
         ])
         .run(tauri::generate_context!())

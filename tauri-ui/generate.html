@@ -72,6 +72,7 @@
       const eta = document.getElementById('eta');
       const logs = document.getElementById('logs');
       let bundlePath = null;
+      let currentJobId = null;
 
       async function loadOptions() {
         try {
@@ -143,7 +144,7 @@
         startBtn.disabled = true;
         cancelBtn.style.display = 'inline-block';
         bundlePath = null;
-        await invoke('start_render', {
+        currentJobId = await invoke('start_render', {
           preset: presetSel.value,
           style: styleSel.value,
           seed: parseInt(seedInput.value),
@@ -152,7 +153,9 @@
       });
 
       cancelBtn.addEventListener('click', async () => {
-        await invoke('cancel_render');
+        if (currentJobId !== null) {
+          await invoke('cancel_render', { jobId: currentJobId });
+        }
         cancelBtn.style.display = 'none';
         startBtn.disabled = false;
       });
