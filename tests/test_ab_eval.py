@@ -45,10 +45,10 @@ def test_ab_eval(tmp_path):
         check=True,
     )
 
-    for name in ["algorithmic.wav", "learned.wav", "metrics.json", "metrics.csv"]:
+    for name in ["algorithmic.wav", "learned.wav", "ab_eval.json", "metrics.csv"]:
         assert (out_dir / name).exists()
 
-    metrics = json.loads((out_dir / "metrics.json").read_text())
+    metrics = json.loads((out_dir / "ab_eval.json").read_text())
     for variant in metrics.values():
         for key in ["note_diversity", "ioi_histogram", "cadence_density", "section_loudness"]:
             assert key in variant
