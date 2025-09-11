@@ -37,12 +37,28 @@
     </style>
   </head>
   <body>
-    <div class="row">
+    <div class="row" id="inputs">
       <label>Preset <select id="preset"></select></label>
       <label>Style <select id="style"><option value="">(default)</option></select></label>
-      <label>Seed <input type="number" id="seed" value="42" /></label>
       <label>Minutes <input type="number" step="0.1" id="minutes" /></label>
+      <label>Sections <input type="number" id="sections" /></label>
+      <label>Seed <input type="number" id="seed" value="42" /></label>
+      <label>Output name <input type="text" id="name" value="output" /></label>
+      <label>Output folder
+        <input type="text" id="outdir" readonly />
+        <input type="file" id="outdir_picker" webkitdirectory directory hidden />
+        <button id="choose_outdir" type="button">📁</button>
+      </label>
     </div>
+
+    <details id="advanced">
+      <summary>Advanced</summary>
+      <label>Mix config <input type="file" id="mix_config" /></label>
+      <label>Arrange config <input type="file" id="arrange_config" /></label>
+      <label><input type="checkbox" id="phrase" /> Phrase backend</label>
+      <label>Preview bars <input type="number" id="preview" /></label>
+    </details>
+
     <div class="row">
       <button id="start-btn">Start</button>
       <button id="cancel-btn" style="display:none;">Cancel</button>
@@ -64,6 +80,15 @@
       const styleSel = document.getElementById('style');
       const seedInput = document.getElementById('seed');
       const minInput = document.getElementById('minutes');
+      const sectionsInput = document.getElementById('sections');
+      const nameInput = document.getElementById('name');
+      const outdirInput = document.getElementById('outdir');
+      const outdirPicker = document.getElementById('outdir_picker');
+      const chooseOutdirBtn = document.getElementById('choose_outdir');
+      const mixConfigInput = document.getElementById('mix_config');
+      const arrangeConfigInput = document.getElementById('arrange_config');
+      const phraseInput = document.getElementById('phrase');
+      const previewInput = document.getElementById('preview');
       const startBtn = document.getElementById('start-btn');
       const cancelBtn = document.getElementById('cancel-btn');
       const downloadBtn = document.getElementById('download-btn');
@@ -73,6 +98,7 @@
       const logs = document.getElementById('logs');
       let bundlePath = null;
       let currentJobId = null;
+      let outputDir = '';
 
       async function loadOptions() {
         try {
@@ -145,6 +171,18 @@
         }
       }
 
+      chooseOutdirBtn.addEventListener('click', () => {
+        outdirPicker.click();
+      });
+
+      outdirPicker.addEventListener('change', () => {
+        const file = outdirPicker.files[0];
+        if (file) {
+          outputDir = file.path || file.webkitRelativePath.split('/')[0];
+          outdirInput.value = outputDir;
+        }
+      });
+
       startBtn.addEventListener('click', async () => {
         logs.textContent = '';
         downloadBtn.style.display = 'none';
@@ -153,10 +191,60 @@
         startBtn.disabled = true;
         cancelBtn.style.display = 'inline-block';
         bundlePath = null;
-        const args = ['main_render.py', '--preset', presetSel.value, '--seed', String(parseInt(seedInput.value))];
+        const seed = parseInt(seedInput.value);
+        if (Number.isNaN(seed)) {
+          logs.textContent = 'Invalid seed\n';
+          startBtn.disabled = false;
+          cancelBtn.style.display = 'none';
+          return;
+        }
+        const args = ['main_render.py', '--preset', presetSel.value, '--seed', String(seed)];
         if (styleSel.value) args.push('--style', styleSel.value);
-        if (minInput.value) args.push('--minutes', String(parseFloat(minInput.value)));
-        args.push('--bundle');
+        if (minInput.value) {
+          const mins = parseFloat(minInput.value);
+          if (Number.isNaN(mins)) {
+            logs.textContent = 'Invalid minutes\n';
+            startBtn.disabled = false;
+            cancelBtn.style.display = 'none';
+            return;
+          }
+          args.push('--minutes', String(mins));
+        }
+        if (sectionsInput.value) {
+          const secs = parseInt(sectionsInput.value);
+          if (Number.isNaN(secs)) {
+            logs.textContent = 'Invalid sections\n';
+            startBtn.disabled = false;
+            cancelBtn.style.display = 'none';
+            return;
+          }
+          args.push('--sections', String(secs));
+        }
+        if (phraseInput.checked) args.push('--use-phrase-model', 'yes');
+        if (previewInput.value) {
+          const prev = parseInt(previewInput.value);
+          if (Number.isNaN(prev)) {
+            logs.textContent = 'Invalid preview bars\n';
+            startBtn.disabled = false;
+            cancelBtn.style.display = 'none';
+            return;
+          }
+          args.push('--preview', String(prev));
+        }
+        const mixFile = mixConfigInput.files[0];
+        if (mixFile) args.push('--mix-config', mixFile.path);
+        const arrFile = arrangeConfigInput.files[0];
+        if (arrFile) args.push('--arrange-config', arrFile.path);
+        const name = nameInput.value.trim() || 'output';
+        const mixPath = outputDir ? `${outputDir}/${name}.wav` : `${name}.wav`;
+        const stemsPath = outputDir ? `${outputDir}/${name}_stems` : `${name}_stems`;
+        args.push('--mix', mixPath);
+        args.push('--stems', stemsPath);
+        if (outputDir) {
+          args.push('--bundle', `${outputDir}/${name}`);
+        } else {
+          args.push('--bundle');
+        }
         currentJobId = await invoke('start_job', { args });
         poll();
       });
