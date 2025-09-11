@@ -102,13 +102,12 @@ def export(model: nn.Module, example: Union[torch.Tensor, Sequence[torch.Tensor]
     if not isinstance(example, (list, tuple)):
         example = (example,)
 
-    # Allow variable sequence length during inference by marking the time
-    # dimension as dynamic in the exported ONNX graph.
+    # Allow variable batch size and sequence length by marking the corresponding
+    # axes as dynamic in the exported ONNX graph.
     input_names = [f"input_{i}" for i in range(len(example))]
     output_names = ["output"]
-    dynamic_axes = {
-        name: {0: "batch", 1: "time"} for name in [*input_names, *output_names]
-    }
+    dynamic_axes = {n: {0: "batch", 1: "time"} for n in input_names}
+    dynamic_axes.update({n: {0: "batch", 1: "time"} for n in output_names})
 
     torch.onnx.export(
         model,
