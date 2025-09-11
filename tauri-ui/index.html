@@ -29,7 +29,10 @@
         overflow-y: auto;
       }
       progress {
-        width: 100%;
+        flex: 1;
+      }
+      #progbar {
+        align-items: center;
       }
     </style>
   </head>
@@ -45,7 +48,10 @@
       <button id="cancel-btn" style="display:none;">Cancel</button>
       <button id="download-btn" style="display:none;">Download bundle</button>
     </div>
-    <progress id="progress" value="0" max="100"></progress>
+    <div id="progbar" class="row">
+      <progress id="progress" value="0" max="100"></progress>
+      <div id="stage"></div>
+    </div>
     <div id="eta"></div>
     <pre id="logs"></pre>
     <script>
@@ -58,6 +64,7 @@
       const cancelBtn = document.getElementById('cancel-btn');
       const downloadBtn = document.getElementById('download-btn');
       const prog = document.getElementById('progress');
+      const stage = document.getElementById('stage');
       const eta = document.getElementById('eta');
       const logs = document.getElementById('logs');
       let bundlePath = null;
@@ -82,15 +89,16 @@
         }
       }
 
-      window.__TAURI__.event.listen('log', e => {
-        logs.textContent += e.payload + '\n';
-        logs.scrollTop = logs.scrollHeight;
-      });
       window.__TAURI__.event.listen('progress', e => {
-        prog.value = e.payload;
-      });
-      window.__TAURI__.event.listen('eta', e => {
-        eta.textContent = 'ETA: ' + e.payload;
+        const { line, percent, eta: eeta } = e.payload;
+        if (typeof percent === 'number') prog.value = percent;
+        if (line) {
+          logs.textContent += line + '\n';
+          logs.scrollTop = logs.scrollHeight;
+          const m = line.match(/^\s*([\w-]+):/);
+          stage.textContent = m ? m[1] : '';
+        }
+        eta.textContent = eeta ? 'ETA: ' + eeta : '';
       });
       window.__TAURI__.event.listen('result', e => {
         bundlePath = e.payload;
