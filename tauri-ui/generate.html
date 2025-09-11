@@ -94,47 +94,56 @@
         }
       }
 
-      window.__TAURI__.event.listen('progress', e => {
-        const { line, percent, eta: eeta } = e.payload;
-        if (typeof percent === 'number') prog.value = percent;
-        if (line) {
-          logs.textContent += line + '\n';
-          logs.scrollTop = logs.scrollHeight;
-          const m = line.match(/^\s*([\w-]+):/);
-          stage.textContent = m ? m[1] : '';
+      let pollTimeout = null;
+
+      async function poll() {
+        if (currentJobId === null) return;
+        try {
+          const data = await invoke('job_status', { jobId: currentJobId });
+          if (typeof data.progress === 'number') prog.value = data.progress;
+          stage.textContent = data.stage || '';
+          eta.textContent = data.eta ? 'ETA: ' + data.eta : '';
+          if (Array.isArray(data.log)) {
+            logs.textContent = data.log.join('');
+            logs.scrollTop = logs.scrollHeight;
+          }
+          if (data.status === 'running') {
+            pollTimeout = setTimeout(poll, 1000);
+          } else {
+            cancelBtn.style.display = 'none';
+            startBtn.disabled = false;
+            if (data.status === 'completed') {
+              bundlePath = data.bundle || null;
+              const summary = document.getElementById('summary');
+              summary.innerHTML = '';
+              const m = data.metrics || {};
+              if (m.hash) {
+                const li = document.createElement('li');
+                li.textContent = `Hash: ${m.hash}`;
+                summary.appendChild(li);
+              }
+              if (typeof m.duration === 'number') {
+                const li = document.createElement('li');
+                li.textContent = `Duration: ${m.duration.toFixed(2)}s`;
+                summary.appendChild(li);
+              }
+              if (m.section_counts) {
+                const li = document.createElement('li');
+                li.textContent = 'Sections: ' + Object.entries(m.section_counts).map(([k,v])=>`${k}: ${v}`).join(', ');
+                summary.appendChild(li);
+              }
+              document.getElementById('results').style.display = 'block';
+              if (bundlePath) downloadBtn.style.display = 'inline-block';
+            } else if (data.status === 'error') {
+              logs.textContent += 'Error: job failed\n';
+            }
+          }
+        } catch (e) {
+          logs.textContent += 'Error: ' + e + '\n';
+          cancelBtn.style.display = 'none';
+          startBtn.disabled = false;
         }
-        eta.textContent = eeta ? 'ETA: ' + eeta : '';
-      });
-      window.__TAURI__.event.listen('result', e => {
-        bundlePath = e.payload.bundle;
-        const summary = document.getElementById('summary');
-        summary.innerHTML = '';
-        const m = e.payload.metrics || {};
-        if (m.hash) {
-          const li = document.createElement('li');
-          li.textContent = `Hash: ${m.hash}`;
-          summary.appendChild(li);
-        }
-        if (typeof m.duration === 'number') {
-          const li = document.createElement('li');
-          li.textContent = `Duration: ${m.duration.toFixed(2)}s`;
-          summary.appendChild(li);
-        }
-        if (m.section_counts) {
-          const li = document.createElement('li');
-          li.textContent = 'Sections: ' + Object.entries(m.section_counts).map(([k,v])=>`${k}: ${v}`).join(', ');
-          summary.appendChild(li);
-        }
-        document.getElementById('results').style.display = 'block';
-        downloadBtn.style.display = 'inline-block';
-        cancelBtn.style.display = 'none';
-        startBtn.disabled = false;
-      });
-      window.__TAURI__.event.listen('error', e => {
-        logs.textContent += 'Error: ' + e.payload + '\n';
-        cancelBtn.style.display = 'none';
-        startBtn.disabled = false;
-      });
+      }
 
       startBtn.addEventListener('click', async () => {
         logs.textContent = '';
@@ -144,20 +153,18 @@
         startBtn.disabled = true;
         cancelBtn.style.display = 'inline-block';
         bundlePath = null;
-        currentJobId = await invoke('start_render', {
-          preset: presetSel.value,
-          style: styleSel.value,
-          seed: parseInt(seedInput.value),
-          minutes: minInput.value ? parseFloat(minInput.value) : null
-        });
+        const args = ['main_render.py', '--preset', presetSel.value, '--seed', String(parseInt(seedInput.value))];
+        if (styleSel.value) args.push('--style', styleSel.value);
+        if (minInput.value) args.push('--minutes', String(parseFloat(minInput.value)));
+        args.push('--bundle');
+        currentJobId = await invoke('start_job', { args });
+        poll();
       });
 
       cancelBtn.addEventListener('click', async () => {
         if (currentJobId !== null) {
           await invoke('cancel_render', { jobId: currentJobId });
         }
-        cancelBtn.style.display = 'none';
-        startBtn.disabled = false;
       });
 
       downloadBtn.addEventListener('click', () => {
