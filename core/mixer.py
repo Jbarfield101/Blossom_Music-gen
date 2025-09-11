@@ -13,6 +13,7 @@ ceiling.
 from typing import Any, Mapping, Dict
 import math
 import numpy as np
+from scipy.signal import lfilter
 
 
 def _apply_gain_pan(signal: np.ndarray, gain_db: float, pan: float) -> np.ndarray:
@@ -74,14 +75,9 @@ def _apply_peaking_eq(
     a1 /= a0
     a2 /= a0
 
-    out = np.zeros_like(signal, dtype=np.float32)
-    x1 = x2 = y1 = y2 = 0.0
-    for i, x0 in enumerate(signal):
-        y0 = b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
-        out[i] = y0
-        x2, x1 = x1, x0
-        y2, y1 = y1, y0
-    return out
+    b = np.array([b0, b1, b2], dtype=np.float32)
+    a = np.array([1.0, a1, a2], dtype=np.float32)
+    return lfilter(b, a, signal).astype(np.float32)
 
 
 def _apply_low_shelf(
@@ -118,14 +114,9 @@ def _apply_low_shelf(
     a1 /= a0
     a2 /= a0
 
-    out = np.zeros_like(signal, dtype=np.float32)
-    x1 = x2 = y1 = y2 = 0.0
-    for i, x0 in enumerate(signal):
-        y0 = b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
-        out[i] = y0
-        x2, x1 = x1, x0
-        y2, y1 = y1, y0
-    return out
+    b = np.array([b0, b1, b2], dtype=np.float32)
+    a = np.array([1.0, a1, a2], dtype=np.float32)
+    return lfilter(b, a, signal).astype(np.float32)
 
 
 def _apply_high_shelf(
@@ -157,14 +148,9 @@ def _apply_high_shelf(
     a1 /= a0
     a2 /= a0
 
-    out = np.zeros_like(signal, dtype=np.float32)
-    x1 = x2 = y1 = y2 = 0.0
-    for i, x0 in enumerate(signal):
-        y0 = b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
-        out[i] = y0
-        x2, x1 = x1, x0
-        y2, y1 = y1, y0
-    return out
+    b = np.array([b0, b1, b2], dtype=np.float32)
+    a = np.array([1.0, a1, a2], dtype=np.float32)
+    return lfilter(b, a, signal).astype(np.float32)
 
 
 def _feedback_delay(signal: np.ndarray, delay: int, decay: float) -> np.ndarray:
