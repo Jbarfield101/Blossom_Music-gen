@@ -110,6 +110,74 @@ def _simple_reverb(stereo: np.ndarray, sr: int, decay: float) -> np.ndarray:
     return out / len(delays)
 
 
+def _plate_reverb(
+    stereo: np.ndarray,
+    sr: int,
+    decay: float,
+    predelay: float = 0.0,
+    damp: float = 0.5,
+) -> np.ndarray:
+    """Return a simple plate style reverb for ``stereo`` input.
+
+    A small network of four parallel comb filters followed by two all‑pass
+    filters is used which loosely follows the classic Schroeder/plate reverb
+    topology.  ``predelay`` delays the input before the comb filters and
+    ``damp`` controls a one‑pole low‑pass in the feedback paths to remove
+    high‑frequency content over time.
+    """
+
+    if decay <= 0.0:
+        return np.zeros_like(stereo)
+
+    # Pre‑delay simply pads the input and truncates the output back to the
+    # original length so the caller's buffer size is unchanged.
+    n = len(stereo)
+    pred = max(0, int(predelay * sr))
+    if pred > 0:
+        stereo = np.pad(stereo, ((pred, 0), (0, 0)))
+
+    def comb_filter(ch: np.ndarray, delay: int) -> np.ndarray:
+        out = np.zeros_like(ch, dtype=np.float32)
+        buf = np.zeros(delay, dtype=np.float32)
+        lp = 0.0
+        for i, x in enumerate(ch):
+            y = buf[i % delay]
+            # Simple one‑pole low‑pass in the feedback path.
+            lp = y + damp * (lp - y)
+            buf[i % delay] = x + lp * decay
+            out[i] = y
+        return out
+
+    # Roughly tuned comb delays (in seconds) – values chosen to provide a
+    # dense tail while remaining inexpensive.
+    comb_delays = [int(sr * t) for t in (0.0297, 0.0371, 0.0411, 0.0437)]
+    out = np.zeros_like(stereo, dtype=np.float32)
+    for d in comb_delays:
+        if d <= 0:
+            continue
+        out[:, 0] += comb_filter(stereo[:, 0], d)
+        out[:, 1] += comb_filter(stereo[:, 1], d)
+    out /= max(len(comb_delays), 1)
+
+    def allpass_filter(ch: np.ndarray, delay: int, feedback: float) -> np.ndarray:
+        buf = np.zeros(delay, dtype=np.float32)
+        out = np.zeros_like(ch, dtype=np.float32)
+        for i, x in enumerate(ch):
+            bufout = buf[i % delay]
+            y = bufout - x
+            buf[i % delay] = x + bufout * feedback
+            out[i] = y
+        return out
+
+    # Two small all‑pass filters add a little diffusion to the tail.
+    for d in (int(0.005 * sr), int(0.0017 * sr)):
+        if d > 0:
+            out[:, 0] = allpass_filter(out[:, 0], d, 0.5)
+            out[:, 1] = allpass_filter(out[:, 1], d, 0.5)
+
+    return out[:n]
+
+
 def _chorus(
     stereo: np.ndarray, sr: int, depth: float, rate: float, mix: float
 ) -> np.ndarray:
@@ -212,7 +280,8 @@ def mix(stems: Mapping[str, np.ndarray], sr: int, config: Mapping[str, Any] | No
 
         ``tracks`` -> mapping of track name to ``gain`` (dB), ``pan`` (-1..1)
         and ``reverb_send`` (0..1).
-        ``reverb`` -> ``decay`` (seconds) and ``wet`` level (0..1).
+        ``reverb`` -> ``decay`` (seconds), ``wet`` level (0..1), ``predelay``
+        (seconds) and high‑frequency ``damp`` (0..1).
         ``master`` -> ``limiter`` mapping with ``enabled`` and ``threshold``.
 
     Returns
@@ -255,8 +324,10 @@ def mix(stems: Mapping[str, np.ndarray], sr: int, config: Mapping[str, Any] | No
     rev_cfg = config.get("reverb", {})
     decay = float(rev_cfg.get("decay", 0.5))
     wet = float(rev_cfg.get("wet", 0.3))
+    predelay = float(rev_cfg.get("predelay", 0.0))
+    damp = float(rev_cfg.get("damp", 0.5))
     if wet > 0.0:
-        mix += _simple_reverb(reverb_bus, sr, decay) * wet
+        mix += _plate_reverb(reverb_bus, sr, decay, predelay, damp) * wet
 
     comp_cfg = config.get("master", {}).get("compressor", {})
     if comp_cfg.get("enabled", True):
