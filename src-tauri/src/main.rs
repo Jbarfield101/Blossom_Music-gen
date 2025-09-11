@@ -3,9 +3,10 @@
 use std::process::Command;
 
 #[tauri::command]
-fn run_python_script(script: &str) -> Result<String, String> {
+fn run_python_script(script: &str, args: Vec<String>) -> Result<String, String> {
     let output = Command::new("python")
         .arg(script)
+        .args(args)
         .output()
         .map_err(|e| e.to_string())?;
 
