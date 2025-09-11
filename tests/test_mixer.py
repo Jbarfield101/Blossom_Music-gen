@@ -1,6 +1,6 @@
 import numpy as np
 
-from core.mixer import mix
+from core.mixer import mix, _plate_reverb
 
 
 def test_gain_pan_limiter():
@@ -91,3 +91,33 @@ def test_bus_compressor_reduces_peak():
     target = 10 ** ((-20 + (0 - (-20)) / 4) / 20)
     assert peak_no > peak_comp
     assert np.isclose(peak_comp, target, atol=0.02)
+
+
+def test_reverb_predelay_shifts_response():
+    sr = 100
+    imp = np.zeros(200, dtype=np.float32)
+    imp[0] = 1.0
+    stereo = np.stack([imp, imp], axis=1)
+    ir_no = _plate_reverb(stereo, sr, decay=0.2, predelay=0.0, damp=0.5)
+    ir_pd = _plate_reverb(stereo, sr, decay=0.2, predelay=0.05, damp=0.5)
+
+    def first_nonzero(ir: np.ndarray) -> int:
+        nz = np.where(np.abs(ir[:, 0]) > 1e-5)[0]
+        return int(nz[0]) if len(nz) else len(ir)
+
+    first_no = first_nonzero(ir_no)
+    first_pd = first_nonzero(ir_pd)
+    assert first_pd >= first_no + int(0.05 * sr) - 1
+
+
+def test_reverb_damping_reduces_high_freq():
+    sr = 100
+    imp = np.zeros(200, dtype=np.float32)
+    imp[0] = 1.0
+    stereo = np.stack([imp, imp], axis=1)
+    ir_low = _plate_reverb(stereo, sr, decay=0.3, predelay=0.0, damp=0.0)
+    ir_high = _plate_reverb(stereo, sr, decay=0.3, predelay=0.0, damp=0.9)
+
+    hf_low = np.sum(np.abs(np.diff(ir_low[:, 0])))
+    hf_high = np.sum(np.abs(np.diff(ir_high[:, 0])))
+    assert hf_high < hf_low
