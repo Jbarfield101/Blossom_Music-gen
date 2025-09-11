@@ -57,6 +57,7 @@ async function poll(){
   const data = await resp.json();
   $('progress').value = data.progress || 0;
   $('eta').textContent = data.eta ? `ETA: ${data.eta}` : '';
+  $('stage').textContent = data.stage || '';
   $('log').textContent = data.log.join('');
   if (data.status === 'running'){
     setTimeout(poll, 1000);
