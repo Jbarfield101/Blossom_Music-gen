@@ -74,7 +74,12 @@ def main() -> None:
     else:
         python_path, _ = _venv_paths(str(env_dir))
 
-    subprocess.run([str(python_path), "-m", "main_render", *sys.argv[1:]], check=True)
+    os.environ["PATH"] = f"{python_path.parent}{os.pathsep}{os.environ['PATH']}"
+    try:
+        subprocess.run(["npm", "run", "tauri", "dev"], check=True)
+    except subprocess.CalledProcessError:
+        print("Failed to launch Tauri UI", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

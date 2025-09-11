@@ -6,58 +6,23 @@
     <style>
       body {
         margin: 0;
+        height: 100vh;
         display: flex;
         flex-direction: column;
+        justify-content: center;
         align-items: center;
+        background-color: #000;
+        color: #fff;
         font-family: sans-serif;
-        padding: 1rem;
       }
-      label {
-        display: block;
-        margin-top: 0.5rem;
-      }
-      input {
-        width: 300px;
-      }
-      button {
-        margin-top: 1rem;
-        padding: 0.5rem 1rem;
+      .icon {
+        font-size: 64px;
+        margin-bottom: 1rem;
       }
     </style>
   </head>
   <body>
-    <h1>Music Generator</h1>
-    <label>Song Spec <input id="spec" value="song.json" /></label>
-    <label>Keys SFZ <input id="keys" /></label>
-    <label>Pads SFZ <input id="pads" /></label>
-    <label>Bass SFZ <input id="bass" /></label>
-    <label>Drums SFZ <input id="drums" /></label>
-    <label>Seed <input id="seed" type="number" value="42" /></label>
-    <label>Mix Path <input id="mix" value="out/mix.wav" /></label>
-    <label>Stems Dir <input id="stems" value="out/stems" /></label>
-    <button id="render">Render</button>
-    <script>
-      document.getElementById('render').addEventListener('click', async () => {
-        const args = [
-          '--spec', document.getElementById('spec').value,
-          '--seed', document.getElementById('seed').value,
-          '--mix', document.getElementById('mix').value,
-          '--stems', document.getElementById('stems').value,
-        ];
-        const keys = document.getElementById('keys').value;
-        if (keys) args.push('--keys-sfz', keys);
-        const pads = document.getElementById('pads').value;
-        if (pads) args.push('--pads-sfz', pads);
-        const bass = document.getElementById('bass').value;
-        if (bass) args.push('--bass-sfz', bass);
-        const drums = document.getElementById('drums').value;
-        if (drums) args.push('--drums-sfz', drums);
-        try {
-          await window.__TAURI__.invoke('run_python_script', { script: 'start.py', args });
-        } catch (e) {
-          console.error(e);
-        }
-      });
-    </script>
+    <div class="icon">🎵</div>
+    <div>Music Generator</div>
   </body>
 </html>
