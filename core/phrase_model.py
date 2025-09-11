@@ -24,6 +24,7 @@ import logging
 import numpy as np
 
 from .sampling import sample
+from .style import StyleToken
 
 # Optional dependencies.  The rest of the code guards against them being
 # unavailable so the repository can be used without the heavy ML stacks
@@ -204,7 +205,7 @@ def generate_phrase(
 
     def _sample_loop():  # pragma: no cover - relies on optional deps
         history = list(prompt)
-        style_id = 0 if style is None else int(style)
+        style_id = int(StyleToken.LOFI if style is None else style)
         for _ in range(max_steps):
             if fmt == "torchscript":
                 inp = torch.tensor([history], dtype=torch.long)
