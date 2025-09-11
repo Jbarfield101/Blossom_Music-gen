@@ -83,7 +83,10 @@ def arrange_song(
     cadences = spec.cadence_bars()
     if cadences:
         for bar_idx in sorted(cadences):
-            bar_start = bar_idx * sec_per_bar
+            if bar_idx <= 0:
+                continue
+            pre_bar = bar_idx - 1
+            bar_start = pre_bar * sec_per_bar
             bar_end = bar_start + sec_per_bar
             # Drum fill: simple snare hit on the last 16th note of the bar
             fill_start = bar_end - sec_per_step
@@ -107,8 +110,8 @@ def arrange_song(
                 out.setdefault("fx", []).append(
                     Stem(start=bar_start, dur=sec_per_bar, pitch=0, vel=vel_n, chan=15)
                 )
-            # Bass approach: chromatic approach to first note of next bar
-            next_start = (bar_idx + 1) * sec_per_bar
+            # Bass approach: chromatic approach to first note of cadence bar
+            next_start = bar_idx * sec_per_bar
             next_end = next_start + sec_per_bar
             target_pitch = None
             target_vel = 96

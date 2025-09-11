@@ -21,7 +21,7 @@ def test_drum_fill_added_at_cadence():
     sec_per_bar = beats * sec_per_beat
     spb = _steps_per_beat(spec.meter)
     sec_per_step = sec_per_beat / spb
-    fill_start = 2 * sec_per_bar - sec_per_step
+    fill_start = 1 * sec_per_bar - sec_per_step
 
     drum_notes = out.get("drums", [])
     tol = 0.02
