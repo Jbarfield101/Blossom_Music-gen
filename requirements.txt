@@ -3,4 +3,5 @@ scipy
 soundfile
 pytest
 fastapi
+httpx
 uvicorn
