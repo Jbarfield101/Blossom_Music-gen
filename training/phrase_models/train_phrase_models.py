@@ -19,11 +19,7 @@ import torch
 import torch.nn as nn
 
 from core.sampling import sample
-
-STYLE_LOFI = 0
-STYLE_ROCK = 1
-STYLE_CINEMATIC = 2
-NUM_STYLES = 3
+from core.style import StyleToken, NUM_STYLES
 
 REPO_DIR = Path(__file__).resolve().parents[2]
 MODELS_DIR = REPO_DIR / "models"
@@ -145,8 +141,15 @@ def main() -> None:
     torch.save(drum_model.state_dict(), Path(__file__).with_name("drum_phrase.pt"))
     export(drum_model.eval(), (drum_data[:1], drum_styles[:1]), "drum_phrase")
 
-    # Demonstrate sampling with the centralized utilities
-    logits = drum_model(drum_data[:1], drum_styles[:1])[0, -1].detach().cpu().numpy()
+    # Demonstrate sampling with the centralized utilities using a fixed style
+    logits = (
+        drum_model(
+            drum_data[:1], torch.tensor([StyleToken.LOFI], dtype=torch.long)
+        )[0, -1]
+        .detach()
+        .cpu()
+        .numpy()
+    )
     _ = sample(logits, top_k=4, top_p=0.9)
 
     # Bass phrase: chord conditioned
