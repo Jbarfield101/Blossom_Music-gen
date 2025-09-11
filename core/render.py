@@ -15,13 +15,17 @@ import math
 import numpy as np
 
 from .stems import Stem, _steps_per_beat
-from .sfz_sampler import SFZSampler
+try:  # pragma: no cover - optional dependency
+    from .sfz_sampler import SFZSampler
+except ImportError:  # pragma: no cover - handled at runtime
+    SFZSampler = None  # type: ignore
 from .utils import note_to_sample_indices
 from . import synth
 
 try:  # pragma: no cover - optional dependency
     import soundfile as sf  # type: ignore
 except Exception:  # pragma: no cover - handled at runtime
+    # ``soundfile`` is optional; simple synthesis fallbacks are used when missing
     sf = None  # type: ignore
 
 
@@ -212,7 +216,7 @@ def _render_instrument(
     if not notes:
         return np.zeros(0, dtype=np.float32)
 
-    if sfz is not None:
+    if sfz is not None and SFZSampler is not None:
         try:
             sampler = SFZSampler(sfz)
             return sampler.render(notes, sample_rate=sr)
