@@ -4,11 +4,11 @@
     "productName": "Blossom Music Generator",
     "version": "0.1.0"
   },
+  "build": {
+    "distDir": "../tauri-ui",
+    "devPath": "../tauri-ui"
+  },
   "tauri": {
-    "build": {
-      "distDir": "../tauri-ui",
-      "devPath": "../tauri-ui"
-    },
     "windows": [
       {
         "title": "Music Generator",
