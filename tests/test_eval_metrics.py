@@ -13,6 +13,7 @@ from core.eval_metrics import (
     cadence_fill_rate,
     density_alignment,
     audio_stats,
+    evaluate_render,
 )
 
 
@@ -115,3 +116,40 @@ def test_audio_stats():
     stats = audio_stats(audio)
     assert stats["peak_db"] == pytest.approx(-6.0206, abs=1e-3)
     assert stats["rms_db"] == pytest.approx(-7.7815, abs=1e-3)
+
+
+def test_evaluate_render_structure():
+    spec = _basic_spec()
+    stems = {
+        "bass": [Stem(start=0, dur=1, pitch=36, vel=100, chan=0)]
+    }
+    audio = np.array([0.1, -0.1], dtype=float)
+    metrics = evaluate_render(stems, spec, audio)
+
+    expected = {
+        "chord_tone_coverage",
+        "voice_leading_smoothness",
+        "rhythmic_stability",
+        "cadence_fill_rate",
+        "density_alignment",
+        "audio_stats",
+    }
+    assert set(metrics.keys()) == expected
+    assert isinstance(metrics["chord_tone_coverage"], (int, float))
+    assert isinstance(metrics["voice_leading_smoothness"], (int, float))
+    assert isinstance(metrics["cadence_fill_rate"], (int, float))
+
+    assert isinstance(metrics["rhythmic_stability"], dict)
+    for v in metrics["rhythmic_stability"].values():
+        assert isinstance(v, (int, float))
+
+    assert isinstance(metrics["density_alignment"], dict)
+    for sec in metrics["density_alignment"].values():
+        assert isinstance(sec, dict)
+        assert "expected" in sec and "actual" in sec
+        assert isinstance(sec["expected"], (int, float))
+        assert isinstance(sec["actual"], (int, float))
+
+    assert isinstance(metrics["audio_stats"], dict)
+    for v in metrics["audio_stats"].values():
+        assert isinstance(v, (int, float))
