@@ -20,6 +20,11 @@ import torch.nn as nn
 
 from core.sampling import sample
 
+STYLE_LOFI = 0
+STYLE_ROCK = 1
+STYLE_CINEMATIC = 2
+NUM_STYLES = 3
+
 REPO_DIR = Path(__file__).resolve().parents[2]
 MODELS_DIR = REPO_DIR / "models"
 MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -31,14 +36,15 @@ class TransformerEncoder(nn.Module):
     def __init__(self, input_size: int, hidden: int, output_size: int):
         super().__init__()
         self.in_proj = nn.Linear(input_size, hidden)
+        self.style_emb = nn.Embedding(NUM_STYLES, hidden)
         enc_layer = nn.TransformerEncoderLayer(
             hidden, nhead=2, dim_feedforward=hidden * 2, batch_first=True
         )
         self.encoder = nn.TransformerEncoder(enc_layer, num_layers=2)
         self.fc = nn.Linear(hidden, output_size)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.in_proj(x)
+    def forward(self, x: torch.Tensor, style: torch.Tensor) -> torch.Tensor:
+        x = self.in_proj(x) + self.style_emb(style).unsqueeze(1)
         x = self.encoder(x)
         return self.fc(x)
 
@@ -49,34 +55,41 @@ class TransformerDecoder(nn.Module):
     def __init__(self, input_size: int, hidden: int, output_size: int):
         super().__init__()
         self.in_proj = nn.Linear(input_size, hidden)
+        self.style_emb = nn.Embedding(NUM_STYLES, hidden)
         dec_layer = nn.TransformerDecoderLayer(
             hidden, nhead=2, dim_feedforward=hidden * 2, batch_first=True
         )
         self.decoder = nn.TransformerDecoder(dec_layer, num_layers=2)
         self.fc = nn.Linear(hidden, output_size)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, style: torch.Tensor) -> torch.Tensor:
         # Decoder requires a memory tensor – for the toy model we simply use a
         # zero tensor with the same shape as the input.
-        x = self.in_proj(x)
+        x = self.in_proj(x) + self.style_emb(style).unsqueeze(1)
         memory = torch.zeros_like(x)
         x = self.decoder(x, memory)
         return self.fc(x)
 
 
-def synthetic_dataset(n_samples: int, seq_len: int, in_dim: int) -> torch.Tensor:
-    """Generates a random tensor to act as training data."""
-    return torch.randn(n_samples, seq_len, in_dim)
+def synthetic_dataset(
+    n_samples: int, seq_len: int, in_dim: int
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Generates random training data and style tokens."""
+    data = torch.randn(n_samples, seq_len, in_dim)
+    styles = torch.randint(0, NUM_STYLES, (n_samples,), dtype=torch.long)
+    return data, styles
 
 
-def train_model(model: nn.Module, data: torch.Tensor, epochs: int = 2) -> nn.Module:
+def train_model(
+    model: nn.Module, data: torch.Tensor, styles: torch.Tensor, epochs: int = 2
+) -> nn.Module:
     """Very small training loop used for demonstration."""
     optim = torch.optim.Adam(model.parameters(), lr=1e-3)
     criterion = nn.MSELoss()
     model.train()
     for _ in range(epochs):
         optim.zero_grad()
-        out = model(data)
+        out = model(data, styles)
         loss = criterion(out, torch.zeros_like(out))
         loss.backward()
         optim.step()
@@ -125,28 +138,34 @@ def export(model: nn.Module, example: Union[torch.Tensor, Sequence[torch.Tensor]
 def main() -> None:
     # Drum phrase: 16-32 bars (simulated by seq_len=32)
     drum_in, drum_hidden, drum_out = 8, 32, 8
-    drum_data = synthetic_dataset(4, 32, drum_in)
-    drum_model = train_model(TransformerEncoder(drum_in, drum_hidden, drum_out), drum_data)
+    drum_data, drum_styles = synthetic_dataset(4, 32, drum_in)
+    drum_model = train_model(
+        TransformerEncoder(drum_in, drum_hidden, drum_out), drum_data, drum_styles
+    )
     torch.save(drum_model.state_dict(), Path(__file__).with_name("drum_phrase.pt"))
-    export(drum_model.eval(), drum_data[:1], "drum_phrase")
+    export(drum_model.eval(), (drum_data[:1], drum_styles[:1]), "drum_phrase")
 
     # Demonstrate sampling with the centralized utilities
-    logits = drum_model(drum_data[:1])[0, -1].detach().cpu().numpy()
+    logits = drum_model(drum_data[:1], drum_styles[:1])[0, -1].detach().cpu().numpy()
     _ = sample(logits, top_k=4, top_p=0.9)
 
     # Bass phrase: chord conditioned
     bass_in, bass_hidden, bass_out = 12, 32, 12  # additional dims for chords
-    bass_data = synthetic_dataset(4, 16, bass_in)
-    bass_model = train_model(TransformerDecoder(bass_in, bass_hidden, bass_out), bass_data)
+    bass_data, bass_styles = synthetic_dataset(4, 16, bass_in)
+    bass_model = train_model(
+        TransformerDecoder(bass_in, bass_hidden, bass_out), bass_data, bass_styles
+    )
     torch.save(bass_model.state_dict(), Path(__file__).with_name("bass_phrase.pt"))
-    export(bass_model.eval(), bass_data[:1], "bass_phrase")
+    export(bass_model.eval(), (bass_data[:1], bass_styles[:1]), "bass_phrase")
 
     # Keys phrase: voicing aware
     keys_in, keys_hidden, keys_out = 16, 32, 16
-    keys_data = synthetic_dataset(4, 16, keys_in)
-    keys_model = train_model(TransformerEncoder(keys_in, keys_hidden, keys_out), keys_data)
+    keys_data, key_styles = synthetic_dataset(4, 16, keys_in)
+    keys_model = train_model(
+        TransformerEncoder(keys_in, keys_hidden, keys_out), keys_data, key_styles
+    )
     torch.save(keys_model.state_dict(), Path(__file__).with_name("keys_phrase.pt"))
-    export(keys_model.eval(), keys_data[:1], "keys_phrase")
+    export(keys_model.eval(), (keys_data[:1], key_styles[:1]), "keys_phrase")
 
 
 if __name__ == "__main__":
