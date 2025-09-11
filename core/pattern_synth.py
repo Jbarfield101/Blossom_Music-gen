@@ -242,7 +242,18 @@ def build_patterns_for_song(
     verbose: bool = False,
     use_phrase_model: str = "auto",
 ) -> Dict:
-    """Generate patterns for all sections/instruments using ``spec``."""
+    """Generate patterns for all sections/instruments using ``spec``.
+
+    Parameters
+    ----------
+    spec:
+        Song specification driving pattern generation.
+    seed:
+        Global seed controlling deterministic pattern generators.
+    sampler_seed:
+        Optional seed for phrase model sampling.  If ``None`` the global
+        ``seed`` is used instead.
+    """
     plan: Dict = {"sections": []}
     meter = spec.meter
     for sec in spec.sections:
