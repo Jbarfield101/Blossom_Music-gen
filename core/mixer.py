@@ -84,6 +84,89 @@ def _apply_peaking_eq(
     return out
 
 
+def _apply_low_shelf(
+    signal: np.ndarray, sr: int, freq: float, gain_db: float, q: float = 1.0
+) -> np.ndarray:
+    """Apply a low‑shelf EQ filter to ``signal``.
+
+    Parameters are the same as :func:`_apply_peaking_eq` with ``freq`` marking
+    the transition frequency of the shelf.
+    """
+
+    if gain_db == 0.0 or freq <= 0.0 or freq >= sr / 2:
+        return signal
+
+    A = 10 ** (gain_db / 40.0)
+    w0 = 2.0 * math.pi * freq / sr
+    cos_w0 = math.cos(w0)
+    sin_w0 = math.sin(w0)
+    # Treat ``q`` as the shelf slope ``S`` from RBJ's cookbook.
+    S = max(q, 1e-6)
+    alpha = sin_w0 / 2.0 * math.sqrt((A + 1.0 / A) * (1.0 / S - 1.0) + 2.0)
+    sqrtA = math.sqrt(A)
+
+    b0 = A * ((A + 1.0) - (A - 1.0) * cos_w0 + 2.0 * sqrtA * alpha)
+    b1 = 2.0 * A * ((A - 1.0) - (A + 1.0) * cos_w0)
+    b2 = A * ((A + 1.0) - (A - 1.0) * cos_w0 - 2.0 * sqrtA * alpha)
+    a0 = (A + 1.0) + (A - 1.0) * cos_w0 + 2.0 * sqrtA * alpha
+    a1 = -2.0 * ((A - 1.0) + (A + 1.0) * cos_w0)
+    a2 = (A + 1.0) + (A - 1.0) * cos_w0 - 2.0 * sqrtA * alpha
+
+    b0 /= a0
+    b1 /= a0
+    b2 /= a0
+    a1 /= a0
+    a2 /= a0
+
+    out = np.zeros_like(signal, dtype=np.float32)
+    x1 = x2 = y1 = y2 = 0.0
+    for i, x0 in enumerate(signal):
+        y0 = b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+        out[i] = y0
+        x2, x1 = x1, x0
+        y2, y1 = y1, y0
+    return out
+
+
+def _apply_high_shelf(
+    signal: np.ndarray, sr: int, freq: float, gain_db: float, q: float = 1.0
+) -> np.ndarray:
+    """Apply a high‑shelf EQ filter to ``signal``."""
+
+    if gain_db == 0.0 or freq <= 0.0 or freq >= sr / 2:
+        return signal
+
+    A = 10 ** (gain_db / 40.0)
+    w0 = 2.0 * math.pi * freq / sr
+    cos_w0 = math.cos(w0)
+    sin_w0 = math.sin(w0)
+    S = max(q, 1e-6)
+    alpha = sin_w0 / 2.0 * math.sqrt((A + 1.0 / A) * (1.0 / S - 1.0) + 2.0)
+    sqrtA = math.sqrt(A)
+
+    b0 = A * ((A + 1.0) + (A - 1.0) * cos_w0 + 2.0 * sqrtA * alpha)
+    b1 = -2.0 * A * ((A - 1.0) + (A + 1.0) * cos_w0)
+    b2 = A * ((A + 1.0) + (A - 1.0) * cos_w0 - 2.0 * sqrtA * alpha)
+    a0 = (A + 1.0) - (A - 1.0) * cos_w0 + 2.0 * sqrtA * alpha
+    a1 = 2.0 * ((A - 1.0) - (A + 1.0) * cos_w0)
+    a2 = (A + 1.0) - (A - 1.0) * cos_w0 - 2.0 * sqrtA * alpha
+
+    b0 /= a0
+    b1 /= a0
+    b2 /= a0
+    a1 /= a0
+    a2 /= a0
+
+    out = np.zeros_like(signal, dtype=np.float32)
+    x1 = x2 = y1 = y2 = 0.0
+    for i, x0 in enumerate(signal):
+        y0 = b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+        out[i] = y0
+        x2, x1 = x1, x0
+        y2, y1 = y1, y0
+    return out
+
+
 def _feedback_delay(signal: np.ndarray, delay: int, decay: float) -> np.ndarray:
     """Return ``signal`` passed through a simple feedback delay."""
     out = np.zeros_like(signal)
@@ -326,7 +409,13 @@ def mix(stems: Mapping[str, np.ndarray], sr: int, config: Mapping[str, Any] | No
             freq = float(eq_cfg.get("freq", 0.0))
             eq_gain = float(eq_cfg.get("gain", 0.0))
             q = float(eq_cfg.get("q", 1.0))
-            mono = _apply_peaking_eq(mono, sr, freq, eq_gain, q)
+            eq_type = str(eq_cfg.get("type", "peaking")).lower()
+            if eq_type == "low_shelf":
+                mono = _apply_low_shelf(mono, sr, freq, eq_gain, q)
+            elif eq_type == "high_shelf":
+                mono = _apply_high_shelf(mono, sr, freq, eq_gain, q)
+            else:
+                mono = _apply_peaking_eq(mono, sr, freq, eq_gain, q)
         stereo = _apply_gain_pan(mono, gain_db, pan)
         chorus_cfg = cfg.get("chorus")
         if chorus_cfg:
