@@ -10,7 +10,11 @@ from .theory import parse_chord_symbol, generate_satb
 
 
 def chord_tone_coverage(stems: Mapping[str, Sequence[Stem]], spec: SongSpec) -> float:
-    """Return fraction of bass/keys/pads notes that match the chord."""
+    """Return fraction of bass/keys/pads notes that match the chord.
+
+    If a chord symbol cannot be parsed, the corresponding note is treated as a
+    non-match without raising an error.
+    """
     chords = spec.all_chords()
     beats_per_bar = bars_to_beats(spec.meter)
     total = 0
@@ -20,9 +24,12 @@ def chord_tone_coverage(stems: Mapping[str, Sequence[Stem]], spec: SongSpec) -> 
             bar = int(n.start // beats_per_bar)
             if bar >= len(chords):
                 continue
-            root, intervals = parse_chord_symbol(chords[bar])
-            pcs = {(root + iv) % 12 for iv in intervals}
             total += 1
+            try:
+                root, intervals = parse_chord_symbol(chords[bar])
+            except Exception:
+                continue
+            pcs = {(root + iv) % 12 for iv in intervals}
             if n.pitch % 12 in pcs:
                 matches += 1
     return matches / total if total else 0.0
