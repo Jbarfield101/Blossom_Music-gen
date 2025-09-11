@@ -271,7 +271,7 @@ def build_patterns_for_song(
                     chords=chords,
                     density=density,
                     seed=sampler_seed if sampler_seed is not None else seed,
-                    timeout=0.5,
+                    timeout=1.0,
                     verbose=verbose,
                 )
             except Exception:

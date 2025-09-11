@@ -5,9 +5,9 @@ This module attempts to load neural network models stored under the
 ``models/`` directory.  Models can either be provided as TorchScript
 (``.ts.pt``) files or ONNX (``.onnx``) graphs.  The ``generate_phrase``
 function exposes a simple token sampling loop with nucleus/top-k sampling,
-temperature scaling and a repetition penalty.  Sampling is executed in a
-background thread and aborted if it does not finish within a configurable
-``timeout``.
+temperature scaling and a repetition penalty.  Model loading and the sampling
+loop are executed in background threads and aborted if they do not finish
+within a configurable ``timeout``.
 
 The goal of this module is to provide an optional neural alternative to the
 algorithmic pattern generators.  If model loading fails or sampling times out
@@ -18,7 +18,6 @@ algorithms.
 from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Tuple
 import threading
-import time
 import random
 import logging
 
@@ -90,19 +89,26 @@ def _load_model_from_disk(inst: str, *, verbose: bool = False) -> Tuple[Optional
     return None, None
 
 
-def load_model(inst: str, *, verbose: bool = False) -> Tuple[Optional[str], Optional[object]]:
+def load_model(
+    inst: str,
+    *,
+    timeout: float = 1.0,
+    verbose: bool = False,
+) -> Tuple[Optional[str], Optional[object]]:
     """Attempt to load a model for ``inst`` with caching.
 
     The function first consults an in-memory cache.  If the model has not been
-    loaded yet it is read from disk and stored in the cache.  The returned
-    tuple follows the same convention as :func:`_load_model_from_disk`.
+    loaded yet it is read from disk and stored in the cache.  Loading is
+    executed via :func:`_run_with_timeout` so a stuck disk access does not block
+    indefinitely.  The returned tuple follows the same convention as
+    :func:`_load_model_from_disk`.
     """
 
     with _cache_lock:
         if inst in MODEL_CACHE:
             return MODEL_CACHE[inst]
 
-    fmt, model = _load_model_from_disk(inst, verbose=verbose)
+    fmt, model = _run_with_timeout(_load_model_from_disk, timeout, inst, verbose=verbose)
     with _cache_lock:
         MODEL_CACHE[inst] = (fmt, model)
     return fmt, model
@@ -131,12 +137,6 @@ def _preload_models() -> None:
             pass
 
 
-# Start background preloading of models as soon as the module is imported.
-threading.Thread(target=_preload_models, daemon=True).start()
-
-
-
-
 def _run_with_timeout(func, timeout: float, *args, **kwargs):
     """Execute ``func`` in a thread, aborting after ``timeout`` seconds."""
 
@@ -153,10 +153,14 @@ def _run_with_timeout(func, timeout: float, *args, **kwargs):
     th.start()
     th.join(timeout)
     if th.is_alive():
-        raise TimeoutError("sampling timed out")
+        raise TimeoutError("operation timed out")
     if "error" in exc:
         raise exc["error"]
     return result.get("value")
+
+
+# Start background preloading of models as soon as the module is imported.
+threading.Thread(target=_preload_models, daemon=True).start()
 
 
 # ---------------------------------------------------------------------------
@@ -182,8 +186,8 @@ def generate_phrase(
     The returned list contains the newly generated tokens (not including the
     ``prompt``).  Additional keyword arguments are accepted for forward
     compatibility but ignored by the current implementation.  The function
-    raises an exception if the model can not be loaded or if sampling exceeds
-    ``timeout`` seconds.
+    raises an exception if the model can not be loaded or if either loading or
+    sampling exceeds ``timeout`` seconds.
 
     If ``seed`` is provided, the Python, NumPy and (if available) torch random
     number generators are seeded only for the duration of this call.  Their
@@ -191,7 +195,7 @@ def generate_phrase(
     affected.
     """
 
-    fmt, model = load_model(inst, verbose=verbose)
+    fmt, model = load_model(inst, timeout=timeout, verbose=verbose)
     if model is None:
         raise RuntimeError(f"no model available for {inst}")
 
