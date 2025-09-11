@@ -43,6 +43,7 @@ from core.mixer import mix as mix_stems
 from core.style import load_style
 from core.midi_export import stems_to_midi
 from core.render_hash import get_git_commit, render_hash
+from core.loudness import estimate_lufs
 
 
 def _write_wav(path: Path, audio: np.ndarray, sr: int, *, comment: str | None = None) -> None:
@@ -487,7 +488,9 @@ if __name__ == "__main__":
         t0 = time.monotonic()
         mix_audio = mix_stems(rendered, 44100, cfg)
         mix_peak = float(np.max(np.abs(mix_audio)))
-        _log_stage(logs, progress, "mix", t0, peak=mix_peak)
+        mix_lufs = estimate_lufs(mix_audio, 44100)
+        cfg["loudness_lufs"] = round(float(mix_lufs), 1)
+        _log_stage(logs, progress, "mix", t0, peak=mix_peak, loudness_lufs=mix_lufs)
 
         summary, arrange_report = _print_arrangement_summary(spec, mix_audio, 44100)
 
@@ -534,6 +537,7 @@ if __name__ == "__main__":
                 "To reproduce, run the above command from the repository root.\n\n"
                 f"Commit: {commit}\n"
                 f"Render hash: {rhash}\n"
+                f"Loudness: {mix_lufs:.1f} LUFS\n"
             )
             (bundle_dir / "README.txt").write_text(readme, encoding="utf-8")
         else:
