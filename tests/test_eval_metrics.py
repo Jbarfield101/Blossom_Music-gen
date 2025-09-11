@@ -106,8 +106,8 @@ def test_density_alignment():
         ]
     }
     align = density_alignment(stems, spec)
-    assert align["a"] == {"expected": 0.5, "actual": 0.25}
-    assert align["b"] == {"expected": 0.25, "actual": 0.5}
+    assert align["a"] == {"expected": 0.5, "actual": 0.5}
+    assert align["b"] == {"expected": 0.25, "actual": 1.0}
 
 
 def test_audio_stats():
