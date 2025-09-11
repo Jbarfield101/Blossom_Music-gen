@@ -3,6 +3,39 @@ let outputDir = '';
 
 function $(id){ return document.getElementById(id); }
 
+async function loadRecent(){
+  const resp = await fetch('/recent');
+  if (!resp.ok) return;
+  const data = await resp.json();
+  const list = $('recent_list');
+  if (!list) return;
+  list.innerHTML = '';
+  for (const job of data){
+    const li = document.createElement('li');
+    const span = document.createElement('span');
+    span.textContent = `${job.preset} (seed ${job.seed}) - ${job.status}`;
+    const btn = document.createElement('button');
+    btn.textContent = 'Duplicate';
+    btn.onclick = () => fillForm(job);
+    li.appendChild(span);
+    li.appendChild(btn);
+    list.appendChild(li);
+  }
+}
+
+function fillForm(job){
+  $('preset').value = job.preset;
+  $('style').value = job.style || '';
+  $('minutes').value = job.minutes ?? '';
+  $('sections').value = job.sections ?? '';
+  $('seed').value = job.seed ?? 42;
+  $('name').value = job.name || 'output';
+  $('phrase').checked = !!job.phrase;
+  $('preview').value = job.preview ?? '';
+  outputDir = job.outdir || '';
+  $('outdir').value = outputDir;
+}
+
 $('choose_outdir').onclick = () => {
   $('outdir_picker').click();
 };
@@ -78,5 +111,8 @@ async function poll(){
       }
       $('metrics').textContent = JSON.stringify(data.metrics || {}, null, 2);
     }
+    loadRecent();
   }
 }
+
+loadRecent();
