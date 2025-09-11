@@ -115,3 +115,17 @@ def test_audio_stats():
     stats = audio_stats(audio)
     assert stats["peak_db"] == pytest.approx(-6.0206, abs=1e-3)
     assert stats["rms_db"] == pytest.approx(-7.7815, abs=1e-3)
+
+
+def test_audio_stats_silence():
+    audio = np.zeros(5, dtype=float)
+    stats = audio_stats(audio)
+    assert stats["peak_db"] == 0.0
+    assert stats["rms_db"] == 0.0
+
+
+def test_audio_stats_empty():
+    audio = np.array([], dtype=float)
+    stats = audio_stats(audio)
+    assert stats["peak_db"] == 0.0
+    assert stats["rms_db"] == 0.0
