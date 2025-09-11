@@ -80,7 +80,7 @@ def cadence_fill_rate(stems: Mapping[str, Sequence[Stem]], spec: SongSpec) -> fl
 
 
 def density_alignment(stems: Mapping[str, Sequence[Stem]], spec: SongSpec) -> Dict[str, Dict[str, float]]:
-    """Return actual vs. expected note density per section."""
+    """Return normalized actual vs. expected note density per section."""
     beats_per_bar = bars_to_beats(spec.meter)
     counts: Dict[int, int] = {}
     for notes in stems.values():
@@ -88,7 +88,7 @@ def density_alignment(stems: Mapping[str, Sequence[Stem]], spec: SongSpec) -> Di
             bar = int(n.start // beats_per_bar)
             counts[bar] = counts.get(bar, 0) + 1
     sec_map = spec.bars_by_section()
-    out: Dict[str, Dict[str, float]] = {}
+    raw: Dict[str, float] = {}
     for sec in spec.sections:
         bars = list(sec_map[sec.name])
         if bars:
@@ -96,8 +96,16 @@ def density_alignment(stems: Mapping[str, Sequence[Stem]], spec: SongSpec) -> Di
             actual = total / (len(bars) * beats_per_bar)
         else:
             actual = 0.0
+        raw[sec.name] = actual
+    max_ref = max(raw.values(), default=0.0)
+    if max_ref <= 0.0:
+        max_ref = 1.0
+    out: Dict[str, Dict[str, float]] = {}
+    for sec in spec.sections:
         expected = float(spec.density_curve.get(sec.name, 0.0))
-        out[sec.name] = {"expected": expected, "actual": actual}
+        normalized = raw[sec.name] / max_ref
+        normalized = float(np.clip(normalized, 0.0, 1.0))
+        out[sec.name] = {"expected": expected, "actual": normalized}
     return out
 
 
