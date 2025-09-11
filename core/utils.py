@@ -18,8 +18,11 @@ def write_json(path: str | Path, obj) -> None:
 
 def ensure_file(path: str | Path, err: str = "File missing"):
     p = Path(path)
-    if not p.exists():
-        raise FileNotFoundError(f"{err}: {p}")
+    if p.is_file():
+        return
+    if p.is_dir():
+        raise FileNotFoundError(f"{err}: expected a file but found directory: {p}")
+    raise FileNotFoundError(f"{err}: {p}")
 
 def density_bucket_from_float(x: float) -> str:
     """Map [0..1] -> 'sparse' | 'med' | 'busy'."""
