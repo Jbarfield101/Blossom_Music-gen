@@ -32,17 +32,6 @@ class Stem:
     chan: int
 
 
-@dataclass
-class Stems:
-    """Placeholder for collections of notes; same fields as :class:`Note`."""
-
-    start: float
-    dur: float
-    pitch: int
-    vel: int
-    chan: int
-
-
 def bars_to_beats(meter: str) -> int:
     """Return the number of beats contained in one bar of ``meter``.
 
