@@ -44,6 +44,7 @@ from core.style import load_style, style_to_token
 from core.midi_export import stems_to_midi
 from core.render_hash import get_git_commit, render_hash
 from core.loudness import estimate_lufs
+from core.eval_metrics import evaluate_render
 
 
 def _write_wav(path: Path, audio: np.ndarray, sr: int, *, comment: str | None = None) -> None:
@@ -500,6 +501,7 @@ if __name__ == "__main__":
         _log_stage(logs, progress, "mix", t0, peak=mix_peak, loudness_lufs=mix_lufs)
 
         summary, arrange_report = _print_arrangement_summary(spec, mix_audio, 44100)
+        metrics = evaluate_render(stems, spec, mix_audio)
 
         t0 = time.monotonic()
         if args.bundle:
@@ -531,6 +533,8 @@ if __name__ == "__main__":
             (bundle_dir / "arrangement.txt").write_text(summary + "\n", encoding="utf-8")
             with (bundle_dir / "arrange_report.json").open("w", encoding="utf-8") as fh:
                 json.dump(arrange_report, fh, indent=2)
+            with (bundle_dir / "metrics.json").open("w", encoding="utf-8") as fh:
+                json.dump(metrics, fh, indent=2)
 
             cmdline = (
                 "python "

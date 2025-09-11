@@ -14,6 +14,7 @@ from .stems import (
 )
 from .arranger import arrange_song
 from .dynamics import apply as apply_dynamics
+from .eval_metrics import evaluate_render
 
 __all__ = [
     "SongSpec", "Section",
@@ -22,4 +23,5 @@ __all__ = [
     "Note", "Stem", "Stems",
     "bars_to_beats", "beats_to_secs",
     "enforce_register", "dedupe_collisions",
+    "evaluate_render",
 ]
