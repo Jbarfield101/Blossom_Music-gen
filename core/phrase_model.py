@@ -24,6 +24,8 @@ import logging
 
 import numpy as np
 
+from .sampling import sample
+
 # Optional dependencies.  The rest of the code guards against them being
 # unavailable so the repository can be used without the heavy ML stacks
 # installed.
@@ -133,52 +135,6 @@ def _preload_models() -> None:
 threading.Thread(target=_preload_models, daemon=True).start()
 
 
-# ---------------------------------------------------------------------------
-# Sampling helpers
-# ---------------------------------------------------------------------------
-
-def _apply_sampling(
-    logits: np.ndarray,
-    *,
-    top_p: float,
-    top_k: int,
-    temperature: float,
-    repetition_penalty: float,
-    history: Sequence[int],
-) -> int:
-    """Sample an index from ``logits`` using various strategies."""
-
-    if temperature <= 0:
-        raise ValueError("temperature must be > 0")
-
-    logits = logits.astype(np.float64)
-    logits = logits / temperature
-
-    if repetition_penalty != 1.0 and history:
-        for tok in set(history):
-            logits[tok] /= repetition_penalty
-
-    # Top-k filtering
-    if top_k > 0 and top_k < len(logits):
-        kth_vals = np.partition(logits, -top_k)[-top_k]
-        logits[logits < kth_vals] = -np.inf
-
-    # Convert to probabilities for top-p
-    probs = np.exp(logits - np.max(logits))
-    probs = probs / probs.sum()
-    if 0.0 < top_p < 1.0:
-        sorted_idx = np.argsort(probs)[::-1]
-        cum = np.cumsum(probs[sorted_idx])
-        mask = cum <= top_p
-        if not np.any(mask):
-            mask[0] = True
-        probs = np.where(mask[sorted_idx], probs[sorted_idx], 0)
-        probs = probs / probs.sum()
-        logits = np.log(probs + 1e-9)
-
-    probs = np.exp(logits - np.max(logits))
-    probs = probs / probs.sum()
-    return int(np.random.choice(len(probs), p=probs))
 
 
 def _run_with_timeout(func, timeout: float, *args, **kwargs):
@@ -255,7 +211,7 @@ def generate_phrase(
                 inp = np.array([history], dtype=np.int64)
                 input_name = model.get_inputs()[0].name
                 logits = model.run(None, {input_name: inp})[0][0, -1]
-            next_tok = _apply_sampling(
+            next_tok = sample(
                 logits,
                 top_p=top_p,
                 top_k=top_k,
