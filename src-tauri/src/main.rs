@@ -5,14 +5,25 @@ use std::{
     fs,
     path::Path,
     process::{Child, Command},
-    sync::{atomic::{AtomicU64, Ordering}, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Mutex,
+    },
 };
 
 use tauri::State;
 
+#[derive(serde::Serialize)]
+enum JobStatus {
+    Running,
+    Completed { success: bool },
+    NotFound,
+}
+
 struct JobInfo {
-    child: Child,
+    child: Option<Child>,
     args: Vec<String>,
+    status: Option<bool>,
 }
 
 struct JobRegistry {
@@ -68,18 +79,57 @@ fn start_job(registry: State<JobRegistry>, args: Vec<String>) -> Result<u64, Str
         .args(&args)
         .spawn()
         .map_err(|e| e.to_string())?;
-    let job = JobInfo { child, args };
+    let job = JobInfo {
+        child: Some(child),
+        args,
+        status: None,
+    };
     let id = registry.add(job);
     Ok(id)
 }
 
 #[tauri::command]
 fn cancel_job(registry: State<JobRegistry>, job_id: u64) -> Result<(), String> {
-    if let Some(mut job) = registry.jobs.lock().unwrap().remove(&job_id) {
-        let _ = job.child.kill();
-        let _ = job.child.wait();
+    let mut jobs = registry.jobs.lock().unwrap();
+    if let Some(job) = jobs.get_mut(&job_id) {
+        if let Some(child) = job.child.as_mut() {
+            let _ = child.kill();
+            let status = child.wait();
+            job.status = Some(status.map(|s| s.success()).unwrap_or(false));
+            job.child = None;
+        }
     }
     Ok(())
+}
+
+#[tauri::command]
+fn job_status(registry: State<JobRegistry>, job_id: u64) -> JobStatus {
+    let mut jobs = registry.jobs.lock().unwrap();
+    match jobs.get_mut(&job_id) {
+        Some(job) => {
+            if let Some(success) = job.status {
+                JobStatus::Completed { success }
+            } else if let Some(child) = job.child.as_mut() {
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        let success = status.success();
+                        job.status = Some(success);
+                        job.child = None;
+                        JobStatus::Completed { success }
+                    }
+                    Ok(None) => JobStatus::Running,
+                    Err(_) => {
+                        job.status = Some(false);
+                        job.child = None;
+                        JobStatus::Completed { success: false }
+                    }
+                }
+            } else {
+                JobStatus::Running
+            }
+        }
+        None => JobStatus::NotFound,
+    }
 }
 
 fn main() {
@@ -89,7 +139,8 @@ fn main() {
             list_presets,
             list_styles,
             start_job,
-            cancel_job
+            cancel_job,
+            job_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
