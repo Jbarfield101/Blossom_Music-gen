@@ -11,7 +11,7 @@ use std::{
     },
 };
 
-use tauri::State;
+use tauri::{AppHandle, State};
 
 #[derive(serde::Serialize)]
 enum JobStatus {
@@ -140,6 +140,14 @@ fn job_status(registry: State<JobRegistry>, job_id: u64) -> JobStatus {
     }
 }
 
+#[tauri::command]
+fn open_path(app: AppHandle, path: String) -> Result<(), String> {
+    if !Path::new(&path).exists() {
+        return Err("Path does not exist".into());
+    }
+    tauri::api::shell::open(&app.shell_scope(), path, None).map_err(|e| e.to_string())
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(JobRegistry::default())
@@ -148,7 +156,8 @@ fn main() {
             list_styles,
             start_job,
             cancel_render,
-            job_status
+            job_status,
+            open_path
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
