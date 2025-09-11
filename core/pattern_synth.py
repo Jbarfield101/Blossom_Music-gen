@@ -12,14 +12,15 @@ rudimentary but demonstrate how a seeding strategy and probability grids can
 be combined to generate musical material.
 """
 
-from typing import Dict, List, Sequence
+from typing import Callable, Dict, List, Optional, Sequence
 import hashlib
 import random
 
 from .song_spec import SongSpec
 from .theory import parse_chord_symbol, midi_note
 from .utils import Event
-from .phrase_model import generate_phrase
+
+generate_phrase: Optional[Callable[..., List[int]]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -237,6 +238,7 @@ def build_patterns_for_song(
     sampler_seed: int | None = None,
     *,
     verbose: bool = False,
+    use_phrase_model: str = "auto",
 ) -> Dict:
     """Generate patterns for all sections/instruments using ``spec``."""
     plan: Dict = {"sections": []}
@@ -247,6 +249,20 @@ def build_patterns_for_song(
         chords = chords_row.get("chords", ["C"] * sec.length)
 
         def _maybe_model(inst: str, fallback):
+            if use_phrase_model == "no":
+                return fallback()
+
+            global generate_phrase
+            if generate_phrase is None:
+                try:
+                    from .phrase_model import generate_phrase as _gp
+
+                    generate_phrase = _gp
+                except Exception:
+                    if use_phrase_model == "yes":
+                        raise
+                    return fallback()
+
             try:
                 return generate_phrase(
                     inst,
@@ -259,6 +275,8 @@ def build_patterns_for_song(
                     verbose=verbose,
                 )
             except Exception:
+                if use_phrase_model == "yes":
+                    raise
                 return fallback()
 
         sec_plan = {"section": sec.name, "length_bars": sec.length, "patterns": {}}

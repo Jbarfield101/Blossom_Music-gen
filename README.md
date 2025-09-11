@@ -49,7 +49,11 @@ Providing both makes runs fully repeatable (the sampler seed defaults to `0`).
 
 Small recurrent networks can replace the deterministic pattern generators.  The
 optional models live in the `models/` directory and are loaded automatically by
-`main_synth.py` and `main_render.py`.
+`main_synth.py` and `main_render.py`.  The `--use-phrase-model` flag controls
+their usage: the default `auto` mode tries to load models and falls back to the
+algorithmic generators if unavailable.  Passing `--use-phrase-model no`
+disables model loading entirely, while `--use-phrase-model yes` requires that
+models are present.
 
 ### Training prerequisites and dataset
 
