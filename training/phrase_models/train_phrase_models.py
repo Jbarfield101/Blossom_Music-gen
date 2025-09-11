@@ -101,7 +101,18 @@ def export(model: nn.Module, example: Union[torch.Tensor, Sequence[torch.Tensor]
 
     if not isinstance(example, (list, tuple)):
         example = (example,)
-    torch.onnx.export(model, example, onnx_path, opset_version=12)
+    torch.onnx.export(
+        model,
+        example,
+        onnx_path,
+        opset_version=12,
+        input_names=["input"],
+        output_names=["output"],
+        dynamic_axes={
+            "input": {0: "batch", 1: "time"},
+            "output": {0: "batch", 1: "time"},
+        },
+    )
 
 
 # Main training routine ------------------------------------------------------
