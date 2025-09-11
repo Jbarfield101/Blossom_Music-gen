@@ -41,6 +41,11 @@
     <label>Sections <input type="number" id="sections" /></label>
     <label>Seed <input type="number" id="seed" value="42" /> <button id="dice" type="button">🎲</button></label>
     <label>Output name <input type="text" id="name" value="output" /></label>
+    <label>Output folder
+      <input type="text" id="outdir" readonly />
+      <input type="file" id="outdir_picker" webkitdirectory directory hidden />
+      <button id="choose_outdir" type="button">📁</button>
+    </label>
   </div>
 
   <details id="advanced">

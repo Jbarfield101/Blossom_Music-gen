@@ -13,6 +13,7 @@ use std::{
 use regex::Regex;
 use serde_json::json;
 use tauri::{State, Window};
+use tauri::api::dialog::blocking::FileDialogBuilder;
 
 struct RenderState {
     child: Arc<Mutex<Option<Child>>>,
@@ -49,9 +50,9 @@ fn start_render(
     seed: i32,
     minutes: Option<f32>,
 ) -> Result<(), String> {
-    let bundle_dir = tempfile::tempdir()
-        .map_err(|e| e.to_string())?
-        .into_path();
+    let bundle_dir = FileDialogBuilder::new()
+        .pick_folder()
+        .ok_or_else(|| "no folder selected".to_string())?;
     {
         let mut lock = state.bundle.lock().unwrap();
         *lock = Some(bundle_dir.clone());
@@ -163,13 +164,10 @@ fn start_render(
                         ])
                         .output();
                     let _ = win.emit("result", zip_path.to_string_lossy().to_string());
-                    let _ = fs::remove_dir_all(&bundle_dir);
                 }
             } else {
                 let _ = win.emit("error", "render failed");
-                if let Some(dir) = bundle_state.lock().unwrap().take() {
-                    let _ = fs::remove_dir_all(dir);
-                }
+                let _ = bundle_state.lock().unwrap().take();
             }
             break;
         }
@@ -185,9 +183,7 @@ fn cancel_render(state: State<RenderState>) -> Result<(), String> {
         let _ = child.kill();
         let _ = child.wait();
     }
-    if let Some(dir) = state.bundle.lock().unwrap().take() {
-        let _ = fs::remove_dir_all(dir);
-    }
+    let _ = state.bundle.lock().unwrap().take();
     Ok(())
 }
 
