@@ -118,6 +118,12 @@ def test_audio_stats():
     assert stats["rms_db"] == pytest.approx(-7.7815, abs=1e-3)
 
 
+def test_audio_stats_silence():
+    audio = np.zeros(4, dtype=float)
+    stats = audio_stats(audio)
+    assert stats == {"peak_db": 0.0, "rms_db": 0.0}
+
+
 def test_evaluate_render_structure():
     spec = _basic_spec()
     stems = {
