@@ -6,8 +6,8 @@ This module turns mono instrument stems into a stereo master bus.  Each track
 can specify gain, pan, a single-band EQ and a reverb send amount via a
 configuration mapping.  A shared reverb bus is generated for keys and pads (or
 any track that sets a send amount) and the final mix passes through a light bus
-compressor followed by a basic peak limiter targeting a user supplied dBFS
-threshold (``-0.1`` by default).
+compressor followed by an oversampled true‑peak limiter with a ``-0.8`` dBFS
+ceiling.
 """
 
 from typing import Any, Mapping, Dict
@@ -379,6 +379,34 @@ def _compress_bus(
     return out
 
 
+def _true_peak_limiter(
+    stereo: np.ndarray, ceiling_db: float = -0.8, oversample: int = 4
+) -> np.ndarray:
+    """Scale ``stereo`` so oversampled peaks do not exceed ``ceiling_db``.
+
+    Parameters
+    ----------
+    stereo:
+        Input buffer to be limited in-place.
+    ceiling_db:
+        Target true peak level in decibels full scale.
+    oversample:
+        Linear interpolation factor used for peak detection.
+    """
+    if oversample < 1 or stereo.size == 0:
+        return stereo
+    target = 10 ** (ceiling_db / 20.0)
+    n = len(stereo)
+    idx = np.arange(n)
+    up_idx = np.arange(n * oversample) / oversample
+    up_l = np.interp(up_idx, idx, stereo[:, 0])
+    up_r = np.interp(up_idx, idx, stereo[:, 1])
+    peak = float(max(np.max(np.abs(up_l)), np.max(np.abs(up_r))))
+    if peak > target and peak > 0.0:
+        stereo *= target / peak
+    return stereo
+
+
 def mix(stems: Mapping[str, np.ndarray], sr: int, config: Mapping[str, Any] | None = None) -> np.ndarray:
     """Mix ``stems`` into a stereo master bus.
 
@@ -395,7 +423,8 @@ def mix(stems: Mapping[str, np.ndarray], sr: int, config: Mapping[str, Any] | No
         and ``reverb_send`` (0..1).
         ``reverb`` -> ``decay`` (seconds), ``wet`` level (0..1), ``predelay``
         (seconds) and high‑frequency ``damp`` (0..1).
-        ``master`` -> ``limiter`` mapping with ``enabled`` and ``threshold``.
+        ``master`` -> optional ``headroom_db`` for global gain trim and a
+        ``limiter`` mapping with ``enabled``, ``ceiling`` and ``oversample``.
 
     Returns
     -------
@@ -404,9 +433,14 @@ def mix(stems: Mapping[str, np.ndarray], sr: int, config: Mapping[str, Any] | No
     """
     config = dict(config or {})
     track_cfg: Dict[str, Any] = config.get("tracks", {})
+    master_cfg: Dict[str, Any] = config.get("master", {})
+    headroom_val = master_cfg.get("headroom_db", 3.0)
+    headroom_db = float(headroom_val) if headroom_val is not None else None
     max_len = max((len(a) for a in stems.values()), default=0)
     mix = np.zeros((max_len, 2), dtype=np.float32)
     reverb_bus = np.zeros((max_len, 2), dtype=np.float32)
+    tracks: list[tuple[np.ndarray, float]] = []
+    peaks: list[float] = []
 
     for name, mono in stems.items():
         if name == "mix":
@@ -437,6 +471,18 @@ def mix(stems: Mapping[str, np.ndarray], sr: int, config: Mapping[str, Any] | No
             rate = float(chorus_cfg.get("rate", 0.0))
             wet = float(chorus_cfg.get("mix", 0.0))
             stereo = _chorus(stereo, sr, depth, rate, wet)
+        tracks.append((stereo, send))
+        peaks.append(float(np.max(np.abs(stereo))))
+
+    combined_peak = sum(peaks)
+    trim = 1.0
+    if headroom_db is not None:
+        target = 10 ** (-headroom_db / 20.0)
+        if combined_peak > target and combined_peak > 0.0:
+            trim = target / combined_peak
+
+    for stereo, send in tracks:
+        stereo *= trim
         mix += stereo
         reverb_bus += stereo * send
 
@@ -448,12 +494,12 @@ def mix(stems: Mapping[str, np.ndarray], sr: int, config: Mapping[str, Any] | No
     if wet > 0.0:
         mix += _plate_reverb(reverb_bus, sr, decay, predelay, damp) * wet
 
-    sat_cfg = config.get("master", {}).get("saturation", {})
+    sat_cfg = master_cfg.get("saturation", {})
     drive = float(sat_cfg.get("drive", 0.0))
     if drive > 0.0:
         mix = _soft_clip(mix, drive)
 
-    comp_cfg = config.get("master", {}).get("compressor", {})
+    comp_cfg = master_cfg.get("compressor", {})
     if comp_cfg.get("enabled", True):
         threshold_db = float(comp_cfg.get("threshold", -6.0))
         attack = float(comp_cfg.get("attack", 0.01))
@@ -464,11 +510,9 @@ def mix(stems: Mapping[str, np.ndarray], sr: int, config: Mapping[str, Any] | No
             mix, sr, threshold_db, attack, release, knee_db, lookahead_ms
         )
 
-    lim_cfg = config.get("master", {}).get("limiter", {})
+    lim_cfg = master_cfg.get("limiter", {})
     if lim_cfg.get("enabled", True):
-        threshold_db = float(lim_cfg.get("threshold", -0.1))
-        target = 10 ** (threshold_db / 20.0)
-        peak = float(np.max(np.abs(mix))) if mix.size else 0.0
-        if peak > target and peak > 0.0:
-            mix *= target / peak
+        ceiling_db = float(lim_cfg.get("ceiling", -0.8))
+        oversample = int(lim_cfg.get("oversample", 4))
+        mix = _true_peak_limiter(mix, ceiling_db, oversample)
     return mix
