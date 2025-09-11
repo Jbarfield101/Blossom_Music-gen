@@ -5,6 +5,9 @@ edition = "2021"
 
 [dependencies]
 tauri = { version = "1" }
+serde = { version = "1", features = ["derive"] }
+regex = "1"
+tempfile = "3"
 
 [build-dependencies]
 tauri-build = { version = "1" }
