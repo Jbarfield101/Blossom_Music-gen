@@ -106,6 +106,21 @@ increases:
 python scripts/eval_cadence_fills.py path/to/tokens.jsonl
 ```
 
+## A/B phrase evaluation
+
+To compare deterministic pattern synthesis against the optional neural phrase
+models, use `scripts/ab_eval.py`.  The tool renders both variants for a given
+song specification and seed, storing audio, note data and evaluation metrics in
+the specified output directory:
+
+```bash
+python scripts/ab_eval.py --spec path/to/spec.json --seed 42 --out ab_bundle
+```
+
+The resulting bundle contains WAV files, stem JSON and `metrics.json` /
+`metrics.csv` summaries.  These metrics cover note diversity, inter-onset
+interval histograms, cadence fill rates and section-wise loudness.
+
 
 ## Using External Samples
 
