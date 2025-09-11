@@ -12,158 +12,22 @@
         font-family: sans-serif;
         display: flex;
         flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
         gap: 1rem;
       }
-      .row {
-        display: flex;
-        gap: 0.5rem;
-        flex-wrap: wrap;
-      }
-      select, input, button {
-        padding: 0.4rem;
-      }
-      #logs {
-        background: #222;
-        padding: 0.5rem;
-        flex: 1;
-        overflow-y: auto;
-      }
-      progress {
-        flex: 1;
-      }
-      #progbar {
-        align-items: center;
+      a {
+        color: #fff;
+        text-decoration: none;
+        border: 1px solid #555;
+        padding: 0.5rem 1rem;
+        border-radius: 4px;
       }
     </style>
   </head>
   <body>
-    <div class="row">
-      <label>Preset <select id="preset"></select></label>
-      <label>Style <select id="style"><option value="">(default)</option></select></label>
-      <label>Seed <input type="number" id="seed" value="42" /></label>
-      <label>Minutes <input type="number" step="0.1" id="minutes" /></label>
-    </div>
-    <div class="row">
-      <button id="start-btn">Start</button>
-      <button id="cancel-btn" style="display:none;">Cancel</button>
-      <button id="download-btn" style="display:none;">Download bundle</button>
-    </div>
-    <div id="progbar" class="row">
-      <progress id="progress" value="0" max="100"></progress>
-      <div id="stage"></div>
-    </div>
-    <div id="eta"></div>
-    <pre id="logs"></pre>
-    <div id="results" style="display:none;">
-      <h3>Results</h3>
-      <ul id="summary"></ul>
-    </div>
-    <script>
-      const { invoke } = window.__TAURI__;
-      const presetSel = document.getElementById('preset');
-      const styleSel = document.getElementById('style');
-      const seedInput = document.getElementById('seed');
-      const minInput = document.getElementById('minutes');
-      const startBtn = document.getElementById('start-btn');
-      const cancelBtn = document.getElementById('cancel-btn');
-      const downloadBtn = document.getElementById('download-btn');
-      const prog = document.getElementById('progress');
-      const stage = document.getElementById('stage');
-      const eta = document.getElementById('eta');
-      const logs = document.getElementById('logs');
-      let bundlePath = null;
-
-      async function loadOptions() {
-        try {
-          const presets = await invoke('list_presets');
-          presets.forEach(p => {
-            const opt = document.createElement('option');
-            opt.value = p; opt.textContent = p;
-            presetSel.appendChild(opt);
-          });
-          if (presets.length) presetSel.value = presets[0];
-          const styles = await invoke('list_styles');
-          styles.forEach(s => {
-            const opt = document.createElement('option');
-            opt.value = s; opt.textContent = s;
-            styleSel.appendChild(opt);
-          });
-        } catch (e) {
-          logs.textContent += e + '\n';
-        }
-      }
-
-      window.__TAURI__.event.listen('progress', e => {
-        const { line, percent, eta: eeta } = e.payload;
-        if (typeof percent === 'number') prog.value = percent;
-        if (line) {
-          logs.textContent += line + '\n';
-          logs.scrollTop = logs.scrollHeight;
-          const m = line.match(/^\s*([\w-]+):/);
-          stage.textContent = m ? m[1] : '';
-        }
-        eta.textContent = eeta ? 'ETA: ' + eeta : '';
-      });
-      window.__TAURI__.event.listen('result', e => {
-        bundlePath = e.payload.bundle;
-        const summary = document.getElementById('summary');
-        summary.innerHTML = '';
-        const m = e.payload.metrics || {};
-        if (m.hash) {
-          const li = document.createElement('li');
-          li.textContent = `Hash: ${m.hash}`;
-          summary.appendChild(li);
-        }
-        if (typeof m.duration === 'number') {
-          const li = document.createElement('li');
-          li.textContent = `Duration: ${m.duration.toFixed(2)}s`;
-          summary.appendChild(li);
-        }
-        if (m.section_counts) {
-          const li = document.createElement('li');
-          li.textContent = 'Sections: ' + Object.entries(m.section_counts).map(([k,v])=>`${k}: ${v}`).join(', ');
-          summary.appendChild(li);
-        }
-        document.getElementById('results').style.display = 'block';
-        downloadBtn.style.display = 'inline-block';
-        cancelBtn.style.display = 'none';
-        startBtn.disabled = false;
-      });
-      window.__TAURI__.event.listen('error', e => {
-        logs.textContent += 'Error: ' + e.payload + '\n';
-        cancelBtn.style.display = 'none';
-        startBtn.disabled = false;
-      });
-
-      startBtn.addEventListener('click', async () => {
-        logs.textContent = '';
-        downloadBtn.style.display = 'none';
-        prog.value = 0;
-        eta.textContent = '';
-        startBtn.disabled = true;
-        cancelBtn.style.display = 'inline-block';
-        bundlePath = null;
-        await invoke('start_render', {
-          preset: presetSel.value,
-          style: styleSel.value,
-          seed: parseInt(seedInput.value),
-          minutes: minInput.value ? parseFloat(minInput.value) : null
-        });
-      });
-
-      cancelBtn.addEventListener('click', async () => {
-        await invoke('cancel_render');
-        cancelBtn.style.display = 'none';
-        startBtn.disabled = false;
-      });
-
-      downloadBtn.addEventListener('click', () => {
-        if (bundlePath) {
-          window.__TAURI__.shell.open(bundlePath);
-        }
-      });
-
-      loadOptions();
-    </script>
+    <h1>Blossom Music Generation</h1>
+    <a href="generate.html">Start Generating</a>
   </body>
 </html>
