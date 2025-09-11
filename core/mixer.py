@@ -380,30 +380,80 @@ def _compress_bus(
 
 
 def _true_peak_limiter(
-    stereo: np.ndarray, ceiling_db: float = -0.8, oversample: int = 4
+    stereo: np.ndarray,
+    sr: int,
+    ceiling_db: float = -0.8,
+    oversample: int = 4,
+    attack: float = 0.0,
+    release: float = 0.05,
 ) -> np.ndarray:
-    """Scale ``stereo`` so oversampled peaks do not exceed ``ceiling_db``.
+    """Limit ``stereo`` so true peaks stay below ``ceiling_db``.
+
+    The input is oversampled to detect inter-sample peaks. Gain reduction is
+    applied only where necessary with exponential attack and release time
+    constants for smoother behaviour. A small built-in lookahead anticipates
+    upcoming transients.
 
     Parameters
     ----------
     stereo:
         Input buffer to be limited in-place.
+    sr:
+        Sample rate of ``stereo``.
     ceiling_db:
         Target true peak level in decibels full scale.
     oversample:
         Linear interpolation factor used for peak detection.
+    attack:
+        Attack time in seconds controlling gain reduction speed.
+    release:
+        Release time in seconds controlling recovery speed.
     """
     if oversample < 1 or stereo.size == 0:
         return stereo
+
     target = 10 ** (ceiling_db / 20.0)
-    n = len(stereo)
+    lookahead_samples = int(sr * 0.005)
+    padded = (
+        np.pad(stereo, ((lookahead_samples, 0), (0, 0)))
+        if lookahead_samples > 0
+        else stereo
+    )
+    n = len(padded)
     idx = np.arange(n)
     up_idx = np.arange(n * oversample) / oversample
-    up_l = np.interp(up_idx, idx, stereo[:, 0])
-    up_r = np.interp(up_idx, idx, stereo[:, 1])
-    peak = float(max(np.max(np.abs(up_l)), np.max(np.abs(up_r))))
-    if peak > target and peak > 0.0:
-        stereo *= target / peak
+    up_l = np.interp(up_idx, idx, padded[:, 0])
+    up_r = np.interp(up_idx, idx, padded[:, 1])
+    up_amp = np.maximum(np.abs(up_l), np.abs(up_r))
+
+    req = np.ones_like(up_amp)
+    mask = up_amp > target
+    req[mask] = target / (up_amp[mask] + 1e-12)
+
+    sr_up = sr * oversample
+    attack_coeff = math.exp(-1.0 / max(attack * sr_up, 1e-6))
+    release_coeff = math.exp(-1.0 / max(release * sr_up, 1e-6))
+    gain = np.empty_like(req)
+    g = req[0]
+    gain[0] = g
+    for i in range(1, len(req)):
+        r = req[i]
+        if r < g:
+            g = r + attack_coeff * (g - r)
+        else:
+            g = r + release_coeff * (g - r)
+        gain[i] = g
+
+    up_l *= gain
+    up_r *= gain
+    limited_l = np.interp(idx, up_idx, up_l)
+    limited_r = np.interp(idx, up_idx, up_r)
+    if lookahead_samples > 0:
+        stereo[:, 0] = limited_l[lookahead_samples:]
+        stereo[:, 1] = limited_r[lookahead_samples:]
+    else:
+        stereo[:, 0] = limited_l
+        stereo[:, 1] = limited_r
     return stereo
 
 
@@ -424,7 +474,8 @@ def mix(stems: Mapping[str, np.ndarray], sr: int, config: Mapping[str, Any] | No
         ``reverb`` -> ``decay`` (seconds), ``wet`` level (0..1), ``predelay``
         (seconds) and high‑frequency ``damp`` (0..1).
         ``master`` -> optional ``headroom_db`` for global gain trim and a
-        ``limiter`` mapping with ``enabled``, ``ceiling`` and ``oversample``.
+        ``limiter`` mapping with ``enabled``, ``ceiling``, ``oversample``,
+        ``attack`` and ``release``.
 
     Returns
     -------
@@ -514,5 +565,9 @@ def mix(stems: Mapping[str, np.ndarray], sr: int, config: Mapping[str, Any] | No
     if lim_cfg.get("enabled", True):
         ceiling_db = float(lim_cfg.get("ceiling", -0.8))
         oversample = int(lim_cfg.get("oversample", 4))
-        mix = _true_peak_limiter(mix, ceiling_db, oversample)
+        lim_attack = float(lim_cfg.get("attack", 0.0))
+        lim_release = float(lim_cfg.get("release", 0.05))
+        mix = _true_peak_limiter(
+            mix, sr, ceiling_db, oversample, lim_attack, lim_release
+        )
     return mix
