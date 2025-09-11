@@ -137,6 +137,8 @@ interval histograms, cadence fill rates and section-wise loudness. See
 [`docs/ab_harness.md`](docs/ab_harness.md) for details on the metrics and
 output bundle structure.
 
+For explanations of individual metrics such as chord tone coverage and voice leading smoothness, see [`docs/evaluation.md`](docs/evaluation.md).
+
 
 ## Using External Samples
 
