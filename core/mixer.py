@@ -329,39 +329,53 @@ def _compress_bus(
     stereo: np.ndarray,
     sr: int,
     threshold_db: float,
-    ratio: float,
     attack: float,
     release: float,
+    knee_db: float = 0.0,
+    lookahead_ms: float = 0.0,
 ) -> np.ndarray:
-    """Apply a simple stereo bus compressor."""
-
-    if ratio <= 1.0:
-        return stereo
+    """Apply a simple stereo bus compressor with RMS detection and lookahead."""
 
     attack = max(1e-4, attack)
     release = max(1e-4, release)
     a_coeff = math.exp(-1.0 / (sr * attack))
     r_coeff = math.exp(-1.0 / (sr * release))
 
-    env = 0.0
-    out = np.zeros_like(stereo, dtype=np.float32)
-    for i, (l, r) in enumerate(stereo):
-        x = max(abs(l), abs(r))
-        if x > env:
-            env = a_coeff * env + (1.0 - a_coeff) * x
-        else:
-            env = r_coeff * env + (1.0 - r_coeff) * x
+    lookahead = max(0, int(sr * (lookahead_ms / 1000.0)))
+    ratio = 2.0
 
+    padded = np.pad(stereo, ((0, lookahead), (0, 0)))
+    delay_buf = np.pad(stereo, ((lookahead, 0), (0, 0)))
+
+    env_sq = 0.0
+    gain_arr = np.ones(len(padded), dtype=np.float32)
+
+    for i, (l, r) in enumerate(padded):
+        x_sq = 0.5 * (l * l + r * r)
+        if x_sq > env_sq:
+            env_sq = a_coeff * env_sq + (1.0 - a_coeff) * x_sq
+        else:
+            env_sq = r_coeff * env_sq + (1.0 - r_coeff) * x_sq
+
+        env = math.sqrt(env_sq)
         env_db = 20.0 * math.log10(env + 1e-12)
-        if env_db > threshold_db:
-            gain_db = threshold_db + (env_db - threshold_db) / ratio - env_db
-            gain = 10 ** (gain_db / 20.0)
+
+        gain_db = 0.0
+        if knee_db > 0.0:
+            lower = threshold_db - knee_db / 2.0
+            upper = threshold_db + knee_db / 2.0
+            if env_db > upper:
+                gain_db = threshold_db + (env_db - threshold_db) / ratio - env_db
+            elif env_db > lower:
+                delta = env_db - lower
+                gain_db = (1.0 / ratio - 1.0) * (delta * delta) / (2.0 * knee_db)
         else:
-            gain = 1.0
+            if env_db > threshold_db:
+                gain_db = threshold_db + (env_db - threshold_db) / ratio - env_db
 
-        out[i, 0] = l * gain
-        out[i, 1] = r * gain
+        gain_arr[i] = 10 ** (gain_db / 20.0)
 
+    out = delay_buf * gain_arr[:, None]
     return out
 
 
@@ -442,10 +456,13 @@ def mix(stems: Mapping[str, np.ndarray], sr: int, config: Mapping[str, Any] | No
     comp_cfg = config.get("master", {}).get("compressor", {})
     if comp_cfg.get("enabled", True):
         threshold_db = float(comp_cfg.get("threshold", -6.0))
-        ratio = float(comp_cfg.get("ratio", 2.0))
         attack = float(comp_cfg.get("attack", 0.01))
         release = float(comp_cfg.get("release", 0.1))
-        mix = _compress_bus(mix, sr, threshold_db, ratio, attack, release)
+        knee_db = float(comp_cfg.get("knee_db", 0.0))
+        lookahead_ms = float(comp_cfg.get("lookahead_ms", 0.0))
+        mix = _compress_bus(
+            mix, sr, threshold_db, attack, release, knee_db, lookahead_ms
+        )
 
     lim_cfg = config.get("master", {}).get("limiter", {})
     if lim_cfg.get("enabled", True):
