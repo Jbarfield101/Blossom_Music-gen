@@ -11,7 +11,7 @@ use std::{
 };
 
 use regex::Regex;
-use serde_json::json;
+use serde_json::{json, Value};
 use tauri::{State, Window};
 use tauri::api::dialog::blocking::FileDialogBuilder;
 
@@ -163,7 +163,14 @@ fn start_render(
                             bundle_dir.to_str().unwrap(),
                         ])
                         .output();
-                    let _ = win.emit("result", zip_path.to_string_lossy().to_string());
+                    let metrics = fs::read_to_string(bundle_dir.join("metrics.json"))
+                        .ok()
+                        .and_then(|s| serde_json::from_str::<Value>(&s).ok());
+                    let payload = json!({
+                        "bundle": zip_path.to_string_lossy().to_string(),
+                        "metrics": metrics
+                    });
+                    let _ = win.emit("result", payload);
                 }
             } else {
                 let _ = win.emit("error", "render failed");

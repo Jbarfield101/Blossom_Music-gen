@@ -91,6 +91,9 @@ def test_bundle_creation(tmp_path):
         metrics = json.load(fh)
     assert "chord_tone_coverage" in metrics
     assert "audio_stats" in metrics
+    assert "hash" in metrics
+    assert "duration" in metrics
+    assert "section_counts" in metrics
 
     mix_bytes = (bundle_dir / "mix.wav").read_bytes()
     idx = mix_bytes.find(b"ICMT")

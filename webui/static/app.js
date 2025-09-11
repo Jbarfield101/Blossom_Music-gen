@@ -76,7 +76,25 @@ async function poll(){
         li.appendChild(a);
         links.appendChild(li);
       }
-      $('metrics').textContent = JSON.stringify(data.metrics || {}, null, 2);
+      const summary = $('summary');
+      summary.innerHTML = '';
+      const m = data.metrics || {};
+      if (m.hash) {
+        const li = document.createElement('li');
+        li.textContent = `Hash: ${m.hash}`;
+        summary.appendChild(li);
+      }
+      if (typeof m.duration === 'number') {
+        const li = document.createElement('li');
+        li.textContent = `Duration: ${m.duration.toFixed(2)}s`;
+        summary.appendChild(li);
+      }
+      if (m.section_counts) {
+        const li = document.createElement('li');
+        li.textContent = 'Sections: ' + Object.entries(m.section_counts).map(([k,v])=>`${k}: ${v}`).join(', ');
+        summary.appendChild(li);
+      }
+      $('metrics').textContent = JSON.stringify(m, null, 2);
     }
   }
 }
