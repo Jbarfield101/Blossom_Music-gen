@@ -25,6 +25,8 @@ TOKEN_ID_TO_NAME: Dict[int, str] = {
     event_vocab.CADENCE: "CADENCE",
     event_vocab.METER: "METER",
     event_vocab.SEED: "SEED",
+    event_vocab.CADENCE_SOON: "CADENCE_SOON",
+    event_vocab.FINAL: "FINAL",
 }
 
 # Tokens considered conditioning metadata
@@ -35,6 +37,8 @@ CONDITIONING_TOKENS = {
     event_vocab.CHORD,
     event_vocab.SEED,
     event_vocab.CADENCE,
+    event_vocab.CADENCE_SOON,
+    event_vocab.FINAL,
 }
 
 # Optional mappings from token value to human-readable name

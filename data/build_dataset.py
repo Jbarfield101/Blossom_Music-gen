@@ -60,6 +60,8 @@ def _tokenize(notes: Sequence[Stem], meta: Dict[str, Any]) -> List[Tuple[int, in
         chord=str(meta.get("chord", "C")),
         seed=int(meta.get("seed", 0)),
         cadence=bool(meta.get("cadence", False)),
+        cadence_soon=bool(meta.get("cadence_soon", False)),
+        final=bool(meta.get("final", False)),
     )
 
 
