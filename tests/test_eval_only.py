@@ -68,6 +68,9 @@ def test_eval_only(tmp_path):
         data = json.load(fh)
     assert "chord_tone_coverage" in data
     assert "audio_stats" in data
+    assert "hash" in data
+    assert "duration" in data
+    assert "section_counts" in data
 
     mix_bytes_after = mix_path.read_bytes()
     assert mix_bytes_after == mix_bytes

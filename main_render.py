@@ -17,6 +17,7 @@ import time
 import random
 from pathlib import Path
 from datetime import datetime
+from collections import Counter
 
 import numpy as np
 
@@ -346,10 +347,32 @@ if __name__ == "__main__":
 
         with wave.open(bundle_dir / "mix.wav", "rb") as wf:
             frames = wf.readframes(wf.getnframes())
+            sr = wf.getframerate()
             audio = np.frombuffer(frames, dtype="<i2").astype(np.float32) / 32767.0
             if wf.getnchannels() > 1:
                 audio = audio.reshape(-1, wf.getnchannels())
+        duration = len(audio) / sr
+        section_counts = Counter(sec.name for sec in spec.sections)
+        rhash = None
+        log_path = bundle_dir / "progress.jsonl"
+        if log_path.exists():
+            with log_path.open("r", encoding="utf-8") as fh:
+                for line in fh:
+                    try:
+                        entry = json.loads(line)
+                    except Exception:
+                        continue
+                    if "hash" in entry:
+                        rhash = entry["hash"]
+                        break
         metrics = evaluate_render(stems, spec, audio)
+        metrics.update(
+            {
+                "hash": rhash,
+                "duration": duration,
+                "section_counts": dict(section_counts),
+            }
+        )
         with (bundle_dir / "metrics.json").open("w", encoding="utf-8") as fh:
             json.dump(metrics, fh, indent=2)
         sys.exit(0)
@@ -539,6 +562,15 @@ if __name__ == "__main__":
 
         summary, arrange_report = _print_arrangement_summary(spec, mix_audio, 44100)
         metrics = evaluate_render(stems, spec, mix_audio)
+        duration = len(mix_audio) / 44100
+        section_counts = Counter(sec.name for sec in spec.sections)
+        metrics.update(
+            {
+                "hash": rhash,
+                "duration": duration,
+                "section_counts": dict(section_counts),
+            }
+        )
 
         t0 = time.monotonic()
         if args.bundle:
