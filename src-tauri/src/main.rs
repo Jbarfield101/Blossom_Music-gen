@@ -4,14 +4,24 @@ use std::{
     collections::HashMap,
     fs,
     path::Path,
-    process::{Child, Command},
+    io::{BufRead, BufReader},
+    process::{Child, Command, Stdio},
     sync::{
         atomic::{AtomicU64, Ordering},
         Mutex,
     },
 };
 
+use regex::Regex;
 use tauri::{AppHandle, State};
+
+#[derive(serde::Serialize)]
+struct ProgressEvent {
+    stage: Option<String>,
+    percent: Option<u32>,
+    message: String,
+    eta: Option<String>,
+}
 
 #[derive(serde::Serialize)]
 enum JobStatus {
@@ -74,17 +84,55 @@ fn list_styles() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-fn start_job(registry: State<JobRegistry>, args: Vec<String>) -> Result<u64, String> {
-    let child = Command::new("python")
+fn start_job(app: AppHandle, registry: State<JobRegistry>, args: Vec<String>) -> Result<u64, String> {
+    let mut child = Command::new("python")
         .args(&args)
+        .stdout(Stdio::piped())
         .spawn()
         .map_err(|e| e.to_string())?;
+
+    let stdout = child.stdout.take();
     let job = JobInfo {
         child: Some(child),
         args,
         status: None,
     };
     let id = registry.add(job);
+
+    if let Some(stdout) = stdout {
+        let app_handle = app.clone();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stdout);
+            let percent_re = Regex::new(r"(\d+)%").unwrap();
+            let eta_re = Regex::new(r"ETA[:\s]+([0-9:]+)").unwrap();
+            let stage_re = Regex::new(r"^\s*([\w-]+):").unwrap();
+            for line in reader.lines() {
+                if let Ok(msg) = line {
+                    let percent = percent_re
+                        .captures(&msg)
+                        .and_then(|c| c.get(1))
+                        .and_then(|m| m.as_str().parse::<u32>().ok());
+                    let eta = eta_re
+                        .captures(&msg)
+                        .and_then(|c| c.get(1))
+                        .map(|m| m.as_str().to_string());
+                    let stage = stage_re
+                        .captures(&msg)
+                        .and_then(|c| c.get(1))
+                        .map(|m| m.as_str().to_string());
+                    let payload = ProgressEvent {
+                        stage,
+                        percent,
+                        message: msg.clone(),
+                        eta,
+                    };
+                    let event_name = format!("progress::{}", id);
+                    let _ = app_handle.emit_all(&event_name, payload);
+                }
+            }
+        });
+    }
+
     Ok(id)
 }
 

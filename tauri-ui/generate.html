@@ -59,7 +59,7 @@
       <ul id="summary"></ul>
     </div>
     <script>
-      const { invoke } = window.__TAURI__;
+      const { invoke, event } = window.__TAURI__;
       const presetSel = document.getElementById('preset');
       const styleSel = document.getElementById('style');
       const seedInput = document.getElementById('seed');
@@ -73,6 +73,7 @@
       const logs = document.getElementById('logs');
       let bundlePath = null;
       let currentJobId = null;
+      let unlistenProgress = null;
 
       async function loadOptions() {
         try {
@@ -100,42 +101,14 @@
         if (currentJobId === null) return;
         try {
           const data = await invoke('job_status', { jobId: currentJobId });
-          if (typeof data.progress === 'number') prog.value = data.progress;
-          stage.textContent = data.stage || '';
-          eta.textContent = data.eta ? 'ETA: ' + data.eta : '';
-          if (Array.isArray(data.log)) {
-            logs.textContent = data.log.join('');
-            logs.scrollTop = logs.scrollHeight;
-          }
-          if (data.status === 'running') {
+          if (data === 'Running') {
             pollTimeout = setTimeout(poll, 1000);
-          } else {
+          } else if (typeof data === 'object' && 'Completed' in data) {
             cancelBtn.style.display = 'none';
             startBtn.disabled = false;
-            if (data.status === 'completed') {
-              bundlePath = data.bundle || null;
-              const summary = document.getElementById('summary');
-              summary.innerHTML = '';
-              const m = data.metrics || {};
-              if (m.hash) {
-                const li = document.createElement('li');
-                li.textContent = `Hash: ${m.hash}`;
-                summary.appendChild(li);
-              }
-              if (typeof m.duration === 'number') {
-                const li = document.createElement('li');
-                li.textContent = `Duration: ${m.duration.toFixed(2)}s`;
-                summary.appendChild(li);
-              }
-              if (m.section_counts) {
-                const li = document.createElement('li');
-                li.textContent = 'Sections: ' + Object.entries(m.section_counts).map(([k,v])=>`${k}: ${v}`).join(', ');
-                summary.appendChild(li);
-              }
-              document.getElementById('results').style.display = 'block';
-              if (bundlePath) downloadBtn.style.display = 'inline-block';
-            } else if (data.status === 'error') {
-              logs.textContent += 'Error: job failed\n';
+            if (typeof unlistenProgress === 'function') {
+              unlistenProgress();
+              unlistenProgress = null;
             }
           }
         } catch (e) {
@@ -158,6 +131,16 @@
         if (minInput.value) args.push('--minutes', String(parseFloat(minInput.value)));
         args.push('--bundle');
         currentJobId = await invoke('start_job', { args });
+        unlistenProgress = await event.listen(`progress::${currentJobId}`, (e) => {
+          const data = e.payload;
+          if (typeof data.percent === 'number') prog.value = data.percent;
+          stage.textContent = data.stage || '';
+          eta.textContent = data.eta ? 'ETA: ' + data.eta : '';
+          if (data.message) {
+            logs.textContent += data.message + '\n';
+            logs.scrollTop = logs.scrollHeight;
+          }
+        });
         poll();
       });
 
