@@ -56,6 +56,27 @@ def _save_recent(entries: list[dict]) -> None:
     RECENT_FILE.write_text(json.dumps(entries[-MAX_RECENT:], indent=2))
 
 
+def zip_bundle(job_id: str) -> Path:
+    """Create a zip archive for a rendered job and return its path.
+
+    Parameters
+    ----------
+    job_id: str
+        Identifier of the job whose output should be bundled.
+
+    Returns
+    -------
+    Path
+        Path to the generated ``bundle.zip`` file.
+    """
+    job = jobs.get(job_id)
+    if not job:
+        raise KeyError(f"job {job_id} not found")
+    tmpdir: Path = job["tmpdir"]
+    archive = shutil.make_archive(str(tmpdir / "bundle"), "zip", str(tmpdir))
+    return Path(archive)
+
+
 def _watch(job_id: str) -> None:
     job = jobs[job_id]
     proc: subprocess.Popen[str] = job["proc"]
@@ -76,7 +97,7 @@ def _watch(job_id: str) -> None:
     job["progress"] = 100
     if proc.returncode == 0:
         try:
-            shutil.make_archive(job["tmpdir"] / "bundle", "zip", job["tmpdir"])
+            bundle_path = zip_bundle(job_id)
             metrics = job["tmpdir"] / "metrics.json"
             if metrics.exists():
                 job["metrics"] = json.loads(metrics.read_text())
@@ -84,7 +105,7 @@ def _watch(job_id: str) -> None:
             if outdir:
                 dest = Path(outdir)
                 dest.mkdir(parents=True, exist_ok=True)
-                for name in ["mix.wav", "stems.mid", "bundle.zip"]:
+                for name in ["mix.wav", "stems.mid", bundle_path.name]:
                     src = job["tmpdir"] / name
                     if src.exists():
                         dst = dest / f"{job.get('name', 'output')}{Path(name).suffix}"
