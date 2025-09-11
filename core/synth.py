@@ -18,7 +18,8 @@ def _midi_to_freq(pitch: int) -> float:
 class SynthParams:
     """Configuration for the simple synthesiser."""
 
-    wave: str = "sine"  # "sine" or "saw"
+    wave: str = "sine"  # "sine", "saw" or "pulse"
+    pulse_width: float = 0.5  # Duty cycle for pulse waves
     detune: float = 0.0  # Detune in semitones
     attack: float = 0.01
     decay: float = 0.1
@@ -26,6 +27,8 @@ class SynthParams:
     release: float = 0.1
     cutoff_min: float = 200.0
     cutoff_max: float = 5000.0
+    lpf_order: int = 2  # 2 -> 12dB, 4 -> 24dB
+    keytrack: float = 0.0  # Coefficient for pitch-tracked cutoff
 
 
 def _adsr(n: int, sr: int, p: SynthParams) -> np.ndarray:
@@ -58,15 +61,24 @@ def _adsr(n: int, sr: int, p: SynthParams) -> np.ndarray:
     return env
 
 
-def _lowpass(data: np.ndarray, cutoff: float, sr: int) -> np.ndarray:
-    """Apply a one-pole low-pass filter to ``data``."""
-    if cutoff <= 0 or cutoff >= sr / 2:
+def _lowpass(data: np.ndarray, cutoff: float, sr: int, order: int = 2) -> np.ndarray:
+    """Apply a multi-pole low-pass filter to ``data``.
+
+    ``order`` specifies the number of cascaded one-pole stages.  ``2`` roughly
+    corresponds to a 12dB/octave slope while ``4`` approximates a 24dB/octave
+    response.  The function is implemented in a fully stateful manner so each
+    stage feeds the next one.
+    """
+
+    if cutoff <= 0 or cutoff >= sr / 2 or order <= 0:
         return data.astype(np.float32)
     alpha = math.exp(-2 * math.pi * cutoff / sr)
-    out = np.empty_like(data, dtype=np.float32)
-    out[0] = data[0]
-    for i in range(1, len(data)):
-        out[i] = (1 - alpha) * data[i] + alpha * out[i - 1]
+    out = data.astype(np.float32).copy()
+    for _ in range(order):
+        y = out[0] = (1 - alpha) * out[0]
+        for i in range(1, len(out)):
+            y = (1 - alpha) * out[i] + alpha * y
+            out[i] = y
     return out
 
 
@@ -82,10 +94,17 @@ def render_note(note: Stem, sr: int, params: SynthParams | None = None) -> np.nd
     if params.wave == "saw":
         phase = np.mod(freq * t, 1.0)
         osc = 2.0 * phase - 1.0
+    elif params.wave == "pulse":
+        phase = np.mod(freq * t, 1.0)
+        osc = np.where(phase < params.pulse_width, 1.0, -1.0)
     else:
         osc = np.sin(2 * math.pi * freq * t)
+
     env = _adsr(n, sr, params)
     data = osc * env
-    cutoff = params.cutoff_min + (note.vel / 127.0) * (params.cutoff_max - params.cutoff_min)
-    data = _lowpass(data, cutoff, sr)
+    base_cutoff = params.cutoff_min + (
+        note.vel / 127.0
+    ) * (params.cutoff_max - params.cutoff_min)
+    cutoff = base_cutoff + params.keytrack * note.pitch
+    data = _lowpass(data, cutoff, sr, order=params.lpf_order)
     return (note.vel / 127.0) * data.astype(np.float32)
