@@ -19,6 +19,8 @@
     <label>Minutes <input type="number" step="0.1" id="minutes" /></label>
     <label>Sections <input type="number" id="sections" /></label>
     <label>Seed <input type="number" id="seed" value="42" /> <button id="dice" type="button" aria-label="Randomize seed">🎲</button></label>
+    <label>Sampler seed <input type="number" id="sampler_seed" /></label>
+    <label>Mix preset <input type="text" id="mix_preset" /></label>
     <label>Output name <input type="text" id="name" value="output" /></label>
     <label>Output folder
       <input type="text" id="outdir" readonly />
@@ -33,6 +35,16 @@
     <label>Arrange config <input type="file" id="arrange_config" /></label>
     <label><input type="checkbox" id="phrase" /> Phrase backend</label>
     <label>Preview bars <input type="number" id="preview" /></label>
+    <label><input type="checkbox" id="bundle_stems" /> Bundle stems</label>
+    <label><input type="checkbox" id="eval_only" /> Eval only</label>
+    <label><input type="checkbox" id="dry_run" /> Dry run</label>
+    <label>Keys SFZ <input type="file" id="keys_sfz" /></label>
+    <label>Pads SFZ <input type="file" id="pads_sfz" /></label>
+    <label>Bass SFZ <input type="file" id="bass_sfz" /></label>
+    <label>Drums SFZ <input type="file" id="drums_sfz" /></label>
+    <label>Melody MIDI <input type="file" id="melody_midi" /></label>
+    <label>Arrange <select id="arrange"><option value="">(default)</option><option value="on">on</option><option value="off">off</option></select></label>
+    <label>Outro <select id="outro"><option value="">(default)</option><option value="hit">hit</option><option value="ritard">ritard</option></select></label>
   </details>
 
   <div id="controls">
