@@ -246,7 +246,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     model = cfg.get("model")
     if model is None:
         raise SystemExit("missing 'model' in config")
-    session.load_session(model)
+    try:
+        session.load_session(model)
+    except FileNotFoundError as exc:
+        import sys
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        raise SystemExit(1)
 
     if "midi" in cfg:
         tokens = encode_midi(cfg["midi"])
