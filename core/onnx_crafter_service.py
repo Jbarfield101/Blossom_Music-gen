@@ -128,7 +128,7 @@ class ModelSession:
             )
             history.append(int(next_id))
             if steps > 0 and (i + 1) % max(1, steps // 10) == 0:
-                print(f"generated {i + 1}/{steps} tokens", flush=True)
+                print(json.dumps({"step": i + 1, "total": steps}), flush=True)
         total = time.time() - start
 
         new_tokens = len(history) - len(tokens)
