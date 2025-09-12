@@ -52,8 +52,8 @@
 
     <details id="advanced">
       <summary>Advanced</summary>
-      <label>Mix config <input type="file" id="mix_config" /></label>
-      <label>Arrange config <input type="file" id="arrange_config" /></label>
+      <label>Mix config <input type="file" id="mix_config" accept=".json,application/json" /></label>
+      <label>Arrange config <input type="file" id="arrange_config" accept=".json,application/json" /></label>
       <label><input type="checkbox" id="phrase" /> Phrase backend</label>
       <label>Preview bars <input type="number" id="preview" /></label>
     </details>
@@ -199,10 +199,31 @@
           }
           args.push('--preview', String(prev));
         }
+        const tempDir = await window.__TAURI__.path.tempDir();
         const mixFile = mixConfigInput.files[0];
-        if (mixFile) args.push('--mix-config', mixFile.path);
+        if (mixFile) {
+          const mixCfgPath = await window.__TAURI__.path.join(
+            tempDir,
+            `mix-config-${Date.now()}.json`
+          );
+          await window.__TAURI__.fs.writeFile({
+            path: mixCfgPath,
+            contents: await mixFile.text()
+          });
+          args.push('--mix-config', mixCfgPath);
+        }
         const arrFile = arrangeConfigInput.files[0];
-        if (arrFile) args.push('--arrange-config', arrFile.path);
+        if (arrFile) {
+          const arrCfgPath = await window.__TAURI__.path.join(
+            tempDir,
+            `arrange-config-${Date.now()}.json`
+          );
+          await window.__TAURI__.fs.writeFile({
+            path: arrCfgPath,
+            contents: await arrFile.text()
+          });
+          args.push('--arrange-config', arrCfgPath);
+        }
         const name = nameInput.value.trim() || 'output';
         const mixPath = outputDir ? `${outputDir}/${name}.wav` : `${name}.wav`;
         const stemsPath = outputDir ? `${outputDir}/${name}_stems` : `${name}_stems`;
