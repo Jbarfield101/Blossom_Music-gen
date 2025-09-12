@@ -12,7 +12,6 @@ use std::{
     },
     time::Duration,
 };
-};
 
 use regex::Regex;
 use tauri::Manager;
