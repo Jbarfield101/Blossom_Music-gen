@@ -1,6 +1,7 @@
 numpy
 scipy
 soundfile
+webrtcvad
 pytest
 fastapi
 httpx
