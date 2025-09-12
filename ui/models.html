@@ -2,23 +2,32 @@
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8" />
-  <title>Dungeons & Dragons</title>
+  <title>Available Models</title>
   <link rel="stylesheet" href="/ui/theme.css">
   <style>
     body {
       background: var(--bg);
       color: var(--fg);
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
       margin: 0;
       font-family: sans-serif;
+      padding: 1rem;
+    }
+    a {
+      color: var(--link);
+    }
+    ul {
+      list-style: none;
+      padding: 0;
+    }
+    li {
+      margin: 0.5rem 0;
     }
   </style>
 </head>
 <body>
-  <h1>Under Construction</h1>
+  <h1>Available Models</h1>
+  <ul id="models"></ul>
   <script src="/ui/topbar.js"></script>
+  <script src="/ui/models.js"></script>
 </body>
 </html>

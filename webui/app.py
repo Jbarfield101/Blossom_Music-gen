@@ -16,6 +16,7 @@ from fastapi import (
     Form,
     HTTPException,
     UploadFile,
+    Request,
 )
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -156,6 +157,9 @@ def _watch(job_id: str) -> None:
         "phrase": job.get("phrase"),
         "preview": job.get("preview"),
         "outdir": job.get("outdir"),
+        "drums_model": job.get("drums_model"),
+        "bass_model": job.get("bass_model"),
+        "keys_model": job.get("keys_model"),
         "status": status,
         "hash": rhash,
         "mix_config": job.get("mix_config"),
@@ -191,6 +195,11 @@ def _train_watch(job_id: str) -> None:
 async def health() -> dict[str, str]:
     """Simple health check endpoint."""
     return {"status": "ok"}
+
+
+@app.get("/about")
+def about() -> dict[str, str]:
+    return {"python": sys.version}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -260,10 +269,27 @@ async def train_status(job_id: str) -> dict:
 
 
 @app.get("/models")
-async def list_models() -> list[str]:
+async def list_models(request: Request):
+    accept = request.headers.get("accept", "")
+    if "text/html" in accept and "application/json" not in accept:
+        html = (REPO_ROOT / "ui" / "models.html").read_text()
+        return HTMLResponse(html)
     if not MODELS_DIR.exists():
         return []
-    return sorted([p.name for p in MODELS_DIR.glob("*") if p.is_file()])
+    files = sorted(p for p in MODELS_DIR.glob("*") if p.is_file())
+    return [{"name": p.name, "url": f"/models/{p.name}"} for p in files]
+
+
+@app.get("/models/{filename}")
+async def get_model_file(filename: str):
+    path = (MODELS_DIR / filename).resolve()
+    try:
+        path.relative_to(MODELS_DIR.resolve())
+    except ValueError:
+        raise HTTPException(404, "not found")
+    if not path.exists() or not path.is_file():
+        raise HTTPException(404, "not found")
+    return FileResponse(path, filename=filename)
 
 
 @app.get("/presets")
@@ -310,6 +336,9 @@ async def render(
     phrase: bool = Form(False),
     preview: int | None = Form(None),
     outdir: str | None = Form(None),
+    drums_model: str | None = Form(None),
+    bass_model: str | None = Form(None),
+    keys_model: str | None = Form(None),
 ) -> dict:
     tmpdir = Path(tempfile.mkdtemp())
     mix_path = tmpdir / "mix.wav"
@@ -338,6 +367,12 @@ async def render(
         cmd += ["--use-phrase-model", "yes"]
     if preview is not None:
         cmd += ["--preview", str(preview)]
+    if drums_model:
+        cmd += ["--drums-model", str(MODELS_DIR / drums_model)]
+    if bass_model:
+        cmd += ["--bass-model", str(MODELS_DIR / bass_model)]
+    if keys_model:
+        cmd += ["--keys-model", str(MODELS_DIR / keys_model)]
     if mix_config is not None:
         mix_bytes = await mix_config.read()
         mix_path = tmpdir / "mix_config.json"
@@ -381,6 +416,9 @@ async def render(
         "sections": sections,
         "phrase": phrase,
         "preview": preview,
+        "drums_model": drums_model,
+        "bass_model": bass_model,
+        "keys_model": keys_model,
         "mix_config": jobs_mix,
         "arrange_config": jobs_arr,
     }

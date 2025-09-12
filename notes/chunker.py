@@ -27,6 +27,7 @@ class NoteChunk:
     path: str
     heading: str
     content: str
+    tags: List[str]
 
 
 _HEADING_RE = re.compile(r"^(#+)\s+(.*)$")
@@ -41,6 +42,9 @@ def _make_id(path: str, heading: str) -> str:
 
 def chunk_note(parsed: ParsedNote, path: str | Path = "") -> List[NoteChunk]:
     """Split ``parsed`` into heading based chunks.
+
+    Tags from ``parsed`` are propagated to each resulting chunk so they can be
+    persisted separately.
 
     Parameters
     ----------
@@ -69,7 +73,9 @@ def chunk_note(parsed: ParsedNote, path: str | Path = "") -> List[NoteChunk]:
         if not content and not full_heading:
             return
         chunk_id = _make_id(rel_path, full_heading)
-        chunks.append(NoteChunk(chunk_id, rel_path, full_heading, content))
+        chunks.append(
+            NoteChunk(chunk_id, rel_path, full_heading, content, list(parsed.tags))
+        )
 
     for line in lines:
         match = _HEADING_RE.match(line)
@@ -87,12 +93,14 @@ def chunk_note(parsed: ParsedNote, path: str | Path = "") -> List[NoteChunk]:
 
 
 def store_chunks(chunks: Iterable[NoteChunk], db_path: str | Path) -> None:
-    """Persist ``chunks`` into ``db_path``.
+    """Persist ``chunks`` and their tags into ``db_path``.
 
-    The SQLite database will contain a single table ``chunks`` with the
-    following schema::
+    Two tables are maintained:
 
-        chunks(id TEXT PRIMARY KEY, path TEXT, heading TEXT, content TEXT)
+    ``chunks``
+        ``(id TEXT PRIMARY KEY, path TEXT, heading TEXT, content TEXT)``
+    ``tags``
+        ``(chunk_id TEXT, tag TEXT)`` mapping chunk identifiers to tag strings.
     """
 
     conn = sqlite3.connect(db_path)
@@ -100,10 +108,23 @@ def store_chunks(chunks: Iterable[NoteChunk], db_path: str | Path) -> None:
         conn.execute(
             "CREATE TABLE IF NOT EXISTS chunks(" "id TEXT PRIMARY KEY, path TEXT, heading TEXT, content TEXT)"
         )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS tags(" "chunk_id TEXT, tag TEXT)"
+        )
+
         conn.executemany(
             "REPLACE INTO chunks(id, path, heading, content) VALUES(?, ?, ?, ?)",
             [(c.id, c.path, c.heading, c.content) for c in chunks],
         )
+
+        chunk_ids = [(c.id,) for c in chunks]
+        conn.executemany("DELETE FROM tags WHERE chunk_id=?", chunk_ids)
+        tag_rows = [(c.id, tag) for c in chunks for tag in c.tags]
+        if tag_rows:
+            conn.executemany(
+                "INSERT INTO tags(chunk_id, tag) VALUES(?, ?)", tag_rows
+            )
+
         conn.commit()
     finally:
         conn.close()

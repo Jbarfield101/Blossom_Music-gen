@@ -8,3 +8,6 @@ uvicorn
 
 jinja2
 python-frontmatter
+faiss-cpu
+sentence-transformers
+watchfiles

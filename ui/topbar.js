@@ -1,4 +1,12 @@
 (function() {
+  window.setTheme = function(theme) {
+    localStorage.setItem('theme', theme);
+    document.documentElement.setAttribute('data-theme', theme);
+  };
+
+  const currentTheme = localStorage.getItem('theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', currentTheme);
+
   const style = document.createElement('style');
   style.textContent = `
     #top-bar {
@@ -6,8 +14,8 @@
       top: 0;
       left: 0;
       right: 0;
-      background: #111;
-      color: #fff;
+      background: var(--panel-bg);
+      color: var(--fg);
       padding: 0.5rem;
       display: flex;
       align-items: center;
@@ -15,14 +23,14 @@
     }
     body { padding-top: 2.5rem; }
     #top-bar button {
-      background: #444;
-      color: #fff;
+      background: var(--button-bg);
+      color: var(--fg);
       border: none;
       padding: 0.25rem 0.5rem;
       cursor: pointer;
     }
     #top-bar button:hover {
-      background: #555;
+      background: var(--button-hover-bg);
     }
   `;
   document.head.appendChild(style);
@@ -33,5 +41,17 @@
   back.textContent = 'Back';
   back.addEventListener('click', () => history.back());
   bar.appendChild(back);
+  const about = document.createElement('button');
+  about.textContent = 'About';
+  about.addEventListener('click', async () => {
+    try {
+      const res = await fetch('/about');
+      const data = await res.json();
+      alert(`Python version: ${data.python}`);
+    } catch (err) {
+      alert('Failed to fetch version');
+    }
+  });
+  bar.appendChild(about);
   document.body.prepend(bar);
 })();
