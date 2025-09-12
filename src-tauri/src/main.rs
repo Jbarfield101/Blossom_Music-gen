@@ -18,7 +18,7 @@ use tauri::{AppHandle, State};
 mod musiclang;
 
 #[derive(serde::Serialize, Clone)]
-struct ProgressEvent {
+pub struct ProgressEvent {
     stage: Option<String>,
     percent: Option<u8>,
     message: String,
@@ -260,7 +260,8 @@ fn main() {
             cancel_render,
             job_status,
             open_path,
-            musiclang::list_musiclang_models
+            musiclang::list_musiclang_models,
+            musiclang::download_model
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
