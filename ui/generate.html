@@ -3,11 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <title>Blossom Render</title>
+  <script src="/ui/theme.js"></script>
   <style>
-    body { font-family: sans-serif; margin: 1em; }
+    body { font-family: sans-serif; margin: 1em; background: var(--bg-color); color: var(--text-color); }
     label { display: block; margin-bottom: 0.5em; }
     #controls { margin-top: 1em; }
-    #log { background: #111; color: #0f0; padding: 0.5em; height: 200px; overflow-y: scroll; }
+    #log { background: var(--log-bg); color: var(--log-text); padding: 0.5em; height: 200px; overflow-y: scroll; }
     #results { margin-top: 1em; }
     #recent { margin-top: 1em; }
   </style>

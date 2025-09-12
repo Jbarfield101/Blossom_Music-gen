@@ -180,6 +180,12 @@ async def generate() -> HTMLResponse:
     return HTMLResponse((REPO_ROOT / "ui" / "generate.html").read_text())
 
 
+@app.get("/about")
+async def about() -> dict[str, str]:
+    """Return basic program information."""
+    return {"python_version": sys.version}
+
+
 @app.get("/settings", response_class=HTMLResponse)
 async def settings() -> HTMLResponse:
     return HTMLResponse((REPO_ROOT / "ui" / "settings.html").read_text())

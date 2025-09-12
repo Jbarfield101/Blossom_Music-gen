@@ -6,8 +6,8 @@
       top: 0;
       left: 0;
       right: 0;
-      background: #111;
-      color: #fff;
+      background: var(--topbar-bg);
+      color: var(--text-color);
       padding: 0.5rem;
       display: flex;
       align-items: center;
@@ -15,14 +15,14 @@
     }
     body { padding-top: 2.5rem; }
     #top-bar button {
-      background: #444;
-      color: #fff;
+      background: var(--button-bg);
+      color: var(--text-color);
       border: none;
       padding: 0.25rem 0.5rem;
       cursor: pointer;
     }
     #top-bar button:hover {
-      background: #555;
+      background: var(--button-hover-bg);
     }
   `;
   document.head.appendChild(style);
