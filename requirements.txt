@@ -2,6 +2,7 @@ numpy
 scipy
 soundfile
 webrtcvad
+faster-whisper
 pytest
 fastapi
 httpx
