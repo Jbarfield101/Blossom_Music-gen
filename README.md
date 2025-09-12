@@ -66,6 +66,14 @@ For enhanced MIDI import and export support, install the optional
 pip install mido
 ```
 
+To enable optional speaker diarization via
+[pyannote.audio](https://github.com/pyannote/pyannote-audio), install the
+``diarization`` extra:
+
+```bash
+pip install .[diarization]
+```
+
 ## Generate N minutes of music
 
 1. Create a song specification JSON (see `core/song_spec.py` for fields).
