@@ -51,6 +51,10 @@ def _handle_changes(changes, vault: Path, db_path: Path) -> bool:
         elif change == Change.deleted:
             conn = sqlite3.connect(db_path)
             try:
+                conn.execute(
+                    "DELETE FROM tags WHERE chunk_id IN (SELECT id FROM chunks WHERE path=?)",
+                    (rel,),
+                )
                 conn.execute("DELETE FROM chunks WHERE path=?", (rel,))
                 conn.commit()
             finally:

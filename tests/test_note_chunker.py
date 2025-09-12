@@ -10,7 +10,10 @@ def test_chunk_note_and_store(tmp_path: Path) -> None:
     vault = tmp_path / "vault"
     vault.mkdir()
     note_path = vault / "note.md"
-    note_path.write_text("# H1\nPara1\n## H1.1\nSub\n# H2\nPara2", encoding="utf-8")
+    note_path.write_text(
+        "---\n" "tags: [alpha, beta]\n" "---\n" "# H1\nPara1\n## H1.1\nSub\n# H2\nPara2",
+        encoding="utf-8",
+    )
 
     parsed = parse_note(note_path)
     rel_path = note_path.relative_to(vault)
@@ -33,6 +36,9 @@ def test_chunk_note_and_store(tmp_path: Path) -> None:
     store_chunks(chunks, db_path)
     conn = sqlite3.connect(db_path)
     rows = conn.execute("SELECT id, path, heading, content FROM chunks").fetchall()
+    tag_rows = conn.execute("SELECT chunk_id, tag FROM tags").fetchall()
     conn.close()
     expected_rows = [(c.id, c.path, c.heading, c.content) for c in chunks]
     assert sorted(rows) == sorted(expected_rows)
+    expected_tags = [(c.id, t) for c in chunks for t in parsed.tags]
+    assert sorted(tag_rows) == sorted(expected_tags)
