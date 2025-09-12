@@ -3,9 +3,77 @@
 <head>
   <meta charset="utf-8" />
   <title>Blossom Music Generator</title>
+  <style>
+    body {
+      background: #000;
+      color: #fff;
+      margin: 0;
+      font-family: sans-serif;
+    }
+
+    .carousel {
+      display: flex;
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      gap: 1rem;
+      padding: 1rem;
+    }
+
+    .carousel:focus {
+      outline: 2px solid #fff;
+    }
+
+    .panel {
+      flex: 0 0 80%;
+      max-width: 300px;
+      background: #111;
+      border-radius: 8px;
+      padding: 2rem 1rem;
+      text-align: center;
+      text-decoration: none;
+      color: #fff;
+      scroll-snap-align: start;
+    }
+
+    .panel:hover,
+    .panel:focus {
+      background: #222;
+    }
+
+    .panel-icon {
+      font-size: 3rem;
+      display: block;
+      margin-bottom: 1rem;
+    }
+
+    @media (min-width: 600px) {
+      .panel {
+        flex: 0 0 40%;
+      }
+    }
+  </style>
 </head>
 <body>
   <h1>Blossom Music Generation</h1>
-  <a href="/generate">Start Generating</a>
+  <div class="carousel" tabindex="0">
+    <a class="panel" href="generate.html">
+      <span class="panel-icon">🎵</span>
+      <h2>Music Generator</h2>
+    </a>
+    <a class="panel" href="dnd.html">
+      <span class="panel-icon">🐉</span>
+      <h2>Dungeons & Dragons</h2>
+    </a>
+  </div>
+  <script>
+    const carousel = document.querySelector('.carousel');
+    carousel.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowRight') {
+        carousel.scrollBy({ left: carousel.clientWidth, behavior: 'smooth' });
+      } else if (e.key === 'ArrowLeft') {
+        carousel.scrollBy({ left: -carousel.clientWidth, behavior: 'smooth' });
+      }
+    });
+  </script>
 </body>
 </html>
