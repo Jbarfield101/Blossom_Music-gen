@@ -9,15 +9,23 @@
       background: var(--bg);
       color: var(--fg);
       margin: 0;
+      margin-left: 220px;
       font-family: sans-serif;
     }
 
     .carousel {
       display: flex;
-      overflow-x: auto;
-      scroll-snap-type: x mandatory;
+      flex-direction: column;
+      overflow-y: auto;
+      scroll-snap-type: y mandatory;
       gap: 1rem;
       padding: 1rem;
+      position: fixed;
+      top: 0;
+      left: 0;
+      height: 100vh;
+      width: 220px;
+      box-sizing: border-box;
     }
 
     .carousel:focus {
@@ -87,10 +95,10 @@
   <script>
     const carousel = document.querySelector('.carousel');
     carousel.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowRight') {
-        carousel.scrollBy({ left: carousel.clientWidth, behavior: 'smooth' });
-      } else if (e.key === 'ArrowLeft') {
-        carousel.scrollBy({ left: -carousel.clientWidth, behavior: 'smooth' });
+      if (e.key === 'ArrowDown') {
+        carousel.scrollBy({ top: carousel.clientHeight, behavior: 'smooth' });
+      } else if (e.key === 'ArrowUp') {
+        carousel.scrollBy({ top: -carousel.clientHeight, behavior: 'smooth' });
       }
     });
   </script>
