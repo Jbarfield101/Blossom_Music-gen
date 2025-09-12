@@ -46,7 +46,6 @@
       <label>Output name <input type="text" id="name" value="output" /></label>
       <label>Output folder
         <input type="text" id="outdir" readonly />
-        <input type="file" id="outdir_picker" webkitdirectory directory hidden />
         <button id="choose_outdir" type="button">📁</button>
       </label>
     </div>
@@ -83,7 +82,6 @@
       const sectionsInput = document.getElementById('sections');
       const nameInput = document.getElementById('name');
       const outdirInput = document.getElementById('outdir');
-      const outdirPicker = document.getElementById('outdir_picker');
       const chooseOutdirBtn = document.getElementById('choose_outdir');
       const mixConfigInput = document.getElementById('mix_config');
       const arrangeConfigInput = document.getElementById('arrange_config');
@@ -171,14 +169,10 @@
         }
       }
 
-      chooseOutdirBtn.addEventListener('click', () => {
-        outdirPicker.click();
-      });
-
-      outdirPicker.addEventListener('change', () => {
-        const file = outdirPicker.files[0];
-        if (file) {
-          outputDir = file.path || file.webkitRelativePath.split('/')[0];
+      chooseOutdirBtn.addEventListener('click', async () => {
+        const selected = await window.__TAURI__.dialog.open({ directory: true, multiple: false });
+        if (selected) {
+          outputDir = Array.isArray(selected) ? selected[0] : selected;
           outdirInput.value = outputDir;
         }
       });
