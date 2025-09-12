@@ -16,6 +16,7 @@ from fastapi import (
     Form,
     HTTPException,
     UploadFile,
+    Request,
 )
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -260,10 +261,27 @@ async def train_status(job_id: str) -> dict:
 
 
 @app.get("/models")
-async def list_models() -> list[str]:
+async def list_models(request: Request):
+    accept = request.headers.get("accept", "")
+    if "text/html" in accept and "application/json" not in accept:
+        html = (REPO_ROOT / "ui" / "models.html").read_text()
+        return HTMLResponse(html)
     if not MODELS_DIR.exists():
         return []
-    return sorted([p.name for p in MODELS_DIR.glob("*") if p.is_file()])
+    files = sorted(p for p in MODELS_DIR.glob("*") if p.is_file())
+    return [{"name": p.name, "url": f"/models/{p.name}"} for p in files]
+
+
+@app.get("/models/{filename}")
+async def get_model_file(filename: str):
+    path = (MODELS_DIR / filename).resolve()
+    try:
+        path.relative_to(MODELS_DIR.resolve())
+    except ValueError:
+        raise HTTPException(404, "not found")
+    if not path.exists() or not path.is_file():
+        raise HTTPException(404, "not found")
+    return FileResponse(path, filename=filename)
 
 
 @app.get("/presets")
