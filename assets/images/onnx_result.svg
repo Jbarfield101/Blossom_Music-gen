@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="400" font-family="sans-serif">
+  <rect width="800" height="400" fill="#1e1e1e"/>
+  <rect width="800" height="50" fill="#323232"/>
+  <text x="10" y="30" fill="#fff" font-size="20">ONNX Crafter</text>
+  <text x="10" y="80" fill="#fff" font-size="16">Model: musiclang-small</text>
+  <text x="10" y="105" fill="#fff" font-size="16">Steps: 32  top_k:8  top_p:0.95  temperature:1.0</text>
+  <rect x="10" y="130" width="780" height="140" fill="none" stroke="#ccc"/>
+  <text x="20" y="155" fill="#0f0" font-size="14">Result MIDI: output.mid</text>
+  <text x="20" y="180" fill="#0f0" font-size="14">tokens_per_sec: 123</text>
+  <text x="20" y="205" fill="#0f0" font-size="14">device: CPU</text>
+  <rect x="10" y="300" width="780" height="20" fill="#64c864"/>
+  <rect x="10" y="300" width="780" height="20" fill="none" stroke="#ccc"/>
+  <text x="10" y="340" fill="#fff" font-size="16">Generation complete</text>
+</svg>
