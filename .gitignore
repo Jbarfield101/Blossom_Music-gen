@@ -2,3 +2,4 @@ node_modules
 src-tauri/target
 src-tauri/Cargo.lock
 webui/recent_renders.json
+.venv/
