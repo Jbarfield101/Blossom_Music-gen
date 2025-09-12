@@ -2,8 +2,11 @@
 
 Simple demos for algorithmic music pattern generation.
 
-A desktop interface built with [Tauri](https://tauri.app/) mirrors the
-command‑line options and is the recommended way to run the tools interactively.
+A desktop interface built with [Tauri](https://tauri.app/) and a small
+FastAPI server now share a unified front‑end.  Templates and scripts live under
+the top‑level `ui/` directory and are served by FastAPI while the Tauri build
+points to the same files.  The `ui/app.js` script detects whether it is running
+inside the desktop shell or a browser and adjusts its behaviour accordingly.
 Command‑line usage via `start.py` remains available for automation.
 
 ## Quick Start
@@ -22,7 +25,7 @@ Command‑line usage via `start.py` remains available for automation.
    uvicorn webui.app:app --reload
    ```
 
-3. Open `http://localhost:8000/generate` in your browser to access the UI.
+3. Open `http://localhost:8000/` in your browser to access the UI.
 
 ### Troubleshooting
 
@@ -241,16 +244,14 @@ locations then click **Render** to run the Python pipeline.
 
 ## Web UI
 
-A minimal FastAPI web interface lives in `webui/app.py`.  It exposes a simple
-form to choose a preset, optional style, seed and target duration.  Submitted
-jobs invoke `main_render.py` under the hood and return a zip bundle containing
-the mix and stems for download.
-
-Launch the server with:
+The FastAPI server in `webui/app.py` serves the same `ui/` assets used by the
+desktop application.  Start the server with:
 
 ```bash
 uvicorn webui.app:app
 ```
 
-Visit `http://localhost:8000/generate` in your browser to render audio directly
-from the browser.  A health‑check endpoint is available at `/health`.
+Navigate to `http://localhost:8000/` and the unified front‑end will load.
+Jobs invoke `main_render.py` under the hood and return a zip bundle containing
+the mix and stems for download.  A health‑check endpoint is available at
+`/health`.
