@@ -13,7 +13,7 @@
 <body>
   <h1>ONNX Crafter</h1>
   <div id="inputs">
-    <label>Model path <input type="text" id="model" /></label>
+    <label>Model <select id="model-select"></select></label>
     <label>Song spec (JSON or space-separated chords)
       <textarea id="song_spec" rows="3"></textarea>
     </label>
@@ -24,7 +24,8 @@
     <label>Temperature <input type="number" step="0.01" id="temperature" value="1.0" /></label>
   </div>
   <div id="controls">
-    <button id="start" type="button">Start</button>
+    <button id="download" type="button">Download</button>
+    <button id="start" type="button" disabled>Start</button>
     <button id="cancel" type="button" disabled>Cancel</button>
     <progress id="progress" value="0" max="100"></progress>
   </div>
