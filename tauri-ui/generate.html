@@ -73,6 +73,10 @@
       <h3>Results</h3>
       <ul id="summary"></ul>
     </div>
+    <div id="recent">
+      <h3>Recent Renders</h3>
+      <ul id="recent_list"></ul>
+    </div>
     <script>
       const { invoke } = window.__TAURI__;
       const presetSel = document.getElementById('preset');
@@ -94,9 +98,13 @@
       const stage = document.getElementById('stage');
       const eta = document.getElementById('eta');
       const logs = document.getElementById('logs');
+      const recentList = document.getElementById('recent_list');
+      const { readTextFile, writeTextFile, BaseDirectory } = window.__TAURI__.fs;
       let bundlePath = null;
       let currentJobId = null;
       let outputDir = '';
+      let currentParams = null;
+      const MAX_RECENT = 10;
 
       async function loadOptions() {
         try {
@@ -118,6 +126,56 @@
         }
       }
 
+      function fillForm(job) {
+        presetSel.value = job.preset;
+        styleSel.value = job.style || '';
+        minInput.value = job.minutes ?? '';
+        sectionsInput.value = job.sections ?? '';
+        seedInput.value = job.seed ?? 42;
+        nameInput.value = job.name || 'output';
+        phraseInput.checked = !!job.phrase;
+        previewInput.value = job.preview ?? '';
+        outputDir = job.outdir || '';
+        outdirInput.value = outputDir;
+      }
+
+      async function readRecent() {
+        try {
+          const text = await readTextFile('recent_renders.json', { dir: BaseDirectory.App });
+          return JSON.parse(text);
+        } catch {
+          return [];
+        }
+      }
+
+      async function writeRecent(entries) {
+        const json = JSON.stringify(entries.slice(-MAX_RECENT), null, 2);
+        await writeTextFile('recent_renders.json', json, { dir: BaseDirectory.App });
+      }
+
+      async function loadRecent() {
+        const data = await readRecent();
+        if (!recentList) return;
+        recentList.innerHTML = '';
+        data.slice().reverse().forEach(job => {
+          const li = document.createElement('li');
+          const span = document.createElement('span');
+          span.textContent = `${job.preset} (seed ${job.seed}) - ${job.status}`;
+          const btn = document.createElement('button');
+          btn.textContent = 'Duplicate';
+          btn.onclick = () => fillForm(job);
+          li.appendChild(span);
+          li.appendChild(btn);
+          recentList.appendChild(li);
+        });
+      }
+
+      async function addRecent(entry) {
+        const entries = await readRecent();
+        entries.push(entry);
+        await writeRecent(entries);
+      }
+
       let pollTimeout = null;
       let progressUnlisten = null;
 
@@ -133,6 +191,10 @@
             if (progressUnlisten) { progressUnlisten(); progressUnlisten = null; }
             if (data.status === 'error') {
               logs.textContent += 'Error: job failed\n';
+            }
+            if (currentParams) {
+              await addRecent({ ...currentParams, status: data.status });
+              loadRecent();
             }
           }
         } catch (e) {
@@ -213,6 +275,17 @@
         } else {
           args.push('--bundle');
         }
+        currentParams = {
+          preset: presetSel.value,
+          style: styleSel.value || '',
+          minutes: minInput.value ? parseFloat(minInput.value) : undefined,
+          sections: sectionsInput.value ? parseInt(sectionsInput.value) : undefined,
+          seed,
+          name,
+          phrase: phraseInput.checked,
+          preview: previewInput.value ? parseInt(previewInput.value) : undefined,
+          outdir: outputDir || ''
+        };
         currentJobId = await invoke('start_job', { args });
         if (progressUnlisten) { progressUnlisten(); }
         progressUnlisten = await window.__TAURI__.event.listen(`progress::${currentJobId}`, e => {
@@ -241,6 +314,7 @@
       });
 
       loadOptions();
+      loadRecent();
     </script>
   </body>
 </html>
