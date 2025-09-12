@@ -3,11 +3,11 @@ use serde_json::Value;
 use std::{
     fs::{self, File},
     io::{Read, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 use tauri::{AppHandle, Manager};
 
-use crate::ProgressEvent;
+use crate::{util::list_from_dir, ProgressEvent};
 
 const INDEX_URL: &str = "https://huggingface.co/api/models?search=musiclang";
 
@@ -32,7 +32,7 @@ pub fn list_musiclang_models() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-pub fn download_model(app: AppHandle, name: &str) -> Result<String, String> {
+pub fn download_model(app: AppHandle, name: &str) -> Result<Vec<String>, String> {
     let url = format!("https://huggingface.co/{}/resolve/main/model.onnx", name);
     let mut response = blocking::get(&url).map_err(|e| e.to_string())?;
     let total = response.content_length();
@@ -60,5 +60,5 @@ pub fn download_model(app: AppHandle, name: &str) -> Result<String, String> {
         let _ = app.emit_all(&format!("download::progress::{}", name), event);
     }
 
-    Ok(path.to_string_lossy().to_string())
+    list_from_dir(Path::new("models"))
 }
