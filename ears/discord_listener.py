@@ -2,8 +2,9 @@
 
 This module relies on a maintained ``discord.py`` fork that exposes voice
 receive functionality.  It provides a small wrapper around
-:class:`discord.Client` to join voice channels and forward raw 16‑bit PCM frames
-for downstream processing.
+:class:`discord.Client` to join voice channels and forward raw 48 kHz stereo
+16‑bit PCM frames for downstream processing. The transcription pipeline
+resamples these frames to 16 kHz mono.
 """
 
 from __future__ import annotations
@@ -40,7 +41,8 @@ class DiscordListener(discord.Client):
     Parameters
     ----------
     frame_callback:
-        Coroutine executed for every 20 ms frame of 16‑bit PCM data.
+        Coroutine executed for every 20 ms frame of 48 kHz stereo 16‑bit PCM
+        data. Downstream consumers typically convert this to 16 kHz mono.
     on_voice_state_update:
         Optional coroutine dispatched when a user's voice state changes.
     on_speaking:

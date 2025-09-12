@@ -1,6 +1,7 @@
 numpy
 scipy
 soundfile
+resampy
 webrtcvad
 faster-whisper
 pytest
