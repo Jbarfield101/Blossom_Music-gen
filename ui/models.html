@@ -1,18 +1,19 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8" />
   <title>Available Models</title>
+  <link rel="stylesheet" href="/ui/theme.css">
   <style>
     body {
-      background: #000;
-      color: #fff;
+      background: var(--bg);
+      color: var(--fg);
       margin: 0;
       font-family: sans-serif;
       padding: 1rem;
     }
     a {
-      color: #4af;
+      color: var(--link);
     }
     ul {
       list-style: none;
@@ -26,6 +27,7 @@
 <body>
   <h1>Available Models</h1>
   <ul id="models"></ul>
+  <script src="/ui/topbar.js"></script>
   <script src="/ui/models.js"></script>
 </body>
 </html>
