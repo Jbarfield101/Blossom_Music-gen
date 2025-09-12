@@ -116,14 +116,13 @@ async function tauriOnnxMain(){
       if (msg) {
         log.textContent += msg + '\n';
         log.scrollTop = log.scrollHeight;
-        const m = msg.match(/generated\s+(\d+)\/(\d+)/);
-        if (m) {
-          const pct = (parseInt(m[1]) / parseInt(m[2])) * 100;
-          prog.value = pct;
-        }
         if (msg.trim().startsWith('{')) {
           try {
             const parsed = JSON.parse(msg);
+            if (typeof parsed.step === 'number' && typeof parsed.total === 'number') {
+              const pct = (parsed.step / parsed.total) * 100;
+              prog.value = pct;
+            }
             if (parsed.midi) {
               midiLink.textContent = parsed.midi;
               midiLink.onclick = () => shell.open(parsed.midi);

@@ -16,6 +16,7 @@ use std::{
 use regex::Regex;
 use tauri::Manager;
 use tauri::{AppHandle, State};
+use serde_json::Value;
 mod musiclang;
 mod util;
 use crate::util::list_from_dir;
@@ -188,18 +189,29 @@ fn onnx_generate(
                     let _ = tx2.send(());
                     first = false;
                 }
-                let stage = stage_re.captures(&line).map(|c| c[1].to_string());
-                let percent = percent_re
-                    .captures(&line)
-                    .and_then(|c| c[1].parse::<u8>().ok());
-                let eta = eta_re.captures(&line).map(|c| c[1].to_string());
-                let event = ProgressEvent {
-                    stage,
-                    percent,
-                    message: line.clone(),
-                    eta,
-                };
-                let _ = app_handle.emit_all(&format!("onnx::progress::{}", id), event);
+                let trimmed = line.trim();
+                if trimmed.starts_with('{') && serde_json::from_str::<Value>(trimmed).is_ok() {
+                    let event = ProgressEvent {
+                        stage: None,
+                        percent: None,
+                        message: line.clone(),
+                        eta: None,
+                    };
+                    let _ = app_handle.emit_all(&format!("onnx::progress::{}", id), event);
+                } else {
+                    let stage = stage_re.captures(&line).map(|c| c[1].to_string());
+                    let percent = percent_re
+                        .captures(&line)
+                        .and_then(|c| c[1].parse::<u8>().ok());
+                    let eta = eta_re.captures(&line).map(|c| c[1].to_string());
+                    let event = ProgressEvent {
+                        stage,
+                        percent,
+                        message: line.clone(),
+                        eta,
+                    };
+                    let _ = app_handle.emit_all(&format!("onnx::progress::{}", id), event);
+                }
             }
         });
     }
