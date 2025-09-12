@@ -30,6 +30,7 @@ class TranscriptionSegment:
     confidence: float
     language: str
     language_confidence: float
+    is_final: bool
 
 
 class WhisperService:
@@ -66,28 +67,48 @@ class WhisperService:
 
         audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
         loop = asyncio.get_running_loop()
-        queue: asyncio.Queue[tuple[Optional[object], Optional[object]]] = asyncio.Queue()
+        queue: asyncio.Queue[tuple[Optional[object], Optional[object], bool]] = asyncio.Queue()
+        finished = threading.Event()
 
-        def _worker() -> None:
+        def _worker_final() -> None:
             segments, info = self._model.transcribe(audio, word_timestamps=True)
             for seg in segments:
-                loop.call_soon_threadsafe(queue.put_nowait, (seg, info))
-            loop.call_soon_threadsafe(queue.put_nowait, (None, info))
+                loop.call_soon_threadsafe(queue.put_nowait, (seg, info, True))
+            finished.set()
+            loop.call_soon_threadsafe(queue.put_nowait, (None, info, True))
 
-        threading.Thread(target=_worker, daemon=True).start()
+        def _worker_partial() -> None:
+            step = max(1, len(audio) // 4)
+            pos = step
+            while not finished.is_set() and pos < len(audio):
+                part = audio[:pos]
+                try:
+                    decoded = self._model.decode(part)
+                    text = getattr(decoded, "text", decoded)
+                    seg = type("Seg", (), {"text": text, "start": 0.0, "end": pos / 16000, "avg_logprob": 0.0})
+                    loop.call_soon_threadsafe(queue.put_nowait, (seg, None, False))
+                except Exception:
+                    pass
+                pos += step
+
+        threading.Thread(target=_worker_final, daemon=True).start()
+        threading.Thread(target=_worker_partial, daemon=True).start()
 
         while True:
-            seg, info = await queue.get()
-            if seg is None:
+            seg, info, is_final = await queue.get()
+            if seg is None and is_final:
                 break
-            assert info is not None
+            language = "" if info is None else info.language
+            lang_conf = 0.0 if info is None else info.language_probability
+            confidence = float(math.exp(getattr(seg, "avg_logprob", 0.0)))
             yield TranscriptionSegment(
                 text=seg.text,
                 start=seg.start,
                 end=seg.end,
-                confidence=float(math.exp(seg.avg_logprob)),
-                language=info.language,
-                language_confidence=info.language_probability,
+                confidence=confidence,
+                language=language,
+                language_confidence=lang_conf,
+                is_final=is_final,
             )
 
 
