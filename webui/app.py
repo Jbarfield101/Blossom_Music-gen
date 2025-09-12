@@ -37,6 +37,11 @@ jobs: dict[str, dict] = {}
 RECENT_FILE = REPO_ROOT / "webui" / "recent_renders.json"
 MAX_RECENT = 10
 
+# Directory used to persist completed bundles so they can be served
+# even after the originating temporary directory has been removed.
+BUNDLE_DIR = REPO_ROOT / "webui" / "bundles"
+BUNDLE_DIR.mkdir(exist_ok=True)
+
 
 def _options(kind: str) -> list[str]:
     base = ASSETS_DIR / kind
@@ -98,6 +103,11 @@ def _watch(job_id: str) -> None:
     if proc.returncode == 0:
         try:
             bundle_path = zip_bundle(job_id)
+            # Persist bundle to a shared directory so it can be served later
+            stored_bundle = BUNDLE_DIR / f"{job_id}.zip"
+            shutil.copy2(bundle_path, stored_bundle)
+            job["bundle"] = str(stored_bundle)
+
             metrics = job["tmpdir"] / "metrics.json"
             if metrics.exists():
                 job["metrics"] = json.loads(metrics.read_text())
@@ -147,6 +157,7 @@ def _watch(job_id: str) -> None:
         "hash": rhash,
         "mix_config": job.get("mix_config"),
         "arrange_config": job.get("arrange_config"),
+        "bundle": job.get("bundle"),
     }
     recent = _load_recent()
     recent.append(record)
@@ -301,6 +312,39 @@ async def cancel(job_id: str) -> dict:
     job["returncode"] = -1
     job["cancelled"] = True
     return {"status": "cancelled"}
+
+
+@app.get("/bundles/{job_id}")
+async def get_bundle(job_id: str):
+    """Return the stored ``bundle.zip`` for a completed job.
+
+    If the job is still in memory and its temporary directory exists the
+    bundle from that directory is served. Otherwise a copy stored in the
+    :data:`BUNDLE_DIR` directory is returned.
+    """
+    job = jobs.get(job_id)
+    # First check if the bundle exists in the job's temporary directory
+    if job:
+        tmp_bundle = job["tmpdir"] / "bundle.zip"
+        if tmp_bundle.exists():
+            filename = f"{job.get('name', 'output')}.zip"
+            return FileResponse(tmp_bundle, filename=filename)
+        # fall back to stored bundle path recorded on the job
+        bundle_path = job.get("bundle")
+        if bundle_path and Path(bundle_path).exists():
+            filename = f"{job.get('name', 'output')}.zip"
+            return FileResponse(bundle_path, filename=filename)
+
+    # If the job is not active (or temp dir removed), consult stored recent
+    for entry in _load_recent():
+        if entry.get("id") == job_id:
+            bundle_path = entry.get("bundle")
+            if bundle_path and Path(bundle_path).exists():
+                filename = f"{entry.get('name', 'output')}.zip"
+                return FileResponse(bundle_path, filename=filename)
+            break
+
+    raise HTTPException(404, "bundle not found")
 
 
 @app.get("/jobs/{job_id}/artifact/{name}")
