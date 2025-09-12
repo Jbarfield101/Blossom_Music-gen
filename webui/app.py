@@ -113,7 +113,9 @@ def _watch(job_id: str) -> None:
         except Exception:
             pass
 
-    status = "completed" if proc.returncode == 0 else "error"
+    status = "cancelled" if job.get("cancelled") else (
+        "completed" if proc.returncode == 0 else "error"
+    )
     seed = job.get("seed")
     rhash = None
     progress_file = job["tmpdir"] / "progress.jsonl"
@@ -251,7 +253,9 @@ async def job_status(job_id: str) -> dict:
     if not job:
         raise HTTPException(404, "job not found")
     status = "running"
-    if job.get("returncode") is not None:
+    if job.get("cancelled"):
+        status = "cancelled"
+    elif job.get("returncode") is not None:
         status = "completed" if job["returncode"] == 0 else "error"
     return {
         "status": status,
@@ -277,6 +281,7 @@ async def cancel(job_id: str) -> dict:
     if proc.poll() is None:
         proc.terminate()
     job["returncode"] = -1
+    job["cancelled"] = True
     return {"status": "cancelled"}
 
 
