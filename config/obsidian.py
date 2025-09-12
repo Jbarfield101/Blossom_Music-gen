@@ -71,4 +71,13 @@ def select_vault(root: Path) -> Path:
 
     global _VAULT_PATH
     _VAULT_PATH = resolved
+    # Start background watcher for note changes. Any failure to start the
+    # watcher should not prevent the vault from being set, hence the
+    # broad ``try`` block.
+    try:
+        from notes.watchdog import start_watchdog
+
+        start_watchdog(resolved)
+    except Exception:
+        pass
     return resolved
