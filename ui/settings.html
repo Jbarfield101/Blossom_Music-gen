@@ -4,20 +4,31 @@
   <meta charset="utf-8" />
   <title>Settings</title>
   <style>
-    body {
-      background: #000;
-      color: #fff;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      margin: 0;
-      font-family: sans-serif;
-    }
+    body { font-family: sans-serif; margin: 1em; }
+    section { margin-bottom: 2rem; }
+    label { display: block; margin-bottom: 0.5em; }
+    body.light { background: #fff; color: #000; }
+    body.dark { background: #000; color: #fff; }
   </style>
 </head>
 <body>
-  <h1>Under Construction</h1>
+  <h1>Settings</h1>
+  <section id="general">
+    <h2>General</h2>
+    <label>Default Output Directory
+      <input type="text" id="default_outdir" placeholder="/path/to/output" />
+    </label>
+  </section>
+  <section id="appearance">
+    <h2>Appearance</h2>
+    <label for="theme">Theme</label>
+    <select id="theme">
+      <option value="light">Light</option>
+      <option value="dark">Dark</option>
+    </select>
+  </section>
+  <button id="save" type="button">Save</button>
+  <script src="/ui/settings.js"></script>
   <script src="/ui/topbar.js"></script>
 </body>
 </html>
