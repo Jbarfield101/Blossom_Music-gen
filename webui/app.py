@@ -26,6 +26,8 @@ from config.obsidian import select_vault
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MAIN_RENDER = REPO_ROOT / "main_render.py"
 ASSETS_DIR = REPO_ROOT / "assets"
+TRAIN_SCRIPT = REPO_ROOT / "training" / "phrase_models" / "train_phrase_models.py"
+MODELS_DIR = REPO_ROOT / "models"
 
 app = FastAPI()
 # Serve shared front-end assets from the top-level ``ui`` directory
@@ -33,6 +35,7 @@ app.mount("/ui", StaticFiles(directory=REPO_ROOT / "ui"), name="ui")
 
 
 jobs: dict[str, dict] = {}
+train_jobs: dict[str, dict] = {}
 
 RECENT_FILE = REPO_ROOT / "webui" / "recent_renders.json"
 MAX_RECENT = 10
@@ -164,6 +167,26 @@ def _watch(job_id: str) -> None:
     _save_recent(recent)
 
 
+def _train_watch(job_id: str) -> None:
+    job = train_jobs[job_id]
+    proc: subprocess.Popen[str] = job["proc"]
+    for line in proc.stdout:  # type: ignore[attr-defined]
+        job["log"].append(line)
+        m = re.search(r"(\d+)%", line)
+        if m:
+            job["progress"] = int(m.group(1))
+    proc.wait()
+    job["returncode"] = proc.returncode
+    job["progress"] = 100
+    if proc.returncode == 0:
+        try:
+            for path in job["tmpdir"].glob("*_phrase.*"):
+                dest = MODELS_DIR / path.name
+                shutil.copy2(path, dest)
+        except Exception:
+            pass
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     """Simple health check endpoint."""
@@ -188,6 +211,59 @@ async def settings() -> HTMLResponse:
 @app.get("/train", response_class=HTMLResponse)
 async def train() -> HTMLResponse:
     return HTMLResponse((REPO_ROOT / "ui" / "train.html").read_text())
+
+
+@app.post("/train")
+async def start_training(
+    files: list[UploadFile] = File(...),
+    count: int = Form(...),
+) -> dict:
+    tmpdir = Path(tempfile.mkdtemp())
+    for f in files:
+        data = await f.read()
+        name = f.filename or uuid.uuid4().hex
+        (tmpdir / name).write_bytes(data)
+    cmd = [
+        sys.executable,
+        str(TRAIN_SCRIPT),
+        str(tmpdir),
+        str(count),
+    ]
+    proc = subprocess.Popen(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=tmpdir
+    )
+    job_id = uuid.uuid4().hex
+    train_jobs[job_id] = {
+        "proc": proc,
+        "tmpdir": tmpdir,
+        "log": [],
+        "progress": 0,
+        "count": count,
+    }
+    threading.Thread(target=_train_watch, args=(job_id,), daemon=True).start()
+    return {"job_id": job_id}
+
+
+@app.get("/train/{job_id}")
+async def train_status(job_id: str) -> dict:
+    job = train_jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, "job not found")
+    status = "running"
+    if job.get("returncode") is not None:
+        status = "completed" if job["returncode"] == 0 else "error"
+    return {
+        "status": status,
+        "progress": job.get("progress", 0),
+        "log": job.get("log", []),
+    }
+
+
+@app.get("/models")
+async def list_models() -> list[str]:
+    if not MODELS_DIR.exists():
+        return []
+    return sorted([p.name for p in MODELS_DIR.glob("*") if p.is_file()])
 
 
 @app.get("/presets")
