@@ -1,0 +1,23 @@
+[data-theme="dark"] {
+  --bg: #000;
+  --fg: #fff;
+  --panel-bg: #111;
+  --panel-hover-bg: #222;
+  --button-bg: #444;
+  --button-hover-bg: #555;
+  --link: #4af;
+  --log-bg: #111;
+  --log-fg: #0f0;
+}
+
+[data-theme="light"] {
+  --bg: #fff;
+  --fg: #000;
+  --panel-bg: #f0f0f0;
+  --panel-hover-bg: #ddd;
+  --button-bg: #ddd;
+  --button-hover-bg: #ccc;
+  --link: #06c;
+  --log-bg: #f0f0f0;
+  --log-fg: #070;
+}
