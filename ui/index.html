@@ -1,12 +1,13 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8" />
   <title>Blossom Music Generator</title>
+  <link rel="stylesheet" href="/ui/theme.css">
   <style>
     body {
-      background: #000;
-      color: #fff;
+      background: var(--bg);
+      color: var(--fg);
       margin: 0;
       font-family: sans-serif;
     }
@@ -20,24 +21,24 @@
     }
 
     .carousel:focus {
-      outline: 2px solid #fff;
+      outline: 2px solid var(--fg);
     }
 
     .panel {
       flex: 0 0 80%;
       max-width: 300px;
-      background: #111;
+      background: var(--panel-bg);
       border-radius: 8px;
       padding: 2rem 1rem;
       text-align: center;
       text-decoration: none;
-      color: #fff;
+      color: var(--fg);
       scroll-snap-align: start;
     }
 
     .panel:hover,
     .panel:focus {
-      background: #222;
+      background: var(--panel-hover-bg);
     }
 
     .panel-icon {
@@ -77,6 +78,7 @@
       <h2>Models</h2>
     </a>
   </div>
+  <script src="/ui/topbar.js"></script>
   <script src="/ui/train.js"></script>
   <script>
     const carousel = document.querySelector('.carousel');
