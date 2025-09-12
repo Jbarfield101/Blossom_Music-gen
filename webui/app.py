@@ -145,6 +145,8 @@ def _watch(job_id: str) -> None:
         "outdir": job.get("outdir"),
         "status": status,
         "hash": rhash,
+        "mix_config": job.get("mix_config"),
+        "arrange_config": job.get("arrange_config"),
     }
     recent = _load_recent()
     recent.append(record)
@@ -214,13 +216,27 @@ async def render(
     if preview is not None:
         cmd += ["--preview", str(preview)]
     if mix_config is not None:
+        mix_bytes = await mix_config.read()
         mix_path = tmpdir / "mix_config.json"
-        mix_path.write_bytes(await mix_config.read())
+        mix_path.write_bytes(mix_bytes)
         cmd += ["--mix-config", str(mix_path)]
+        jobs_mix = {
+            "name": mix_config.filename or "mix_config.json",
+            "text": mix_bytes.decode("utf-8", "ignore"),
+        }
+    else:
+        jobs_mix = None
     if arrange_config is not None:
+        arr_bytes = await arrange_config.read()
         arr_path = tmpdir / "arrange_config.json"
-        arr_path.write_bytes(await arrange_config.read())
+        arr_path.write_bytes(arr_bytes)
         cmd += ["--arrange-config", str(arr_path)]
+        jobs_arr = {
+            "name": arrange_config.filename or "arrange_config.json",
+            "text": arr_bytes.decode("utf-8", "ignore"),
+        }
+    else:
+        jobs_arr = None
 
     proc = subprocess.Popen(
         cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
@@ -242,6 +258,8 @@ async def render(
         "sections": sections,
         "phrase": phrase,
         "preview": preview,
+        "mix_config": jobs_mix,
+        "arrange_config": jobs_arr,
     }
     threading.Thread(target=_watch, args=(job_id,), daemon=True).start()
     return {"job_id": job_id}
