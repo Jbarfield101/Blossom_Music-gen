@@ -9,14 +9,23 @@ const isTauri = typeof window !== 'undefined' && window.__TAURI__;
 async function browserMain(){
   async function loadOptions(){
     try {
-      const [presets, styles] = await Promise.all([
+      const [presets, styles, models] = await Promise.all([
         fetch('/presets').then(r=>r.json()),
         fetch('/styles').then(r=>r.json()),
+        fetch('/models').then(r=>r.json()),
       ]);
       const presetSel = $('preset');
       presets.forEach(p=>{ const opt=document.createElement('option'); opt.value=p; opt.textContent=p; presetSel.appendChild(opt); });
       const styleSel = $('style');
       styles.forEach(s=>{ const opt=document.createElement('option'); opt.value=s; opt.textContent=s; styleSel.appendChild(opt); });
+      const drumsSel = $('drums_model');
+      const bassSel = $('bass_model');
+      const keysSel = $('keys_model');
+      models.forEach(m=>{
+        if (m.startsWith('drums')){ const opt=document.createElement('option'); opt.value=m; opt.textContent=m; drumsSel.appendChild(opt); }
+        if (m.startsWith('bass')){ const opt=document.createElement('option'); opt.value=m; opt.textContent=m; bassSel.appendChild(opt); }
+        if (m.startsWith('keys')){ const opt=document.createElement('option'); opt.value=m; opt.textContent=m; keysSel.appendChild(opt); }
+      });
     } catch(err) {
       console.error('failed to load options', err);
     }
@@ -59,6 +68,9 @@ async function browserMain(){
     $('seed').value = job.seed ?? 42;
     $('name').value = job.name || 'output';
     $('phrase').checked = !!job.phrase;
+    $('drums_model').value = job.drums_model || '';
+    $('bass_model').value = job.bass_model || '';
+    $('keys_model').value = job.keys_model || '';
     $('preview').value = job.preview ?? '';
     outputDir = job.outdir || '';
     $('outdir').value = outputDir;
@@ -121,6 +133,9 @@ async function browserMain(){
     const melody = $('melody_midi').files[0];
     if (melody) fd.append('melody_midi', melody);
     if ($('phrase').checked) fd.append('phrase', 'true');
+    if ($('drums_model').value) fd.append('drums_model', $('drums_model').value);
+    if ($('bass_model').value) fd.append('bass_model', $('bass_model').value);
+    if ($('keys_model').value) fd.append('keys_model', $('keys_model').value);
     if ($('arrange').value) fd.append('arrange', $('arrange').value);
     if ($('outro').value) fd.append('outro', $('outro').value);
     if ($('preview').value) fd.append('preview', $('preview').value);
