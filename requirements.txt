@@ -11,3 +11,5 @@ python-frontmatter
 faiss-cpu
 sentence-transformers
 watchfiles
+
+discord.py[voice] @ git+https://github.com/jg-l/discord.py
