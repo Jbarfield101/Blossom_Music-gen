@@ -23,7 +23,8 @@ async function tauriOnnxMain(){
   async function refreshModels(){
     try {
       const installed = await invoke('list_models');
-      startBtn.disabled = !installed.includes(modelSelect.value);
+      const selected = modelSelect.value.split(/[\\/]/).pop();
+      startBtn.disabled = !installed.includes(selected);
     } catch (e) {
       console.error(e);
     }
@@ -73,8 +74,9 @@ async function tauriOnnxMain(){
   });
 
   startBtn.addEventListener('click', async () => {
+    const modelName = modelSelect.value.split(/[\\/]/).pop();
     const cfg = {
-      model: modelSelect.value,
+      model: modelName,
       steps: parseInt(stepsInput.value) || 0,
       sampling: {}
     };
