@@ -2,7 +2,6 @@
 
 use std::{
     collections::HashMap,
-    fs,
     io::{BufRead, BufReader},
     path::Path,
     process::{Child, Command, Stdio},
@@ -16,9 +15,11 @@ use regex::Regex;
 use tauri::Manager;
 use tauri::{AppHandle, State};
 mod musiclang;
+mod util;
+use crate::util::list_from_dir;
 
 #[derive(serde::Serialize, Clone)]
-struct ProgressEvent {
+pub struct ProgressEvent {
     stage: Option<String>,
     percent: Option<u8>,
     message: String,
@@ -57,17 +58,6 @@ impl Default for JobRegistry {
     }
 }
 
-fn list_from_dir(dir: &Path) -> Result<Vec<String>, String> {
-    let mut items = Vec::new();
-    for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        if let Some(stem) = entry.path().file_stem().and_then(|s| s.to_str()) {
-            items.push(stem.to_string());
-        }
-    }
-    Ok(items)
-}
-
 #[tauri::command]
 fn list_presets() -> Result<Vec<String>, String> {
     list_from_dir(Path::new("assets/presets"))
@@ -76,6 +66,11 @@ fn list_presets() -> Result<Vec<String>, String> {
 #[tauri::command]
 fn list_styles() -> Result<Vec<String>, String> {
     list_from_dir(Path::new("assets/styles"))
+}
+
+#[tauri::command]
+fn list_models() -> Result<Vec<String>, String> {
+    list_from_dir(Path::new("models"))
 }
 
 #[tauri::command]
@@ -255,12 +250,14 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             list_presets,
             list_styles,
+            list_models,
             start_job,
             onnx_generate,
             cancel_render,
             job_status,
             open_path,
-            musiclang::list_musiclang_models
+            musiclang::list_musiclang_models,
+            musiclang::download_model
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
