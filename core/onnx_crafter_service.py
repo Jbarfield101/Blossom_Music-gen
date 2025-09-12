@@ -5,9 +5,11 @@ from __future__ import annotations
 This module provides a small service layer around exported ONNX models.
 It exposes helpers for encoding/decoding token sequences, running
 sampling loops, and a CLI entry point intended for use by the Tauri
-frontend.  The design is intentionally lightweight – globals are used to
-store the active :class:`onnxruntime.InferenceSession` so that successive
-calls can reuse the loaded model.
+frontend.  Previously this module relied on module-level globals to cache
+the active :class:`onnxruntime.InferenceSession` and track generation
+state.  The globals made concurrent use and testing awkward, so the
+functionality is now encapsulated in :class:`ModelSession`, which manages
+its own inference session, telemetry and cancellation state.
 """
 
 from pathlib import Path
@@ -15,7 +17,6 @@ from typing import Any, Dict, Iterable, List, Sequence, Tuple
 import argparse
 import json
 import signal
-import sys
 import time
 
 import numpy as np
@@ -27,60 +28,134 @@ from .song_spec import SongSpec
 from .sampling import sample as sample_token
 
 __all__ = [
-    "load_session",
+    "ModelSession",
     "encode_midi",
     "encode_songspec",
-    "generate",
-    "decode_to_midi",
     "main",
 ]
 
-# ---------------------------------------------------------------------------
-# Session management
-# ---------------------------------------------------------------------------
+class ModelSession:
+    """Encapsulates an ONNX model session and generation state.
 
-_SESSION = None  # type: ignore[assignment]
-_IO_SCHEMA: Dict[str, List[str]] | None = None
-_LAST_TELEMETRY: Dict[str, Any] = {}
-_CANCELLED = False
-
-
-def load_session(model_dir: str | Path) -> Tuple[object, Dict[str, List[str]]]:
-    """Load an ONNX model and cache its input/output schema.
-
-    Parameters
-    ----------
-    model_dir:
-        Path to either a directory containing an ``.onnx`` file or a direct
-        path to an ONNX graph.
-
-    Returns
-    -------
-    sess, io_schema:
-        The loaded :class:`onnxruntime.InferenceSession` and a mapping with
-        ``"inputs"``/``"outputs"`` name lists.
+    The class wraps :class:`onnxruntime.InferenceSession` and stores its
+    I/O schema, telemetry and cancellation flag so that multiple sessions
+    can coexist without interfering with one another.
     """
 
-    import onnxruntime as ort  # type: ignore
+    def __init__(self) -> None:
+        self.sess = None  # type: ignore[assignment]
+        self.io_schema: Dict[str, List[str]] | None = None
+        self.telemetry: Dict[str, Any] = {}
+        self.cancelled = False
 
-    path = Path(model_dir)
-    if path.is_dir():
-        candidates = list(path.glob("*.onnx"))
-        if not candidates:
-            raise FileNotFoundError(f"No ONNX model found in {path}")
-        path = candidates[0]
+    # ------------------------------------------------------------------
+    # Session management
+    # ------------------------------------------------------------------
+    def load_session(self, model_dir: str | Path) -> Tuple[object, Dict[str, List[str]]]:
+        """Load an ONNX model and cache its input/output schema.
 
-    providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-    sess = ort.InferenceSession(str(path), providers=providers)
-    io_schema = {
-        "inputs": [i.name for i in sess.get_inputs()],
-        "outputs": [o.name for o in sess.get_outputs()],
-    }
+        Parameters
+        ----------
+        model_dir:
+            Path to either a directory containing an ``.onnx`` file or a direct
+            path to an ONNX graph.
 
-    global _SESSION, _IO_SCHEMA
-    _SESSION = sess
-    _IO_SCHEMA = io_schema
-    return sess, io_schema
+        Returns
+        -------
+        sess, io_schema:
+            The loaded :class:`onnxruntime.InferenceSession` and a mapping with
+            ``"inputs"``/``"outputs"`` name lists.
+        """
+
+        import onnxruntime as ort  # type: ignore
+
+        path = Path(model_dir)
+        if path.is_dir():
+            candidates = list(path.glob("*.onnx"))
+            if not candidates:
+                raise FileNotFoundError(f"No ONNX model found in {path}")
+            path = candidates[0]
+
+        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        sess = ort.InferenceSession(str(path), providers=providers)
+        io_schema = {
+            "inputs": [i.name for i in sess.get_inputs()],
+            "outputs": [o.name for o in sess.get_outputs()],
+        }
+
+        self.sess = sess
+        self.io_schema = io_schema
+        return sess, io_schema
+
+    # ------------------------------------------------------------------
+    # Generation / decoding
+    # ------------------------------------------------------------------
+    def generate(self, tokens: List[int], steps: int, sampling: Dict[str, Any]) -> List[int]:
+        """Run autoregressive generation using the loaded ONNX model.
+
+        ``sampling`` may contain ``top_k``, ``top_p`` and ``temperature`` fields.
+        Telemetry (``tokens_per_sec``, ``device``, ``time``) is stored on the
+        instance ``telemetry`` mapping for later inspection.
+        """
+
+        if self.sess is None or self.io_schema is None:
+            raise RuntimeError("Model session not loaded; call load_session() first")
+
+        history = list(tokens)
+        input_name = self.io_schema["inputs"][0]
+        output_name = self.io_schema["outputs"][0]
+        providers = self.sess.get_providers()
+        device = providers[0] if providers else "CPU"
+        rng = np.random.default_rng()
+
+        top_k = int(sampling.get("top_k", 0))
+        top_p = float(sampling.get("top_p", 0.0))
+        temperature = float(sampling.get("temperature", 1.0))
+
+        start = time.time()
+        for i in range(int(steps)):
+            if self.cancelled:
+                break
+            inp = np.array(history, dtype=np.int64)[None, :]
+            logits = self.sess.run([output_name], {input_name: inp})[0][0, -1]
+            next_id = sample_token(
+                logits,
+                top_p=top_p,
+                top_k=top_k,
+                temperature=temperature,
+                history=history,
+                rng=rng,
+            )
+            history.append(int(next_id))
+            if steps > 0 and (i + 1) % max(1, steps // 10) == 0:
+                print(json.dumps({"step": i + 1, "total": steps}), flush=True)
+        total = time.time() - start
+
+        new_tokens = len(history) - len(tokens)
+        self.telemetry = {
+            "tokens_per_sec": float(new_tokens) / total if total > 0 else 0.0,
+            "device": device,
+            "time": total,
+        }
+
+        return history
+
+    def decode_to_midi(self, tokens: Sequence[int], out_path: str | Path) -> str:
+        """Decode flat tokens to a MIDI file and return the path."""
+
+        pairs = list(zip(tokens[0::2], tokens[1::2]))
+        notes, meta = event_vocab.decode(pairs)
+        meter_beats = meta.get("meter_beats", 4)
+        meter = f"{meter_beats}/4"
+        stems_to_midi({"melody": notes}, tempo=120.0, meter=meter, path=out_path)
+        return str(out_path)
+
+    # ------------------------------------------------------------------
+    # Cancellation handling
+    # ------------------------------------------------------------------
+    def cancel(self, signum, frame) -> None:  # pragma: no cover - signal handler
+        self.cancelled = True
+        print("received cancel signal", flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -148,81 +223,8 @@ def encode_songspec(song_spec: Any) -> List[int]:
 
 
 # ---------------------------------------------------------------------------
-# Generation / decoding
-# ---------------------------------------------------------------------------
-
-def generate(tokens: List[int], steps: int, sampling: Dict[str, Any]) -> List[int]:
-    """Run autoregressive generation using the loaded ONNX model.
-
-    ``sampling`` may contain ``top_k``, ``top_p`` and ``temperature`` fields.
-    Telemetry (``tokens_per_sec``, ``device``, ``time``) is stored in the
-    module-level ``_LAST_TELEMETRY`` mapping for later inspection.
-    """
-
-    if _SESSION is None or _IO_SCHEMA is None:
-        raise RuntimeError("Model session not loaded; call load_session() first")
-
-    history = list(tokens)
-    input_name = _IO_SCHEMA["inputs"][0]
-    output_name = _IO_SCHEMA["outputs"][0]
-    providers = _SESSION.get_providers()
-    device = providers[0] if providers else "CPU"
-    rng = np.random.default_rng()
-
-    top_k = int(sampling.get("top_k", 0))
-    top_p = float(sampling.get("top_p", 0.0))
-    temperature = float(sampling.get("temperature", 1.0))
-
-    start = time.time()
-    for i in range(int(steps)):
-        if _CANCELLED:
-            break
-        inp = np.array(history, dtype=np.int64)[None, :]
-        logits = _SESSION.run([output_name], {input_name: inp})[0][0, -1]
-        next_id = sample_token(
-            logits,
-            top_p=top_p,
-            top_k=top_k,
-            temperature=temperature,
-            history=history,
-            rng=rng,
-        )
-        history.append(int(next_id))
-        if steps > 0 and (i + 1) % max(1, steps // 10) == 0:
-            print(f"generated {i + 1}/{steps} tokens", flush=True)
-    total = time.time() - start
-
-    global _LAST_TELEMETRY
-    new_tokens = len(history) - len(tokens)
-    _LAST_TELEMETRY = {
-        "tokens_per_sec": float(new_tokens) / total if total > 0 else 0.0,
-        "device": device,
-        "time": total,
-    }
-
-    return history
-
-
-def decode_to_midi(tokens: Sequence[int], out_path: str | Path) -> str:
-    """Decode flat tokens to a MIDI file and return the path."""
-
-    pairs = list(zip(tokens[0::2], tokens[1::2]))
-    notes, meta = event_vocab.decode(pairs)
-    meter_beats = meta.get("meter_beats", 4)
-    meter = f"{meter_beats}/4"
-    stems_to_midi({"melody": notes}, tempo=120.0, meter=meter, path=out_path)
-    return str(out_path)
-
-
-# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
-
-def _handle_cancel(signum, frame):  # pragma: no cover - signal handler
-    global _CANCELLED
-    _CANCELLED = True
-    print("received cancel signal", flush=True)
-
 
 def main(argv: Sequence[str] | None = None) -> None:
     """CLI used by the Tauri frontend.
@@ -232,8 +234,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         python -m core.onnx_crafter_service '{"model": "models", "steps": 32}'
     """
 
-    signal.signal(signal.SIGINT, _handle_cancel)
-    signal.signal(signal.SIGTERM, _handle_cancel)
+    session = ModelSession()
+    signal.signal(signal.SIGINT, session.cancel)
+    signal.signal(signal.SIGTERM, session.cancel)
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("config", help="JSON configuration")
@@ -243,7 +246,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     model = cfg.get("model")
     if model is None:
         raise SystemExit("missing 'model' in config")
-    load_session(model)
+    try:
+        session.load_session(model)
+    except FileNotFoundError as exc:
+        import sys
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        raise SystemExit(1)
 
     if "midi" in cfg:
         tokens = encode_midi(cfg["midi"])
@@ -256,12 +264,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     sampling = cfg.get("sampling", {})
 
     print("starting generation", flush=True)
-    tokens = generate(tokens, steps, sampling)
+    tokens = session.generate(tokens, steps, sampling)
 
     out_path = cfg.get("out", "out.mid")
-    midi_path = decode_to_midi(tokens, out_path)
+    midi_path = session.decode_to_midi(tokens, out_path)
 
-    result = {"midi": midi_path, "telemetry": _LAST_TELEMETRY}
+    result = {"midi": midi_path, "telemetry": session.telemetry}
     print(json.dumps(result))
 
 

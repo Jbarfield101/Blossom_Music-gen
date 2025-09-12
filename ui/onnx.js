@@ -100,7 +100,8 @@ async function tauriOnnxMain(){
     try {
       jobId = await invoke('onnx_generate', { args });
     } catch (e) {
-      console.error(e);
+      log.textContent = `Error: ${e}`;
+      log.scrollTop = log.scrollHeight;
       return;
     }
     startBtn.disabled = true;
@@ -115,14 +116,13 @@ async function tauriOnnxMain(){
       if (msg) {
         log.textContent += msg + '\n';
         log.scrollTop = log.scrollHeight;
-        const m = msg.match(/generated\s+(\d+)\/(\d+)/);
-        if (m) {
-          const pct = (parseInt(m[1]) / parseInt(m[2])) * 100;
-          prog.value = pct;
-        }
         if (msg.trim().startsWith('{')) {
           try {
             const parsed = JSON.parse(msg);
+            if (typeof parsed.step === 'number' && typeof parsed.total === 'number') {
+              const pct = (parsed.step / parsed.total) * 100;
+              prog.value = pct;
+            }
             if (parsed.midi) {
               midiLink.textContent = parsed.midi;
               midiLink.onclick = () => shell.open(parsed.midi);
@@ -153,6 +153,13 @@ async function tauriOnnxMain(){
       const data = await invoke('job_status', { jobId });
       if (data.status === 'running') {
         setTimeout(poll, 1000);
+      } else if (data.status === 'error') {
+        cancelBtn.disabled = true;
+        startBtn.disabled = false;
+        if (data.message) {
+          log.textContent += `\nError: ${data.message}\n`;
+          log.scrollTop = log.scrollHeight;
+        }
       } else {
         cancelBtn.disabled = true;
         startBtn.disabled = false;
