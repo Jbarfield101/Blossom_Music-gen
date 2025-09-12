@@ -14,6 +14,7 @@ use std::{
 
 use regex::Regex;
 use tauri::{AppHandle, State};
+use tauri::Manager;
 
 #[derive(serde::Serialize)]
 struct ProgressEvent {
