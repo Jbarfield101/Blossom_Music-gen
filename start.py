@@ -87,8 +87,15 @@ def main() -> None:
         )
         sys.exit(1)
 
+    npm_dir = Path.cwd()
     try:
-        subprocess.run([npm_path, "run", "tauri", "dev"], check=True)
+        subprocess.run([npm_path, "install"], cwd=npm_dir, check=True)
+    except subprocess.CalledProcessError:
+        print("Failed to install NPM dependencies", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        subprocess.run([npm_path, "run", "tauri", "dev"], cwd=npm_dir, check=True)
     except subprocess.CalledProcessError:
         print("Failed to launch Tauri UI", file=sys.stderr)
         sys.exit(1)
