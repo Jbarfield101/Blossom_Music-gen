@@ -58,7 +58,10 @@ async def run_bot(
 
     async def handle_segment(segment: bytes, speaker: Optional[str]) -> None:
         async for part in whisper.transcribe(segment):
-            logger.append(str(channel_id), speaker or "unknown", part.text, timestamp=part.start)
+            if part.is_final:
+                logger.append(
+                    str(channel_id), speaker or "unknown", part.text, timestamp=part.start
+                )
 
     vad = VoiceActivityDetector(segment_callback=handle_segment, diarizer=diarizer)
 
