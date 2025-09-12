@@ -264,6 +264,58 @@ Jobs invoke `main_render.py` under the hood and return a zip bundle containing
 the mix and stems for download.  A health‑check endpoint is available at
 `/health`.
 
+## ONNX Crafter
+
+Run exported [MusicLang](https://huggingface.co/models?search=musiclang) models
+to craft melodies directly from ONNX graphs.
+
+### Listing and downloading models
+
+Available model names can be queried from Hugging Face:
+
+```bash
+curl -s https://huggingface.co/api/models?search=musiclang | jq '.[].modelId'
+```
+
+Download a model and place it under the local `models/` directory:
+
+```bash
+mkdir -p models/musiclang-small
+curl -L https://huggingface.co/musiclang/musiclang-small/resolve/main/model.onnx \
+  -o models/musiclang-small/model.onnx
+```
+
+### CLI usage
+
+Generation is performed by passing a JSON configuration to
+`core/onnx_crafter_service.py`.  Provide either a chord grid via `song_spec` or
+an input melody with `midi`:
+
+```bash
+python core/onnx_crafter_service.py '{"model":"models/musiclang-small","song_spec":["C","F","G","C"],"steps":32,"sampling":{"top_k":8,"top_p":0.95,"temperature":1.0},"out":"output.mid"}'
+```
+
+### GUI usage
+
+Launch the Tauri desktop app (`npm run tauri dev`) and open the **ONNX
+Crafter** panel.  Select a model and press **Download**:
+
+![Downloading model](assets/images/onnx_download.svg)
+
+Fill in a song specification or upload a melody MIDI file, adjust `top_k`,
+`top_p` and `temperature`, then click **Start**.  The resulting MIDI file and
+basic telemetry appear once generation finishes:
+
+![Generation result](assets/images/onnx_result.svg)
+
+### Sampling parameters
+
+* `top_k` – keep only the `k` highest‑logit tokens at each step.
+* `top_p` – nucleus sampling; draw from the smallest set of tokens whose
+  cumulative probability exceeds `p`.
+* `temperature` – scale logits before sampling.  Values <1 make predictions more
+  deterministic, while values >1 increase variety.
+
 ## Discord transcription pipeline
 
 The `ears.pipeline` module can capture audio from a Discord voice channel and
