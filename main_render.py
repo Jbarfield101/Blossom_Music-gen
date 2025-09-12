@@ -43,7 +43,7 @@ except Exception:  # pragma: no cover - lightweight fallback
 from core.song_spec import SongSpec, extend_sections_to_minutes
 from core.stems import build_stems_for_song, bars_to_beats, beats_to_secs
 from core.pattern_synth import build_patterns_for_song
-from core import theory
+from core import theory, phrase_model
 from core.arranger import arrange_song
 from core.render import render_song
 from core.mixer import mix as mix_stems
@@ -285,6 +285,21 @@ if __name__ == "__main__":
         help="Path to drums SFZ file or directory. If omitted, uses render_config.json",
     )
     ap.add_argument(
+        "--drums-model",
+        dest="drums_model",
+        help="Path to drums phrase model file",
+    )
+    ap.add_argument(
+        "--bass-model",
+        dest="bass_model",
+        help="Path to bass phrase model file",
+    )
+    ap.add_argument(
+        "--keys-model",
+        dest="keys_model",
+        help="Path to keys phrase model file",
+    )
+    ap.add_argument(
         "--style",
         dest="style",
         help="Arrangement style name or JSON file in assets/styles",
@@ -443,6 +458,31 @@ if __name__ == "__main__":
         spec.outro = args.outro
         extend_sections_to_minutes(spec, args.minutes)
     spec.validate()
+
+    def _apply_model_override(name: str, override: str | None) -> None:
+        if not override:
+            return
+        p = Path(override)
+        if not p.exists():
+            raise SystemExit(f"Missing model: {p}")
+        try:
+            if str(p).endswith(".onnx"):
+                if phrase_model.ort is None:
+                    raise RuntimeError("onnxruntime not available")
+                session = phrase_model.ort.InferenceSession(str(p))
+                phrase_model.MODEL_CACHE[name] = ("onnx", session)
+            else:
+                if phrase_model.torch is None:
+                    raise RuntimeError("torch not available")
+                model = phrase_model.torch.jit.load(str(p))
+                model.eval()
+                phrase_model.MODEL_CACHE[name] = ("torchscript", model)
+        except Exception as exc:
+            raise SystemExit(f"Failed to load model {p}: {exc}")
+
+    _apply_model_override("drums", args.drums_model)
+    _apply_model_override("bass", args.bass_model)
+    _apply_model_override("keys", args.keys_model)
 
     cfg["style"] = style
     if args.bundle or args.verbose:
