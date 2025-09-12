@@ -24,5 +24,11 @@
     load();
     const saveBtn = $('save');
     if (saveBtn) saveBtn.addEventListener('click', save);
+    const darkBtn = $('set_dark');
+    if (darkBtn) darkBtn.addEventListener('click', () => {
+      window.setTheme('dark');
+      const themeSel = $('theme');
+      if (themeSel) themeSel.value = 'dark';
+    });
   });
 })();
