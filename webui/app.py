@@ -197,6 +197,11 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/about")
+def about() -> dict[str, str]:
+    return {"python": sys.version}
+
+
 @app.get("/", response_class=HTMLResponse)
 async def home() -> HTMLResponse:
     return HTMLResponse((REPO_ROOT / "ui" / "index.html").read_text())
