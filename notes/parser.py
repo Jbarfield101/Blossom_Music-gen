@@ -43,8 +43,10 @@ class ParsedNote:
     fields: Dict[str, Any]
 
 
-# Regex to capture fenced npc blocks
-_NPC_BLOCK_RE = re.compile(r"```npc\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
+# Regex to capture fenced npc blocks.  The pattern allows blocks at the start of
+# the file and consumes a preceding newline when present so that removing the
+# block does not leave blank lines behind.
+_NPC_BLOCK_RE = re.compile(r"(?:^|\n)```npc\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
 
 
 def _parse_frontmatter(path: Path) -> frontmatter.Post:
