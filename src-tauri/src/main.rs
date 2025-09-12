@@ -16,7 +16,7 @@ use regex::Regex;
 use tauri::{AppHandle, State};
 use tauri::Manager;
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Clone)]
 struct ProgressEvent {
     stage: Option<String>,
     percent: Option<u8>,
