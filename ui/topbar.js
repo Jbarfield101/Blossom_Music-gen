@@ -33,5 +33,17 @@
   back.textContent = 'Back';
   back.addEventListener('click', () => history.back());
   bar.appendChild(back);
+  const about = document.createElement('button');
+  about.textContent = 'About';
+  about.addEventListener('click', async () => {
+    try {
+      const res = await fetch('/about');
+      const data = await res.json();
+      alert(`Python version: ${data.python}`);
+    } catch (err) {
+      alert('Failed to fetch version');
+    }
+  });
+  bar.appendChild(about);
   document.body.prepend(bar);
 })();
