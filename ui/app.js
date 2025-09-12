@@ -100,12 +100,29 @@ async function browserMain(){
     if ($('minutes').value) fd.append('minutes', $('minutes').value);
     if ($('sections').value) fd.append('sections', $('sections').value);
     fd.append('seed', $('seed').value);
+    if ($('sampler_seed').value) fd.append('sampler_seed', $('sampler_seed').value);
+    if ($('mix_preset').value) fd.append('mix_preset', $('mix_preset').value);
     fd.append('name', $('name').value);
     const mix = $('mix_config').files[0];
     if (mix) fd.append('mix_config', mix);
     const arr = $('arrange_config').files[0];
     if (arr) fd.append('arrange_config', arr);
+    if ($('bundle_stems').checked) fd.append('bundle_stems', 'true');
+    if ($('eval_only').checked) fd.append('eval_only', 'true');
+    if ($('dry_run').checked) fd.append('dry_run', 'true');
+    const keys = $('keys_sfz').files[0];
+    if (keys) fd.append('keys_sfz', keys);
+    const pads = $('pads_sfz').files[0];
+    if (pads) fd.append('pads_sfz', pads);
+    const bass = $('bass_sfz').files[0];
+    if (bass) fd.append('bass_sfz', bass);
+    const drums = $('drums_sfz').files[0];
+    if (drums) fd.append('drums_sfz', drums);
+    const melody = $('melody_midi').files[0];
+    if (melody) fd.append('melody_midi', melody);
     if ($('phrase').checked) fd.append('phrase', 'true');
+    if ($('arrange').value) fd.append('arrange', $('arrange').value);
+    if ($('outro').value) fd.append('outro', $('outro').value);
     if ($('preview').value) fd.append('preview', $('preview').value);
     if (outputDir) fd.append('outdir', outputDir);
     const resp = await fetch('/render', {method:'POST', body: fd});
@@ -184,14 +201,26 @@ async function tauriMain(){
   const presetSel = $('preset');
   const styleSel = $('style');
   const seedInput = $('seed');
+  const samplerSeedInput = $('sampler_seed');
+  const mixPresetInput = $('mix_preset');
   const minInput = $('minutes');
   const sectionsInput = $('sections');
   const nameInput = $('name');
   const outdirInput = $('outdir');
   const mixConfigInput = $('mix_config');
   const arrangeConfigInput = $('arrange_config');
+  const bundleStemsInput = $('bundle_stems');
+  const evalOnlyInput = $('eval_only');
+  const dryRunInput = $('dry_run');
+  const keysSfzInput = $('keys_sfz');
+  const padsSfzInput = $('pads_sfz');
+  const bassSfzInput = $('bass_sfz');
+  const drumsSfzInput = $('drums_sfz');
+  const melodyMidiInput = $('melody_midi');
   const phraseInput = $('phrase');
   const previewInput = $('preview');
+  const arrangeInput = $('arrange');
+  const outroInput = $('outro');
   const startBtn = $('start');
   const cancelBtn = $('cancel');
   const prog = $('progress');
@@ -227,11 +256,18 @@ async function tauriMain(){
     cancelBtn.disabled = false;
     const seed = parseInt(seedInput.value);
     const args = ['main_render.py', '--preset', presetSel.value, '--seed', String(seed)];
+    if (samplerSeedInput.value) args.push('--sampler-seed', samplerSeedInput.value);
+    if (mixPresetInput.value) args.push('--mix-preset', mixPresetInput.value);
     if (styleSel.value) args.push('--style', styleSel.value);
     if (minInput.value) args.push('--minutes', minInput.value);
     if (sectionsInput.value) args.push('--sections', sectionsInput.value);
     if (phraseInput.checked) args.push('--use-phrase-model', 'yes');
     if (previewInput.value) args.push('--preview', previewInput.value);
+    if (bundleStemsInput.checked) args.push('--bundle-stems');
+    if (evalOnlyInput.checked) args.push('--eval-only');
+    if (dryRunInput.checked) args.push('--dry-run');
+    if (arrangeInput.value) args.push('--arrange', arrangeInput.value);
+    if (outroInput.value) args.push('--outro', outroInput.value);
     const tempDir = await path.tempDir();
     const mixFile = mixConfigInput.files[0];
     if (mixFile) {
@@ -244,6 +280,36 @@ async function tauriMain(){
       const arrCfgPath = await path.join(tempDir, `arrange-config-${Date.now()}.json`);
       await fs.writeFile({ path: arrCfgPath, contents: await arrFile.text() });
       args.push('--arrange-config', arrCfgPath);
+    }
+    const keysFile = keysSfzInput.files[0];
+    if (keysFile) {
+      const keysPath = await path.join(tempDir, `keys-sfz-${Date.now()}.sfz`);
+      await fs.writeFile({ path: keysPath, contents: await keysFile.text() });
+      args.push('--keys-sfz', keysPath);
+    }
+    const padsFile = padsSfzInput.files[0];
+    if (padsFile) {
+      const padsPath = await path.join(tempDir, `pads-sfz-${Date.now()}.sfz`);
+      await fs.writeFile({ path: padsPath, contents: await padsFile.text() });
+      args.push('--pads-sfz', padsPath);
+    }
+    const bassFile = bassSfzInput.files[0];
+    if (bassFile) {
+      const bassPath = await path.join(tempDir, `bass-sfz-${Date.now()}.sfz`);
+      await fs.writeFile({ path: bassPath, contents: await bassFile.text() });
+      args.push('--bass-sfz', bassPath);
+    }
+    const drumsFile = drumsSfzInput.files[0];
+    if (drumsFile) {
+      const drumsPath = await path.join(tempDir, `drums-sfz-${Date.now()}.sfz`);
+      await fs.writeFile({ path: drumsPath, contents: await drumsFile.text() });
+      args.push('--drums-sfz', drumsPath);
+    }
+    const melodyFile = melodyMidiInput.files[0];
+    if (melodyFile) {
+      const melodyPath = await path.join(tempDir, `melody-${Date.now()}.mid`);
+      await fs.writeFile({ path: melodyPath, contents: new Uint8Array(await melodyFile.arrayBuffer()) });
+      args.push('--melody-midi', melodyPath);
     }
     const name = nameInput.value.trim() || 'output';
     const mixPath = outputDir ? `${outputDir}/${name}.wav` : `${name}.wav`;
