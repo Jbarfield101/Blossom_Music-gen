@@ -6,12 +6,35 @@
   <link rel="stylesheet" href="/ui/theme.css">
   <style>
     body { font-family: sans-serif; margin: 1em; background: var(--bg); color: var(--fg); }
+    label { display: block; margin-bottom: 0.5em; }
+    #log { background: var(--log-bg); color: var(--log-fg); padding: 0.5em; height: 200px; overflow-y: auto; }
   </style>
 </head>
 <body>
   <h1>ONNX Crafter</h1>
-  <p>Under Construction</p>
+  <div id="inputs">
+    <label>Model path <input type="text" id="model" /></label>
+    <label>Song spec (JSON or space-separated chords)
+      <textarea id="song_spec" rows="3"></textarea>
+    </label>
+    <label>Melody MIDI <input type="file" id="midi" /></label>
+    <label>Steps <input type="number" id="steps" value="32" /></label>
+    <label>Top-k <input type="number" id="top_k" /></label>
+    <label>Top-p <input type="number" step="0.01" id="top_p" /></label>
+    <label>Temperature <input type="number" step="0.01" id="temperature" value="1.0" /></label>
+  </div>
+  <div id="controls">
+    <button id="start" type="button">Start</button>
+    <button id="cancel" type="button" disabled>Cancel</button>
+    <progress id="progress" value="0" max="100"></progress>
+  </div>
+  <pre id="log"></pre>
+  <div id="results" hidden>
+    <h3>Result</h3>
+    <a id="midi_link" href="#"></a>
+    <pre id="telemetry"></pre>
+  </div>
   <script src="/ui/topbar.js"></script>
+  <script src="/ui/onnx.js"></script>
 </body>
 </html>
-
