@@ -10,31 +10,21 @@ import threading
 import uuid
 from pathlib import Path
 
-from fastapi import (
-    FastAPI,
-    File,
-    Form,
-    HTTPException,
-    Request,
-    UploadFile,
-)
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MAIN_RENDER = REPO_ROOT / "main_render.py"
 ASSETS_DIR = REPO_ROOT / "assets"
 
 app = FastAPI()
-app.mount("/static", StaticFiles(directory=REPO_ROOT / "webui" / "static"), name="static")
-
-templates = Jinja2Templates(directory=REPO_ROOT / "webui" / "templates")
+app.mount("/static", StaticFiles(directory=REPO_ROOT / "ui" / "static"), name="static")
 
 
 jobs: dict[str, dict] = {}
 
-RECENT_FILE = REPO_ROOT / "webui" / "recent_renders.json"
+RECENT_FILE = REPO_ROOT / "ui" / "recent_renders.json"
 MAX_RECENT = 10
 
 
@@ -158,18 +148,20 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/", response_class=HTMLResponse)
-async def home(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse("home.html", {"request": request})
+async def home() -> HTMLResponse:
+    return HTMLResponse((REPO_ROOT / "ui" / "index.html").read_text())
 
 
 @app.get("/generate", response_class=HTMLResponse)
-async def generate(request: Request) -> HTMLResponse:
-    presets = _options("presets")
-    styles = _options("styles")
-    return templates.TemplateResponse(
-        "generate.html",
-        {"request": request, "presets": presets, "styles": styles},
-    )
+async def generate() -> HTMLResponse:
+    return HTMLResponse((REPO_ROOT / "ui" / "generate.html").read_text())
+
+
+@app.get("/options/{kind}")
+async def options(kind: str) -> list[str]:
+    if kind not in {"presets", "styles"}:
+        raise HTTPException(404, "not found")
+    return _options(kind)
 
 
 @app.post("/render")
