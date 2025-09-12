@@ -2,6 +2,7 @@
 
 use std::{
     collections::HashMap,
+    fs,
     io::{BufRead, BufReader},
     path::Path,
     process::{Child, Command, Stdio},
@@ -10,7 +11,6 @@ use std::{
         Arc, Mutex,
     },
     time::Duration,
-};
 };
 
 use regex::Regex;
@@ -351,6 +351,10 @@ fn open_path(app: AppHandle, path: String) -> Result<(), String> {
 }
 
 fn main() {
+    if let Err(e) = fs::create_dir_all(Path::new("models")) {
+        eprintln!("failed to create models directory: {}", e);
+    }
+
     tauri::Builder::default()
         .manage(JobRegistry::default())
         .invoke_handler(tauri::generate_handler![
