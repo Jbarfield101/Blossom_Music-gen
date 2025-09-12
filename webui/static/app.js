@@ -13,7 +13,9 @@ async function loadRecent(){
   for (const job of data){
     const li = document.createElement('li');
     const span = document.createElement('span');
-    span.textContent = `${job.preset} (seed ${job.seed}) - ${job.status}`;
+    let text = `${job.preset} (seed ${job.seed}) - ${job.status}`;
+    if (job.hash) text += ` [${job.hash}]`;
+    span.textContent = text;
     const btn = document.createElement('button');
     btn.textContent = 'Duplicate';
     btn.onclick = () => fillForm(job);
@@ -34,6 +36,24 @@ function fillForm(job){
   $('preview').value = job.preview ?? '';
   outputDir = job.outdir || '';
   $('outdir').value = outputDir;
+  if (job.mix_config && job.mix_config.text) {
+    const blob = new Blob([job.mix_config.text], {type: 'application/json'});
+    const file = new File([blob], job.mix_config.name || 'mix_config.json', {type:'application/json'});
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    $('mix_config').files = dt.files;
+  } else {
+    $('mix_config').value = '';
+  }
+  if (job.arrange_config && job.arrange_config.text) {
+    const blob = new Blob([job.arrange_config.text], {type: 'application/json'});
+    const file = new File([blob], job.arrange_config.name || 'arrange_config.json', {type:'application/json'});
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    $('arrange_config').files = dt.files;
+  } else {
+    $('arrange_config').value = '';
+  }
 }
 
 $('choose_outdir').onclick = () => {
