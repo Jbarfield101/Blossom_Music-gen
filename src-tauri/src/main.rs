@@ -128,6 +128,58 @@ fn start_job(
 }
 
 #[tauri::command]
+fn onnx_generate(
+    app: AppHandle,
+    registry: State<JobRegistry>,
+    args: Vec<String>,
+) -> Result<u64, String> {
+    let mut full_args = vec!["core/onnx_crafter_service.py".into()];
+    full_args.extend(args.iter().cloned());
+    let mut child = Command::new("python")
+        .args(&full_args)
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    let stdout = child.stdout.take();
+    let job = JobInfo {
+        child: Some(child),
+        args: full_args.clone(),
+        status: None,
+    };
+    let id = registry.add(job);
+
+    if let Some(stdout) = stdout {
+        let app_handle = app.clone();
+        std::thread::spawn(move || {
+            let stage_re = Regex::new(r"^\s*([\w-]+):").unwrap();
+            let percent_re = Regex::new(r"(\d+)%").unwrap();
+            let eta_re = Regex::new(r"ETA[:\s]+([0-9:]+)").unwrap();
+            let reader = BufReader::new(stdout);
+            for line in reader.lines().flatten() {
+                let stage = stage_re
+                    .captures(&line)
+                    .map(|c| c[1].to_string());
+                let percent = percent_re
+                    .captures(&line)
+                    .and_then(|c| c[1].parse::<u8>().ok());
+                let eta = eta_re
+                    .captures(&line)
+                    .map(|c| c[1].to_string());
+                let event = ProgressEvent {
+                    stage,
+                    percent,
+                    message: line.clone(),
+                    eta,
+                };
+                let _ = app_handle.emit_all(&format!("onnx::progress::{}", id), event);
+            }
+        });
+    }
+
+    Ok(id)
+}
+
+#[tauri::command]
 fn cancel_render(registry: State<JobRegistry>, job_id: u64) -> Result<(), String> {
     let mut jobs = registry.jobs.lock().map_err(|e| e.to_string())?;
     match jobs.get_mut(&job_id) {
@@ -211,6 +263,7 @@ fn main() {
             list_presets,
             list_styles,
             start_job,
+            onnx_generate,
             cancel_render,
             job_status,
             open_path
