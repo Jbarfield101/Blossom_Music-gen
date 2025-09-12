@@ -1,7 +1,10 @@
 import asyncio
-import types
-import sys
+import math
 import os
+import sys
+import types
+
+import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -46,7 +49,13 @@ def _make_service(monkeypatch):
             return _FakeArray([x / other for x in self])
     def _frombuffer(pcm, dtype):
         return _FakeArray([0] * (len(pcm) // 2))
-    fake_np = types.SimpleNamespace(int16="int16", float32="float32", frombuffer=_frombuffer)
+    fake_np = types.SimpleNamespace(
+        int16="int16",
+        float32="float32",
+        frombuffer=_frombuffer,
+        isscalar=lambda x: isinstance(x, (int, float)),
+        bool_=bool,
+    )
     monkeypatch.setitem(sys.modules, "numpy", fake_np)
     from importlib import reload
     from ears import whisper_service as ws
@@ -70,3 +79,36 @@ def test_transcribe_yields_partial_and_final(monkeypatch):
 
     assert any(not s.is_final for s in segments)
     assert any(s.is_final for s in segments)
+
+
+def test_transcription_segment_fields(monkeypatch):
+    service = _make_service(monkeypatch)
+
+    pcm = b"\x00\x00" * 32000
+
+    async def _run():
+        results = []
+        async for seg in service.transcribe(pcm):
+            results.append(seg)
+        return results
+
+    segments = asyncio.run(_run())
+
+    partial = next(s for s in segments if not s.is_final)
+    final = next(s for s in segments if s.is_final)
+
+    assert partial.text == "partial1"
+    assert partial.start == 0.0
+    assert partial.end == pytest.approx(0.5)
+    assert partial.language == ""
+    assert partial.language_confidence == 0.0
+    assert not partial.is_final
+    assert partial.confidence == pytest.approx(1.0)
+
+    assert final.text == "final"
+    assert final.start == 0.0
+    assert final.end == pytest.approx(2.0)
+    assert final.language == "en"
+    assert final.language_confidence == 1.0
+    assert final.is_final
+    assert final.confidence == pytest.approx(math.exp(-0.1))
