@@ -14,7 +14,7 @@ except Exception:  # pragma: no cover - optional dependency
 
 from .discord_listener import DiscordListener
 from .transcript_logger import TranscriptLogger
-from .vad import VoiceActivityDetector
+from .vad import DiarizationHook, VoiceActivityDetector
 from .whisper_service import WhisperService
 
 
@@ -40,7 +40,14 @@ def _resample(pcm: bytes, source_rate: int, target_rate: int) -> bytes:
     return audio.astype(np.int16).tobytes()
 
 
-async def run_bot(token: str, channel_id: int, *, model_path: str = "small", transcript_root: str = "transcripts") -> None:
+async def run_bot(
+    token: str,
+    channel_id: int,
+    *,
+    model_path: str = "small",
+    transcript_root: str = "transcripts",
+    diarizer: Optional[DiarizationHook] = None,
+) -> None:
     """Join a Discord voice channel and transcribe speech in real time.
 
     Incoming 48 kHz stereo frames are converted to 16 kHz mono before voice
@@ -53,7 +60,7 @@ async def run_bot(token: str, channel_id: int, *, model_path: str = "small", tra
         async for part in whisper.transcribe(segment):
             logger.append(str(channel_id), speaker or "unknown", part.text, timestamp=part.start)
 
-    vad = VoiceActivityDetector(segment_callback=handle_segment)
+    vad = VoiceActivityDetector(segment_callback=handle_segment, diarizer=diarizer)
 
     async def handle_frame(member, pcm: bytes) -> None:
         frame = _resample(pcm, 48000, vad.sample_rate)
