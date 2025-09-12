@@ -15,21 +15,18 @@ from fastapi import (
     File,
     Form,
     HTTPException,
-    Request,
     UploadFile,
 )
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MAIN_RENDER = REPO_ROOT / "main_render.py"
 ASSETS_DIR = REPO_ROOT / "assets"
 
 app = FastAPI()
-app.mount("/static", StaticFiles(directory=REPO_ROOT / "webui" / "static"), name="static")
-
-templates = Jinja2Templates(directory=REPO_ROOT / "webui" / "templates")
+# Serve shared front-end assets from the top-level ``ui`` directory
+app.mount("/ui", StaticFiles(directory=REPO_ROOT / "ui"), name="ui")
 
 
 jobs: dict[str, dict] = {}
@@ -171,18 +168,23 @@ async def health() -> dict[str, str]:
 
 
 @app.get("/", response_class=HTMLResponse)
-async def home(request: Request) -> HTMLResponse:
-    return templates.TemplateResponse("home.html", {"request": request})
+async def home() -> HTMLResponse:
+    return HTMLResponse((REPO_ROOT / "ui" / "index.html").read_text())
 
 
 @app.get("/generate", response_class=HTMLResponse)
-async def generate(request: Request) -> HTMLResponse:
-    presets = _options("presets")
-    styles = _options("styles")
-    return templates.TemplateResponse(
-        "generate.html",
-        {"request": request, "presets": presets, "styles": styles},
-    )
+async def generate() -> HTMLResponse:
+    return HTMLResponse((REPO_ROOT / "ui" / "generate.html").read_text())
+
+
+@app.get("/presets")
+async def list_presets() -> list[str]:
+    return _options("presets")
+
+
+@app.get("/styles")
+async def list_styles() -> list[str]:
+    return _options("styles")
 
 
 @app.post("/render")
