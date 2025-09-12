@@ -19,6 +19,9 @@ from fastapi import (
 )
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from config.obsidian import select_vault
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 MAIN_RENDER = REPO_ROOT / "main_render.py"
@@ -195,6 +198,27 @@ async def list_presets() -> list[str]:
 @app.get("/styles")
 async def list_styles() -> list[str]:
     return _options("styles")
+
+
+class VaultRequest(BaseModel):
+    path: str
+
+
+@app.post("/obsidian/vault")
+async def set_obsidian_vault(req: VaultRequest) -> dict[str, str]:
+    """Set the Obsidian vault used by the service.
+
+    The provided path must exist and may only be set once.  Subsequent
+    attempts to change the vault will raise an error.
+    """
+
+    try:
+        vault = select_vault(Path(req.path))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="vault path does not exist")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"vault": str(vault)}
 
 
 @app.post("/render")
