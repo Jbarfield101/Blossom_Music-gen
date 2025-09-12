@@ -13,9 +13,15 @@ except Exception:  # ImportError and runtime errors if backend missing
     WhisperService = None  # type: ignore[assignment]
     TranscriptionSegment = None  # type: ignore[assignment]
 
+try:  # pragma: no cover - optional dependency
+    from .pipeline import run_bot
+except Exception:  # ImportError and runtime errors if backend missing
+    run_bot = None  # type: ignore[assignment]
+
 __all__ = [
     "DiscordListener",
     "WhisperService",
     "TranscriptionSegment",
     "TranscriptLogger",
+    "run_bot",
 ]

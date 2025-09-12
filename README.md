@@ -255,3 +255,19 @@ Navigate to `http://localhost:8000/` and the unified front‑end will load.
 Jobs invoke `main_render.py` under the hood and return a zip bundle containing
 the mix and stems for download.  A health‑check endpoint is available at
 `/health`.
+
+## Discord transcription pipeline
+
+The `ears.pipeline` module can capture audio from a Discord voice channel and
+transcribe speech using Whisper. Transcripts are written to JSONL files under
+`transcripts/`.
+
+```python
+import asyncio
+from ears.pipeline import run_bot
+
+asyncio.run(run_bot("TOKEN", 123456789012345678))
+```
+
+Replace `TOKEN` with your bot token and the integer with the target voice
+channel ID.
