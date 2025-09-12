@@ -156,6 +156,9 @@ def _watch(job_id: str) -> None:
         "phrase": job.get("phrase"),
         "preview": job.get("preview"),
         "outdir": job.get("outdir"),
+        "drums_model": job.get("drums_model"),
+        "bass_model": job.get("bass_model"),
+        "keys_model": job.get("keys_model"),
         "status": status,
         "hash": rhash,
         "mix_config": job.get("mix_config"),
@@ -310,6 +313,9 @@ async def render(
     phrase: bool = Form(False),
     preview: int | None = Form(None),
     outdir: str | None = Form(None),
+    drums_model: str | None = Form(None),
+    bass_model: str | None = Form(None),
+    keys_model: str | None = Form(None),
 ) -> dict:
     tmpdir = Path(tempfile.mkdtemp())
     mix_path = tmpdir / "mix.wav"
@@ -338,6 +344,12 @@ async def render(
         cmd += ["--use-phrase-model", "yes"]
     if preview is not None:
         cmd += ["--preview", str(preview)]
+    if drums_model:
+        cmd += ["--drums-model", str(MODELS_DIR / drums_model)]
+    if bass_model:
+        cmd += ["--bass-model", str(MODELS_DIR / bass_model)]
+    if keys_model:
+        cmd += ["--keys-model", str(MODELS_DIR / keys_model)]
     if mix_config is not None:
         mix_bytes = await mix_config.read()
         mix_path = tmpdir / "mix_config.json"
@@ -381,6 +393,9 @@ async def render(
         "sections": sections,
         "phrase": phrase,
         "preview": preview,
+        "drums_model": drums_model,
+        "bass_model": bass_model,
+        "keys_model": keys_model,
         "mix_config": jobs_mix,
         "arrange_config": jobs_arr,
     }
