@@ -6,6 +6,29 @@ A desktop interface built with [Tauri](https://tauri.app/) mirrors the
 command‑line options and is the recommended way to run the tools interactively.
 Command‑line usage via `start.py` remains available for automation.
 
+## Quick Start
+
+1. Create a virtual environment and install the Python dependencies:
+
+   ```bash
+   python3.10 -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+
+2. Launch the web server:
+
+   ```bash
+   uvicorn webui.app:app --reload
+   ```
+
+3. Open `http://localhost:8000/generate` in your browser to access the UI.
+
+### Troubleshooting
+
+- If `uvicorn` or other modules are missing, rerun `pip install -r requirements.txt` inside the virtual environment.
+- If port `8000` is already in use, specify another one with `--port`, e.g. `uvicorn webui.app:app --port 8001`, or stop the conflicting process.
+
 ## Prerequisites
 
 - **64-bit Python 3.10**
