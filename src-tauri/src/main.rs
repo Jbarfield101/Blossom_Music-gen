@@ -3,21 +3,24 @@
 use std::{
     collections::HashMap,
     fs,
+    io::{BufRead, BufReader},
     path::Path,
-    process::{Child, Command},
+    process::{Child, Command, Stdio},
     sync::{
         atomic::{AtomicU64, Ordering},
         Mutex,
     },
 };
 
+use regex::Regex;
 use tauri::{AppHandle, State};
 
 #[derive(serde::Serialize)]
-enum JobStatus {
-    Running,
-    Completed { success: bool },
-    NotFound,
+struct ProgressEvent {
+    stage: Option<String>,
+    percent: Option<u8>,
+    message: String,
+    eta: Option<String>,
 }
 
 struct JobInfo {
@@ -74,17 +77,52 @@ fn list_styles() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-fn start_job(registry: State<JobRegistry>, args: Vec<String>) -> Result<u64, String> {
-    let child = Command::new("python")
+fn start_job(
+    app: AppHandle,
+    registry: State<JobRegistry>,
+    args: Vec<String>,
+) -> Result<u64, String> {
+    let mut child = Command::new("python")
         .args(&args)
+        .stdout(Stdio::piped())
         .spawn()
         .map_err(|e| e.to_string())?;
+    let stdout = child.stdout.take();
     let job = JobInfo {
         child: Some(child),
         args,
         status: None,
     };
     let id = registry.add(job);
+
+    if let Some(stdout) = stdout {
+        let app_handle = app.clone();
+        std::thread::spawn(move || {
+            let stage_re = Regex::new(r"^\s*([\w-]+):").unwrap();
+            let percent_re = Regex::new(r"(\d+)%").unwrap();
+            let eta_re = Regex::new(r"ETA[:\s]+([0-9:]+)").unwrap();
+            let reader = BufReader::new(stdout);
+            for line in reader.lines().flatten() {
+                let stage = stage_re
+                    .captures(&line)
+                    .map(|c| c[1].to_string());
+                let percent = percent_re
+                    .captures(&line)
+                    .and_then(|c| c[1].parse::<u8>().ok());
+                let eta = eta_re
+                    .captures(&line)
+                    .map(|c| c[1].to_string());
+                let event = ProgressEvent {
+                    stage,
+                    percent,
+                    message: line.clone(),
+                    eta,
+                };
+                let _ = app_handle.emit_all(&format!("progress::{}", id), event);
+            }
+        });
+    }
+
     Ok(id)
 }
 
@@ -110,33 +148,50 @@ fn cancel_render(registry: State<JobRegistry>, job_id: u64) -> Result<(), String
     }
 }
 
+#[derive(serde::Serialize)]
+struct JobState {
+    status: String,
+}
+
 #[tauri::command]
-fn job_status(registry: State<JobRegistry>, job_id: u64) -> JobStatus {
+fn job_status(registry: State<JobRegistry>, job_id: u64) -> JobState {
     let mut jobs = registry.jobs.lock().unwrap();
     match jobs.get_mut(&job_id) {
         Some(job) => {
             if let Some(success) = job.status {
-                JobStatus::Completed { success }
+                JobState {
+                    status: if success { "completed" } else { "error" }.into(),
+                }
             } else if let Some(child) = job.child.as_mut() {
                 match child.try_wait() {
                     Ok(Some(status)) => {
                         let success = status.success();
                         job.status = Some(success);
                         job.child = None;
-                        JobStatus::Completed { success }
+                        JobState {
+                            status: if success { "completed" } else { "error" }.into(),
+                        }
                     }
-                    Ok(None) => JobStatus::Running,
+                    Ok(None) => JobState {
+                        status: "running".into(),
+                    },
                     Err(_) => {
                         job.status = Some(false);
                         job.child = None;
-                        JobStatus::Completed { success: false }
+                        JobState {
+                            status: "error".into(),
+                        }
                     }
                 }
             } else {
-                JobStatus::Running
+                JobState {
+                    status: "running".into(),
+                }
             }
         }
-        None => JobStatus::NotFound,
+        None => JobState {
+            status: "not-found".into(),
+        },
     }
 }
 
