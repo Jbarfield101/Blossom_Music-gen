@@ -18,10 +18,16 @@ try:  # pragma: no cover - optional dependency
 except Exception:  # ImportError and runtime errors if backend missing
     run_bot = None  # type: ignore[assignment]
 
+try:  # pragma: no cover - optional dependency
+    from .diarization import pyannote_diarize
+except Exception:  # ImportError and runtime errors if backend missing
+    pyannote_diarize = None  # type: ignore[assignment]
+
 __all__ = [
     "DiscordListener",
     "WhisperService",
     "TranscriptionSegment",
     "TranscriptLogger",
     "run_bot",
+    "pyannote_diarize",
 ]
