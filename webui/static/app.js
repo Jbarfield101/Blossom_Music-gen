@@ -16,10 +16,19 @@ async function loadRecent(){
     let text = `${job.preset} (seed ${job.seed}) - ${job.status}`;
     if (job.hash) text += ` [${job.hash}]`;
     span.textContent = text;
+    li.appendChild(span);
+
+    if (job.bundle) {
+      const link = document.createElement('a');
+      link.textContent = 'bundle.zip';
+      link.href = `/bundles/${job.id}`;
+      link.style.marginLeft = '8px';
+      li.appendChild(link);
+    }
+
     const btn = document.createElement('button');
     btn.textContent = 'Duplicate';
     btn.onclick = () => fillForm(job);
-    li.appendChild(span);
     li.appendChild(btn);
     list.appendChild(li);
   }
