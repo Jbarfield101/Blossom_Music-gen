@@ -177,6 +177,16 @@ async def generate() -> HTMLResponse:
     return HTMLResponse((REPO_ROOT / "ui" / "generate.html").read_text())
 
 
+@app.get("/settings", response_class=HTMLResponse)
+async def settings() -> HTMLResponse:
+    return HTMLResponse((REPO_ROOT / "ui" / "settings.html").read_text())
+
+
+@app.get("/train", response_class=HTMLResponse)
+async def train() -> HTMLResponse:
+    return HTMLResponse((REPO_ROOT / "ui" / "train.html").read_text())
+
+
 @app.get("/presets")
 async def list_presets() -> list[str]:
     return _options("presets")
