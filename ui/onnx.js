@@ -100,7 +100,8 @@ async function tauriOnnxMain(){
     try {
       jobId = await invoke('onnx_generate', { args });
     } catch (e) {
-      console.error(e);
+      log.textContent = `Error: ${e}`;
+      log.scrollTop = log.scrollHeight;
       return;
     }
     startBtn.disabled = true;
@@ -153,6 +154,13 @@ async function tauriOnnxMain(){
       const data = await invoke('job_status', { jobId });
       if (data.status === 'running') {
         setTimeout(poll, 1000);
+      } else if (data.status === 'error') {
+        cancelBtn.disabled = true;
+        startBtn.disabled = false;
+        if (data.message) {
+          log.textContent += `\nError: ${data.message}\n`;
+          log.scrollTop = log.scrollHeight;
+        }
       } else {
         cancelBtn.disabled = true;
         startBtn.disabled = false;
