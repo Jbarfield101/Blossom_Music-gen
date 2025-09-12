@@ -1,5 +1,12 @@
 """Audio input utilities."""
 
-from .discord_listener import DiscordListener
+from .transcript_logger import TranscriptLogger
 
-__all__ = ["DiscordListener"]
+try:  # pragma: no cover - optional dependency
+    from .discord_listener import DiscordListener
+except Exception:  # pragma: no cover - discord is optional
+    DiscordListener = None  # type: ignore[assignment]
+
+__all__ = ["TranscriptLogger"]
+if DiscordListener is not None:
+    __all__.append("DiscordListener")
