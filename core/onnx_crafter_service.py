@@ -70,11 +70,24 @@ class ModelSession:
         import onnxruntime as ort  # type: ignore
 
         path = Path(model_dir)
+        if not path.exists():
+            base = Path(__file__).resolve().parents[1] / "models"
+            candidate = base / path
+            if candidate.exists():
+                path = candidate
+            else:
+                candidate = base / f"{path}.onnx"
+                if candidate.exists():
+                    path = candidate
+
         if path.is_dir():
             candidates = list(path.glob("*.onnx"))
             if not candidates:
                 raise FileNotFoundError(f"No ONNX model found in {path}")
             path = candidates[0]
+
+        if not path.exists():
+            raise FileNotFoundError(f"No model found at {path}")
 
         providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
         sess = ort.InferenceSession(str(path), providers=providers)
