@@ -7,3 +7,4 @@ httpx
 uvicorn
 
 jinja2
+python-frontmatter
