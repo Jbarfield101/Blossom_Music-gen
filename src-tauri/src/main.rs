@@ -13,8 +13,9 @@ use std::{
 };
 
 use regex::Regex;
-use tauri::{AppHandle, State};
 use tauri::Manager;
+use tauri::{AppHandle, State};
+mod musiclang;
 
 #[derive(serde::Serialize, Clone)]
 struct ProgressEvent {
@@ -104,15 +105,11 @@ fn start_job(
             let eta_re = Regex::new(r"ETA[:\s]+([0-9:]+)").unwrap();
             let reader = BufReader::new(stdout);
             for line in reader.lines().flatten() {
-                let stage = stage_re
-                    .captures(&line)
-                    .map(|c| c[1].to_string());
+                let stage = stage_re.captures(&line).map(|c| c[1].to_string());
                 let percent = percent_re
                     .captures(&line)
                     .and_then(|c| c[1].parse::<u8>().ok());
-                let eta = eta_re
-                    .captures(&line)
-                    .map(|c| c[1].to_string());
+                let eta = eta_re.captures(&line).map(|c| c[1].to_string());
                 let event = ProgressEvent {
                     stage,
                     percent,
@@ -156,15 +153,11 @@ fn onnx_generate(
             let eta_re = Regex::new(r"ETA[:\s]+([0-9:]+)").unwrap();
             let reader = BufReader::new(stdout);
             for line in reader.lines().flatten() {
-                let stage = stage_re
-                    .captures(&line)
-                    .map(|c| c[1].to_string());
+                let stage = stage_re.captures(&line).map(|c| c[1].to_string());
                 let percent = percent_re
                     .captures(&line)
                     .and_then(|c| c[1].parse::<u8>().ok());
-                let eta = eta_re
-                    .captures(&line)
-                    .map(|c| c[1].to_string());
+                let eta = eta_re.captures(&line).map(|c| c[1].to_string());
                 let event = ProgressEvent {
                     stage,
                     percent,
@@ -266,7 +259,8 @@ fn main() {
             onnx_generate,
             cancel_render,
             job_status,
-            open_path
+            open_path,
+            musiclang::list_musiclang_models
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
