@@ -280,9 +280,8 @@ curl -s https://huggingface.co/api/models?search=musiclang | jq '.[].modelId'
 Download a model and place it under the local `models/` directory:
 
 ```bash
-mkdir -p models/musiclang-small
 curl -L https://huggingface.co/musiclang/musiclang-small/resolve/main/model.onnx \
-  -o models/musiclang-small/model.onnx
+  -o models/musiclang-small.onnx
 ```
 
 ### CLI usage
@@ -292,7 +291,7 @@ Generation is performed by passing a JSON configuration to
 an input melody with `midi`:
 
 ```bash
-python core/onnx_crafter_service.py '{"model":"models/musiclang-small","song_spec":["C","F","G","C"],"steps":32,"sampling":{"top_k":8,"top_p":0.95,"temperature":1.0},"out":"output.mid"}'
+python core/onnx_crafter_service.py '{"model":"musiclang-small","song_spec":["C","F","G","C"],"steps":32,"sampling":{"top_k":8,"top_p":0.95,"temperature":1.0},"out":"output.mid"}'
 ```
 
 ### GUI usage
