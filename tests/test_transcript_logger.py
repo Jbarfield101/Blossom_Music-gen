@@ -17,13 +17,15 @@ def read_jsonl(path: Path):
 
 def test_append_and_summary(tmp_path):
     logger = TranscriptLogger(tmp_path)
-    logger.append("chan", "alice", "hello")
-    logger.append("chan", "bob", "hi")
+    logger.append("chan", "alice", "hello", language="en", confidence=0.9)
+    logger.append("chan", "bob", "hi", language="en", confidence=0.8)
 
     path = tmp_path / "chan.jsonl"
     entries = read_jsonl(path)
     assert entries[0]["text"] == "hello"
+    assert entries[0]["language"] == "en"
     assert entries[1]["speaker"] == "bob"
+    assert entries[1]["confidence"] == 0.8
 
     summary = logger.summary("chan")
     assert "alice: hello" in summary

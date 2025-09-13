@@ -48,10 +48,12 @@ class DummyChannel:
 
 
 class DummyPart:
-    def __init__(self, text, is_final, start=0.0):
+    def __init__(self, text, is_final, start=0.0, language="en", confidence=0.5):
         self.text = text
         self.is_final = is_final
         self.start = start
+        self.language = language
+        self.confidence = confidence
 
 
 class DummyWhisper:
@@ -69,8 +71,18 @@ class DummyLogger:
     def __init__(self, root):
         self.records = []
 
-    def append(self, channel, speaker, text, timestamp=None):
-        self.records.append((channel, speaker, text, timestamp))
+    def append(
+        self,
+        channel,
+        speaker,
+        text,
+        timestamp=None,
+        language=None,
+        confidence=None,
+    ):
+        self.records.append(
+            (channel, speaker, text, timestamp, language, confidence)
+        )
 
 
 class DummyVAD:
