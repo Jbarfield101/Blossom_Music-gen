@@ -872,7 +872,7 @@ fn main() {
             if !version_ok {
                 let status = Command::new("python").arg("start.py").status();
                 if !status.map(|s| s.success()).unwrap_or(false) {
-                    if let Some(window) = app.get_window("main") {
+                    if let Some(window) = app.get_webview_window("main") {
                         message(
                             Some(&window),
                             "Setup Error",
