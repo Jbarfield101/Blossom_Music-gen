@@ -59,12 +59,7 @@ SFZ instruments may reference WAV or FLAC samples. Loading FLAC samples requires
 pip install soundfile
 ```
 
-For enhanced MIDI import and export support, install the optional
-[mido](https://mido.readthedocs.io/) library:
-
-```bash
-pip install mido
-```
+The default requirements also bundle [mido](https://mido.readthedocs.io/) for enhanced MIDI import and export, along with `torch` and `onnxruntime` to support phrase model training and ONNX inference.
 
 To enable optional speaker diarization via
 [pyannote.audio](https://github.com/pyannote/pyannote-audio), install the
@@ -120,8 +115,7 @@ models are present.
 
 ### Training prerequisites and dataset
 
-Training requires [PyTorch](https://pytorch.org/) and, for ONNX export,
-`onnxruntime`.  Datasets consist of token sequences stored in `train.jsonl` and
+Training requires [PyTorch](https://pytorch.org/) and, for ONNX export, `onnxruntime`, both of which are included in `requirements.txt`.  Datasets consist of token sequences stored in `train.jsonl` and
 `val.jsonl` which can be created with `data/build_dataset.py` (see
 [`docs/datasets.md`](docs/datasets.md)).  Running
 
