@@ -16,7 +16,7 @@ use std::{
 use regex::Regex;
 use serde_json::{json, Value};
 use tauri::Emitter;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_store::{Builder, StoreBuilder};
 use url::Url;
@@ -562,6 +562,18 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(Builder::new().build())
         .manage(JobRegistry::default())
+        .on_window_event(|event| {
+            if let tauri::WindowEvent::CloseRequested { .. } = event.event() {
+                let registry = event.window().state::<JobRegistry>();
+                let mut jobs = registry.jobs.lock().unwrap();
+                for job in jobs.values_mut() {
+                    if let Some(child) = job.child.as_mut() {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                    }
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             list_presets,
             list_styles,
