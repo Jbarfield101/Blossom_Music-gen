@@ -933,6 +933,8 @@ fn main() {
                 }
                 jobs.clear();
             }
+            // Return the default output to satisfy trait requirements
+            Default::default()
         })
         .run(tauri::generate_context!())
     {
