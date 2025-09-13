@@ -13,7 +13,7 @@ its own inference session, telemetry and cancellation state.
 """
 
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Sequence, Tuple, Callable
 import argparse
 import json
 import signal
@@ -97,7 +97,13 @@ class ModelSession:
     # ------------------------------------------------------------------
     # Generation / decoding
     # ------------------------------------------------------------------
-    def generate(self, tokens: List[int], steps: int, sampling: Dict[str, Any]) -> List[int]:
+    def generate(
+        self,
+        tokens: List[int],
+        steps: int,
+        sampling: Dict[str, Any],
+        progress_cb: Callable[[Dict[str, int]], None] | None = None,
+    ) -> List[int]:
         """Run autoregressive generation using the loaded ONNX model.
 
         ``sampling`` may contain ``top_k``, ``top_p`` and ``temperature`` fields.
@@ -134,8 +140,8 @@ class ModelSession:
                 rng=rng,
             )
             history.append(int(next_id))
-            if steps > 0 and (i + 1) % max(1, steps // 10) == 0:
-                print(json.dumps({"step": i + 1, "total": steps}), flush=True)
+            if progress_cb is not None and steps > 0 and (i + 1) % max(1, steps // 10) == 0:
+                progress_cb({"step": i + 1, "total": steps})
         total = time.time() - start
 
         new_tokens = len(history) - len(tokens)
@@ -272,8 +278,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     steps = int(cfg.get("steps", 0))
     sampling = cfg.get("sampling", {})
 
-    print("starting generation", flush=True)
-    tokens = session.generate(tokens, steps, sampling)
+    def emit(event: Dict[str, int]) -> None:
+        print(json.dumps(event), flush=True)
+
+    tokens = session.generate(tokens, steps, sampling, progress_cb=emit)
 
     out_path = cfg.get("out", "out.mid")
     midi_path = session.decode_to_midi(tokens, out_path)
