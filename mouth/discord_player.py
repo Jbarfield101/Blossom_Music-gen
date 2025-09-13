@@ -21,6 +21,11 @@ except Exception:  # pragma: no cover - exercised when numpy missing
     np = None  # type: ignore[assignment]
 
 try:  # pragma: no cover - optional dependency
+    import sounddevice as sd
+except Exception:  # pragma: no cover - exercised when sounddevice missing
+    sd = None  # type: ignore[assignment]
+
+try:  # pragma: no cover - optional dependency
     import resampy
 except Exception:  # pragma: no cover - exercised when resampy missing
     resampy = None  # type: ignore[assignment]
@@ -31,6 +36,7 @@ except Exception:  # pragma: no cover - exercised when resampy missing
 
 from .tts import TTSEngine
 from .registry import VoiceProfile
+from ears.devices import get_device_ids
 
 
 class DiscordPlayer(discord.Client):
@@ -82,6 +88,15 @@ class DiscordPlayer(discord.Client):
             pcm = bytearray()
             for s in samples:
                 pcm.extend(int(s).to_bytes(2, "little", signed=True))
+        if sd is not None and np is not None:
+            _, out_dev = get_device_ids()
+            if out_dev is not None:
+                sd.play(
+                    np.frombuffer(pcm, dtype=np.int16),
+                    48000,
+                    device=out_dev,
+                    blocking=False,
+                )
         encoder = discord.opus.Encoder(48000, 1)
         frame_size = encoder.frame_size
         step = frame_size * 2  # 16-bit mono

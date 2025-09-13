@@ -8,6 +8,11 @@ from typing import Awaitable, Callable, Optional
 import numpy as np
 import logging
 
+try:  # pragma: no cover - optional dependency
+    import sounddevice as sd
+except Exception:  # pragma: no cover - exercised when sounddevice missing
+    sd = None  # type: ignore
+
 try:
     import resampy
 except Exception:  # pragma: no cover - optional dependency
@@ -18,6 +23,7 @@ from .discord_listener import DiscordListener
 from .transcript_logger import TranscriptLogger
 from .vad import DiarizationHook, VoiceActivityDetector
 from .whisper_service import TranscriptionSegment, WhisperService
+from .devices import get_device_ids
 
 
 def _resample(pcm: bytes, source_rate: int, target_rate: int) -> bytes:
@@ -116,6 +122,15 @@ async def run_bot(
     async def handle_frame(member, pcm: bytes) -> None:
         frame = _resample(pcm, 48000, vad.sample_rate)
         await vad.process(frame, str(member.id))
+        if sd is not None:
+            _, out_dev = get_device_ids()
+            if out_dev is not None:
+                sd.play(
+                    np.frombuffer(frame, dtype=np.int16),
+                    vad.sample_rate,
+                    device=out_dev,
+                    blocking=False,
+                )
 
     listener = DiscordListener(frame_callback=handle_frame)
 

@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 use tauri::Emitter;
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
-use tauri_plugin_store::Builder;
+use tauri_plugin_store::{Builder, StoreCollection};
 use url::Url;
 mod musiclang;
 mod util;
@@ -101,6 +101,46 @@ fn list_models() -> Result<Vec<String>, String> {
     }
     items.sort();
     Ok(items)
+}
+
+#[tauri::command]
+fn list_devices() -> Result<Value, String> {
+    let output = Command::new("python")
+        .args(["-m", "ears.devices"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+    serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn set_devices(
+    store: State<'_, StoreCollection>,
+    input: Option<u32>,
+    output: Option<u32>,
+) -> Result<(), String> {
+    let path = PathBuf::from("settings.dat");
+    let store = store.get_or_default(path);
+    let mut store = store.lock().await;
+    match input {
+        Some(id) => {
+            store.insert("input_device_id".to_string(), json!(id));
+        }
+        None => {
+            store.delete("input_device_id");
+        }
+    }
+    match output {
+        Some(id) => {
+            store.insert("output_device_id".to_string(), json!(id));
+        }
+        None => {
+            store.delete("output_device_id");
+        }
+    }
+    store.save().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -454,6 +494,8 @@ fn main() {
             list_presets,
             list_styles,
             list_models,
+            list_devices,
+            set_devices,
             app_version,
             start_job,
             onnx_generate,
