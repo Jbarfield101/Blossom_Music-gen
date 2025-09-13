@@ -3,12 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <title>Dungeons & Dragons</title>
-  <script>
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme) {
-      document.documentElement.dataset.theme = savedTheme;
-    }
-  </script>
+  <script type="module" src="./theme.js"></script>
   <link rel="stylesheet" href="/ui/theme.css">
   <style>
     body {
@@ -25,6 +20,6 @@
 </head>
 <body>
   <h1>Under Construction</h1>
-  <script src="./topbar.js"></script>
+  <script type="module" src="./topbar.js"></script>
 </body>
 </html>

@@ -1,11 +1,8 @@
+import { setTheme } from './theme.js';
+
+window.setTheme = setTheme;
+
 (function() {
-  window.setTheme = function(theme) {
-    localStorage.setItem('theme', theme);
-    document.documentElement.setAttribute('data-theme', theme);
-  };
-
-  window.setTheme(localStorage.getItem('theme') || 'dark');
-
   const style = document.createElement('style');
   style.textContent = `
     #top-bar {
