@@ -82,8 +82,10 @@ pub fn download_model(
         let event = ProgressEvent {
             stage: Some("download".into()),
             percent: Some(100),
-            message: format!("Model {} already exists, skipping download", name),
+            message: Some(format!("Model {} already exists, skipping download", name)),
             eta: None,
+            step: None,
+            total: None,
         };
         let _ = app.emit_all(&format!("download::progress::{}", name), event);
         return list_from_dir(Path::new("models"));
@@ -113,8 +115,10 @@ pub fn download_model(
         let event = ProgressEvent {
             stage: Some("download".into()),
             percent,
-            message: format!("Downloading {}", name),
+            message: Some(format!("Downloading {}", name)),
             eta: None,
+            step: None,
+            total: None,
         };
         let _ = app.emit_all(&format!("download::progress::{}", name), event);
     }
