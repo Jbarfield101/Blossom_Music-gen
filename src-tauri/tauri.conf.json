@@ -4,7 +4,8 @@
   "productName": "Blossom Music Generator",
   "version": "0.1.0",
   "build": {
-    "frontendDist": "../ui"
+    "frontendDist": "../ui/dist",
+    "devUrl": "http://localhost:5173"
   },
   "app": {
     "windows": [
