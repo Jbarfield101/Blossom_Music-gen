@@ -6,7 +6,7 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
 };
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter};
 
 use crate::{util::list_from_dir, ProgressEvent};
 
@@ -87,7 +87,7 @@ pub fn download_model(
             step: None,
             total: None,
         };
-        let _ = app.emit_all(&format!("download::progress::{}", name), event);
+        let _ = app.emit(&format!("download::progress::{}", name), event);
         return list_from_dir(path.parent().unwrap());
     }
 
@@ -120,7 +120,7 @@ pub fn download_model(
             step: None,
             total: None,
         };
-        let _ = app.emit_all(&format!("download::progress::{}", name), event);
+        let _ = app.emit(&format!("download::progress::{}", name), event);
     }
 
     list_from_dir(path.parent().unwrap())
