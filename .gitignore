@@ -36,3 +36,4 @@ audio_stems/
 *.zip
 *.tar
 *.tar.gz
+.venv/
