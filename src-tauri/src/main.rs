@@ -434,7 +434,7 @@ fn open_path(app: AppHandle, path: String) -> Result<(), String> {
             return Err("Path does not exist".into());
         }
         app.opener()
-            .open_path(path_buf)
+            .open_path(path_buf.to_string_lossy().to_string(), None)
             .map_err(|e| e.to_string())
     }
 }
