@@ -11,6 +11,7 @@ import service_api
 from brain import dialogue
 from mouth.registry import VoiceRegistry
 from config.discord import get_permission_rules
+from config.discord_profiles import get_profile, set_profile
 import session_export
 
 
@@ -172,6 +173,12 @@ class BlossomBot(commands.Bot):
             profile = self.voice_registry.get_profile(voice)
             self.voice_registry.set_profile("narrator", profile)
             self.voice_registry.save()
+            guild_id = getattr(interaction.guild, "id", None)
+            channel_id = getattr(interaction.channel, "id", None)
+            if guild_id is not None and channel_id is not None:
+                current = get_profile(guild_id, channel_id)
+                current["voice"] = voice
+                set_profile(guild_id, channel_id, current)
         except Exception as exc:
             await interaction.response.send_message(f"Error: {exc}", ephemeral=True)
             return
@@ -203,6 +210,20 @@ class BlossomBot(commands.Bot):
                     ephemeral=True,
                 )
                 return False
+
+        # Load per-channel profile to update narrator voice
+        try:
+            guild_id = getattr(interaction.guild, "id", None)
+            channel_id = getattr(interaction.channel, "id", None)
+            if guild_id is not None and channel_id is not None:
+                profile = get_profile(guild_id, channel_id)
+                voice = profile.get("voice")
+                if voice:
+                    vp = self.voice_registry.get_profile(voice)
+                    self.voice_registry.set_profile("narrator", vp)
+        except Exception:
+            pass
+
         return True
 
 

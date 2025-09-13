@@ -748,6 +748,52 @@ fn job_status(registry: State<JobRegistry>, job_id: u64) -> JobState {
 }
 
 #[tauri::command]
+fn discord_profile_get(guild_id: u64, channel_id: u64) -> Result<Value, String> {
+    let output = Command::new("python")
+        .arg("-c")
+        .arg(
+            "import sys, json; from config.discord_profiles import get_profile; print(json.dumps(get_profile(int(sys.argv[1]), int(sys.argv[2]))))",
+        )
+        .arg(guild_id.to_string())
+        .arg(channel_id.to_string())
+        .output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        let text = String::from_utf8_lossy(&output.stdout).to_string();
+        let data: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        Ok(data)
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
+#[tauri::command]
+fn discord_profile_set(guild_id: u64, channel_id: u64, profile: Value) -> Result<(), String> {
+    let mut cmd = Command::new("python");
+    cmd.arg("-c").arg(
+        "import sys, json; from config.discord_profiles import set_profile; set_profile(int(sys.argv[1]), int(sys.argv[2]), json.loads(sys.stdin.read()))",
+    );
+    cmd.arg(guild_id.to_string()).arg(channel_id.to_string());
+    let mut child = cmd
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    if let Some(stdin) = child.stdin.as_mut() {
+        use std::io::Write;
+        let payload = serde_json::to_vec(&profile).map_err(|e| e.to_string())?;
+        stdin.write_all(&payload).map_err(|e| e.to_string())?;
+    }
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
+#[tauri::command]
 fn select_vault(path: String) -> Result<(), String> {
     let status = Command::new("python")
         .arg("-c")
@@ -858,6 +904,8 @@ fn main() {
             onnx_generate,
             cancel_render,
             job_status,
+            discord_profile_get,
+            discord_profile_set,
             select_vault,
             open_path,
             musiclang::list_musiclang_models,

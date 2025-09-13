@@ -1,5 +1,6 @@
 import os
 import sys
+import types
 from unittest.mock import MagicMock, AsyncMock
 
 import pytest
@@ -11,6 +12,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from discord_bot import BlossomBot
 import config.discord as discord_config
+sys.modules.setdefault(
+    "config.discord_profiles", types.SimpleNamespace(get_profile=lambda g, c: {}, set_profile=lambda g,c,p: None)
+)
 
 
 def _write_config(path):

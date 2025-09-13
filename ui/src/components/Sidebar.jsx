@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../../sidebar.css';
-import { Music, Dice1, Settings, BarChart2, Box, CircuitBoard, Menu } from 'lucide-react';
+import { Music, Dice1, Settings, BarChart2, Box, CircuitBoard, Menu, Users } from 'lucide-react';
 
 export default function Sidebar() {
   const navigate = useNavigate();
@@ -28,6 +28,9 @@ export default function Sidebar() {
         </button>
         <button aria-label="Settings" onClick={() => handleNavigate('/settings')}>
           <Settings strokeWidth={2} />
+        </button>
+        <button aria-label="Profiles" onClick={() => handleNavigate('/profiles')}>
+          <Users strokeWidth={2} />
         </button>
         <button aria-label="Train Model" onClick={() => handleNavigate('/train')}>
           <BarChart2 strokeWidth={2} />

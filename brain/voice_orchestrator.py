@@ -4,22 +4,29 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 from typing import Optional
 
 from ears import pipeline
 from ears.whisper_service import TranscriptionSegment
 from brain import dialogue
 from mouth.discord_player import DiscordPlayer
+from config.discord_profiles import get_profile
 
 
 class DiscordOrchestrator:
     """Coordinate speech recognition, dialogue generation and synthesis."""
 
-    def __init__(self, token: str, channel_id: int, *, debounce: float = 0.3) -> None:
+    def __init__(self, token: str, guild_id: int, channel_id: int, *, debounce: float = 0.3) -> None:
         self.token = token
+        self.guild_id = guild_id
         self.channel_id = channel_id
         self.debounce = debounce
         self.player = DiscordPlayer()
+        self.profile = get_profile(guild_id, channel_id)
+        # Apply model overrides immediately so subsequent imports pick them up
+        for key, value in self.profile.get("models", {}).items():
+            os.environ[key.upper()] = str(value)
         self._play_task: Optional[asyncio.Task[None]] = None
         self._worker_task: Optional[asyncio.Task[None]] = None
         self._partial_reset: Optional[asyncio.Task[None]] = None
@@ -55,6 +62,11 @@ class DiscordOrchestrator:
             return
 
         text = part.text.strip()
+        hotword = self.profile.get("hotword")
+        if hotword:
+            if hotword.lower() not in text.lower():
+                return
+            text = text.lower().replace(hotword.lower(), "").strip()
         if text:
             await self._queue.put(text)
 
@@ -64,7 +76,11 @@ class DiscordOrchestrator:
             self._listening = False
             reply = dialogue.respond(text)
             message = getattr(reply, "narration", str(reply))
-            self._play_task = asyncio.create_task(self.player.speak(message))
+            voice_name = self.profile.get("voice")
+            voice = None
+            if voice_name:
+                voice = self.player.engine.registry.get_profile(voice_name)
+            self._play_task = asyncio.create_task(self.player.speak(message, voice))
             try:
                 await self._play_task
             except asyncio.CancelledError:
