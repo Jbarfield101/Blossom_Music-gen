@@ -13,6 +13,7 @@ import {
   setLlm as apiSetLlm,
 } from "../api/models";
 import { listDevices, setDevices as apiSetDevices } from "../api/devices";
+import { listHotwords, setHotword as apiSetHotword } from "../api/hotwords";
 
 export default function Settings() {
   const store = new Store("settings.dat");
@@ -23,6 +24,7 @@ export default function Settings() {
   const [input, setInput] = useState({ options: [], selected: "" });
   const [output, setOutput] = useState({ options: [], selected: "" });
   const [vault, setVault] = useState("");
+  const [hotwords, setHotwords] = useState({});
 
   useEffect(() => {
     const load = async () => {
@@ -32,15 +34,19 @@ export default function Settings() {
       const devices = await listDevices();
       setInput(devices.input);
       setOutput(devices.output);
+      const hw = await listHotwords();
+      setHotwords(hw);
       const path = await store.get(VAULT_KEY);
       setVault(path || "");
     };
     load();
     const unlistenModels = listen("settings::models", () => load());
     const unlistenDevices = listen("settings::devices", () => load());
+    const unlistenHotwords = listen("settings::hotwords", () => load());
     return () => {
       unlistenModels.then((f) => f());
       unlistenDevices.then((f) => f());
+      unlistenHotwords.then((f) => f());
     };
   }, []);
 
@@ -80,6 +86,22 @@ export default function Settings() {
       if (data[VAULT_KEY]) {
         setVault(data[VAULT_KEY]);
       }
+    }
+  };
+
+  const toggleHotword = async (name, enabled) => {
+    await apiSetHotword({ name, enabled });
+    setHotwords(await listHotwords());
+  };
+
+  const addHotword = async () => {
+    const filePath = await openDialog({ multiple: false });
+    if (typeof filePath === "string") {
+      const parts = filePath.split(/[\\/]/);
+      const file = parts[parts.length - 1];
+      const name = file.replace(/\.[^.]+$/, "");
+      await apiSetHotword({ name, enabled: true, file: filePath });
+      setHotwords(await listHotwords());
     }
   };
 
@@ -182,6 +204,26 @@ export default function Settings() {
             ))}
           </select>
         </label>
+      </div>
+      <div>
+        <h2>Hotwords</h2>
+        <ul>
+          {Object.entries(hotwords).map(([name, enabled]) => (
+            <li key={name}>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={enabled}
+                  onChange={(e) => toggleHotword(name, e.target.checked)}
+                />
+                {name}
+              </label>
+            </li>
+          ))}
+        </ul>
+        <button type="button" onClick={addHotword}>
+          Upload Hotword Model
+        </button>
       </div>
     </div>
   );

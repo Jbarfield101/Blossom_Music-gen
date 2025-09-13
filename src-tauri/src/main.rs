@@ -185,6 +185,53 @@ fn set_piper(app: AppHandle, voice: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn hotword_get() -> Result<Value, String> {
+    let output = Command::new("python")
+        .args(["-m", "ears.hotword", "list"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+    let parsed: Value = serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())?;
+    Ok(parsed)
+}
+
+#[tauri::command]
+fn hotword_set(
+    app: AppHandle,
+    name: String,
+    enabled: bool,
+    file: Option<String>,
+) -> Result<(), String> {
+    if let Some(src) = file {
+        let src_path = PathBuf::from(&src);
+        if let Some(fname) = src_path.file_name() {
+            let dest_dir = Path::new("ears").join("hotwords");
+            fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+            let dest = dest_dir.join(fname);
+            fs::copy(&src_path, &dest).map_err(|e| e.to_string())?;
+        }
+    }
+    let status = Command::new("python")
+        .args([
+            "-m",
+            "ears.hotword",
+            "set",
+            &name,
+            if enabled { "1" } else { "0" },
+        ])
+        .status()
+        .map_err(|e| e.to_string())?;
+    if !status.success() {
+        return Err("hotword configuration failed".into());
+    }
+    app.emit("settings::hotwords", json!({ "name": name, "enabled": enabled }))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 fn list_llm(app: AppHandle) -> Result<Value, String> {
     let output = Command::new("ollama")
         .arg("list")
@@ -707,6 +754,8 @@ fn main() {
             set_llm,
             list_devices,
             set_devices,
+            hotword_get,
+            hotword_set,
             app_version,
             start_job,
             onnx_generate,
