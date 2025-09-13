@@ -72,13 +72,7 @@ class ModelSession:
         path = Path(model_dir)
         if not path.exists():
             base = Path(__file__).resolve().parents[1] / "models"
-            candidate = base / path
-            if candidate.exists():
-                path = candidate
-            else:
-                candidate = base / f"{path}.onnx"
-                if candidate.exists():
-                    path = candidate
+            path = base / path
 
         if path.is_dir():
             candidates = list(path.glob("*.onnx"))
