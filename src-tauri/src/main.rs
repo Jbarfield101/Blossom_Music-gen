@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 use tauri::Emitter;
 use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
-use tauri_plugin_store::Builder;
+use tauri_plugin_store::{Builder, StoreBuilder};
 use url::Url;
 mod musiclang;
 mod util;
@@ -101,6 +101,118 @@ fn list_models() -> Result<Vec<String>, String> {
     }
     items.sort();
     Ok(items)
+}
+
+fn models_store(app: &AppHandle) -> Result<tauri_plugin_store::Store, String> {
+    let path = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?
+        .join("models.json");
+    Ok(StoreBuilder::new(app.clone(), path).build())
+}
+
+#[tauri::command]
+fn list_whisper(app: AppHandle) -> Result<Value, String> {
+    let options = vec!["tiny", "base", "small", "medium", "large"]
+        .into_iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+    let store = models_store(&app)?;
+    let selected = store
+        .get("whisper")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    if let Some(sel) = &selected {
+        std::env::set_var("WHISPER_MODEL", sel);
+    }
+    Ok(json!({"options": options, "selected": selected}))
+}
+
+#[tauri::command]
+fn set_whisper(app: AppHandle, model: String) -> Result<(), String> {
+    let store = models_store(&app)?;
+    store.insert("whisper".to_string(), model.clone().into());
+    store.save().map_err(|e| e.to_string())?;
+    std::env::set_var("WHISPER_MODEL", &model);
+    app.emit("settings::models", json!({"whisper": model}))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn list_piper(app: AppHandle) -> Result<Value, String> {
+    let mut options = Vec::new();
+    if let Ok(text) = fs::read_to_string("data/voices.json") {
+        if let Ok(map) = serde_json::from_str::<serde_json::Map<String, Value>>(&text) {
+            options.extend(map.keys().cloned());
+        }
+    }
+    if options.is_empty() {
+        options.push("narrator".to_string());
+    }
+    options.sort();
+    let store = models_store(&app)?;
+    let selected = store
+        .get("piper")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    if let Some(sel) = &selected {
+        std::env::set_var("PIPER_VOICE", sel);
+    }
+    Ok(json!({"options": options, "selected": selected}))
+}
+
+#[tauri::command]
+fn set_piper(app: AppHandle, voice: String) -> Result<(), String> {
+    let store = models_store(&app)?;
+    store.insert("piper".to_string(), voice.clone().into());
+    store.save().map_err(|e| e.to_string())?;
+    std::env::set_var("PIPER_VOICE", &voice);
+    app.emit("settings::models", json!({"piper": voice}))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn list_llm(app: AppHandle) -> Result<Value, String> {
+    let output = Command::new("ollama")
+        .arg("list")
+        .output()
+        .unwrap_or_else(|_| Default::default());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut options = Vec::new();
+    for line in stdout.lines().skip(1) {
+        if let Some(name) = line.split_whitespace().next() {
+            if !name.is_empty() {
+                options.push(name.to_string());
+            }
+        }
+    }
+    if options.is_empty() {
+        options.push("mistral".to_string());
+    }
+    options.sort();
+    let store = models_store(&app)?;
+    let selected = store
+        .get("llm")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    if let Some(sel) = &selected {
+        std::env::set_var("LLM_MODEL", sel);
+    }
+    Ok(json!({"options": options, "selected": selected}))
+}
+
+#[tauri::command]
+fn set_llm(app: AppHandle, model: String) -> Result<(), String> {
+    let store = models_store(&app)?;
+    store.insert("llm".to_string(), model.clone().into());
+    store.save().map_err(|e| e.to_string())?;
+    std::env::set_var("LLM_MODEL", &model);
+    app.emit("settings::models", json!({"llm": model}))
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -454,6 +566,12 @@ fn main() {
             list_presets,
             list_styles,
             list_models,
+            list_whisper,
+            set_whisper,
+            list_piper,
+            set_piper,
+            list_llm,
+            set_llm,
             app_version,
             start_job,
             onnx_generate,

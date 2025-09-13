@@ -13,8 +13,9 @@ Example
 >>> text = generate("Write a short poem about music.")
 >>> print(text)
 
-The model used can be configured with the ``OLLAMA_MODEL`` environment
-variable; it defaults to ``"mistral"``.
+The model used can be configured with the ``LLM_MODEL`` environment
+variable (falling back to ``OLLAMA_MODEL`` for compatibility) and defaults
+to ``"mistral"``.
 """
 
 import json
@@ -29,7 +30,7 @@ __all__ = ["generate", "OllamaError"]
 
 
 _URL = "http://localhost:11434/api/generate"
-_DEFAULT_MODEL = os.getenv("OLLAMA_MODEL", "mistral")
+_DEFAULT_MODEL = os.getenv("LLM_MODEL", os.getenv("OLLAMA_MODEL", "mistral"))
 _TIMEOUT = 30.0
 
 
