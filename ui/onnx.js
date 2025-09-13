@@ -93,41 +93,49 @@ async function tauriOnnxMain(){
   });
 
     startBtn.addEventListener('click', async () => {
+      const songSpecValue = songSpecInput.value.trim();
+      const midiFile = midiInput.files[0];
+      if (!songSpecValue && !midiFile) {
+        log.textContent = 'Please provide a song spec or MIDI file before starting.';
+        log.scrollTop = log.scrollHeight;
+        startBtn.disabled = false;
+        return;
+      }
+
       const modelPath = path.join("models", modelSelect.value.split(/[\\/]/).pop());
       const cfg = {
         model: modelPath,
         steps: parseInt(stepsInput.value) || 0,
         sampling: {}
       };
-    if (topKInput.value) cfg.sampling.top_k = parseInt(topKInput.value);
-    if (topPInput.value) cfg.sampling.top_p = parseFloat(topPInput.value);
-    if (tempInput.value) cfg.sampling.temperature = parseFloat(tempInput.value);
-    if (songSpecInput.value.trim()) {
-      try {
-        cfg.song_spec = JSON.parse(songSpecInput.value);
-      } catch {
-        cfg.song_spec = songSpecInput.value.trim().split(/\s+/);
+      if (topKInput.value) cfg.sampling.top_k = parseInt(topKInput.value);
+      if (topPInput.value) cfg.sampling.top_p = parseFloat(topPInput.value);
+      if (tempInput.value) cfg.sampling.temperature = parseFloat(tempInput.value);
+      if (songSpecValue) {
+        try {
+          cfg.song_spec = JSON.parse(songSpecInput.value);
+        } catch {
+          cfg.song_spec = songSpecValue.split(/\s+/);
+        }
       }
-    }
-    const midiFile = midiInput.files[0];
-    if (midiFile) {
-      cfg.midi = await convertMidiFileToDataUri(midiFile);
-    }
+      if (midiFile) {
+        cfg.midi = await convertMidiFileToDataUri(midiFile);
+      }
 
-    const args = [JSON.stringify(cfg)];
-    try {
-      jobId = await invoke('onnx_generate', { args });
-    } catch (e) {
-      log.textContent = `Error: ${e}`;
-      log.scrollTop = log.scrollHeight;
-      return;
-    }
-    startBtn.disabled = true;
-    cancelBtn.disabled = false;
-    prog.value = 0;
-    log.textContent = '';
-    results.hidden = true;
-    if (unlisten) unlisten();
+      const args = [JSON.stringify(cfg)];
+      try {
+        jobId = await invoke('onnx_generate', { args });
+      } catch (e) {
+        log.textContent = `Error: ${e}`;
+        log.scrollTop = log.scrollHeight;
+        return;
+      }
+      startBtn.disabled = true;
+      cancelBtn.disabled = false;
+      prog.value = 0;
+      log.textContent = '';
+      results.hidden = true;
+      if (unlisten) unlisten();
     unlisten = await event.listen(`onnx::progress::${jobId}`, e => {
       const data = e.payload;
       if (data.stage === 'error') {
