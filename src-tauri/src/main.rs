@@ -422,6 +422,7 @@ fn job_status(registry: State<JobRegistry>, job_id: u64) -> JobState {
 #[tauri::command]
 fn open_path(app: AppHandle, path: String) -> Result<(), String> {
     if let Ok(url) = Url::parse(&path) {
+        // Use new tauri_plugin_opener API which requires an optional identifier
         app.opener()
             .open_url(url, Option::<String>::None)
             .map_err(|e| e.to_string())
