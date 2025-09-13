@@ -417,3 +417,7 @@ during startup warms the cache and eliminates initial latency.
 See ``docs/examples/discord_piper_tts.py`` for an end-to-end snippet that
 joins a voice channel and speaks a line of dialog.
 
+
+## LLM Orchestrator
+
+Orchestrate local LLM responses with context pulled from an Obsidian vault. See [docs/orchestrator.md](docs/orchestrator.md) for setup and usage details.
