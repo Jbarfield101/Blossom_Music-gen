@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/tauri";
+import { invoke } from "@tauri-apps/api/core";
 
 export const listHotwords = () => invoke("hotword_get");
 export const setHotword = ({ name, enabled, file }) =>
