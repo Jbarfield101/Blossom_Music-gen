@@ -431,7 +431,10 @@ fn open_path(app: AppHandle, path: String) -> Result<(), String> {
         if !path_buf.exists() {
             return Err("Path does not exist".into());
         }
-        app.opener().open_path(path_buf).map_err(|e| e.to_string())
+        app
+            .opener()
+            .open_path(path_buf, None)
+            .map_err(|e| e.to_string())
     }
 }
 
