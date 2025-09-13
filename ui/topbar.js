@@ -1,7 +1,3 @@
-import { setTheme } from './theme.js';
-
-window.setTheme = setTheme;
-
 (function() {
   const style = document.createElement('style');
   style.textContent = `
