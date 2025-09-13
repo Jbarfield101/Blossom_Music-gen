@@ -18,6 +18,7 @@
   "plugins": {
     "dialog": {},
     "shell": {},
-    "store": {}
+    "store": {},
+    "opener": {}
   }
 }
