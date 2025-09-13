@@ -15,7 +15,6 @@ an exception is raised so callers can fall back to the deterministic
 algorithms.
 """
 
-from pathlib import Path
 from typing import Iterable, List, Optional, Sequence, Tuple
 import threading
 import random
@@ -23,6 +22,7 @@ import logging
 
 import numpy as np
 
+from .paths import MODEL_DIR
 from .sampling import sample
 from .style import StyleToken
 
@@ -39,8 +39,6 @@ try:  # pragma: no cover - optional import
 except Exception:  # pragma: no cover - handled gracefully
     ort = None
 
-
-MODEL_DIR = Path(__file__).resolve().parent.parent / "models"
 
 # Cache for loaded models to avoid repeated disk access. Access to the cache
 # is guarded by a lock because models may also be loaded from a background

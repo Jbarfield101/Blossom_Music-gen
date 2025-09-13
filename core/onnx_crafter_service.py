@@ -24,6 +24,7 @@ import tempfile
 import numpy as np
 
 from . import midi_load, event_vocab
+from .paths import MODEL_DIR
 from .stems import Stem, beats_to_secs
 from .midi_export import stems_to_midi
 from .song_spec import SongSpec
@@ -73,8 +74,7 @@ class ModelSession:
 
         path = Path(model_dir)
         if not path.exists():
-            base = Path(__file__).resolve().parents[1] / "models"
-            path = base / path
+            path = MODEL_DIR / path
 
         if path.is_dir():
             candidates = list(path.glob("*.onnx"))
