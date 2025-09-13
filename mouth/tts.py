@@ -3,21 +3,23 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, Union
 
 import numpy as np
+
+from .registry import VoiceProfile, VoiceRegistry
 
 
 class TTSBackend(ABC):
     """Abstract base class for TTS backends."""
 
     @abstractmethod
-    def synthesize(self, text: str, voice_profile: Optional[str] = None) -> np.ndarray:
+    def synthesize(self, text: str, voice: VoiceProfile) -> np.ndarray:
         """Synthesize audio from text.
 
         Args:
             text: Text to convert to speech.
-            voice_profile: Optional identifier or path for a voice profile or model.
+            voice: Voice parameters describing how the speech should sound.
 
         Returns:
             PCM audio as a 1-D ``numpy.float32`` array.
@@ -27,7 +29,7 @@ class TTSBackend(ABC):
 class TTSEngine:
     """High level wrapper for text-to-speech synthesis."""
 
-    def __init__(self, backend: str = "piper", **backend_kwargs) -> None:
+    def __init__(self, backend: str = "piper", registry: Optional[VoiceRegistry] = None, **backend_kwargs) -> None:
         if backend == "piper":
             from .backends.piper import PiperBackend
 
@@ -35,7 +37,10 @@ class TTSEngine:
         else:  # pragma: no cover - defensive programming
             raise ValueError(f"Unsupported TTS backend: {backend}")
 
-    def synthesize(self, text: str, voice_profile: Optional[str] = None) -> np.ndarray:
+        self.registry = registry or VoiceRegistry()
+
+    def synthesize(self, text: str, voice: Union[str, VoiceProfile, None] = None) -> np.ndarray:
         """Synthesize audio using the selected backend."""
 
-        return self.backend.synthesize(text, voice_profile)
+        profile = voice if isinstance(voice, VoiceProfile) else self.registry.get_profile(voice)
+        return self.backend.synthesize(text, profile)
