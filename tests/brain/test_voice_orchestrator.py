@@ -29,6 +29,9 @@ sys.modules.setdefault(
 sys.modules.setdefault("webrtcvad", types.SimpleNamespace(Vad=object))
 sys.modules.setdefault("faster_whisper", types.SimpleNamespace(WhisperModel=object))
 sys.modules.setdefault(
+    "config.discord_profiles", types.SimpleNamespace(get_profile=lambda g, c: {})
+)
+sys.modules.setdefault(
     "service_api",
     types.SimpleNamespace(
         search=lambda q, tags=None: [],
@@ -91,7 +94,7 @@ class DummyPlayer:
 
 def test_interrupt_and_queue(monkeypatch):
     async def run() -> None:
-        orch = DiscordOrchestrator("T", 1, debounce=0.01)
+        orch = DiscordOrchestrator("T", 0, 1, debounce=0.01)
         orch.player = DummyPlayer()
 
         monkeypatch.setattr(
