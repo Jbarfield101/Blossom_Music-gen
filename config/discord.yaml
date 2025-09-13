@@ -1,0 +1,23 @@
+# Command permission configuration
+# Each command lists allowed channel IDs and role IDs.
+# Empty lists mean no restrictions.
+
+npc:
+  channels: [1000]
+  roles: [2000]
+
+lore:
+  channels: [1000]
+  roles: []
+
+note:
+  channels: [1000]
+  roles: [2000]
+
+track:
+  channels: []
+  roles: [3000]
+
+"scene as":
+  channels: [4000]
+  roles: [5000]
