@@ -533,6 +533,23 @@ fn job_status(registry: State<JobRegistry>, job_id: u64) -> JobState {
 }
 
 #[tauri::command]
+fn select_vault(path: String) -> Result<(), String> {
+    let status = Command::new("python")
+        .arg("-c")
+        .arg(
+            "import sys; from config.obsidian import select_vault; select_vault(sys.argv[1])",
+        )
+        .arg(&path)
+        .status()
+        .map_err(|e| e.to_string())?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("Failed to select vault".into())
+    }
+}
+
+#[tauri::command]
 fn open_path(app: AppHandle, path: String) -> Result<(), String> {
     if let Ok(url) = Url::parse(&path) {
         // Use new tauri_plugin_opener API which requires an optional identifier
@@ -619,6 +636,7 @@ fn main() {
             onnx_generate,
             cancel_render,
             job_status,
+            select_vault,
             open_path,
             musiclang::list_musiclang_models,
             musiclang::download_model
