@@ -17,7 +17,7 @@ use regex::Regex;
 use tauri::Manager;
 use tauri::{AppHandle, State};
 use tauri_plugin_store::PluginBuilder;
-use tauri_plugin_shell::ShellExt;
+use tauri_plugin_opener::OpenerExt;
 use serde_json::{json, Value};
 mod musiclang;
 mod util;
@@ -404,7 +404,7 @@ fn open_path(app: AppHandle, path: String) -> Result<(), String> {
     if !Path::new(&path).exists() {
         return Err("Path does not exist".into());
     }
-    app.shell().open(path, None).map_err(|e| e.to_string())
+    app.opener().open(path, None).map_err(|e| e.to_string())
 }
 
 fn main() {
@@ -414,7 +414,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(PluginBuilder::default().build())
         .manage(JobRegistry::default())
         .invoke_handler(tauri::generate_handler![
