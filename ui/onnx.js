@@ -79,13 +79,12 @@ async function tauriOnnxMain(){
     await refreshModels();
   });
 
-  startBtn.addEventListener('click', async () => {
-    const modelName = modelSelect.value.split(/[\\/]/).pop();
-    const cfg = {
-      model: modelName,
-      steps: parseInt(stepsInput.value) || 0,
-      sampling: {}
-    };
+    startBtn.addEventListener('click', async () => {
+      const cfg = {
+        model: modelSelect.value.split(/[\\/]/).pop(),
+        steps: parseInt(stepsInput.value) || 0,
+        sampling: {}
+      };
     if (topKInput.value) cfg.sampling.top_k = parseInt(topKInput.value);
     if (topPInput.value) cfg.sampling.top_p = parseFloat(topPInput.value);
     if (tempInput.value) cfg.sampling.temperature = parseFloat(tempInput.value);
