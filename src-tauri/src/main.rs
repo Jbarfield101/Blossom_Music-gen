@@ -23,6 +23,7 @@ use tauri_plugin_store::{Builder, StoreBuilder};
 use url::Url;
 mod musiclang;
 mod util;
+mod config;
 use crate::util::list_from_dir;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -836,33 +837,36 @@ fn main() {
             Ok(())
         })
         .manage(JobRegistry::default())
-        .invoke_handler(tauri::generate_handler![
-            list_presets,
-            list_styles,
-            list_models,
-            list_whisper,
-            set_whisper,
-            list_piper,
-            set_piper,
-            list_llm,
-            set_llm,
-            npc_list,
-            npc_save,
-            npc_delete,
-            list_devices,
-            set_devices,
-            hotword_get,
-            hotword_set,
-            app_version,
-            start_job,
-            onnx_generate,
-            cancel_render,
-            job_status,
-            select_vault,
-            open_path,
-            musiclang::list_musiclang_models,
-            musiclang::download_model
-        ])
+          .invoke_handler(tauri::generate_handler![
+              list_presets,
+              list_styles,
+              list_models,
+              list_whisper,
+              set_whisper,
+              list_piper,
+              set_piper,
+              list_llm,
+              set_llm,
+              npc_list,
+              npc_save,
+              npc_delete,
+              list_devices,
+              set_devices,
+              hotword_get,
+              hotword_set,
+              app_version,
+              start_job,
+              onnx_generate,
+              cancel_render,
+              job_status,
+              select_vault,
+              open_path,
+              musiclang::list_musiclang_models,
+              musiclang::download_model,
+              config::get_config,
+              config::set_config,
+              config::export_config
+          ])
         .on_window_event(|event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event.event() {
                 let registry = event.window().app_handle().state::<JobRegistry>();
