@@ -74,6 +74,19 @@ To enable optional speaker diarization via
 pip install .[diarization]
 ```
 
+The first invocation downloads the pretrained ``pyannote/speaker-diarization``
+model. A CUDA-enabled GPU is strongly recommended for real-time use; CPU
+inference is possible but significantly slower.
+
+Example usage with the Discord transcription bot:
+
+```python
+import asyncio
+from ears import run_bot, pyannote_diarize
+
+asyncio.run(run_bot("TOKEN", 123456789012345678, diarizer=pyannote_diarize))
+```
+
 ## Generate N minutes of music
 
 1. Create a song specification JSON (see `core/song_spec.py` for fields).

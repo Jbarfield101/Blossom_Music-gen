@@ -16,6 +16,8 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Iterable, Tuple
 
+from .vad import DiarizationHook
+
 import numpy as np
 
 try:  # pragma: no cover - optional dependency
@@ -40,18 +42,17 @@ def _load_pipeline() -> Pipeline:
     return Pipeline.from_pretrained("pyannote/speaker-diarization")
 
 
-def pyannote_diarize(pcm: bytes, sample_rate: int = 16000) -> Iterable[Tuple[str, bytes]]:
+def pyannote_diarize(pcm: bytes) -> Iterable[Tuple[str, bytes]]:
     """Split ``pcm`` into per-speaker segments using ``pyannote.audio``.
 
-    Parameters
-    ----------
-    pcm:
-        Mono 16‑bit PCM audio.
-    sample_rate:
-        Sampling rate of ``pcm``.  Defaults to 16 kHz which matches the
-        expected rate of :class:`~ears.vad.VoiceActivityDetector`.
+    The pre-trained ``pyannote/speaker-diarization`` pipeline is loaded on
+    first use and cached for subsequent calls. A CUDA-enabled GPU is strongly
+    recommended for real-time processing; CPU inference is significantly
+    slower. The model expects 16 kHz mono 16-bit PCM audio which matches the
+    default configuration of :class:`~ears.vad.VoiceActivityDetector`.
     """
 
+    sample_rate = 16000
     pipeline = _load_pipeline()
 
     # Convert PCM bytes to the ``pyannote.audio`` expected format.
@@ -67,4 +68,4 @@ def pyannote_diarize(pcm: bytes, sample_rate: int = 16000) -> Iterable[Tuple[str
         yield speaker, (portion * 32768.0).astype(np.int16).tobytes()
 
 
-__all__ = ["pyannote_diarize"]
+__all__ = ["DiarizationHook", "pyannote_diarize"]

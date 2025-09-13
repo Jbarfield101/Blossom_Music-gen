@@ -64,7 +64,8 @@ async def run_bot(
     transcript_root:
         Directory to store JSONL transcript logs.
     diarizer:
-        Optional speaker diarization hook.
+        Optional :class:`~ears.vad.DiarizationHook` such as
+        :func:`~ears.diarization.pyannote_diarize`.
     part_callback:
         Async callback invoked for every :class:`TranscriptionSegment` produced
         by Whisper. Both partial and final segments are forwarded.
