@@ -24,6 +24,7 @@
   border: none;
   width: 100%;
   cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
 }
 #sidebar a:hover,
 #sidebar button:hover {
@@ -37,6 +38,22 @@
   width: 24px;
   height: 24px;
   fill: var(--icon);
+}
+
+#sidebar a:focus-visible {
+  outline: none;
+  background: var(--panel-hover-bg);
+}
+
+#sidebar a.active {
+  border-left: 4px solid var(--accent);
+  background: var(--panel-hover-bg);
+}
+
+#sidebar a.active svg,
+#sidebar a:hover svg,
+#sidebar a:focus-visible svg {
+  fill: var(--accent);
 }
 #sidebar-toggle {
   position: fixed;
