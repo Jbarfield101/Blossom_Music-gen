@@ -10,6 +10,7 @@ import requests
 import service_api
 from brain import dialogue
 from mouth.registry import VoiceRegistry
+from config.discord import get_permission_rules
 
 
 class BlossomBot(commands.Bot):
@@ -19,6 +20,8 @@ class BlossomBot(commands.Bot):
         intents = discord.Intents.default()
         super().__init__(command_prefix="!", intents=intents)
         self.voice_registry = VoiceRegistry()
+        self.permissions = get_permission_rules()
+        self.tree.interaction_check = self._permission_check
         self.scene_group = app_commands.Group(
             name="scene", description="Scene related commands"
         )
@@ -158,6 +161,34 @@ class BlossomBot(commands.Bot):
             await interaction.response.send_message(f"Error: {exc}", ephemeral=True)
             return
         await interaction.response.send_message(f"Narrator voice set to {voice}")
+
+    # ------------------------------------------------------------------
+    async def _permission_check(self, interaction: discord.Interaction) -> bool:
+        """Validate channel and role permissions before running commands."""
+        command = getattr(interaction.command, "qualified_name", None)
+        if command is None:
+            return True
+        rules = self.permissions.get(command, {})
+        channels = set(rules.get("channels", []))
+        roles = set(rules.get("roles", []))
+        channel_id = getattr(getattr(interaction, "channel", None), "id", None)
+        if channels and channel_id not in channels:
+            await interaction.response.send_message(
+                "This command is not permitted in this channel.",
+                ephemeral=True,
+            )
+            return False
+        if roles:
+            user_roles = {
+                getattr(r, "id", None) for r in getattr(interaction.user, "roles", [])
+            }
+            if not user_roles.intersection(roles):
+                await interaction.response.send_message(
+                    "You do not have permission to use this command.",
+                    ephemeral=True,
+                )
+                return False
+        return True
 
 
 __all__ = ["BlossomBot"]
