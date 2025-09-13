@@ -3,12 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <title>Available Models</title>
-  <script>
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme) {
-      document.documentElement.dataset.theme = savedTheme;
-    }
-  </script>
+  <script type="module" src="./theme.js"></script>
   <link rel="stylesheet" href="/ui/theme.css">
   <style>
     body {
@@ -33,7 +28,7 @@
 <body>
   <h1>Available Models</h1>
   <ul id="models"></ul>
-  <script src="./topbar.js"></script>
+  <script type="module" src="./topbar.js"></script>
   <script src="/ui/models.js"></script>
 </body>
 </html>
