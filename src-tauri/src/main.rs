@@ -16,17 +16,26 @@ use std::{
 use regex::Regex;
 use tauri::Manager;
 use tauri::{AppHandle, State};
-use serde_json::Value;
+use serde_json::{json, Value};
 mod musiclang;
 mod util;
 use crate::util::list_from_dir;
 
-#[derive(serde::Serialize, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct ProgressEvent {
     stage: Option<String>,
     percent: Option<u8>,
-    message: String,
+    message: Option<String>,
     eta: Option<String>,
+    step: Option<u64>,
+    total: Option<u64>,
+}
+
+fn extract_error_message(stderr: &str) -> Option<String> {
+    stderr
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l.trim()).ok())
+        .find_map(|v| v.get("error").and_then(|e| e.as_str()).map(|s| s.to_string()))
 }
 
 struct JobInfo {
@@ -89,6 +98,21 @@ fn list_models() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
+fn app_version() -> Result<Value, String> {
+    let app = env!("CARGO_PKG_VERSION").to_string();
+    let output = Command::new("python")
+        .arg("--version")
+        .output()
+        .map_err(|e| e.to_string())?;
+    let python = if output.stdout.is_empty() {
+        String::from_utf8_lossy(&output.stderr).trim().to_string()
+    } else {
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    };
+    Ok(json!({ "app": app, "python": python }))
+}
+
+#[tauri::command]
 fn start_job(
     app: AppHandle,
     registry: State<JobRegistry>,
@@ -138,8 +162,10 @@ fn start_job(
                 let event = ProgressEvent {
                     stage,
                     percent,
-                    message: line.clone(),
+                    message: Some(line.clone()),
                     eta,
+                    step: None,
+                    total: None,
                 };
                 let _ = app_handle.emit_all(&format!("progress::{}", id), event);
             }
@@ -166,17 +192,6 @@ fn onnx_generate(
     let stdout = child.stdout.take();
     let stderr_pipe = child.stderr.take();
     let stderr_buf = Arc::new(Mutex::new(String::new()));
-    if let Some(stderr) = stderr_pipe {
-        let stderr_buf_clone = stderr_buf.clone();
-        std::thread::spawn(move || {
-            let reader = BufReader::new(stderr);
-            for line in reader.lines().flatten() {
-                let mut buf = stderr_buf_clone.lock().unwrap();
-                buf.push_str(&line);
-                buf.push('\n');
-            }
-        });
-    }
     let job = JobInfo {
         child: Some(child),
         args: full_args.clone(),
@@ -185,14 +200,42 @@ fn onnx_generate(
     };
     let id = registry.add(job);
 
+    if let Some(stderr) = stderr_pipe {
+        let stderr_buf_clone = stderr_buf.clone();
+        let app_handle = app.clone();
+        let id_clone = id;
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines().flatten() {
+                {
+                    let mut buf = stderr_buf_clone.lock().unwrap();
+                    buf.push_str(&line);
+                    buf.push('\n');
+                }
+                let trimmed = line.trim();
+                if let Ok(val) = serde_json::from_str::<Value>(trimmed) {
+                    if let Some(err_msg) = val.get("error").and_then(|v| v.as_str()) {
+                        let event = ProgressEvent {
+                            stage: Some("error".into()),
+                            percent: None,
+                            message: Some(err_msg.to_string()),
+                            eta: None,
+                            step: None,
+                            total: None,
+                        };
+                        let _ = app_handle.emit_all(&format!("onnx::progress::{}", id_clone), event);
+                    }
+                }
+            }
+        });
+    }
+
     let (tx, rx) = std::sync::mpsc::channel();
     if let Some(stdout) = stdout {
         let app_handle = app.clone();
         let tx2 = tx.clone();
+        let id_clone = id;
         std::thread::spawn(move || {
-            let stage_re = Regex::new(r"^\s*([\w-]+):").unwrap();
-            let percent_re = Regex::new(r"(\d+)%").unwrap();
-            let eta_re = Regex::new(r"ETA[:\s]+([0-9:]+)").unwrap();
             let reader = BufReader::new(stdout);
             let mut first = true;
             for line in reader.lines().flatten() {
@@ -200,28 +243,18 @@ fn onnx_generate(
                     let _ = tx2.send(());
                     first = false;
                 }
-                let trimmed = line.trim();
-                if trimmed.starts_with('{') && serde_json::from_str::<Value>(trimmed).is_ok() {
+                if let Ok(event) = serde_json::from_str::<ProgressEvent>(&line) {
+                    let _ = app_handle.emit_all(&format!("onnx::progress::{}", id_clone), event);
+                } else if serde_json::from_str::<Value>(&line).is_ok() {
                     let event = ProgressEvent {
                         stage: None,
                         percent: None,
-                        message: line.clone(),
+                        message: Some(line.clone()),
                         eta: None,
+                        step: None,
+                        total: None,
                     };
-                    let _ = app_handle.emit_all(&format!("onnx::progress::{}", id), event);
-                } else {
-                    let stage = stage_re.captures(&line).map(|c| c[1].to_string());
-                    let percent = percent_re
-                        .captures(&line)
-                        .and_then(|c| c[1].parse::<u8>().ok());
-                    let eta = eta_re.captures(&line).map(|c| c[1].to_string());
-                    let event = ProgressEvent {
-                        stage,
-                        percent,
-                        message: line.clone(),
-                        eta,
-                    };
-                    let _ = app_handle.emit_all(&format!("onnx::progress::{}", id), event);
+                    let _ = app_handle.emit_all(&format!("onnx::progress::{}", id_clone), event);
                 }
             }
         });
@@ -241,11 +274,14 @@ fn onnx_generate(
                                 if !success {
                                     let err = job.stderr.lock().unwrap().clone();
                                     jobs.remove(&id);
-                                    return Err(if err.is_empty() {
-                                        "onnx generation failed".into()
-                                    } else {
-                                        err
+                                    let msg = extract_error_message(&err).unwrap_or_else(|| {
+                                        if err.is_empty() {
+                                            "onnx generation failed".into()
+                                        } else {
+                                            err
+                                        }
                                     });
+                                    return Err(msg);
                                 } else {
                                     job.status = Some(true);
                                     job.child = None;
@@ -308,7 +344,8 @@ fn job_status(registry: State<JobRegistry>, job_id: u64) -> JobState {
                     message: if success {
                         None
                     } else {
-                        Some(job.stderr.lock().unwrap().clone())
+                        let stderr = job.stderr.lock().unwrap().clone();
+                        extract_error_message(&stderr).or_else(|| if stderr.is_empty() { None } else { Some(stderr) })
                     },
                 }
             } else if let Some(child) = job.child.as_mut() {
@@ -322,7 +359,8 @@ fn job_status(registry: State<JobRegistry>, job_id: u64) -> JobState {
                             message: if success {
                                 None
                             } else {
-                                Some(job.stderr.lock().unwrap().clone())
+                                let stderr = job.stderr.lock().unwrap().clone();
+                                extract_error_message(&stderr).or_else(|| if stderr.is_empty() { None } else { Some(stderr) })
                             },
                         }
                     }
@@ -333,9 +371,10 @@ fn job_status(registry: State<JobRegistry>, job_id: u64) -> JobState {
                     Err(_) => {
                         job.status = Some(false);
                         job.child = None;
+                        let stderr = job.stderr.lock().unwrap().clone();
                         JobState {
                             status: "error".into(),
-                            message: Some(job.stderr.lock().unwrap().clone()),
+                            message: extract_error_message(&stderr).or_else(|| if stderr.is_empty() { None } else { Some(stderr) }),
                         }
                     }
                 }
@@ -372,6 +411,7 @@ fn main() {
             list_presets,
             list_styles,
             list_models,
+            app_version,
             start_job,
             onnx_generate,
             cancel_render,

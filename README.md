@@ -2,12 +2,9 @@
 
 Simple demos for algorithmic music pattern generation.
 
-A desktop interface built with [Tauri](https://tauri.app/) and a small
-FastAPI server now share a unified front‑end.  Templates and scripts live under
-the top‑level `ui/` directory and are served by FastAPI while the Tauri build
-points to the same files.  The `ui/app.js` script detects whether it is running
-inside the desktop shell or a browser and adjusts its behaviour accordingly.
-Command‑line usage via `start.py` remains available for automation.
+A desktop interface built with [Tauri](https://tauri.app/) provides the front‑end.
+Templates and scripts live under the top‑level `ui/` directory.  Command‑line
+usage via `start.py` remains available for automation.
 
 ## Quick Start
 
@@ -19,18 +16,18 @@ Command‑line usage via `start.py` remains available for automation.
    pip install -r requirements.txt
    ```
 
-2. Launch the web server:
+2. Install Node dependencies and launch the desktop app in development mode:
 
    ```bash
-   uvicorn webui.app:app --reload
+   npm install
+   npm run tauri dev
    ```
 
-3. Open `http://localhost:8000/` in your browser to access the UI.
+3. Build a release bundle with:
 
-### Troubleshooting
-
-- If `uvicorn` or other modules are missing, rerun `pip install -r requirements.txt` inside the virtual environment.
-- If port `8000` is already in use, specify another one with `--port`, e.g. `uvicorn webui.app:app --port 8001`, or stop the conflicting process.
+   ```bash
+   npm run tauri build
+   ```
 
 ## Prerequisites
 
@@ -72,6 +69,19 @@ To enable optional speaker diarization via
 
 ```bash
 pip install .[diarization]
+```
+
+The first invocation downloads the pretrained ``pyannote/speaker-diarization``
+model. A CUDA-enabled GPU is strongly recommended for real-time use; CPU
+inference is possible but significantly slower.
+
+Example usage with the Discord transcription bot:
+
+```python
+import asyncio
+from ears import run_bot, pyannote_diarize
+
+asyncio.run(run_bot("TOKEN", 123456789012345678, diarizer=pyannote_diarize))
 ```
 
 ## Generate N minutes of music
@@ -250,20 +260,6 @@ The release bundle will appear under `src-tauri/target/release`.
 Fill out the fields for the song spec, optional SFZ paths, seed, and output
 locations then click **Render** to run the Python pipeline.
 
-## Web UI
-
-The FastAPI server in `webui/app.py` serves the same `ui/` assets used by the
-desktop application.  Start the server with:
-
-```bash
-uvicorn webui.app:app
-```
-
-Navigate to `http://localhost:8000/` and the unified front‑end will load.
-Jobs invoke `main_render.py` under the hood and return a zip bundle containing
-the mix and stems for download.  A health‑check endpoint is available at
-`/health`.
-
 ## ONNX Crafter
 
 Run exported [MusicLang](https://huggingface.co/models?search=musiclang) models
@@ -325,8 +321,21 @@ transcribe speech using Whisper. Transcripts are written to JSONL files under
 import asyncio
 from ears.pipeline import run_bot
 
-asyncio.run(run_bot("TOKEN", 123456789012345678))
+
+async def on_part(part, speaker):
+    print(f"{speaker}: {part.text}")
+
+
+asyncio.run(
+    run_bot(
+        "TOKEN",
+        123456789012345678,
+        part_callback=on_part,
+        rate_limit=0.3,
+    )
+)
 ```
 
 Replace `TOKEN` with your bot token and the integer with the target voice
-channel ID.
+channel ID. ``part_callback`` receives both partial and final transcript
+segments; ``rate_limit`` throttles how often partial updates are emitted.

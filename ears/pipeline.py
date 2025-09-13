@@ -1,10 +1,12 @@
 """Discord transcription pipeline with 48 kHz → 16 kHz resampling."""
 from __future__ import annotations
 
+import asyncio
 import math
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 
 import numpy as np
+import logging
 
 try:
     import resampy
@@ -15,7 +17,7 @@ except Exception:  # pragma: no cover - optional dependency
 from .discord_listener import DiscordListener
 from .transcript_logger import TranscriptLogger
 from .vad import DiarizationHook, VoiceActivityDetector
-from .whisper_service import WhisperService
+from .whisper_service import TranscriptionSegment, WhisperService
 
 
 def _resample(pcm: bytes, source_rate: int, target_rate: int) -> bytes:
@@ -27,6 +29,15 @@ def _resample(pcm: bytes, source_rate: int, target_rate: int) -> bytes:
     to mono but no resampling is performed. If ``resampy`` is unavailable,
     ``scipy.signal.resample_poly`` is used as a fallback.
     """
+    # ``pcm`` should contain 16-bit stereo frames (4 bytes). If the byte
+    # length is not a multiple of four, drop any trailing partial frame before
+    # reshaping. Logging the number of discarded bytes helps diagnose
+    # misaligned buffers.
+    remainder = len(pcm) % 4
+    if remainder:
+        pcm = pcm[: len(pcm) - remainder]
+        logging.debug("Truncated %d incomplete PCM byte(s)", remainder)
+
     audio = (
         np.frombuffer(pcm, dtype=np.int16).reshape(-1, 2).mean(axis=1).astype(np.float32)
     )
@@ -47,8 +58,31 @@ async def run_bot(
     model_path: str = "small",
     transcript_root: str = "transcripts",
     diarizer: Optional[DiarizationHook] = None,
+    part_callback: Optional[
+        Callable[[TranscriptionSegment, Optional[str]], Awaitable[None]]
+    ] = None,
+    rate_limit: float = 0.0,
 ) -> None:
     """Join a Discord voice channel and transcribe speech in real time.
+
+    Parameters
+    ----------
+    token, channel_id:
+        Discord bot token and target voice channel identifier.
+    model_path:
+        Whisper model name or path.
+    transcript_root:
+        Directory to store JSONL transcript logs.
+    diarizer:
+        Optional :class:`~ears.vad.DiarizationHook` such as
+        :func:`~ears.diarization.pyannote_diarize`.
+    part_callback:
+        Async callback invoked for every :class:`TranscriptionSegment` produced
+        by Whisper. Both partial and final segments are forwarded.
+    rate_limit:
+        Minimum interval in seconds between successive invocations of
+        ``part_callback`` for non‑final segments. Final segments are always
+        emitted.
 
     Incoming 48 kHz stereo frames are converted to 16 kHz mono before voice
     activity detection and Whisper transcription.
@@ -57,10 +91,24 @@ async def run_bot(
     whisper = WhisperService(model_path)
 
     async def handle_segment(segment: bytes, speaker: Optional[str]) -> None:
+        last_emit = 0.0
+        loop = None
+        if part_callback is not None:
+            loop = asyncio.get_running_loop()
         async for part in whisper.transcribe(segment):
+            if part_callback is not None:
+                now = loop.time()
+                if part.is_final or now - last_emit >= rate_limit:
+                    await part_callback(part, speaker)
+                    last_emit = now
             if part.is_final:
                 logger.append(
-                    str(channel_id), speaker or "unknown", part.text, timestamp=part.start
+                    str(channel_id),
+                    speaker or "unknown",
+                    part.text,
+                    timestamp=part.start,
+                    language=part.language,
+                    confidence=part.confidence,
                 )
 
     vad = VoiceActivityDetector(segment_callback=handle_segment, diarizer=diarizer)

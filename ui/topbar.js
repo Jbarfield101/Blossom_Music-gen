@@ -45,9 +45,8 @@
   about.textContent = 'About';
   about.addEventListener('click', async () => {
     try {
-      const res = await fetch('/about');
-      const data = await res.json();
-      alert(`Python version: ${data.python}`);
+      const data = await window.__TAURI__.invoke('app_version');
+      alert(`App version: ${data.app}\nPython version: ${data.python}`);
     } catch (err) {
       alert('Failed to fetch version');
     }

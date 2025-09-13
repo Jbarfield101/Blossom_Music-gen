@@ -1,5 +1,8 @@
 node_modules
 src-tauri/target
 src-tauri/Cargo.lock
+<<<<<<< HEAD
 webui/recent_renders.json
 .venv/
+=======
+>>>>>>> 8da873fbbb33789b5a9451b2f008af035868e06f

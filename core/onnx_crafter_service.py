@@ -13,11 +13,13 @@ its own inference session, telemetry and cancellation state.
 """
 
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Sequence, Tuple, Callable
 import argparse
 import json
 import signal
 import time
+import base64
+import tempfile
 
 import numpy as np
 
@@ -72,13 +74,7 @@ class ModelSession:
         path = Path(model_dir)
         if not path.exists():
             base = Path(__file__).resolve().parents[1] / "models"
-            candidate = base / path
-            if candidate.exists():
-                path = candidate
-            else:
-                candidate = base / f"{path}.onnx"
-                if candidate.exists():
-                    path = candidate
+            path = base / path
 
         if path.is_dir():
             candidates = list(path.glob("*.onnx"))
@@ -103,7 +99,13 @@ class ModelSession:
     # ------------------------------------------------------------------
     # Generation / decoding
     # ------------------------------------------------------------------
-    def generate(self, tokens: List[int], steps: int, sampling: Dict[str, Any]) -> List[int]:
+    def generate(
+        self,
+        tokens: List[int],
+        steps: int,
+        sampling: Dict[str, Any],
+        progress_cb: Callable[[Dict[str, int]], None] | None = None,
+    ) -> List[int]:
         """Run autoregressive generation using the loaded ONNX model.
 
         ``sampling`` may contain ``top_k``, ``top_p`` and ``temperature`` fields.
@@ -140,8 +142,8 @@ class ModelSession:
                 rng=rng,
             )
             history.append(int(next_id))
-            if steps > 0 and (i + 1) % max(1, steps // 10) == 0:
-                print(json.dumps({"step": i + 1, "total": steps}), flush=True)
+            if progress_cb is not None and steps > 0 and (i + 1) % max(1, steps // 10) == 0:
+                progress_cb({"step": i + 1, "total": steps})
         total = time.time() - start
 
         new_tokens = len(history) - len(tokens)
@@ -182,8 +184,23 @@ def _flatten(pairs: Iterable[Tuple[int, int]]) -> List[int]:
     return out
 
 
-def encode_midi(path: str | Path) -> List[int]:
-    """Encode a melody MIDI file into a flat token list."""
+def encode_midi(src: str | Path) -> List[int]:
+    """Encode a melody MIDI file into a flat token list.
+
+    ``src`` may be a file path or a ``data:`` URI containing base64-encoded
+    MIDI data.
+    """
+
+    tmp_path = None
+    if isinstance(src, str) and src.startswith("data:"):
+        header, b64 = src.split(",", 1)
+        data = base64.b64decode(b64)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mid") as fh:
+            fh.write(data)
+            tmp_path = fh.name
+        path = tmp_path
+    else:
+        path = src
 
     notes_sec, tempo, meter = midi_load.load_melody_midi(path)
     sec_per_beat = beats_to_secs(tempo)
@@ -205,6 +222,8 @@ def encode_midi(path: str | Path) -> List[int]:
         chord="C",
         seed=0,
     )
+    if tmp_path is not None:
+        Path(tmp_path).unlink(missing_ok=True)
     return _flatten(tokens)
 
 
@@ -247,6 +266,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         python -m core.onnx_crafter_service '{"model": "models", "steps": 32}'
     """
 
+    # Instantiate a fresh session for each invocation so that generation
+    # state and telemetry remain isolated per job.
     session = ModelSession()
     signal.signal(signal.SIGINT, session.cancel)
     signal.signal(signal.SIGTERM, session.cancel)
@@ -276,8 +297,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     steps = int(cfg.get("steps", 0))
     sampling = cfg.get("sampling", {})
 
-    print("starting generation", flush=True)
-    tokens = session.generate(tokens, steps, sampling)
+    def emit(event: Dict[str, int]) -> None:
+        print(json.dumps(event), flush=True)
+
+    tokens = session.generate(tokens, steps, sampling, progress_cb=emit)
 
     out_path = cfg.get("out", "out.mid")
     midi_path = session.decode_to_midi(tokens, out_path)
