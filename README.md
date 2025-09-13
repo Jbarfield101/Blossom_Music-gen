@@ -265,30 +265,46 @@ locations then click **Render** to run the Python pipeline.
 Run exported [MusicLang](https://huggingface.co/models?search=musiclang) models
 to craft melodies directly from ONNX graphs.
 
-### Listing and downloading models
+### Workflow
 
-Available model names can be queried from Hugging Face:
+1. **Download a model** into `models/`:
 
-```bash
-curl -s https://huggingface.co/api/models?search=musiclang | jq '.[].modelId'
-```
+   ```bash
+   curl -L https://huggingface.co/musiclang/musiclang-small/resolve/main/model.onnx \
+        -o models/musiclang-small.onnx
+   ```
 
-Download a model and place it under the local `models/` directory:
+2. **Prepare inputs** – create a chord grid and a melody:
 
-```bash
-curl -L https://huggingface.co/musiclang/musiclang-small/resolve/main/model.onnx \
-  -o models/musiclang-small.onnx
-```
+   ```bash
+   cat > song_spec.json <<'JSON'
+   ["C", "F", "G", "C"]
+   JSON
+   ```
 
-### CLI usage
+   The `song_spec` format is defined in [`core/song_spec.py`](core/song_spec.py).
 
-Generation is performed by passing a JSON configuration to
-`core/onnx_crafter_service.py`.  Provide either a chord grid via `song_spec` or
-an input melody with `midi`:
+   ```bash
+   python - <<'PY'
+   from core.midi_export import stems_to_midi
+   from core.stems import Stem
+   stems_to_midi({"melody": [Stem(start=0, dur=1, pitch=60, vel=100, chan=0)]},
+                 tempo=120, meter="4/4", path="melody.mid")
+   PY
+   ```
 
-```bash
-python core/onnx_crafter_service.py '{"model":"musiclang-small","song_spec":["C","F","G","C"],"steps":32,"sampling":{"top_k":8,"top_p":0.95,"temperature":1.0},"out":"output.mid"}'
-```
+   This uses the MIDI encoder in [`core/midi_export.py`](core/midi_export.py).
+
+3. **Run the CLI** in [`core/onnx_crafter_service.py`](core/onnx_crafter_service.py):
+
+   ```bash
+   python core/onnx_crafter_service.py \
+     '{"model":"musiclang-small","song_spec":"song_spec.json","midi":"melody.mid","steps":32,"sampling":{"top_k":8,"top_p":0.95,"temperature":1.0},"out":"output.mid"}'
+   ```
+
+   `top_k` keeps only the highest-logit `k` tokens, `top_p` draws from the
+   smallest set whose cumulative probability exceeds `p`, and `temperature`
+   scales logits (`<1` deterministic, `>1` varied).
 
 ### GUI usage
 
