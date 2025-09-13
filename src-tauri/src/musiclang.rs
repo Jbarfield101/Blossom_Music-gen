@@ -7,6 +7,7 @@ use std::{
     path::PathBuf,
 };
 use tauri::AppHandle;
+use tauri::Emitter;
 
 use crate::{util::list_from_dir, ProgressEvent};
 
