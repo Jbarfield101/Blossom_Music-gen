@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import List
 import re
+import json
 
 import service_api
 from . import prompt_router, ollama_client
+from .events import Event
 
 
 def _summarize(content: str) -> str:
@@ -27,8 +29,8 @@ def _summarize(content: str) -> str:
     return lines[0]
 
 
-def respond(message: str) -> str:
-    """Generate a response for ``message`` via Ollama.
+def respond(message: str) -> Event | str:
+    """Generate a structured response for ``message`` via Ollama.
 
     If the message is classified as ``"lore"`` or ``"npc"``, relevant note
     summaries are searched and prepended to the prompt. When no matching notes
@@ -60,4 +62,17 @@ def respond(message: str) -> str:
         )
         prompt = f"{message}\n\nRelevant notes:\n{notes}\n"
 
-    return ollama_client.generate(prompt)
+    # Request the model to return a JSON object describing the event
+    prompt = (
+        f"{prompt}\n\n"
+        "Respond with a JSON object containing the keys "
+        "who, action, targets, effects, narration."
+    )
+
+    raw = ollama_client.generate(prompt)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:  # pragma: no cover - error path
+        raise ValueError("Malformed JSON from model") from exc
+
+    return Event.from_json(data)
