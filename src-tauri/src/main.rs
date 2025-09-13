@@ -205,7 +205,7 @@ fn models_store(app: &AppHandle) -> Result<tauri_plugin_store::Store, String> {
         .app_config_dir()
         .map_err(|e| e.to_string())?
         .join("models.json");
-    Ok(StoreBuilder::new(app.clone(), path).build())
+    Ok(StoreBuilder::new(app, path).build())
 }
 
 fn devices_store(app: &AppHandle) -> Result<tauri_plugin_store::Store, String> {
