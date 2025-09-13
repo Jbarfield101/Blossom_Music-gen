@@ -78,21 +78,35 @@ class WhisperService:
             loop.call_soon_threadsafe(queue.put_nowait, (None, info, True))
 
         def _worker_partial() -> None:
+            """Stream partial segments using a sliding buffer."""
+
             step = max(1, len(audio) // 4)
-            pos = step
+            pos = 0
+            prompt = ""
             while not finished.is_set() and pos < len(audio):
-                part = audio[:pos]
+                next_pos = min(len(audio), pos + step)
+                part = audio[pos:next_pos]
                 try:
-                    decoded = self._model.decode(part)
-                    text = getattr(decoded, "text", decoded)
-                    seg = type("Seg", (), {"text": text, "start": 0.0, "end": pos / 16000, "avg_logprob": 0.0})
-                    loop.call_soon_threadsafe(queue.put_nowait, (seg, None, False))
+                    segments, _ = self._model.transcribe(
+                        part,
+                        word_timestamps=True,
+                        initial_prompt=prompt,
+                        vad_filter=True,
+                    )
+                    for seg in segments:
+                        # offset timestamps with position in the full audio buffer
+                        seg.start += pos / 16000
+                        seg.end += pos / 16000
+                        prompt += seg.text + " "
+                        loop.call_soon_threadsafe(queue.put_nowait, (seg, None, False))
                 except Exception:
                     pass
-                pos += step
+                pos = next_pos
 
-        threading.Thread(target=_worker_final, daemon=True).start()
+        # Start partial decoding before the full transcription to ensure
+        # early results are available even if the final pass is fast.
         threading.Thread(target=_worker_partial, daemon=True).start()
+        threading.Thread(target=_worker_final, daemon=True).start()
 
         while True:
             seg, info, is_final = await queue.get()
