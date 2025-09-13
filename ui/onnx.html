@@ -12,16 +12,33 @@
 </head>
 <body>
   <h1>ONNX Crafter</h1>
+  <section id="instructions">
+    <h2>Instructions</h2>
+    <ol>
+      <li>Download a piano phrase <code>.onnx</code> model into your local <code>models/</code> folder and select it below.</li>
+      <li>Provide a song specification or melody seed, then tune the sampling parameters.</li>
+      <li>Press <strong>Start</strong> to generate a new piano stem and watch the progress log.</li>
+    </ol>
+    <p>
+      Need a model?
+      <a href="../docs/phrase_models.md" target="_blank">
+        Learn how to fetch and install <code>.onnx</code> models for piano stems
+      </a>.
+    </p>
+  </section>
   <div id="inputs">
-    <label>Model <select id="model-select"></select></label>
+    <label>Model <select id="model-select" title="Choose a downloaded .onnx model"></select></label>
     <label>Song spec (JSON or space-separated chords)
       <textarea id="song_spec" rows="3"></textarea>
     </label>
-    <label>Melody MIDI <input type="file" id="midi" /></label>
-    <label>Steps <input type="number" id="steps" value="32" /></label>
-    <label>Top-k <input type="number" id="top_k" /></label>
-    <label>Top-p <input type="number" step="0.01" id="top_p" /></label>
-    <label>Temperature <input type="number" step="0.01" id="temperature" value="1.0" /></label>
+    <label>Melody MIDI <input type="file" id="midi" title="Optional melody seed" /></label>
+    <label>Steps <input type="number" id="steps" value="32" title="Total tokens to generate" /></label>
+    <label>Top-k <input type="number" id="top_k" title="Keep the highest-probability k tokens" /></label>
+    <label>Top-p <input type="number" step="0.01" id="top_p" title="Nucleus sampling probability threshold" /></label>
+    <label>
+      Temperature
+      <input type="number" step="0.01" id="temperature" value="1.0" title="Scale logits before sampling" />
+    </label>
   </div>
   <div id="controls">
     <button id="download" type="button">Download</button>
