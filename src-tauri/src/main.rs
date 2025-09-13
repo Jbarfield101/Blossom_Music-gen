@@ -2,8 +2,7 @@
 
 use std::{
     collections::HashMap,
-    env,
-    fs,
+    env, fs,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
@@ -16,9 +15,9 @@ use std::{
 
 use regex::Regex;
 use serde_json::{json, Value};
+use tauri::api::dialog::blocking::message;
 use tauri::Emitter;
 use tauri::{AppHandle, State};
-use tauri::api::dialog::blocking::message;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_store::{Builder, StoreBuilder};
 use url::Url;
@@ -230,6 +229,23 @@ fn app_version() -> Result<Value, String> {
         String::from_utf8_lossy(&output.stdout).trim().to_string()
     };
     Ok(json!({ "app": app, "python": python }))
+}
+
+#[tauri::command]
+fn select_vault(path: String) -> Result<(), String> {
+    let output = Command::new("python")
+        .args([
+            "-c",
+            "import sys; from config.obsidian import select_vault; select_vault(sys.argv[1])",
+            &path,
+        ])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(stderr.trim().to_string());
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -570,7 +586,11 @@ fn main() {
             } else {
                 Path::new(".venv").join("bin")
             };
-            let sep = if cfg!(target_os = "windows") { ';' } else { ':' };
+            let sep = if cfg!(target_os = "windows") {
+                ';'
+            } else {
+                ':'
+            };
             let mut path_var = env::var("PATH").unwrap_or_default();
             env::set_var("PATH", format!("{}{}{}", venv_dir.display(), sep, path_var));
 
@@ -587,7 +607,11 @@ fn main() {
                 let status = Command::new("python").arg("start.py").status();
                 if !status.map(|s| s.success()).unwrap_or(false) {
                     if let Some(window) = app.get_window("main") {
-                        message(Some(&window), "Setup Error", "Failed to set up Python environment.");
+                        message(
+                            Some(&window),
+                            "Setup Error",
+                            "Failed to set up Python environment.",
+                        );
                     }
                     return Err("Python setup failed".into());
                 }
@@ -607,6 +631,7 @@ fn main() {
             set_piper,
             list_llm,
             set_llm,
+            select_vault,
             app_version,
             start_job,
             onnx_generate,
