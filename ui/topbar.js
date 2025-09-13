@@ -4,8 +4,7 @@
     document.documentElement.setAttribute('data-theme', theme);
   };
 
-  let currentTheme = localStorage.getItem('theme') || 'dark';
-  document.documentElement.setAttribute('data-theme', currentTheme);
+  window.setTheme(localStorage.getItem('theme') || 'dark');
 
   const style = document.createElement('style');
   style.textContent = `
@@ -53,16 +52,5 @@
   });
   bar.appendChild(about);
 
-  const themeBtn = document.createElement('button');
-  function updateThemeBtn() {
-    themeBtn.textContent = currentTheme === 'dark' ? 'Light Mode' : 'Dark Mode';
-  }
-  themeBtn.addEventListener('click', () => {
-    currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
-    window.setTheme(currentTheme);
-    updateThemeBtn();
-  });
-  updateThemeBtn();
-  bar.appendChild(themeBtn);
   document.body.prepend(bar);
 })();
