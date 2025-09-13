@@ -1,7 +1,7 @@
 const isTauri = typeof window !== 'undefined' && window.__TAURI__;
 
 async function tauriOnnxMain(){
-  const { invoke, event, fs, path, shell } = window.__TAURI__;
+  const { invoke, event, shell } = window.__TAURI__;
   const modelSelect = document.getElementById('model-select');
   const downloadBtn = document.getElementById('download');
   const songSpecInput = document.getElementById('song_spec');
@@ -19,6 +19,12 @@ async function tauriOnnxMain(){
   const telemetryPre = document.getElementById('telemetry');
   let jobId = null;
   let unlisten = null;
+
+  async function convertMidiFileToDataUri(file){
+    const buffer = await file.arrayBuffer();
+    const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+    return `data:audio/midi;base64,${base64}`;
+  }
 
   async function refreshModels(){
     try {
@@ -81,7 +87,7 @@ async function tauriOnnxMain(){
 
     startBtn.addEventListener('click', async () => {
       const cfg = {
-        model: modelSelect.value.split(/[\\/]/).pop(),
+        model: `models/${modelSelect.value.split(/[\\/]/).pop()}`,
         steps: parseInt(stepsInput.value) || 0,
         sampling: {}
       };
@@ -97,10 +103,7 @@ async function tauriOnnxMain(){
     }
     const midiFile = midiInput.files[0];
     if (midiFile) {
-      const tempDir = await path.tempDir();
-      const midiPath = await path.join(tempDir, `melody-${Date.now()}.mid`);
-      await fs.writeFile({ path: midiPath, contents: new Uint8Array(await midiFile.arrayBuffer()) });
-      cfg.midi = midiPath;
+      cfg.midi = await convertMidiFileToDataUri(midiFile);
     }
 
     const args = [JSON.stringify(cfg)];
@@ -162,6 +165,8 @@ async function tauriOnnxMain(){
   cancelBtn.addEventListener('click', async () => {
     if (jobId !== null) {
       await invoke('cancel_render', { jobId });
+      cancelBtn.disabled = true;
+      startBtn.disabled = false;
     }
   });
 

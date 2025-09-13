@@ -18,6 +18,8 @@ import argparse
 import json
 import signal
 import time
+import base64
+import tempfile
 
 import numpy as np
 
@@ -182,8 +184,23 @@ def _flatten(pairs: Iterable[Tuple[int, int]]) -> List[int]:
     return out
 
 
-def encode_midi(path: str | Path) -> List[int]:
-    """Encode a melody MIDI file into a flat token list."""
+def encode_midi(src: str | Path) -> List[int]:
+    """Encode a melody MIDI file into a flat token list.
+
+    ``src`` may be a file path or a ``data:`` URI containing base64-encoded
+    MIDI data.
+    """
+
+    tmp_path = None
+    if isinstance(src, str) and src.startswith("data:"):
+        header, b64 = src.split(",", 1)
+        data = base64.b64decode(b64)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mid") as fh:
+            fh.write(data)
+            tmp_path = fh.name
+        path = tmp_path
+    else:
+        path = src
 
     notes_sec, tempo, meter = midi_load.load_melody_midi(path)
     sec_per_beat = beats_to_secs(tempo)
@@ -205,6 +222,8 @@ def encode_midi(path: str | Path) -> List[int]:
         chord="C",
         seed=0,
     )
+    if tmp_path is not None:
+        Path(tmp_path).unlink(missing_ok=True)
     return _flatten(tokens)
 
 
