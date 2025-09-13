@@ -3,6 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <title>Dungeons & Dragons</title>
+  <script>
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme) {
+      document.documentElement.dataset.theme = savedTheme;
+    }
+  </script>
   <link rel="stylesheet" href="/ui/theme.css">
   <style>
     body {
