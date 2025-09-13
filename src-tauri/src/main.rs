@@ -243,7 +243,11 @@ fn onnx_generate(
                     let _ = tx2.send(());
                     first = false;
                 }
-                if let Ok(event) = serde_json::from_str::<ProgressEvent>(&line) {
+                if let Ok(mut event) = serde_json::from_str::<ProgressEvent>(&line) {
+                    if let (Some(step), Some(total)) = (event.step, event.total) {
+                        let pct = ((step as f64 / total as f64) * 100.0).round() as u8;
+                        event.percent = Some(pct);
+                    }
                     let _ = app_handle.emit_all(&format!("onnx::progress::{}", id_clone), event);
                 } else if serde_json::from_str::<Value>(&line).is_ok() {
                     let event = ProgressEvent {

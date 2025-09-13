@@ -14,6 +14,7 @@ async function tauriOnnxMain(){
   const startBtn = document.getElementById('start');
   const cancelBtn = document.getElementById('cancel');
   const prog = document.getElementById('progress');
+  const etaSpan = document.getElementById('eta');
   const log = document.getElementById('log');
   log.hidden = false;
   log.style.userSelect = 'text';
@@ -254,6 +255,7 @@ async function tauriOnnxMain(){
     startBtn.disabled = true;
     cancelBtn.disabled = false;
     prog.value = 0;
+    etaSpan.textContent = '';
     log.textContent = '';
     results.hidden = true;
     if (unlisten) unlisten();
@@ -295,6 +297,15 @@ async function tauriOnnxMain(){
       }
       if (typeof data.percent === 'number') {
         prog.value = data.percent;
+      }
+      if (typeof data.step === 'number' && typeof data.total === 'number') {
+        const pct = (data.step / data.total) * 100;
+        prog.value = pct;
+      }
+      if (typeof data.eta === 'string') {
+        etaSpan.textContent = `ETA: ${data.eta}s`;
+      } else {
+        etaSpan.textContent = '';
       }
     });
     poll();
