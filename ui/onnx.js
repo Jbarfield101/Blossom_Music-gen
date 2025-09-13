@@ -93,7 +93,25 @@ async function tauriOnnxMain(){
   });
 
     startBtn.addEventListener('click', async () => {
-      const modelPath = path.join("models", modelSelect.value.split(/[\\/]/).pop());
+      const modelName = modelSelect.value.split(/[\\/]/).pop();
+      const modelPath = path.join("models", `${modelName}.onnx`);
+      let installed;
+      try {
+        installed = await invoke('list_models');
+      } catch (e) {
+        const msg = `Error listing models: ${e}`;
+        log.textContent = msg;
+        log.scrollTop = log.scrollHeight;
+        if (typeof alert === 'function') alert(msg);
+        return;
+      }
+      if (!installed.includes(modelName)) {
+        const msg = `Model not found: ${modelName}`;
+        log.textContent = msg;
+        log.scrollTop = log.scrollHeight;
+        if (typeof alert === 'function') alert(msg);
+        return;
+      }
       const cfg = {
         model: modelPath,
         steps: parseInt(stepsInput.value) || 0,
