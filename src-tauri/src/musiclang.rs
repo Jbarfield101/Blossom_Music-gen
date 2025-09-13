@@ -74,9 +74,9 @@ pub fn download_model(
     name: &str,
     force: Option<bool>,
 ) -> Result<Vec<String>, String> {
-    fs::create_dir_all("models").map_err(|e| e.to_string())?;
     let file_name = name.split('/').last().unwrap_or(name);
-    let path = PathBuf::from(format!("models/{}.onnx", file_name));
+    let path = PathBuf::from("models").join(file_name).with_extension("onnx");
+    fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
 
     if path.exists() && !force.unwrap_or(false) {
         let event = ProgressEvent {
@@ -86,7 +86,7 @@ pub fn download_model(
             eta: None,
         };
         let _ = app.emit_all(&format!("download::progress::{}", name), event);
-        return list_from_dir(Path::new("models"));
+        return list_from_dir(path.parent().unwrap());
     }
 
     let url = format!("https://huggingface.co/{}/resolve/main/model.onnx", name);
@@ -119,5 +119,5 @@ pub fn download_model(
         let _ = app.emit_all(&format!("download::progress::{}", name), event);
     }
 
-    list_from_dir(Path::new("models"))
+    list_from_dir(path.parent().unwrap())
 }
