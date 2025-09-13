@@ -2,6 +2,7 @@
 // Falls back to `localStorage` when the plugin cannot be loaded
 // (e.g. when running purely in a browser context).
 import { Store } from '@tauri-apps/plugin-store';
+import { listen } from '@tauri-apps/api/event';
 
 const THEME_KEY = 'theme';
 const ACCENT_KEY = 'accent';
@@ -88,3 +89,12 @@ export async function getBaseFontSize() {
 getTheme().then((savedTheme) => setTheme(savedTheme || 'dark'));
 getAccent().then((savedAccent) => savedAccent && setAccent(savedAccent));
 getBaseFontSize().then((savedSize) => savedSize && setBaseFontSize(savedSize));
+
+listen('settings::updated', async () => {
+  const theme = await getTheme();
+  if (theme) setTheme(theme);
+  const accent = await getAccent();
+  if (accent) setAccent(accent);
+  const size = await getBaseFontSize();
+  if (size) setBaseFontSize(size);
+}).catch(() => {});

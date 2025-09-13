@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/tauri";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/api/dialog";
-import { readTextFile, writeTextFile } from "@tauri-apps/api/fs";
 import { Store } from "@tauri-apps/plugin-store";
 import {
   listWhisper,
@@ -29,6 +28,7 @@ export default function Settings() {
 
   useEffect(() => {
     const load = async () => {
+      await store.load();
       setWhisper(await listWhisper());
       setPiper(await listPiper());
       setLlm(await listLlm());
@@ -44,10 +44,12 @@ export default function Settings() {
     const unlistenModels = listen("settings::models", () => load());
     const unlistenDevices = listen("settings::devices", () => load());
     const unlistenHotwords = listen("settings::hotwords", () => load());
+    const unlistenSettings = listen("settings::updated", () => load());
     return () => {
       unlistenModels.then((f) => f());
       unlistenDevices.then((f) => f());
       unlistenHotwords.then((f) => f());
+      unlistenSettings.then((f) => f());
     };
   }, []);
 
@@ -62,13 +64,11 @@ export default function Settings() {
   };
 
   const exportSettings = async () => {
-    const entries = await store.entries();
-    const data = Object.fromEntries(entries);
     const filePath = await saveDialog({
       filters: [{ name: "JSON", extensions: ["json"] }],
     });
     if (filePath) {
-      await writeTextFile(filePath, JSON.stringify(data, null, 2));
+      await invoke("export_settings", { path: filePath });
     }
   };
 
@@ -78,15 +78,7 @@ export default function Settings() {
       multiple: false,
     });
     if (typeof filePath === "string") {
-      const contents = await readTextFile(filePath);
-      const data = JSON.parse(contents);
-      for (const [key, value] of Object.entries(data)) {
-        await store.set(key, value);
-      }
-      await store.save();
-      if (data[VAULT_KEY]) {
-        setVault(data[VAULT_KEY]);
-      }
+      await invoke("import_settings", { path: filePath });
     }
   };
 

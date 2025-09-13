@@ -23,7 +23,9 @@ use tauri_plugin_store::{Builder, StoreBuilder};
 use url::Url;
 mod musiclang;
 mod util;
+mod config;
 use crate::util::list_from_dir;
+use crate::config::{export_settings, import_settings};
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 struct Npc {
@@ -913,6 +915,8 @@ fn main() {
             discord_profile_set,
             select_vault,
             open_path,
+            export_settings,
+            import_settings,
             musiclang::list_musiclang_models,
             musiclang::download_model
         ])
