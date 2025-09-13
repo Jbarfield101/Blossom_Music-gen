@@ -1,27 +1,32 @@
-use std::fs;
-use serde_json::{json, Value, Map};
+use serde_json::{json, Map, Value};
+use std::{fs, sync::Arc};
+use tauri::Emitter;
 use tauri::{AppHandle, Manager};
-use tauri_plugin_store::StoreBuilder;
+use tauri_plugin_store::{Store, StoreBuilder};
 
-fn config_store(app: &AppHandle) -> Result<tauri_plugin_store::Store, String> {
+fn config_store(app: &AppHandle) -> Result<Arc<Store<tauri::Wry>>, String> {
     let path = app
         .path()
         .app_config_dir()
         .map_err(|e| e.to_string())?
         .join("settings.json");
-    Ok(StoreBuilder::new(app.clone(), path).build())
+    StoreBuilder::new(app, path)
+        .build()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn get_config(app: AppHandle, key: String) -> Result<Value, String> {
     let store = config_store(&app)?;
-    Ok(store.get(key).unwrap_or(Value::Null))
+    Ok(store.get(&key).ok().flatten().unwrap_or(Value::Null))
 }
 
 #[tauri::command]
 pub fn set_config(app: AppHandle, key: String, value: Value) -> Result<(), String> {
     let store = config_store(&app)?;
-    store.insert(key.clone(), value.clone());
+    store
+        .set(key.clone(), value.clone())
+        .map_err(|e| e.to_string())?;
     store.save().map_err(|e| e.to_string())?;
     app.emit("settings::updated", json!({"key": key, "value": value}))
         .map_err(|e| e.to_string())?;
@@ -44,7 +49,9 @@ pub fn import_settings(app: AppHandle, path: String) -> Result<(), String> {
     let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
     let data: Map<String, Value> = serde_json::from_str(&text).map_err(|e| e.to_string())?;
     for (key, value) in data.into_iter() {
-        store.insert(key.clone(), value.clone());
+        store
+            .set(key.clone(), value.clone())
+            .map_err(|e| e.to_string())?;
         app.emit("settings::updated", json!({ "key": key, "value": value }))
             .map_err(|e| e.to_string())?;
     }

@@ -21,9 +21,9 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_store::{Builder, Store, StoreBuilder};
 use url::Url;
+mod config;
 mod musiclang;
 mod util;
-mod config;
 use crate::util::list_from_dir;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -199,22 +199,26 @@ fn list_models() -> Result<Vec<String>, String> {
     Ok(items)
 }
 
-fn models_store<R: Runtime>(app: &AppHandle<R>) -> Result<Store<R>, String> {
+fn models_store<R: Runtime>(app: &AppHandle<R>) -> Result<Arc<Store<R>>, String> {
     let path = app
         .path()
         .app_config_dir()
         .map_err(|e| e.to_string())?
         .join("models.json");
-    Ok(StoreBuilder::new(app, path).build())
+    StoreBuilder::new(app, path)
+        .build()
+        .map_err(|e| e.to_string())
 }
 
-fn devices_store(app: &AppHandle) -> Result<tauri_plugin_store::Store, String> {
+fn devices_store(app: &AppHandle) -> Result<Arc<Store<tauri::Wry>>, String> {
     let path = app
         .path()
         .app_config_dir()
         .map_err(|e| e.to_string())?
         .join("devices.json");
-    Ok(StoreBuilder::new(app.clone(), path).build())
+    StoreBuilder::new(app, path)
+        .build()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -226,8 +230,9 @@ fn list_whisper(app: AppHandle) -> Result<Value, String> {
     let store = models_store::<tauri::Wry>(&app)?;
     let selected = store
         .get("whisper")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
     if let Some(sel) = &selected {
         std::env::set_var("WHISPER_MODEL", sel);
     }
@@ -237,7 +242,7 @@ fn list_whisper(app: AppHandle) -> Result<Value, String> {
 #[tauri::command]
 fn set_whisper(app: AppHandle, model: String) -> Result<(), String> {
     let store = models_store::<tauri::Wry>(&app)?;
-    store.insert("whisper".to_string(), model.clone().into());
+    store.set("whisper".to_string(), model.clone().into());
     store.save().map_err(|e| e.to_string())?;
     std::env::set_var("WHISPER_MODEL", &model);
     app.emit("settings::models", json!({"whisper": model}))
@@ -260,8 +265,9 @@ fn list_piper(app: AppHandle) -> Result<Value, String> {
     let store = models_store::<tauri::Wry>(&app)?;
     let selected = store
         .get("piper")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
     if let Some(sel) = &selected {
         std::env::set_var("PIPER_VOICE", sel);
     }
@@ -271,7 +277,7 @@ fn list_piper(app: AppHandle) -> Result<Value, String> {
 #[tauri::command]
 fn set_piper(app: AppHandle, voice: String) -> Result<(), String> {
     let store = models_store::<tauri::Wry>(&app)?;
-    store.insert("piper".to_string(), voice.clone().into());
+    store.set("piper".to_string(), voice.clone().into());
     store.save().map_err(|e| e.to_string())?;
     std::env::set_var("PIPER_VOICE", &voice);
     app.emit("settings::models", json!({"piper": voice}))
@@ -352,8 +358,9 @@ fn list_llm(app: AppHandle) -> Result<Value, String> {
     let store = models_store::<tauri::Wry>(&app)?;
     let selected = store
         .get("llm")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
     if let Some(sel) = &selected {
         std::env::set_var("LLM_MODEL", sel);
     }
@@ -363,7 +370,7 @@ fn list_llm(app: AppHandle) -> Result<Value, String> {
 #[tauri::command]
 fn set_llm(app: AppHandle, model: String) -> Result<(), String> {
     let store = models_store::<tauri::Wry>(&app)?;
-    store.insert("llm".to_string(), model.clone().into());
+    store.set("llm".to_string(), model.clone().into());
     store.save().map_err(|e| e.to_string())?;
     std::env::set_var("LLM_MODEL", &model);
     app.emit("settings::models", json!({"llm": model}))
@@ -876,9 +883,7 @@ fn main() {
                 let status = Command::new("python").arg("start.py").status();
                 if !status.map(|s| s.success()).unwrap_or(false) {
                     if let Some(window) = app.get_webview_window("main") {
-                        window
-                            .dialog()
-                            .message("Setup Error", "Failed to set up Python environment.");
+                        window.dialog().title("Setup Error").message("Failed to set up Python environment.");
                     }
                     return Err("Python setup failed".into());
                 }
