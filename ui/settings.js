@@ -3,7 +3,7 @@
 
   function load() {
     const outdir = localStorage.getItem('default_outdir') || '';
-    const theme = localStorage.getItem('theme') || 'dark';
+    const theme = (window.getTheme && window.getTheme()) || 'dark';
     const outInput = $('default_outdir');
     const themeSel = $('theme');
     if (outInput) outInput.value = outdir;

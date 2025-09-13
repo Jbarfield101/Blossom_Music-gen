@@ -4,7 +4,8 @@ Simple demos for algorithmic music pattern generation.
 
 A desktop interface built with [Tauri](https://tauri.app/) provides the front‑end.
 Templates and scripts live under the top‑level `ui/` directory.  Command‑line
-usage via `start.py` remains available for automation.
+usage via `start.py` remains available for automation.  Theme selection is
+remembered using Tauri's store plugin with a `localStorage` fallback.
 
 ## Quick Start
 

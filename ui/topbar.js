@@ -1,11 +1,5 @@
 (function() {
-  window.setTheme = function(theme) {
-    localStorage.setItem('theme', theme);
-    document.documentElement.setAttribute('data-theme', theme);
-  };
-
-  let currentTheme = localStorage.getItem('theme') || 'dark';
-  document.documentElement.setAttribute('data-theme', currentTheme);
+  let currentTheme = (window.getTheme && window.getTheme()) || 'dark';
 
   const style = document.createElement('style');
   style.textContent = `
@@ -57,9 +51,13 @@
   function updateThemeBtn() {
     themeBtn.textContent = currentTheme === 'dark' ? 'Light Mode' : 'Dark Mode';
   }
-  themeBtn.addEventListener('click', () => {
+  themeBtn.addEventListener('click', async () => {
     currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
-    window.setTheme(currentTheme);
+    if (window.setTheme) {
+      await window.setTheme(currentTheme);
+    } else {
+      document.documentElement.setAttribute('data-theme', currentTheme);
+    }
     updateThemeBtn();
   });
   updateThemeBtn();

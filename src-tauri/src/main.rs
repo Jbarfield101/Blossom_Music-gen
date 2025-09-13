@@ -406,6 +406,7 @@ fn main() {
     }
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_store::Builder::default().build())
         .manage(JobRegistry::default())
         .invoke_handler(tauri::generate_handler![
             list_presets,
