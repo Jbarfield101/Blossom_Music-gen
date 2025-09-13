@@ -52,3 +52,10 @@ async def test_speak_encodes_and_sends(monkeypatch):
     assert vc.send_audio_packet.call_count == 5
     vc.send_audio_packet.assert_called_with(b"packet", encode=False)
     await player.close()
+
+
+@pytest.mark.asyncio
+async def test_speak_without_connection_raises():
+    player = DiscordPlayer()
+    with pytest.raises(RuntimeError):
+        await player.speak("no channel")
