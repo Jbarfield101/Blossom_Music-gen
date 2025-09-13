@@ -49,7 +49,7 @@ async function tauriOnnxMain(){
 
   modelSelect.addEventListener('change', refreshModels);
 
-  downloadBtn.addEventListener('click', async () => {
+  downloadBtn.addEventListener('click', async e => {
     const name = modelSelect.value;
     prog.value = 0;
     log.textContent = '';
@@ -65,7 +65,7 @@ async function tauriOnnxMain(){
       }
     });
     try {
-      await invoke('download_model', { name });
+      await invoke('download_model', { name, force: e.shiftKey });
     } catch (e) {
       console.error(e);
     }
