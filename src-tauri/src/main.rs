@@ -916,7 +916,8 @@ fn main() {
             open_path,
             config::get_config,
             config::set_config,
-            config::export_config,
+            config::export_settings,
+            config::import_settings,
             musiclang::list_musiclang_models,
             musiclang::download_model
         ])
