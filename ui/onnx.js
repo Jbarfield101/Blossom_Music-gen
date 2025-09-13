@@ -98,14 +98,11 @@ async function tauriOnnxMain(){
   }
 
   async function populateModels(){
-    modelSelect.innerHTML = '';
     modelBanner.hidden = true;
     modelBanner.textContent = '';
-    modelSelect.disabled = false;
-    downloadBtn.disabled = false;
-    startBtn.disabled = false;
     try {
       const models = await invoke('list_musiclang_models');
+      modelSelect.innerHTML = '';
       if (!Array.isArray(models) || models.length === 0) {
         const opt = document.createElement('option');
         opt.textContent = 'No models found';
@@ -132,8 +129,12 @@ async function tauriOnnxMain(){
         opt.textContent = label;
         modelSelect.appendChild(opt);
       });
+      modelSelect.disabled = false;
+      downloadBtn.disabled = false;
+      startBtn.disabled = false;
       await refreshModels();
     } catch (e) {
+      modelSelect.innerHTML = '';
       const opt = document.createElement('option');
       opt.textContent = 'No models found';
       opt.disabled = true;
@@ -150,6 +151,11 @@ async function tauriOnnxMain(){
     }
   }
 
+  const loadingOpt = document.createElement('option');
+  loadingOpt.textContent = 'Loading…';
+  loadingOpt.disabled = true;
+  modelSelect.appendChild(loadingOpt);
+  modelSelect.disabled = true;
   await populateModels();
 
   validateInputs();
