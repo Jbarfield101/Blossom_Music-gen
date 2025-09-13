@@ -267,12 +267,9 @@ to craft melodies directly from ONNX graphs.
 
 ### Workflow
 
-1. **Download a model** into `models/`:
-
-   ```bash
-   curl -L https://huggingface.co/musiclang/musiclang-small/resolve/main/model.onnx \
-        -o models/musiclang-small.onnx
-   ```
+1. **Select a model** – the **ONNX Crafter** panel in the GUI lists official
+   MusicLang ONNX models pulled from Hugging Face. Choosing a model downloads it
+   automatically into the `models/` directory.
 
 2. **Prepare inputs** – create a chord grid and a melody:
 
@@ -326,6 +323,16 @@ basic telemetry appear once generation finishes:
   cumulative probability exceeds `p`.
 * `temperature` – scale logits before sampling.  Values <1 make predictions more
   deterministic, while values >1 increase variety.
+
+### Troubleshooting
+
+If the automatic download fails, models can be fetched manually and placed in
+the `models/` directory:
+
+```bash
+curl -L https://huggingface.co/musiclang/musiclang-small/resolve/main/model.onnx \
+     -o models/musiclang-small.onnx
+```
 
 ## Discord transcription pipeline
 
