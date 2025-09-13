@@ -306,7 +306,7 @@ fn onnx_generate(
 }
 
 #[tauri::command]
-fn cancel_render(registry: State<JobRegistry>, job_id: u64) -> Result<(), String> {
+fn cancel_render(app: AppHandle, registry: State<JobRegistry>, job_id: u64) -> Result<(), String> {
     let mut jobs = registry.jobs.lock().map_err(|e| e.to_string())?;
     match jobs.get_mut(&job_id) {
         Some(job) => {
@@ -318,6 +318,7 @@ fn cancel_render(registry: State<JobRegistry>, job_id: u64) -> Result<(), String
                 let status = child.wait().map_err(|e| e.to_string())?;
                 job.status = Some(status.success());
                 job.child = None;
+                let _ = app.emit_all(&format!("onnx::cancelled::{}", job_id), ());
                 Ok(())
             } else {
                 Err("Job already completed".into())
