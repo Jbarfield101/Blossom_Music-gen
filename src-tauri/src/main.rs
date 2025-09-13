@@ -21,12 +21,14 @@ mod musiclang;
 mod util;
 use crate::util::list_from_dir;
 
-#[derive(serde::Serialize, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct ProgressEvent {
     stage: Option<String>,
     percent: Option<u8>,
-    message: String,
+    message: Option<String>,
     eta: Option<String>,
+    step: Option<u64>,
+    total: Option<u64>,
 }
 
 fn extract_error_message(stderr: &str) -> Option<String> {
@@ -160,8 +162,10 @@ fn start_job(
                 let event = ProgressEvent {
                     stage,
                     percent,
-                    message: line.clone(),
+                    message: Some(line.clone()),
                     eta,
+                    step: None,
+                    total: None,
                 };
                 let _ = app_handle.emit_all(&format!("progress::{}", id), event);
             }
@@ -214,8 +218,10 @@ fn onnx_generate(
                         let event = ProgressEvent {
                             stage: Some("error".into()),
                             percent: None,
-                            message: err_msg.to_string(),
+                            message: Some(err_msg.to_string()),
                             eta: None,
+                            step: None,
+                            total: None,
                         };
                         let _ = app_handle.emit_all(&format!("onnx::progress::{}", id_clone), event);
                     }
@@ -230,9 +236,6 @@ fn onnx_generate(
         let tx2 = tx.clone();
         let id_clone = id;
         std::thread::spawn(move || {
-            let stage_re = Regex::new(r"^\s*([\w-]+):").unwrap();
-            let percent_re = Regex::new(r"(\d+)%").unwrap();
-            let eta_re = Regex::new(r"ETA[:\s]+([0-9:]+)").unwrap();
             let reader = BufReader::new(stdout);
             let mut first = true;
             for line in reader.lines().flatten() {
@@ -240,26 +243,16 @@ fn onnx_generate(
                     let _ = tx2.send(());
                     first = false;
                 }
-                let trimmed = line.trim();
-                if trimmed.starts_with('{') && serde_json::from_str::<Value>(trimmed).is_ok() {
+                if let Ok(event) = serde_json::from_str::<ProgressEvent>(&line) {
+                    let _ = app_handle.emit_all(&format!("onnx::progress::{}", id_clone), event);
+                } else if serde_json::from_str::<Value>(&line).is_ok() {
                     let event = ProgressEvent {
                         stage: None,
                         percent: None,
-                        message: line.clone(),
+                        message: Some(line.clone()),
                         eta: None,
-                    };
-                    let _ = app_handle.emit_all(&format!("onnx::progress::{}", id_clone), event);
-                } else {
-                    let stage = stage_re.captures(&line).map(|c| c[1].to_string());
-                    let percent = percent_re
-                        .captures(&line)
-                        .and_then(|c| c[1].parse::<u8>().ok());
-                    let eta = eta_re.captures(&line).map(|c| c[1].to_string());
-                    let event = ProgressEvent {
-                        stage,
-                        percent,
-                        message: line.clone(),
-                        eta,
+                        step: None,
+                        total: None,
                     };
                     let _ = app_handle.emit_all(&format!("onnx::progress::{}", id_clone), event);
                 }
