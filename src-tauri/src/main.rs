@@ -23,6 +23,7 @@ use tauri_plugin_store::{Builder, StoreBuilder};
 use url::Url;
 mod musiclang;
 mod util;
+mod config;
 use crate::util::list_from_dir;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -913,6 +914,9 @@ fn main() {
             discord_profile_set,
             select_vault,
             open_path,
+            config::get_config,
+            config::set_config,
+            config::export_config,
             musiclang::list_musiclang_models,
             musiclang::download_model
         ])
