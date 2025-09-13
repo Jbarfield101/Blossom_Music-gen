@@ -5,6 +5,7 @@ resampy
 webrtcvad
 faster-whisper
 pytest
+requests
 
 jinja2
 python-frontmatter
