@@ -15,9 +15,9 @@ use std::{
 
 use regex::Regex;
 use serde_json::{json, Value};
-use tauri::api::dialog::blocking::message;
 use tauri::Emitter;
 use tauri::{async_runtime, AppHandle, Manager, State};
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_store::{Builder, StoreBuilder};
 use url::Url;
@@ -873,11 +873,9 @@ fn main() {
                 let status = Command::new("python").arg("start.py").status();
                 if !status.map(|s| s.success()).unwrap_or(false) {
                     if let Some(window) = app.get_window("main") {
-                        message(
-                            Some(&window),
-                            "Setup Error",
-                            "Failed to set up Python environment.",
-                        );
+                        window
+                            .dialog()
+                            .message("Setup Error", "Failed to set up Python environment.");
                     }
                     return Err("Python setup failed".into());
                 }
