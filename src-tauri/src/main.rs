@@ -26,6 +26,100 @@ mod util;
 use crate::util::list_from_dir;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct Npc {
+    name: String,
+    description: String,
+    prompt: String,
+    voice: String,
+}
+
+fn read_npcs() -> Result<Vec<Npc>, String> {
+    let path = Path::new("data/npcs.json");
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let npcs = serde_json::from_str(&text).unwrap_or_default();
+    Ok(npcs)
+}
+
+fn write_npcs(npcs: &[Npc]) -> Result<(), String> {
+    let path = Path::new("data/npcs.json");
+    let text = serde_json::to_string_pretty(npcs).map_err(|e| e.to_string())?;
+    fs::write(path, text).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn npc_list() -> Result<Vec<Npc>, String> {
+    let mut npcs = read_npcs()?;
+    if let Ok(output) = Command::new("python")
+        .args([
+            "-c",
+            "import json, service_api; print(json.dumps(service_api.list_npcs()))",
+        ])
+        .output()
+    {
+        if output.status.success() {
+            if let Ok(notes) = serde_json::from_slice::<Vec<Value>>(&output.stdout) {
+                for note in notes {
+                    if let Some(name) = note
+                        .get("aliases")
+                        .and_then(|v| v.as_array())
+                        .and_then(|arr| arr.get(0))
+                        .and_then(|v| v.as_str())
+                        .or_else(|| note.get("path").and_then(|v| v.as_str()))
+                    {
+                        if !npcs.iter().any(|n| n.name == name) {
+                            let fields = note.get("fields").and_then(|v| v.as_object());
+                            let description = fields
+                                .and_then(|f| f.get("description"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let prompt = fields
+                                .and_then(|f| f.get("prompt"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let voice = fields
+                                .and_then(|f| f.get("voice"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            npcs.push(Npc {
+                                name: name.to_string(),
+                                description,
+                                prompt,
+                                voice,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(npcs)
+}
+
+#[tauri::command]
+fn npc_save(npc: Npc) -> Result<(), String> {
+    let mut npcs = read_npcs()?;
+    if let Some(existing) = npcs.iter_mut().find(|n| n.name == npc.name) {
+        *existing = npc;
+    } else {
+        npcs.push(npc);
+    }
+    write_npcs(&npcs)
+}
+
+#[tauri::command]
+fn npc_delete(name: String) -> Result<(), String> {
+    let mut npcs = read_npcs()?;
+    npcs.retain(|n| n.name != name);
+    write_npcs(&npcs)
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct ProgressEvent {
     stage: Option<String>,
     percent: Option<u8>,
@@ -705,6 +799,9 @@ fn main() {
             set_piper,
             list_llm,
             set_llm,
+            npc_list,
+            npc_save,
+            npc_delete,
             list_devices,
             set_devices,
             app_version,
