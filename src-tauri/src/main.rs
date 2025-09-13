@@ -47,7 +47,6 @@ fn extract_error_message(stderr: &str) -> Option<String> {
 
 struct JobInfo {
     child: Option<Child>,
-    args: Vec<String>,
     status: Option<bool>,
     stderr: Arc<Mutex<String>>,
 }
@@ -147,7 +146,6 @@ fn start_job(
     }
     let job = JobInfo {
         child: Some(child),
-        args,
         status: None,
         stderr: stderr_buf,
     };
@@ -201,7 +199,6 @@ fn onnx_generate(
     let stderr_buf = Arc::new(Mutex::new(String::new()));
     let job = JobInfo {
         child: Some(child),
-        args: full_args.clone(),
         status: None,
         stderr: stderr_buf.clone(),
     };
