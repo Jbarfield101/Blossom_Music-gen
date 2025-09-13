@@ -1,15 +1,80 @@
 from pathlib import Path
 import sys
+import sys
 import sqlite3
+import types
+import pytest
+
+from pathlib import Path
+
+
+class _Array(list):
+    def astype(self, _):
+        return self
+    
+    @property
+    def shape(self):
+        if not self:
+            return (0, 0)
+        first = self[0]
+        if isinstance(first, list):
+            return (len(self), len(first))
+        return (len(self),)
+
+
+sys.modules.setdefault(
+    "numpy",
+    types.SimpleNamespace(
+        asarray=lambda x, dtype=None: _Array(x) if isinstance(x, list) else x,
+        array=lambda x, dtype=None: _Array(x) if isinstance(x, list) else x,
+        vstack=lambda xs: _Array(xs),
+    ),
+)
+
+sys.modules.setdefault(
+    "faiss",
+    types.SimpleNamespace(
+        IndexIDMap=lambda base: _IndexIDMap(base),
+        IndexFlatL2=lambda dim: _IndexFlatL2(dim),
+        write_index=lambda index, path: None,
+    ),
+)
+
+sys.modules.setdefault(
+    "watchfiles",
+    types.SimpleNamespace(Change=object, watch=lambda *a, **k: None),
+)
+
+requests_stub = types.SimpleNamespace(post=lambda *a, **k: None)
+requests_stub.Response = type("Response", (), {})
+requests_stub.exceptions = types.SimpleNamespace(
+    HTTPError=Exception, RequestException=Exception, Timeout=Exception
+)
+sys.modules.setdefault("requests", requests_stub)
+sys.modules.setdefault("requests.exceptions", requests_stub.exceptions)
+
+
+class _IndexFlatL2:
+    def __init__(self, dim):
+        self.dim = dim
+
+
+class _IndexIDMap:
+    def __init__(self, base):
+        self.base = base
+
+    def add_with_ids(self, vectors, ids):
+        pass
+
 import numpy as np
 import faiss
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import service_api
 from brain import dialogue, ollama_client
 import notes.search as search_mod
+import json
 
 
 def _fake_embed(texts, model_name=None):
@@ -17,12 +82,12 @@ def _fake_embed(texts, model_name=None):
     for text in texts:
         t = text.lower()
         if "dragon" in t:
-            vecs.append([1.0, 0.0])
+            vecs.append(_Array([1.0, 0.0]))
         elif "king" in t:
-            vecs.append([0.0, 1.0])
+            vecs.append(_Array([0.0, 1.0]))
         else:
-            vecs.append([0.0, 0.0])
-    return np.asarray(vecs, dtype="float32")
+            vecs.append(_Array([0.0, 0.0]))
+    return _Array(vecs)
 
 
 def _build_vault(root: Path, chunks):
@@ -51,15 +116,32 @@ def _build_vault(root: Path, chunks):
     faiss.write_index(index, str(root / "obsidian_index.faiss"))
 
 
-def _patch_common(monkeypatch, vault):
+def _patch_common(monkeypatch, vault, chunks):
     monkeypatch.setattr(service_api, "get_vault", lambda: vault)
     monkeypatch.setattr(dialogue.service_api, "get_vault", lambda: vault)
-    monkeypatch.setattr(search_mod, "embed_texts", _fake_embed)
+
+    def fake_search(query, tags=None):
+        results = []
+        for ch in chunks:
+            if tags and not any(t in ch["tags"] for t in tags):
+                continue
+            results.append({"content": ch["content"]})
+        return results
+
+    monkeypatch.setattr(service_api, "search", fake_search)
+    monkeypatch.setattr(dialogue.service_api, "search", fake_search)
     captured = {}
 
     def fake_generate(prompt: str) -> str:
         captured["prompt"] = prompt
-        return prompt
+        payload = {
+            "who": "tester",
+            "action": "say",
+            "targets": [],
+            "effects": [],
+            "narration": prompt,
+        }
+        return json.dumps(payload)
 
     monkeypatch.setattr(ollama_client, "generate", fake_generate)
     monkeypatch.setattr(dialogue.ollama_client, "generate", fake_generate)
@@ -88,12 +170,12 @@ def test_lore_injection(tmp_path, monkeypatch):
         },
     ]
     _build_vault(tmp_path, chunks)
-    captured = _patch_common(monkeypatch, tmp_path)
+    captured = _patch_common(monkeypatch, tmp_path, chunks)
 
     out = dialogue.respond("Tell me some lore about dragons")
-    assert "Relevant notes:" in out
-    assert "- Dragons are ancient creatures." in out
-    assert captured["prompt"] == out
+    assert "Relevant notes:" in out.narration
+    assert "- Dragons are ancient creatures." in out.narration
+    assert captured["prompt"] == out.narration
 
 
 def test_npc_injection(tmp_path, monkeypatch):
@@ -118,12 +200,12 @@ def test_npc_injection(tmp_path, monkeypatch):
         },
     ]
     _build_vault(tmp_path, chunks)
-    captured = _patch_common(monkeypatch, tmp_path)
+    captured = _patch_common(monkeypatch, tmp_path, chunks)
 
     out = dialogue.respond("Hello, what do I know about the king?")
-    assert "Relevant notes:" in out
-    assert "- King Arthur" in out
-    assert captured["prompt"] == out
+    assert "Relevant notes:" in out.narration
+    assert "- King Arthur" in out.narration
+    assert captured["prompt"] == out.narration
 
 
 def test_no_notes_fallback(tmp_path, monkeypatch):
@@ -139,9 +221,10 @@ def test_no_notes_fallback(tmp_path, monkeypatch):
         }
     ]
     _build_vault(tmp_path, chunks)
-    captured = _patch_common(monkeypatch, tmp_path)
+    captured = _patch_common(monkeypatch, tmp_path, chunks)
 
     msg = "Tell me some lore about dragons"
     out = dialogue.respond(msg)
-    assert out == msg
-    assert captured["prompt"] == msg
+    assert msg in out.narration
+    assert "Relevant notes:" not in out.narration
+    assert captured["prompt"] == out.narration

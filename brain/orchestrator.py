@@ -45,8 +45,8 @@ def respond(user_message: str) -> Event:
         text = _take_note(user_message)
         return {"type": "note", "content": text}
 
-    text = dialogue.respond(user_message)
-    return {"type": "dialogue", "content": text}
+    event = dialogue.respond(user_message)
+    return {"type": "dialogue", "content": event.narration}
 
 
 def main() -> None:

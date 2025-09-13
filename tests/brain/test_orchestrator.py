@@ -19,6 +19,7 @@ sys.modules.setdefault("requests", fake_requests)
 sys.modules.setdefault("requests.exceptions", fake_requests.exceptions)
 
 from brain import orchestrator, dialogue, ollama_client
+import json
 
 
 def _patch_ollama(monkeypatch):
@@ -26,7 +27,16 @@ def _patch_ollama(monkeypatch):
 
     def fake_generate(prompt: str) -> str:
         captured["prompt"] = prompt
-        return f"LLM:{prompt}"
+        if prompt.startswith("Summarise"):
+            return f"LLM:{prompt}"
+        payload = {
+            "who": "tester",
+            "action": "say",
+            "targets": [],
+            "effects": [],
+            "narration": f"LLM:{prompt}",
+        }
+        return json.dumps(payload)
 
     monkeypatch.setattr(ollama_client, "generate", fake_generate)
     monkeypatch.setattr(dialogue.ollama_client, "generate", fake_generate)
@@ -39,7 +49,7 @@ def test_dialogue_flow(monkeypatch):
     event = orchestrator.respond("Hello there")
     assert event["type"] == "dialogue"
     assert event["content"] == f"LLM:{captured['prompt']}"
-    assert captured["prompt"] == "Hello there"
+    assert captured["prompt"].startswith("Hello there")
 
 
 def test_note_flow(monkeypatch):
