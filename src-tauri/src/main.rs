@@ -17,9 +17,9 @@ use regex::Regex;
 use serde_json::{json, Value};
 use tauri::api::dialog::blocking::message;
 use tauri::Emitter;
-use tauri::{async_runtime, AppHandle, Manager, State};
+use tauri::{async_runtime, AppHandle, Manager, Runtime, State, Wry};
 use tauri_plugin_opener::OpenerExt;
-use tauri_plugin_store::{Builder, StoreBuilder};
+use tauri_plugin_store::{Builder, Store, StoreBuilder};
 use url::Url;
 mod musiclang;
 mod util;
@@ -198,7 +198,7 @@ fn list_models() -> Result<Vec<String>, String> {
     Ok(items)
 }
 
-fn models_store(app: &AppHandle) -> Result<tauri_plugin_store::Store, String> {
+fn models_store<R: Runtime>(app: &AppHandle<R>) -> Result<Store<R>, String> {
     let path = app
         .path()
         .app_config_dir()
@@ -222,7 +222,7 @@ fn list_whisper(app: AppHandle) -> Result<Value, String> {
         .into_iter()
         .map(|s| s.to_string())
         .collect::<Vec<_>>();
-    let store = models_store(&app)?;
+    let store = models_store::<Wry>(&app)?;
     let selected = store
         .get("whisper")
         .and_then(|v| v.as_str())
@@ -235,7 +235,7 @@ fn list_whisper(app: AppHandle) -> Result<Value, String> {
 
 #[tauri::command]
 fn set_whisper(app: AppHandle, model: String) -> Result<(), String> {
-    let store = models_store(&app)?;
+    let store = models_store::<Wry>(&app)?;
     store.insert("whisper".to_string(), model.clone().into());
     store.save().map_err(|e| e.to_string())?;
     std::env::set_var("WHISPER_MODEL", &model);
@@ -256,7 +256,7 @@ fn list_piper(app: AppHandle) -> Result<Value, String> {
         options.push("narrator".to_string());
     }
     options.sort();
-    let store = models_store(&app)?;
+    let store = models_store::<Wry>(&app)?;
     let selected = store
         .get("piper")
         .and_then(|v| v.as_str())
@@ -269,7 +269,7 @@ fn list_piper(app: AppHandle) -> Result<Value, String> {
 
 #[tauri::command]
 fn set_piper(app: AppHandle, voice: String) -> Result<(), String> {
-    let store = models_store(&app)?;
+    let store = models_store::<Wry>(&app)?;
     store.insert("piper".to_string(), voice.clone().into());
     store.save().map_err(|e| e.to_string())?;
     std::env::set_var("PIPER_VOICE", &voice);
@@ -320,8 +320,11 @@ fn hotword_set(
     if !status.success() {
         return Err("hotword configuration failed".into());
     }
-    app.emit("settings::hotwords", json!({ "name": name, "enabled": enabled }))
-        .map_err(|e| e.to_string())?;
+    app.emit(
+        "settings::hotwords",
+        json!({ "name": name, "enabled": enabled }),
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -344,7 +347,7 @@ fn list_llm(app: AppHandle) -> Result<Value, String> {
         options.push("mistral".to_string());
     }
     options.sort();
-    let store = models_store(&app)?;
+    let store = models_store::<Wry>(&app)?;
     let selected = store
         .get("llm")
         .and_then(|v| v.as_str())
@@ -357,7 +360,7 @@ fn list_llm(app: AppHandle) -> Result<Value, String> {
 
 #[tauri::command]
 fn set_llm(app: AppHandle, model: String) -> Result<(), String> {
-    let store = models_store(&app)?;
+    let store = models_store::<Wry>(&app)?;
     store.insert("llm".to_string(), model.clone().into());
     store.save().map_err(|e| e.to_string())?;
     std::env::set_var("LLM_MODEL", &model);
@@ -802,9 +805,7 @@ fn discord_profile_set(guild_id: u64, channel_id: u64, profile: Value) -> Result
 fn select_vault(path: String) -> Result<(), String> {
     let status = Command::new("python")
         .arg("-c")
-        .arg(
-            "import sys; from config.obsidian import select_vault; select_vault(sys.argv[1])",
-        )
+        .arg("import sys; from config.obsidian import select_vault; select_vault(sys.argv[1])")
         .arg(&path)
         .status()
         .map_err(|e| e.to_string())?;
