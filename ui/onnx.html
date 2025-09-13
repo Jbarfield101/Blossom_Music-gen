@@ -54,34 +54,42 @@
     </p>
   </section>
   <div id="inputs">
-    <label>Model
-      <select id="model-select" title="Choose a downloaded .onnx model">
-        <option value="" disabled selected>Select a model...</option>
-      </select>
-    </label>
-    <label>Song spec (JSON or space-separated chords)
-      <textarea id="song_spec" rows="3"></textarea>
-    </label>
-    <label>Melody MIDI <input type="file" id="midi" title="Optional melody seed" /></label>
-    <label>Steps <input type="number" id="steps" value="32" title="Total tokens to generate" /></label>
-    <label>Top-k <input type="number" id="top_k" title="Keep the highest-probability k tokens" /></label>
-    <label>Top-p <input type="number" step="0.01" id="top_p" title="Nucleus sampling probability threshold" /></label>
-    <label>
-      Temperature
-      <input type="number" step="0.01" id="temperature" value="1.0" title="Scale logits before sampling" />
-    </label>
+    <label for="model-select">Model</label>
+    <select id="model-select" title="Choose a downloaded .onnx model" aria-label="Model">
+      <option value="" disabled selected>Select a model...</option>
+    </select>
+
+    <label for="song_spec">Song spec (JSON or space-separated chords)</label>
+    <textarea id="song_spec" rows="3" aria-label="Song specification"></textarea>
+
+    <label for="midi">Melody MIDI</label>
+    <input type="file" id="midi" title="Optional melody seed" aria-label="Melody MIDI" />
+
+    <label for="steps">Steps</label>
+    <input type="number" id="steps" value="32" title="Total tokens to generate" aria-label="Steps" />
+
+    <label for="top_k">Top-k</label>
+    <input type="number" id="top_k" title="Keep the highest-probability k tokens" aria-label="Top-k" />
+
+    <label for="top_p">Top-p</label>
+    <input type="number" step="0.01" id="top_p" title="Nucleus sampling probability threshold" aria-label="Top-p" />
+
+    <label for="temperature">Temperature</label>
+    <input type="number" step="0.01" id="temperature" value="1.0" title="Scale logits before sampling" aria-label="Temperature" />
   </div>
+
   <div id="controls">
-    <button id="download" type="button">Download</button>
-    <button id="start" type="button" disabled>Start</button>
-    <button id="cancel" type="button" disabled>Cancel</button>
-    <progress id="progress" value="0" max="100"></progress>
-    <span id="eta"></span>
+    <button id="download" type="button" aria-label="Download model">Download</button>
+    <button id="start" type="button" disabled aria-label="Start generation">Start</button>
+    <button id="cancel" type="button" disabled aria-label="Cancel generation">Cancel</button>
+    <label for="progress">Progress</label>
+    <progress id="progress" value="0" max="100" aria-label="Progress"></progress>
+    <span id="eta" aria-live="polite"></span>
   </div>
   <pre id="log"></pre>
   <div id="results" hidden>
     <h3>Result</h3>
-    <a id="midi_link" href="#"></a>
+    <a id="midi_link" href="#" aria-label="Download generated MIDI"></a>
     <pre id="telemetry"></pre>
   </div>
   <div id="loading-overlay" hidden>
