@@ -3,12 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <title>Train Model</title>
-  <script>
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme) {
-      document.documentElement.dataset.theme = savedTheme;
-    }
-  </script>
+  <script type="module" src="./theme.js"></script>
   <link rel="stylesheet" href="/ui/theme.css">
   <style>
     body {
@@ -41,7 +36,7 @@
   </div>
   <pre id="log"></pre>
 
-  <script src="./topbar.js"></script>
+  <script type="module" src="./topbar.js"></script>
   <script src="/ui/train.js"></script>
 </body>
 </html>
