@@ -79,10 +79,12 @@ async function tauriOnnxMain(){
       const installed = await invoke('list_models');
       const selected = modelSelect.value.split(/[\\/]/).pop();
       modelInstalled = installed.includes(selected);
-      refreshStartDisabled();
     } catch (e) {
       console.error(e);
+      modelInstalled = false;
     }
+    // Only update the Start button; do not modify the model selector itself
+    refreshStartDisabled();
   }
 
   async function populateModels(){
