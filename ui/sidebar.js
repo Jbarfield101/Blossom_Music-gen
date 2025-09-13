@@ -15,8 +15,8 @@
     },
     {
       href: 'dnd.html',
-      label: 'Dungeons & Dragons',
-      icon: `<svg viewBox="0 0 24 24" aria-hidden="true" fill="var(--icon)"><title>Dungeons and Dragons</title><polygon points="12,2 2,12 12,22 22,12"/></svg>`
+      label: 'D&D',
+      icon: `<svg viewBox="0 0 24 24" aria-hidden="true" fill="var(--icon)"><title>D&amp;D</title><polygon points="12,2 2,12 12,22 22,12"/></svg>`
     },
     {
       href: 'settings.html',
@@ -44,14 +44,14 @@
     const a = document.createElement('a');
     a.href = item.href;
     a.setAttribute('aria-label', item.label);
-    a.innerHTML = `${item.icon}<span>${item.label}</span>`;
+    a.innerHTML = item.icon;
     sidebar.appendChild(a);
   });
 
   const toggle = document.createElement('button');
   toggle.id = 'sidebar-toggle';
   toggle.setAttribute('aria-label', 'Toggle sidebar');
-  toggle.innerHTML = `<svg viewBox="0 0 24 24" fill="var(--icon)"><title>Toggle sidebar</title><path d="M4 6h16v2H4V6zm0 5h16v2H4v-2zm0 5h16v2H4v-2z"/></svg>`;
+  toggle.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true" fill="var(--icon)"><title>Toggle sidebar</title><path d="M4 6h16v2H4V6zm0 5h16v2H4v-2zm0 5h16v2H4v-2z"/></svg>`;
   toggle.addEventListener('click', () => {
     sidebar.classList.toggle('open');
   });
