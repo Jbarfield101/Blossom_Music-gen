@@ -15,6 +15,8 @@ async function tauriOnnxMain(){
   const cancelBtn = document.getElementById('cancel');
   const prog = document.getElementById('progress');
   const log = document.getElementById('log');
+  log.hidden = false;
+  log.style.userSelect = 'text';
   const results = document.getElementById('results');
   const midiLink = document.getElementById('midi_link');
   const telemetryPre = document.getElementById('telemetry');
@@ -54,7 +56,9 @@ async function tauriOnnxMain(){
       });
       await refreshModels();
     } catch (e) {
-      console.error(e);
+      log.textContent = `Error fetching models: ${e}`;
+      log.scrollTop = log.scrollHeight;
+      if (typeof alert === 'function') alert(`Error fetching models: ${e}`);
     }
   }
 
@@ -80,7 +84,9 @@ async function tauriOnnxMain(){
     try {
       await invoke('download_model', { name, force: e.shiftKey });
     } catch (e) {
-      console.error(e);
+      log.textContent += `Error downloading model: ${e}\n`;
+      log.scrollTop = log.scrollHeight;
+      if (typeof alert === 'function') alert(`Error downloading model: ${e}`);
     }
     unlistenDownload();
     await refreshModels();

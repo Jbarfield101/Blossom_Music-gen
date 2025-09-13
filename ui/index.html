@@ -12,109 +12,98 @@
   <link rel="stylesheet" href="/ui/theme.css">
   <style>
     body {
+      margin: 0;
       background: var(--bg);
       color: var(--fg);
-      margin: 0;
-      margin-left: 220px;
-      font-family: sans-serif;
-    }
-
-    .carousel {
+      font-family: var(--font);
       display: flex;
       flex-direction: column;
-      overflow-y: auto;
-      scroll-snap-type: y mandatory;
-      gap: 1rem;
-      padding: 1rem;
-      position: fixed;
-      top: 0;
-      left: 0;
-      height: 100vh;
-      width: 220px;
+      min-height: 100vh;
+    }
+
+    header {
+      text-align: center;
+      padding: 2rem 1rem 0;
+    }
+
+    .dashboard {
+      flex: 1;
+      display: grid;
+      gap: 1.5rem;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      padding: 2rem;
+      max-width: 1200px;
+      margin: 0 auto;
+      width: 100%;
       box-sizing: border-box;
     }
 
-    .carousel:focus {
-      outline: 2px solid var(--fg);
-    }
-
-    .panel {
-      flex: 0 0 80%;
-      max-width: 300px;
+    .card {
       background: var(--panel-bg);
-      border-radius: 8px;
+      border-radius: 12px;
       padding: 2rem 1rem;
       text-align: center;
       text-decoration: none;
       color: var(--fg);
-      scroll-snap-align: start;
+      box-shadow: var(--panel-shadow);
+      transition: background 0.3s, transform 0.3s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
     }
 
-    .panel:hover,
-    .panel:focus {
+    .card:hover,
+    .card:focus {
       background: var(--panel-hover-bg);
+      transform: translateY(-4px);
     }
 
-    .panel-icon {
+    .card-icon {
       font-size: 3rem;
-      display: block;
       margin-bottom: 1rem;
     }
 
-    .panel-caption {
-      display: block;
-      font-size: 0.9rem;
+    .card-caption {
       margin-top: 0.5rem;
-    }
-
-    @media (min-width: 600px) {
-      .panel {
-        flex: 0 0 40%;
-      }
+      font-size: 0.9rem;
     }
   </style>
 </head>
 <body>
-  <h1>Blossom Music Generation</h1>
-  <div class="carousel" tabindex="0">
-    <a class="panel" href="generate.html">
-      <span class="panel-icon">🎵</span>
+  <header>
+    <h1>Blossom Music Generation</h1>
+  </header>
+  <main class="dashboard">
+    <a class="card" href="generate.html">
+      <span class="card-icon">🎵</span>
       <h2>Music Generator</h2>
     </a>
-    <a class="panel" href="dnd.html">
-      <span class="panel-icon">🐉</span>
+    <a class="card" href="dnd.html">
+      <span class="card-icon">🐉</span>
       <h2>Dungeons & Dragons</h2>
     </a>
-    <a class="panel" href="settings.html">
-      <span class="panel-icon">⚙️</span>
+    <a class="card" href="settings.html">
+      <span class="card-icon">⚙️</span>
       <h2>Settings</h2>
     </a>
-    <a class="panel" href="train.html">
-      <span class="panel-icon">🎚️</span>
+    <a class="card" href="train.html">
+      <span class="card-icon">🎚️</span>
       <h2>Train Model</h2>
     </a>
-    <a class="panel" href="/models" title="Manage or download models">
-      <span class="panel-icon">📦</span>
+    <a class="card" href="/models" title="Manage or download models">
+      <span class="card-icon">📦</span>
       <h2>Manage/Download Models</h2>
-      <p id="model-count" class="panel-caption"></p>
+      <p id="model-count" class="card-caption"></p>
     </a>
-    <a class="panel" href="onnx.html">
-      <span class="panel-icon">🧠</span>
+    <a class="card" href="onnx.html">
+      <span class="card-icon">🧠</span>
       <h2>ONNX Crafter</h2>
     </a>
-  </div>
+  </main>
   <script src="./topbar.js"></script>
   <script src="/ui/train.js"></script>
   <script>
-    const carousel = document.querySelector('.carousel');
-    carousel.addEventListener('keydown', (e) => {
-      if (e.key === 'ArrowDown') {
-        carousel.scrollBy({ top: carousel.clientHeight, behavior: 'smooth' });
-      } else if (e.key === 'ArrowUp') {
-        carousel.scrollBy({ top: -carousel.clientHeight, behavior: 'smooth' });
-      }
-    });
-
     fetch('/models', { headers: { 'Accept': 'application/json' } })
       .then(r => r.json())
       .then(models => {
