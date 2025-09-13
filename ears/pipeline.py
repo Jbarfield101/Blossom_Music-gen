@@ -92,7 +92,12 @@ async def run_bot(
                     last_emit = now
             if part.is_final:
                 logger.append(
-                    str(channel_id), speaker or "unknown", part.text, timestamp=part.start
+                    str(channel_id),
+                    speaker or "unknown",
+                    part.text,
+                    timestamp=part.start,
+                    language=part.language,
+                    confidence=part.confidence,
                 )
 
     vad = VoiceActivityDetector(segment_callback=handle_segment, diarizer=diarizer)
