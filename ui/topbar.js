@@ -10,17 +10,17 @@ window.setTheme = setTheme;
       top: 0;
       left: 0;
       right: 0;
-      background: var(--panel-bg);
-      color: var(--fg);
+      background: var(--card-bg);
+      color: var(--text);
       padding: 0.5rem;
       display: flex;
       align-items: center;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.5);
+      box-shadow: var(--topbar-shadow);
     }
     body { padding-top: 2.5rem; }
     #top-bar button {
       background: var(--button-bg);
-      color: var(--fg);
+      color: var(--text);
       border: none;
       padding: 0.25rem 0.5rem;
       cursor: pointer;
