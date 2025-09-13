@@ -28,8 +28,17 @@ def init_db(db_path: str = "combat_tracker.db"):
             CREATE TABLE IF NOT EXISTS participants (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 encounter_id INTEGER,
+                name TEXT
+            );
+            """
+        )
+        _conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS stats (
+                participant_id INTEGER,
                 name TEXT,
-                stats TEXT
+                value INTEGER,
+                PRIMARY KEY (participant_id, name)
             );
             """
         )
@@ -56,11 +65,17 @@ def add_participant(encounter_id: int, name: str, stats: Optional[Dict[str, int]
     with _db_lock:
         cur = _conn.cursor()
         cur.execute(
-            "INSERT INTO participants(encounter_id, name, stats) VALUES (?, ?, ?)",
-            (encounter_id, name, json.dumps(stats)),
+            "INSERT INTO participants(encounter_id, name) VALUES (?, ?)",
+            (encounter_id, name),
         )
+        participant_id = cur.lastrowid
+        for s_name, value in stats.items():
+            cur.execute(
+                "INSERT OR REPLACE INTO stats(participant_id, name, value) VALUES (?, ?, ?)",
+                (participant_id, s_name, int(value)),
+            )
         _conn.commit()
-        return cur.lastrowid
+        return participant_id
 
 
 def update_stat(player: str, stat: str, delta: int, encounter_id: int):
@@ -68,17 +83,23 @@ def update_stat(player: str, stat: str, delta: int, encounter_id: int):
     with _db_lock:
         cur = _conn.cursor()
         cur.execute(
-            "SELECT stats FROM participants WHERE encounter_id=? AND name=?",
+            "SELECT id FROM participants WHERE encounter_id=? AND name=?",
             (encounter_id, player),
         )
         row = cur.fetchone()
         if not row:
             raise KeyError(f"Player {player} not found")
-        stats = json.loads(row[0])
-        stats[stat] = stats.get(stat, 0) + delta
+        participant_id = row[0]
         cur.execute(
-            "UPDATE participants SET stats=? WHERE encounter_id=? AND name=?",
-            (json.dumps(stats), encounter_id, player),
+            "SELECT value FROM stats WHERE participant_id=? AND name=?",
+            (participant_id, stat),
+        )
+        row = cur.fetchone()
+        value = row[0] if row else 0
+        value += delta
+        cur.execute(
+            "INSERT OR REPLACE INTO stats(participant_id, name, value) VALUES (?, ?, ?)",
+            (participant_id, stat, value),
         )
         _conn.commit()
 
@@ -88,12 +109,18 @@ def get_status(encounter_id: int) -> Dict[str, Dict[str, int]]:
     with _db_lock:
         cur = _conn.cursor()
         cur.execute(
-            "SELECT name, stats FROM participants WHERE encounter_id=?",
+            "SELECT id, name FROM participants WHERE encounter_id=?",
             (encounter_id,),
         )
-        result = {}
-        for name, stats_json in cur.fetchall():
-            result[name] = json.loads(stats_json)
+        participants = cur.fetchall()
+        result: Dict[str, Dict[str, int]] = {}
+        for pid, name in participants:
+            cur.execute(
+                "SELECT name, value FROM stats WHERE participant_id=?",
+                (pid,),
+            )
+            stats = {s_name: int(value) for s_name, value in cur.fetchall()}
+            result[name] = stats
         return result
 
 
