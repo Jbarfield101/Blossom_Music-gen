@@ -15,8 +15,8 @@ use std::{
 
 use regex::Regex;
 use serde_json::{json, Value};
-use tauri::{AppHandle, State};
 use tauri::Emitter;
+use tauri::{AppHandle, State};
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_store::Builder;
 use url::Url;
@@ -425,17 +425,13 @@ fn job_status(registry: State<JobRegistry>, job_id: u64) -> JobState {
 #[tauri::command]
 fn open_path(app: AppHandle, path: String) -> Result<(), String> {
     if let Ok(url) = Url::parse(&path) {
-        app.opener()
-            .open_url(url)
-            .map_err(|e| e.to_string())
+        app.opener().open_url(url, None).map_err(|e| e.to_string())
     } else {
         let path_buf = PathBuf::from(&path);
         if !path_buf.exists() {
             return Err("Path does not exist".into());
         }
-        app.opener()
-            .open_path(path_buf)
-            .map_err(|e| e.to_string())
+        app.opener().open_path(path_buf).map_err(|e| e.to_string())
     }
 }
 
