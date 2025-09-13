@@ -217,6 +217,20 @@ fn set_llm(app: AppHandle, model: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn select_vault(path: String) -> Result<String, String> {
+    let script = "import sys, pathlib; from config.obsidian import select_vault; print(select_vault(pathlib.Path(sys.argv[1])))";
+    let output = Command::new("python")
+        .args(["-c", script, &path])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
+#[tauri::command]
 fn app_version() -> Result<Value, String> {
     let app = env!("CARGO_PKG_VERSION").to_string();
     let output = Command::new("python")
@@ -614,6 +628,7 @@ fn main() {
             set_piper,
             list_llm,
             set_llm,
+            select_vault,
             app_version,
             start_job,
             onnx_generate,
