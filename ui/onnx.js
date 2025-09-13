@@ -12,6 +12,7 @@ async function tauriOnnxMain(){
   const topPInput = document.getElementById('top_p');
   const tempInput = document.getElementById('temperature');
   const startBtn = document.getElementById('start');
+  startBtn.disabled = true;
   const cancelBtn = document.getElementById('cancel');
   const prog = document.getElementById('progress');
   const etaSpan = document.getElementById('eta');
@@ -87,8 +88,8 @@ async function tauriOnnxMain(){
   async function refreshModels(){
     try {
       const installed = await invoke('list_models');
-      const selected = modelSelect.value.split(/[\\/]/).pop();
-      modelInstalled = installed.includes(selected);
+      const selected = modelSelect.value.split(/[\\/]/).pop().trim();
+      modelInstalled = selected && installed.includes(selected);
     } catch (e) {
       console.error(e);
       modelInstalled = false;
@@ -100,6 +101,14 @@ async function tauriOnnxMain(){
   async function populateModels(){
     modelBanner.hidden = true;
     modelBanner.textContent = '';
+    const loadingOverlay = document.getElementById('loading-overlay');
+    const loadingMsg = 'ONNX is loading, searching for MusicLang models…';
+    if (loadingOverlay) loadingOverlay.hidden = false;
+    if (dialog && typeof dialog.message === 'function') {
+      dialog.message(loadingMsg);
+    } else if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+      window.alert(loadingMsg);
+    }
     try {
       const models = await invoke('list_musiclang_models');
       modelSelect.innerHTML = '';
@@ -148,6 +157,8 @@ async function tauriOnnxMain(){
       modelBanner.textContent = `${msg}. Install models in the models folder or retry.`;
       modelBanner.hidden = false;
       if (typeof alert === 'function') alert(`${msg}. Install models in the models folder or retry.`);
+    } finally {
+      if (loadingOverlay) loadingOverlay.hidden = true;
     }
   }
 
@@ -160,7 +171,10 @@ async function tauriOnnxMain(){
 
   validateInputs();
 
-  modelSelect.addEventListener('change', refreshModels);
+  modelSelect.addEventListener('change', () => {
+    refreshModels();
+    validateInputs();
+  });
 
   stepsInput.addEventListener('input', validateInputs);
   topKInput.addEventListener('input', validateInputs);

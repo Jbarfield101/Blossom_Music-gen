@@ -1,11 +1,11 @@
-import { setTheme } from './theme.js';
+import { setTheme, getTheme } from './theme.js';
 
 (function() {
   function $(id) { return document.getElementById(id); }
 
-  function load() {
+  async function load() {
     const outdir = localStorage.getItem('default_outdir') || '';
-    const theme = localStorage.getItem('theme') || 'dark';
+    const theme = (await getTheme()) || 'dark';
     const outInput = $('default_outdir');
     const themeToggle = $('theme_toggle');
     if (outInput) outInput.value = outdir;
