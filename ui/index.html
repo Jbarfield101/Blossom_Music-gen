@@ -61,6 +61,12 @@
       margin-bottom: 1rem;
     }
 
+    .panel-caption {
+      display: block;
+      font-size: 0.9rem;
+      margin-top: 0.5rem;
+    }
+
     @media (min-width: 600px) {
       .panel {
         flex: 0 0 40%;
@@ -87,9 +93,10 @@
       <span class="panel-icon">🎚️</span>
       <h2>Train Model</h2>
     </a>
-    <a class="panel" href="/models">
+    <a class="panel" href="/models" title="Manage or download models">
       <span class="panel-icon">📦</span>
-      <h2>Models</h2>
+      <h2>Manage/Download Models</h2>
+      <p id="model-count" class="panel-caption"></p>
     </a>
     <a class="panel" href="onnx.html">
       <span class="panel-icon">🧠</span>
@@ -107,6 +114,21 @@
         carousel.scrollBy({ top: -carousel.clientHeight, behavior: 'smooth' });
       }
     });
+
+    fetch('/models', { headers: { 'Accept': 'application/json' } })
+      .then(r => r.json())
+      .then(models => {
+        const el = document.getElementById('model-count');
+        if (el) {
+          el.textContent = `${models.length} installed`;
+        }
+      })
+      .catch(() => {
+        const el = document.getElementById('model-count');
+        if (el) {
+          el.textContent = 'Manage models';
+        }
+      });
   </script>
 </body>
 </html>
