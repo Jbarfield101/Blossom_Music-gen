@@ -23,6 +23,11 @@ try:  # pragma: no cover - optional dependency
 except Exception:  # ImportError and runtime errors if backend missing
     pyannote_diarize = None  # type: ignore[assignment]
 
+try:  # pragma: no cover - optional dependency
+    from .devices import list_devices
+except Exception:  # ImportError and runtime errors if backend missing
+    list_devices = None  # type: ignore[assignment]
+
 __all__ = [
     "DiscordListener",
     "WhisperService",
@@ -30,4 +35,5 @@ __all__ = [
     "TranscriptLogger",
     "run_bot",
     "pyannote_diarize",
+    "list_devices",
 ]
