@@ -9,6 +9,7 @@ functions here can be used.
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import datetime
 import sqlite3
 from typing import List, Dict, Any
 
@@ -107,6 +108,50 @@ def get_note(path: str) -> str:
     if not note_path.exists() or not note_path.is_file():
         raise FileNotFoundError(f"note not found: {path}")
     return note_path.read_text(encoding="utf-8")
+
+
+def create_note(path: str, text: str) -> Path:
+    """Append timestamped Markdown ``text`` to ``path`` within the selected vault.
+
+    Parameters
+    ----------
+    path:
+        Relative path of the note inside the Obsidian vault.
+    text:
+        Markdown content to append.
+
+    Returns
+    -------
+    Path
+        The resolved path to the note file.
+
+    Raises
+    ------
+    RuntimeError
+        If no vault has been selected.
+    ValueError
+        If ``path`` points outside the vault.
+    """
+
+    vault = get_vault()
+    if vault is None:
+        raise RuntimeError("Obsidian vault has not been selected")
+
+    note_path = (vault / path).resolve()
+    try:
+        note_path.relative_to(vault)
+    except ValueError as exc:
+        raise ValueError("path is outside the vault") from exc
+
+    note_path.parent.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().isoformat(timespec="seconds")
+    entry = f"\n\n## {timestamp}\n{text}\n"
+    if note_path.exists():
+        with note_path.open("a", encoding="utf-8") as fh:
+            fh.write(entry)
+    else:
+        note_path.write_text(entry.lstrip(), encoding="utf-8")
+    return note_path
 
 
 def list_npcs() -> List[Dict[str, Any]]:
