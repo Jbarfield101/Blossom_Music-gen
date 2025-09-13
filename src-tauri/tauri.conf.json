@@ -1,14 +1,12 @@
 {
-  "$schema": "../node_modules/@tauri-apps/cli/schema.json",
-  "package": {
-    "productName": "Blossom Music Generator",
-    "version": "0.1.0"
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "identifier": "com.blossom.musicgen",
+  "productName": "Blossom Music Generator",
+  "version": "0.1.0",
+  "build": {
+    "frontendDist": "../ui"
   },
-    "build": {
-      "distDir": "../ui",
-      "devPath": "../ui"
-    },
-  "tauri": {
+  "app": {
     "windows": [
       {
         "title": "Music Generator",
@@ -16,5 +14,10 @@
         "height": 600
       }
     ]
+  },
+  "plugins": {
+    "dialog": {},
+    "shell": {},
+    "store": {}
   }
 }
