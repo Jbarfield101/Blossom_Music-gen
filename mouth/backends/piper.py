@@ -9,6 +9,7 @@ from typing import Optional
 import numpy as np
 import soundfile as sf
 
+from ..registry import VoiceProfile
 from ..tts import TTSBackend
 
 
@@ -20,8 +21,8 @@ class PiperBackend(TTSBackend):
         self.config_path = config_path
         self.executable = executable
 
-    def synthesize(self, text: str, voice_profile: Optional[str] = None) -> np.ndarray:
-        model = voice_profile or self.model_path
+    def synthesize(self, text: str, voice: VoiceProfile) -> np.ndarray:
+        model = voice.voice_id or self.model_path
 
         cmd = [self.executable, "--model", str(model)]
         if self.config_path:
