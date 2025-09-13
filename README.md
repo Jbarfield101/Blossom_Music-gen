@@ -339,3 +339,55 @@ asyncio.run(
 Replace `TOKEN` with your bot token and the integer with the target voice
 channel ID. ``part_callback`` receives both partial and final transcript
 segments; ``rate_limit`` throttles how often partial updates are emitted.
+
+## Mouth
+
+The `mouth` package adds text-to-speech capabilities powered by
+[Piper](https://github.com/rhasspy/piper). It can stream synthesized
+speech to Discord voice channels or generate narration for other
+systems.
+
+### Piper installation
+
+Install the `piper-tts` command-line tool and download at least one
+voice model:
+
+```bash
+pip install piper-tts soundfile
+piper --download en_US-amy-medium
+```
+
+Pass the model path to :class:`~mouth.tts.TTSEngine` or to the helper
+functions shown below.
+
+### Narrator and NPC voices
+
+Voice profiles are stored in ``data/voices.json`` and loaded via
+``VoiceRegistry``.  A ``narrator`` profile is always present and is
+used when no ``voice`` name is supplied.  Assign Piper models to the
+default narrator and to non-player characters (NPCs) by updating the
+registry:
+
+```python
+from mouth import VoiceRegistry, VoiceProfile
+
+registry = VoiceRegistry()
+registry.set_profile("narrator", VoiceProfile("/path/to/narrator.onnx"))
+registry.set_profile("goblin", VoiceProfile("/path/to/goblin.onnx"))
+registry.save()
+```
+
+Later, pass ``voice="goblin"`` to select the NPC voice.
+
+### Cache and warm start
+
+Voice profiles are cached on disk; subsequent runs reuse the registry
+and avoid reconfiguration.  Piper loads the voice model on first use, so
+keeping a ``TTSEngine`` instance alive or calling ``engine.synthesize("")``
+during startup warms the cache and eliminates initial latency.
+
+### Discord example
+
+See ``docs/examples/discord_piper_tts.py`` for an end-to-end snippet that
+joins a voice channel and speaks a line of dialog.
+
