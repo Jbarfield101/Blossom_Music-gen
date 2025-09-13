@@ -27,3 +27,10 @@
   --log-fg: #070;
   --font: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
+
+/* Ensure the model dropdown stays visible and sized */
+#model-select {
+  position: relative;
+  z-index: 10;
+  min-width: 12rem;
+}
