@@ -327,11 +327,12 @@ fn hotword_set(
 
 #[tauri::command]
 fn list_llm(app: AppHandle) -> Result<Value, String> {
-    let output = Command::new("ollama")
+    let stdout_bytes = Command::new("ollama")
         .arg("list")
         .output()
-        .unwrap_or_else(|_| Default::default());
-    let stdout = String::from_utf8_lossy(&output.stdout);
+        .map(|o| o.stdout)
+        .unwrap_or_default();
+    let stdout = String::from_utf8_lossy(&stdout_bytes);
     let mut options = Vec::new();
     for line in stdout.lines().skip(1) {
         if let Some(name) = line.split_whitespace().next() {
