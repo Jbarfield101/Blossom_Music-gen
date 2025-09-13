@@ -5,9 +5,6 @@ resampy
 webrtcvad
 faster-whisper
 pytest
-fastapi
-httpx
-uvicorn
 
 jinja2
 python-frontmatter
