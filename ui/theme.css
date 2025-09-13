@@ -1,23 +1,29 @@
 [data-theme="dark"] {
-  --bg: #000;
-  --fg: #fff;
-  --panel-bg: #111;
-  --panel-hover-bg: #222;
-  --button-bg: #444;
-  --button-hover-bg: #555;
-  --link: #4af;
-  --log-bg: #111;
+  --bg: #121212;
+  --fg: #f5f5f5;
+  --accent: #7f5af0;
+  --panel-bg: #1e1e1e;
+  --panel-hover-bg: #272727;
+  --panel-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
+  --button-bg: #2e2e2e;
+  --button-hover-bg: #3a3a3a;
+  --link: #7f5af0;
+  --log-bg: #1e1e1e;
   --log-fg: #0f0;
+  --font: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
 [data-theme="light"] {
-  --bg: #fff;
-  --fg: #000;
-  --panel-bg: #f0f0f0;
-  --panel-hover-bg: #ddd;
-  --button-bg: #ddd;
-  --button-hover-bg: #ccc;
-  --link: #06c;
-  --log-bg: #f0f0f0;
+  --bg: #f8f9fa;
+  --fg: #212529;
+  --accent: #0066cc;
+  --panel-bg: #ffffff;
+  --panel-hover-bg: #e9ecef;
+  --panel-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  --button-bg: #e0e0e0;
+  --button-hover-bg: #d5d5d5;
+  --link: #0066cc;
+  --log-bg: #ffffff;
   --log-fg: #070;
+  --font: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
