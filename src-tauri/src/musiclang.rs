@@ -30,14 +30,18 @@ pub fn list_musiclang_models() -> Result<Vec<String>, String> {
 #[tauri::command]
 pub fn download_model(app: AppHandle, name: &str) -> Result<Vec<String>, String> {
     let url = format!("https://huggingface.co/{}/resolve/main/model.onnx", name);
-    let mut response = blocking::get(&url).map_err(|e| e.to_string())?;
+    let mut response = blocking::get(&url)
+        .and_then(|res| res.error_for_status())
+        .map_err(|e| {
+            let msg = format!("Failed to download model from {}: {}", url, e);
+            eprintln!("{}", msg);
+            msg
+        })?;
     let total = response.content_length();
 
     fs::create_dir_all("models").map_err(|e| e.to_string())?;
-    let mut path = PathBuf::from("models");
-    path.push(name);
-    fs::create_dir_all(&path).map_err(|e| e.to_string())?;
-    path.push("model.onnx");
+    let file_name = name.split('/').last().unwrap_or(name);
+    let path = PathBuf::from(format!("models/{}.onnx", file_name));
     let mut file = File::create(&path).map_err(|e| e.to_string())?;
     let mut downloaded = 0u64;
     let mut buffer = [0u8; 8192];
