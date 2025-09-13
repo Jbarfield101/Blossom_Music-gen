@@ -3,12 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <title>Settings</title>
-  <script>
-    const savedTheme = localStorage.getItem('theme');
-    if (savedTheme) {
-      document.documentElement.dataset.theme = savedTheme;
-    }
-  </script>
+  <script src="./theme.js"></script>
   <link rel="stylesheet" href="/ui/theme.css">
   <style>
     body { font-family: sans-serif; margin: 1em; background: var(--bg); color: var(--fg); }
