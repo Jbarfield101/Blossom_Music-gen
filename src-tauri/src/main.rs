@@ -113,6 +113,15 @@ fn models_store(app: &AppHandle) -> Result<tauri_plugin_store::Store, String> {
     Ok(StoreBuilder::new(app.clone(), path).build())
 }
 
+fn devices_store(app: &AppHandle) -> Result<tauri_plugin_store::Store, String> {
+    let path = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?
+        .join("devices.json");
+    Ok(StoreBuilder::new(app.clone(), path).build())
+}
+
 #[tauri::command]
 fn list_whisper(app: AppHandle) -> Result<Value, String> {
     let options = vec!["tiny", "base", "small", "medium", "large"]
@@ -213,6 +222,75 @@ fn set_llm(app: AppHandle, model: String) -> Result<(), String> {
     std::env::set_var("LLM_MODEL", &model);
     app.emit("settings::models", json!({"llm": model}))
         .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn list_devices(app: AppHandle) -> Result<Value, String> {
+    let output = Command::new("python")
+        .args(["-m", "ears.devices"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    let parsed: Value = serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())?;
+    let input_options = parsed
+        .get("input")
+        .cloned()
+        .unwrap_or_else(|| Value::Array(Vec::new()));
+    let output_options = parsed
+        .get("output")
+        .cloned()
+        .unwrap_or_else(|| Value::Array(Vec::new()));
+    let store = devices_store(&app)?;
+    let selected_input = store
+        .get("input")
+        .and_then(|v| v.as_u64())
+        .map(|n| n as u32);
+    if let Some(id) = selected_input {
+        std::env::set_var("INPUT_DEVICE", id.to_string());
+    }
+    let selected_output = store
+        .get("output")
+        .and_then(|v| v.as_u64())
+        .map(|n| n as u32);
+    if let Some(id) = selected_output {
+        std::env::set_var("OUTPUT_DEVICE", id.to_string());
+    }
+    Ok(json!({
+        "input": {"options": input_options, "selected": selected_input},
+        "output": {"options": output_options, "selected": selected_output}
+    }))
+}
+
+#[tauri::command]
+fn set_devices(app: AppHandle, input: Option<u32>, output: Option<u32>) -> Result<(), String> {
+    let store = devices_store(&app)?;
+    store.insert(
+        "input".to_string(),
+        input.map(Value::from).unwrap_or(Value::Null),
+    );
+    store.insert(
+        "output".to_string(),
+        output.map(Value::from).unwrap_or(Value::Null),
+    );
+    store.save().map_err(|e| e.to_string())?;
+    if let Some(id) = input {
+        std::env::set_var("INPUT_DEVICE", id.to_string());
+    } else {
+        std::env::remove_var("INPUT_DEVICE");
+    }
+    if let Some(id) = output {
+        std::env::set_var("OUTPUT_DEVICE", id.to_string());
+    } else {
+        std::env::remove_var("OUTPUT_DEVICE");
+    }
+    app.emit(
+        "settings::devices",
+        json!({"input": input, "output": output}),
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -614,6 +692,8 @@ fn main() {
             set_piper,
             list_llm,
             set_llm,
+            list_devices,
+            set_devices,
             app_version,
             start_job,
             onnx_generate,
