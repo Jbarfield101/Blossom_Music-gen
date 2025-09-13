@@ -1,6 +1,7 @@
 /* global tokens */
 :root {
   --font: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  --base-font-size: 16px;
   --space-xs: 0.25rem;
   --space-sm: 0.5rem;
   --space-md: 1rem;
@@ -10,6 +11,7 @@
 
 body {
   font-family: var(--font);
+  font-size: var(--base-font-size);
 }
 
 [data-theme="dark"] {
