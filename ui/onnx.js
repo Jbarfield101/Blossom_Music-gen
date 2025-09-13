@@ -22,6 +22,51 @@ async function tauriOnnxMain(){
   const telemetryPre = document.getElementById('telemetry');
   let jobId = null;
   let unlisten = null;
+  let modelInstalled = false;
+  let inputsValid = false;
+
+  function numberParser(input, { min = 0, max = Infinity, required = false } = {}) {
+    const errId = `${input.id}_error`;
+    let err = document.getElementById(errId);
+    if (!err) {
+      err = document.createElement('span');
+      err.id = errId;
+      err.style.color = 'red';
+      err.style.marginLeft = '0.5em';
+      input.insertAdjacentElement('afterend', err);
+    }
+    const raw = input.value.trim();
+    if (!raw) {
+      if (required) {
+        err.textContent = 'required';
+        return { valid: false };
+      }
+      err.textContent = '';
+      return { valid: true, value: undefined };
+    }
+    const num = Number(raw);
+    if (!Number.isFinite(num) || num < min || num > max) {
+      err.textContent = 'invalid';
+      return { valid: false };
+    }
+    err.textContent = '';
+    return { valid: true, value: num };
+  }
+
+  function refreshStartDisabled(){
+    startBtn.disabled = !(modelInstalled && inputsValid);
+  }
+
+  function validateInputs(){
+    const steps = numberParser(stepsInput, { required: true });
+    const topK = numberParser(topKInput);
+    const topP = numberParser(topPInput, { max: 1 });
+    const temp = numberParser(tempInput, { max: 1 });
+    inputsValid = steps.valid && topK.valid && topP.valid && temp.valid;
+    refreshStartDisabled();
+    if (!inputsValid) return null;
+    return { steps: steps.value, top_k: topK.value, top_p: topP.value, temperature: temp.value };
+  }
 
   async function convertMidiFileToDataUri(file){
     const buffer = await file.arrayBuffer();
@@ -33,7 +78,8 @@ async function tauriOnnxMain(){
     try {
       const installed = await invoke('list_models');
       const selected = modelSelect.value.split(/[\\/]/).pop();
-      startBtn.disabled = !installed.includes(selected);
+      modelInstalled = installed.includes(selected);
+      refreshStartDisabled();
     } catch (e) {
       console.error(e);
     }
@@ -64,7 +110,14 @@ async function tauriOnnxMain(){
 
   await populateModels();
 
+  validateInputs();
+
   modelSelect.addEventListener('change', refreshModels);
+
+  stepsInput.addEventListener('input', validateInputs);
+  topKInput.addEventListener('input', validateInputs);
+  topPInput.addEventListener('input', validateInputs);
+  tempInput.addEventListener('input', validateInputs);
 
   downloadBtn.addEventListener('click', async e => {
     const name = modelSelect.value;
@@ -93,6 +146,8 @@ async function tauriOnnxMain(){
   });
 
     startBtn.addEventListener('click', async () => {
+      const parsed = validateInputs();
+      if (!parsed) return;
       const modelName = modelSelect.value.split(/[\\/]/).pop();
       const modelPath = path.join("models", `${modelName}.onnx`);
       let installed;
@@ -114,12 +169,12 @@ async function tauriOnnxMain(){
       }
       const cfg = {
         model: modelPath,
-        steps: parseInt(stepsInput.value) || 0,
+        steps: parsed.steps,
         sampling: {}
       };
-    if (topKInput.value) cfg.sampling.top_k = parseInt(topKInput.value);
-    if (topPInput.value) cfg.sampling.top_p = parseFloat(topPInput.value);
-    if (tempInput.value) cfg.sampling.temperature = parseFloat(tempInput.value);
+    if (parsed.top_k !== undefined) cfg.sampling.top_k = parsed.top_k;
+    if (parsed.top_p !== undefined) cfg.sampling.top_p = parsed.top_p;
+    if (parsed.temperature !== undefined) cfg.sampling.temperature = parsed.temperature;
     if (songSpecInput.value.trim()) {
       try {
         cfg.song_spec = JSON.parse(songSpecInput.value);
