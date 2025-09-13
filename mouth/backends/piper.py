@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import io
 import subprocess
-from typing import Optional
+from typing import Iterable, Optional
 
 import numpy as np
 import soundfile as sf
@@ -37,3 +37,17 @@ class PiperBackend(TTSBackend):
 
         audio, _ = sf.read(io.BytesIO(proc.stdout), dtype="float32")
         return audio
+
+    # ------------------------------------------------------------------
+    def warm_start(self, voices: Optional[Iterable[str]] = None) -> None:
+        """Pre-load one or more voice models."""
+
+        targets = list(voices) if voices is not None else [self.model_path]
+        for model in targets:
+            cmd = [self.executable, "--model", str(model)]
+            if self.config_path:
+                cmd.extend(["--config", str(self.config_path)])
+            try:  # pragma: no cover - warm start is best-effort
+                subprocess.run(cmd, input=b"warm start", stdout=subprocess.PIPE, check=True)
+            except Exception:
+                continue
