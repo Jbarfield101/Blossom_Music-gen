@@ -11,6 +11,7 @@ import service_api
 from brain import dialogue
 from mouth.registry import VoiceRegistry
 from config.discord import get_permission_rules
+import session_export
 
 
 class BlossomBot(commands.Bot):
@@ -26,6 +27,10 @@ class BlossomBot(commands.Bot):
             name="scene", description="Scene related commands"
         )
         self.scene_group.command(name="as")(self.scene_as)
+        self.export_group = app_commands.Group(
+            name="export", description="Export utilities"
+        )
+        self.export_group.command(name="session")(self.export_session)
 
     async def setup_hook(self) -> None:  # pragma: no cover - Discord runtime
         """Register slash commands once the bot is ready."""
@@ -34,6 +39,7 @@ class BlossomBot(commands.Bot):
         self.tree.add_command(self.note)
         self.tree.add_command(self.track)
         self.tree.add_command(self.scene_group)
+        self.tree.add_command(self.export_group)
 
     # ------------------------------------------------------------------
     @app_commands.command(name="npc", description="Fetch NPC info or speak in their voice")
@@ -147,6 +153,16 @@ class BlossomBot(commands.Bot):
             return
 
         await interaction.response.send_message(f"{stat} is now {new_value}")
+
+    # ------------------------------------------------------------------
+    async def export_session(self, interaction: discord.Interaction) -> None:
+        """Handle the ``/export session`` command."""
+        try:
+            note_path = session_export.export_session()
+        except Exception as exc:  # pragma: no cover - runtime errors
+            await interaction.response.send_message(f"Error: {exc}", ephemeral=True)
+            return
+        await interaction.response.send_message(f"Exported session log to {note_path}")
 
     # ------------------------------------------------------------------
     async def scene_as(
