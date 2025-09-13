@@ -13,6 +13,7 @@ import {
   setLlm as apiSetLlm,
 } from "../api/models";
 import { listDevices, setDevices as apiSetDevices } from "../api/devices";
+import LogPanel from "../components/LogPanel";
 
 export default function Settings() {
   const store = new Store("settings.dat");
@@ -182,6 +183,10 @@ export default function Settings() {
             ))}
           </select>
         </label>
+      </div>
+      <div style={{ marginTop: "1rem" }}>
+        <h2>Logs</h2>
+        <LogPanel />
       </div>
     </div>
   );

@@ -322,12 +322,14 @@ fn start_job(
     let stderr_buf = Arc::new(Mutex::new(String::new()));
     if let Some(stderr) = stderr_pipe {
         let stderr_buf_clone = stderr_buf.clone();
-        std::thread::spawn(move || {
+        let app_handle = app.clone();
+        tauri::async_runtime::spawn(async move {
             let reader = BufReader::new(stderr);
             for line in reader.lines().flatten() {
                 let mut buf = stderr_buf_clone.lock().unwrap();
                 buf.push_str(&line);
                 buf.push('\n');
+                let _ = app_handle.emit("logs::line", line);
             }
         });
     }
@@ -340,7 +342,7 @@ fn start_job(
 
     if let Some(stdout) = stdout {
         let app_handle = app.clone();
-        std::thread::spawn(move || {
+        tauri::async_runtime::spawn(async move {
             let stage_re = Regex::new(r"^\s*([\w-]+):").unwrap();
             let percent_re = Regex::new(r"(\d+)%").unwrap();
             let eta_re = Regex::new(r"ETA[:\s]+([0-9:]+)").unwrap();
@@ -360,6 +362,7 @@ fn start_job(
                     total: None,
                 };
                 let _ = app_handle.emit(&format!("progress::{}", id), event);
+                let _ = app_handle.emit("logs::line", line);
             }
         });
     }
@@ -395,7 +398,7 @@ fn onnx_generate(
         let stderr_buf_clone = stderr_buf.clone();
         let app_handle = app.clone();
         let id_clone = id;
-        std::thread::spawn(move || {
+        tauri::async_runtime::spawn(async move {
             let reader = BufReader::new(stderr);
             for line in reader.lines().flatten() {
                 {
@@ -417,6 +420,7 @@ fn onnx_generate(
                         let _ = app_handle.emit(&format!("onnx::progress::{}", id_clone), event);
                     }
                 }
+                let _ = app_handle.emit("logs::line", line);
             }
         });
     }
@@ -426,7 +430,7 @@ fn onnx_generate(
         let app_handle = app.clone();
         let tx2 = tx.clone();
         let id_clone = id;
-        std::thread::spawn(move || {
+        tauri::async_runtime::spawn(async move {
             let reader = BufReader::new(stdout);
             let mut first = true;
             for line in reader.lines().flatten() {
@@ -451,6 +455,7 @@ fn onnx_generate(
                     };
                     let _ = app_handle.emit(&format!("onnx::progress::{}", id_clone), event);
                 }
+                let _ = app_handle.emit("logs::line", line);
             }
         });
     }
