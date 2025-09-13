@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/tauri";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/api/dialog";
-import { readTextFile, writeTextFile } from "@tauri-apps/api/fs";
-import { Store } from "@tauri-apps/plugin-store";
+import { readTextFile } from "@tauri-apps/api/fs";
 import {
   listWhisper,
   setWhisper as apiSetWhisper,
@@ -14,10 +13,10 @@ import {
 } from "../api/models";
 import { listDevices, setDevices as apiSetDevices } from "../api/devices";
 import { listHotwords, setHotword as apiSetHotword } from "../api/hotwords";
+import { getConfig, setConfig, exportConfig } from "../api/config";
 import LogPanel from "../components/LogPanel";
 
 export default function Settings() {
-  const store = new Store("settings.dat");
   const VAULT_KEY = "vaultPath";
   const [whisper, setWhisper] = useState({ options: [], selected: "" });
   const [piper, setPiper] = useState({ options: [], selected: "" });
@@ -37,7 +36,7 @@ export default function Settings() {
       setOutput(devices.output);
       const hw = await listHotwords();
       setHotwords(hw);
-      const path = await store.get(VAULT_KEY);
+      const path = await getConfig(VAULT_KEY);
       setVault(path || "");
     };
     load();
@@ -55,20 +54,17 @@ export default function Settings() {
     const selected = await openDialog({ directory: true });
     if (typeof selected === "string") {
       await invoke("select_vault", { path: selected });
-      await store.set(VAULT_KEY, selected);
-      await store.save();
+      await setConfig(VAULT_KEY, selected);
       setVault(selected);
     }
   };
 
   const exportSettings = async () => {
-    const entries = await store.entries();
-    const data = Object.fromEntries(entries);
     const filePath = await saveDialog({
       filters: [{ name: "JSON", extensions: ["json"] }],
     });
     if (filePath) {
-      await writeTextFile(filePath, JSON.stringify(data, null, 2));
+      await exportConfig(filePath);
     }
   };
 
@@ -81,9 +77,8 @@ export default function Settings() {
       const contents = await readTextFile(filePath);
       const data = JSON.parse(contents);
       for (const [key, value] of Object.entries(data)) {
-        await store.set(key, value);
+        await setConfig(key, value);
       }
-      await store.save();
       if (data[VAULT_KEY]) {
         setVault(data[VAULT_KEY]);
       }
