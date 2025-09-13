@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/tauri";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/api/dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/api/fs";
-import { Store } from "@tauri-apps/plugin-store";
+import { getConfig, setConfig, exportConfig } from "../api/config";
 import {
   listWhisper,
   setWhisper as apiSetWhisper,
@@ -14,9 +14,8 @@ import {
 } from "../api/models";
 import { listDevices, setDevices as apiSetDevices } from "../api/devices";
 
-export default function Settings() {
-  const store = new Store("settings.dat");
-  const VAULT_KEY = "vaultPath";
+  export default function Settings() {
+    const VAULT_KEY = "vaultPath";
   const [whisper, setWhisper] = useState({ options: [], selected: "" });
   const [piper, setPiper] = useState({ options: [], selected: "" });
   const [llm, setLlm] = useState({ options: [], selected: "" });
@@ -29,35 +28,35 @@ export default function Settings() {
       setWhisper(await listWhisper());
       setPiper(await listPiper());
       setLlm(await listLlm());
-      const devices = await listDevices();
-      setInput(devices.input);
-      setOutput(devices.output);
-      const path = await store.get(VAULT_KEY);
-      setVault(path || "");
+        const devices = await listDevices();
+        setInput(devices.input);
+        setOutput(devices.output);
+        const path = await getConfig(VAULT_KEY);
+        setVault(path || "");
     };
     load();
-    const unlistenModels = listen("settings::models", () => load());
-    const unlistenDevices = listen("settings::devices", () => load());
-    return () => {
-      unlistenModels.then((f) => f());
-      unlistenDevices.then((f) => f());
-    };
+      const unlistenModels = listen("settings::models", () => load());
+      const unlistenDevices = listen("settings::devices", () => load());
+      const unlistenConfig = listen("settings::updated", () => load());
+      return () => {
+        unlistenModels.then((f) => f());
+        unlistenDevices.then((f) => f());
+        unlistenConfig.then((f) => f());
+      };
   }, []);
 
   const chooseVault = async () => {
     const selected = await openDialog({ directory: true });
     if (typeof selected === "string") {
-      await invoke("select_vault", { path: selected });
-      await store.set(VAULT_KEY, selected);
-      await store.save();
-      setVault(selected);
-    }
-  };
+        await invoke("select_vault", { path: selected });
+        await setConfig(VAULT_KEY, selected);
+        setVault(selected);
+      }
+    };
 
   const exportSettings = async () => {
-    const entries = await store.entries();
-    const data = Object.fromEntries(entries);
-    const filePath = await saveDialog({
+      const data = await exportConfig();
+      const filePath = await saveDialog({
       filters: [{ name: "JSON", extensions: ["json"] }],
     });
     if (filePath) {
@@ -73,15 +72,14 @@ export default function Settings() {
     if (typeof filePath === "string") {
       const contents = await readTextFile(filePath);
       const data = JSON.parse(contents);
-      for (const [key, value] of Object.entries(data)) {
-        await store.set(key, value);
+        for (const [key, value] of Object.entries(data)) {
+          await setConfig(key, value);
+        }
+        if (data[VAULT_KEY]) {
+          setVault(data[VAULT_KEY]);
+        }
       }
-      await store.save();
-      if (data[VAULT_KEY]) {
-        setVault(data[VAULT_KEY]);
-      }
-    }
-  };
+    };
 
   return (
     <div>

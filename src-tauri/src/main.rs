@@ -21,6 +21,7 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_store::{Builder, StoreBuilder};
 use url::Url;
+mod config;
 mod musiclang;
 mod util;
 use crate::util::list_from_dir;
@@ -610,9 +611,7 @@ fn job_status(registry: State<JobRegistry>, job_id: u64) -> JobState {
 fn select_vault(path: String) -> Result<(), String> {
     let status = Command::new("python")
         .arg("-c")
-        .arg(
-            "import sys; from config.obsidian import select_vault; select_vault(sys.argv[1])",
-        )
+        .arg("import sys; from config.obsidian import select_vault; select_vault(sys.argv[1])")
         .arg(&path)
         .status()
         .map_err(|e| e.to_string())?;
@@ -715,7 +714,10 @@ fn main() {
             select_vault,
             open_path,
             musiclang::list_musiclang_models,
-            musiclang::download_model
+            musiclang::download_model,
+            config::get_config,
+            config::set_config,
+            config::export_config
         ])
         .on_window_event(|event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event.event() {
