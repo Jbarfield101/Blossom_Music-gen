@@ -12,6 +12,7 @@ async function tauriOnnxMain(){
   const topPInput = document.getElementById('top_p');
   const tempInput = document.getElementById('temperature');
   const startBtn = document.getElementById('start');
+  startBtn.disabled = true;
   const cancelBtn = document.getElementById('cancel');
   const prog = document.getElementById('progress');
   const etaSpan = document.getElementById('eta');
@@ -85,9 +86,15 @@ async function tauriOnnxMain(){
   }
 
   async function refreshModels(){
+    const raw = modelSelect.value;
+    if (!raw) {
+      modelInstalled = false;
+      refreshStartDisabled();
+      return;
+    }
     try {
       const installed = await invoke('list_models');
-      const selected = modelSelect.value.split(/[\\/]/).pop();
+      const selected = raw.split(/[\\/]/).pop();
       modelInstalled = installed.includes(selected);
     } catch (e) {
       console.error(e);
@@ -103,7 +110,7 @@ async function tauriOnnxMain(){
     modelBanner.textContent = '';
     modelSelect.disabled = false;
     downloadBtn.disabled = false;
-    startBtn.disabled = false;
+    startBtn.disabled = true;
     try {
       const models = await invoke('list_musiclang_models');
       if (!Array.isArray(models) || models.length === 0) {
@@ -154,7 +161,9 @@ async function tauriOnnxMain(){
 
   validateInputs();
 
-  modelSelect.addEventListener('change', refreshModels);
+  modelSelect.addEventListener('change', () => {
+    refreshModels();
+  });
 
   stepsInput.addEventListener('input', validateInputs);
   topKInput.addEventListener('input', validateInputs);
