@@ -33,7 +33,11 @@
     </p>
   </section>
   <div id="inputs">
-    <label>Model <select id="model-select" title="Choose a downloaded .onnx model"></select></label>
+    <label>Model
+      <select id="model-select" title="Choose a downloaded .onnx model">
+        <option value="" disabled selected>Select a model...</option>
+      </select>
+    </label>
     <label>Song spec (JSON or space-separated chords)
       <textarea id="song_spec" rows="3"></textarea>
     </label>
@@ -51,6 +55,7 @@
     <button id="start" type="button" disabled>Start</button>
     <button id="cancel" type="button" disabled>Cancel</button>
     <progress id="progress" value="0" max="100"></progress>
+    <span id="eta"></span>
   </div>
   <pre id="log"></pre>
   <div id="results" hidden>

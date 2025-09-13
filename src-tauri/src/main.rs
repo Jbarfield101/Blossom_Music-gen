@@ -243,7 +243,11 @@ fn onnx_generate(
                     let _ = tx2.send(());
                     first = false;
                 }
-                if let Ok(event) = serde_json::from_str::<ProgressEvent>(&line) {
+                if let Ok(mut event) = serde_json::from_str::<ProgressEvent>(&line) {
+                    if let (Some(step), Some(total)) = (event.step, event.total) {
+                        let pct = ((step as f64 / total as f64) * 100.0).round() as u8;
+                        event.percent = Some(pct);
+                    }
                     let _ = app_handle.emit_all(&format!("onnx::progress::{}", id_clone), event);
                 } else if serde_json::from_str::<Value>(&line).is_ok() {
                     let event = ProgressEvent {
@@ -306,7 +310,7 @@ fn onnx_generate(
 }
 
 #[tauri::command]
-fn cancel_render(registry: State<JobRegistry>, job_id: u64) -> Result<(), String> {
+fn cancel_render(app: AppHandle, registry: State<JobRegistry>, job_id: u64) -> Result<(), String> {
     let mut jobs = registry.jobs.lock().map_err(|e| e.to_string())?;
     match jobs.get_mut(&job_id) {
         Some(job) => {
@@ -318,6 +322,7 @@ fn cancel_render(registry: State<JobRegistry>, job_id: u64) -> Result<(), String
                 let status = child.wait().map_err(|e| e.to_string())?;
                 job.status = Some(status.success());
                 job.child = None;
+                let _ = app.emit_all(&format!("onnx::cancelled::{}", job_id), ());
                 Ok(())
             } else {
                 Err("Job already completed".into())

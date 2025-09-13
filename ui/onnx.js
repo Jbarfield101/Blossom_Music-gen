@@ -2,7 +2,7 @@ const isTauri = typeof window !== 'undefined' && window.__TAURI__;
 const path = isTauri ? require("path") : null;
 
 async function tauriOnnxMain(){
-  const { invoke, event, shell } = window.__TAURI__;
+  const { invoke, event, shell, dialog } = window.__TAURI__;
   const modelSelect = document.getElementById('model-select');
   const downloadBtn = document.getElementById('download');
   const songSpecInput = document.getElementById('song_spec');
@@ -14,14 +14,69 @@ async function tauriOnnxMain(){
   const startBtn = document.getElementById('start');
   const cancelBtn = document.getElementById('cancel');
   const prog = document.getElementById('progress');
+  const etaSpan = document.getElementById('eta');
   const log = document.getElementById('log');
   log.hidden = false;
   log.style.userSelect = 'text';
   const results = document.getElementById('results');
   const midiLink = document.getElementById('midi_link');
   const telemetryPre = document.getElementById('telemetry');
+  const inputsDiv = document.getElementById('inputs');
+  const modelBanner = document.createElement('div');
+  modelBanner.id = 'model-banner';
+  modelBanner.style.color = 'red';
+  modelBanner.style.marginBottom = '1em';
+  modelBanner.hidden = true;
+  inputsDiv.insertAdjacentElement('beforebegin', modelBanner);
   let jobId = null;
   let unlisten = null;
+  let unlistenCancelled = null;
+  let cancelledHandled = false;
+  let modelInstalled = false;
+  let inputsValid = false;
+
+  function numberParser(input, { min = 0, max = Infinity, required = false } = {}) {
+    const errId = `${input.id}_error`;
+    let err = document.getElementById(errId);
+    if (!err) {
+      err = document.createElement('span');
+      err.id = errId;
+      err.style.color = 'red';
+      err.style.marginLeft = '0.5em';
+      input.insertAdjacentElement('afterend', err);
+    }
+    const raw = input.value.trim();
+    if (!raw) {
+      if (required) {
+        err.textContent = 'required';
+        return { valid: false };
+      }
+      err.textContent = '';
+      return { valid: true, value: undefined };
+    }
+    const num = Number(raw);
+    if (!Number.isFinite(num) || num < min || num > max) {
+      err.textContent = 'invalid';
+      return { valid: false };
+    }
+    err.textContent = '';
+    return { valid: true, value: num };
+  }
+
+  function refreshStartDisabled(){
+    startBtn.disabled = !(modelInstalled && inputsValid);
+  }
+
+  function validateInputs(){
+    const steps = numberParser(stepsInput, { required: true });
+    const topK = numberParser(topKInput);
+    const topP = numberParser(topPInput, { max: 1 });
+    const temp = numberParser(tempInput, { max: 1 });
+    inputsValid = steps.valid && topK.valid && topP.valid && temp.valid;
+    refreshStartDisabled();
+    if (!inputsValid) return null;
+    return { steps: steps.value, top_k: topK.value, top_p: topP.value, temperature: temp.value };
+  }
 
   async function convertMidiFileToDataUri(file){
     const buffer = await file.arrayBuffer();
@@ -33,15 +88,38 @@ async function tauriOnnxMain(){
     try {
       const installed = await invoke('list_models');
       const selected = modelSelect.value.split(/[\\/]/).pop();
-      startBtn.disabled = !installed.includes(selected);
+      modelInstalled = installed.includes(selected);
     } catch (e) {
       console.error(e);
+      modelInstalled = false;
     }
+    // Only update the Start button; do not modify the model selector itself
+    refreshStartDisabled();
   }
 
   async function populateModels(){
+    modelSelect.innerHTML = '';
+    modelBanner.hidden = true;
+    modelBanner.textContent = '';
+    modelSelect.disabled = false;
+    downloadBtn.disabled = false;
+    startBtn.disabled = false;
     try {
       const models = await invoke('list_musiclang_models');
+      if (!Array.isArray(models) || models.length === 0) {
+        const opt = document.createElement('option');
+        opt.textContent = 'No models found';
+        opt.disabled = true;
+        modelSelect.appendChild(opt);
+        modelSelect.disabled = true;
+        downloadBtn.disabled = true;
+        startBtn.disabled = true;
+        const msg = 'No models found. Place .onnx models in the models folder or try downloading again.';
+        modelBanner.textContent = msg;
+        modelBanner.hidden = false;
+        if (typeof alert === 'function') alert(msg);
+        return;
+      }
       models.forEach(info => {
         const opt = document.createElement('option');
         opt.value = info.id;
@@ -56,15 +134,32 @@ async function tauriOnnxMain(){
       });
       await refreshModels();
     } catch (e) {
-      log.textContent = `Error fetching models: ${e}`;
+      const opt = document.createElement('option');
+      opt.textContent = 'No models found';
+      opt.disabled = true;
+      modelSelect.appendChild(opt);
+      modelSelect.disabled = true;
+      downloadBtn.disabled = true;
+      startBtn.disabled = true;
+      const msg = `Error fetching models: ${e}`;
+      log.textContent = msg;
       log.scrollTop = log.scrollHeight;
-      if (typeof alert === 'function') alert(`Error fetching models: ${e}`);
+      modelBanner.textContent = `${msg}. Install models in the models folder or retry.`;
+      modelBanner.hidden = false;
+      if (typeof alert === 'function') alert(`${msg}. Install models in the models folder or retry.`);
     }
   }
 
   await populateModels();
 
+  validateInputs();
+
   modelSelect.addEventListener('change', refreshModels);
+
+  stepsInput.addEventListener('input', validateInputs);
+  topKInput.addEventListener('input', validateInputs);
+  topPInput.addEventListener('input', validateInputs);
+  tempInput.addEventListener('input', validateInputs);
 
   downloadBtn.addEventListener('click', async e => {
     const name = modelSelect.value;
@@ -92,34 +187,44 @@ async function tauriOnnxMain(){
     await refreshModels();
   });
 
-    startBtn.addEventListener('click', async () => {
-      const modelName = modelSelect.value.split(/[\\/]/).pop();
-      const modelPath = path.join("models", `${modelName}.onnx`);
-      let installed;
-      try {
-        installed = await invoke('list_models');
-      } catch (e) {
-        const msg = `Error listing models: ${e}`;
-        log.textContent = msg;
-        log.scrollTop = log.scrollHeight;
-        if (typeof alert === 'function') alert(msg);
-        return;
-      }
-      if (!installed.includes(modelName)) {
-        const msg = `Model not found: ${modelName}`;
-        log.textContent = msg;
-        log.scrollTop = log.scrollHeight;
-        if (typeof alert === 'function') alert(msg);
-        return;
-      }
-      const cfg = {
-        model: modelPath,
-        steps: parseInt(stepsInput.value) || 0,
-        sampling: {}
-      };
-    if (topKInput.value) cfg.sampling.top_k = parseInt(topKInput.value);
-    if (topPInput.value) cfg.sampling.top_p = parseFloat(topPInput.value);
-    if (tempInput.value) cfg.sampling.temperature = parseFloat(tempInput.value);
+  startBtn.addEventListener('click', async () => {
+    const parsed = validateInputs();
+    if (!parsed) return;
+    const modelName = modelSelect.value.split(/[\\/]/).pop();
+    const modelPath = path.join("models", `${modelName}.onnx`);
+    let installed;
+    try {
+      installed = await invoke('list_models');
+    } catch (e) {
+      const msg = `Error listing models: ${e}`;
+      log.textContent = msg;
+      log.scrollTop = log.scrollHeight;
+      if (typeof alert === 'function') alert(msg);
+      return;
+    }
+    if (!installed.includes(modelName)) {
+      const msg = `Model not found: ${modelName}`;
+      log.textContent = msg;
+      log.scrollTop = log.scrollHeight;
+      if (typeof alert === 'function') alert(msg);
+      return;
+    }
+    const cfg = {
+      model: modelPath,
+      steps: parsed.steps,
+      sampling: {}
+    };
+    const outPath = await dialog.save({
+      title: 'Save MIDI as...',
+      defaultPath: 'output.mid'
+    });
+    if (!outPath) {
+      return;
+    }
+    cfg.out = outPath;
+    if (parsed.top_k !== undefined) cfg.sampling.top_k = parsed.top_k;
+    if (parsed.top_p !== undefined) cfg.sampling.top_p = parsed.top_p;
+    if (parsed.temperature !== undefined) cfg.sampling.temperature = parsed.temperature;
     if (songSpecInput.value.trim()) {
       try {
         cfg.song_spec = JSON.parse(songSpecInput.value);
@@ -150,9 +255,11 @@ async function tauriOnnxMain(){
     startBtn.disabled = true;
     cancelBtn.disabled = false;
     prog.value = 0;
+    etaSpan.textContent = '';
     log.textContent = '';
     results.hidden = true;
     if (unlisten) unlisten();
+    if (unlistenCancelled) unlistenCancelled();
     unlisten = await event.listen(`onnx::progress::${jobId}`, e => {
       const data = e.payload;
       if (data.stage === 'error') {
@@ -191,17 +298,50 @@ async function tauriOnnxMain(){
       if (typeof data.percent === 'number') {
         prog.value = data.percent;
       }
+      if (typeof data.step === 'number' && typeof data.total === 'number') {
+        const pct = (data.step / data.total) * 100;
+        prog.value = pct;
+      }
+      if (typeof data.eta === 'string') {
+        etaSpan.textContent = `ETA: ${data.eta}s`;
+      } else {
+        etaSpan.textContent = '';
+      }
     });
     poll();
+    cancelledHandled = false;
+    listenCancelled(jobId);
   });
+
+  function handleCancelled() {
+    if (cancelledHandled) return;
+    cancelledHandled = true;
+    prog.value = 0;
+    log.textContent += 'Job cancelled\n';
+    log.scrollTop = log.scrollHeight;
+    cancelBtn.disabled = true;
+    startBtn.disabled = false;
+    if (unlistenCancelled) {
+      unlistenCancelled();
+      unlistenCancelled = null;
+    }
+    jobId = null;
+  }
 
   cancelBtn.addEventListener('click', async () => {
     if (jobId !== null) {
+      cancelledHandled = false;
       await invoke('cancel_render', { jobId });
-      cancelBtn.disabled = true;
-      startBtn.disabled = false;
+      handleCancelled();
     }
   });
+
+  async function listenCancelled(id) {
+    if (unlistenCancelled) unlistenCancelled();
+    unlistenCancelled = await event.listen(`onnx::cancelled::${id}`, () => {
+      handleCancelled();
+    });
+  }
 
   async function poll(){
     if (jobId === null) return;
