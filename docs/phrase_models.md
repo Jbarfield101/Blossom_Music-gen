@@ -6,8 +6,7 @@ either TorchScript (`.ts.pt`) or ONNX (`.onnx`) files.
 
 ## Training prerequisites and dataset
 
-Training depends on [PyTorch](https://pytorch.org/) and, for ONNX export,
-`onnxruntime`.  The models consume token sequences stored in `train.jsonl` and
+Training depends on [PyTorch](https://pytorch.org/) and, for ONNX export, `onnxruntime`; both are included in `requirements.txt`.  The models consume token sequences stored in `train.jsonl` and
 `val.jsonl`.  These files can be produced from rendered stems or MIDI data via
 `data/build_dataset.py` (see [datasets.md](datasets.md)).
 
