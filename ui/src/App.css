@@ -10,15 +10,15 @@ body {
 
 header {
   text-align: center;
-  padding: 2rem 1rem 0;
+  padding: var(--space-xl) var(--space-md) 0;
 }
 
 .dashboard {
   flex: 1;
   display: grid;
-  gap: 1.5rem;
+  gap: var(--space-lg);
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  padding: 2rem;
+  padding: var(--space-xl);
   max-width: 1200px;
   margin: 0 auto;
   width: 100%;
@@ -28,7 +28,7 @@ header {
 .card {
   background: var(--card-bg);
   border-radius: 12px;
-  padding: 2rem 1rem;
+  padding: var(--space-xl) var(--space-md);
   text-align: center;
   text-decoration: none;
   color: var(--text);
@@ -48,11 +48,11 @@ header {
 
 .card-icon {
   font-size: 3rem;
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-md);
   color: var(--icon);
 }
 
 .card-caption {
-  margin-top: 0.5rem;
+  margin-top: var(--space-sm);
   font-size: 0.9rem;
 }

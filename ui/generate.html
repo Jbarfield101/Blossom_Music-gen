@@ -6,15 +6,12 @@
   <script type="module" src="./theme.js"></script>
   <link rel="stylesheet" href="/ui/theme.css">
   <style>
-    body { font-family: sans-serif; margin: 1em; background: var(--bg); color: var(--text); }
-    label { display: block; margin-bottom: 0.5em; }
-    #controls { margin-top: 1em; }
-    #log { background: var(--log-bg); color: var(--log-fg); padding: 0.5em; height: 200px; overflow-y: scroll; }
-    #results { margin-top: 1em; }
-    #recent { margin-top: 1em; }
+    body { background: var(--bg); color: var(--text); }
+    label { display: block; margin-bottom: var(--space-sm); }
+    #log { background: var(--log-bg); color: var(--log-fg); padding: var(--space-sm); height: 200px; overflow-y: scroll; }
   </style>
 </head>
-<body>
+<body class="m-md">
   <div id="inputs">
     <label>Preset <select id="preset"></select></label>
     <label>Style <select id="style"><option value="">(default)</option></select></label>
@@ -52,7 +49,7 @@
     <label>Outro <select id="outro"><option value="">(default)</option><option value="hit">hit</option><option value="ritard">ritard</option></select></label>
   </details>
 
-  <div id="controls">
+  <div id="controls" class="mt-md">
     <button id="start" type="button">Start</button>
     <button id="cancel" type="button" disabled>Cancel</button>
     <progress id="progress" value="0" max="100"></progress>
@@ -62,13 +59,13 @@
 
   <pre id="log"></pre>
 
-  <div id="results" hidden>
+  <div id="results" class="mt-md" hidden>
     <h3>Results</h3>
     <ul id="links"></ul>
     <ul id="summary"></ul>
     <pre id="metrics"></pre>
   </div>
-  <div id="recent">
+  <div id="recent" class="mt-md">
     <h3>Recent Renders</h3>
     <ul id="recent_list"></ul>
   </div>

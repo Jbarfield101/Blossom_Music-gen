@@ -7,28 +7,25 @@
   <link rel="stylesheet" href="/ui/theme.css">
   <style>
     body {
-      font-family: sans-serif;
-      margin: 1em;
       background: var(--bg);
       color: var(--text);
     }
-    label { display:block; margin-bottom:0.5em; }
+    label { display:block; margin-bottom: var(--space-sm); }
     #log {
       background: var(--log-bg);
       color: var(--log-fg);
-      padding:0.5em;
+      padding: var(--space-sm);
       height:200px;
       overflow-y:scroll;
     }
-    #controls { margin-top:1em; }
   </style>
 </head>
-<body>
+<body class="m-md">
   <div id="inputs">
     <label>MIDI files <input type="file" id="midis" multiple accept=".mid,.midi" /></label>
     <label>Limit <input type="number" id="limit" /></label>
   </div>
-  <div id="controls">
+  <div id="controls" class="mt-md">
     <button id="start" type="button">Start</button>
     <button id="cancel" type="button" disabled>Cancel</button>
     <progress id="progress" value="0" max="100"></progress>

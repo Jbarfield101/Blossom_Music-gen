@@ -8,17 +8,17 @@
       right: 0;
       background: var(--card-bg);
       color: var(--text);
-      padding: 0.5rem;
+      padding: var(--space-sm);
       display: flex;
       align-items: center;
       box-shadow: var(--topbar-shadow);
     }
-    body { padding-top: 2.5rem; }
+    body { padding-top: calc(var(--space-xl) + var(--space-sm)); }
     #top-bar button {
       background: var(--button-bg);
       color: var(--text);
       border: none;
-      padding: 0.25rem 0.5rem;
+      padding: var(--space-xs) var(--space-sm);
       cursor: pointer;
     }
     #top-bar button:hover {

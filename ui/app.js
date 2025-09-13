@@ -49,7 +49,7 @@ async function browserMain(){
         const link = document.createElement('a');
         link.textContent = 'bundle.zip';
         link.href = `/bundles/${job.id}`;
-        link.style.marginLeft = '8px';
+          link.style.marginLeft = 'var(--space-sm)';
         li.appendChild(link);
       }
       const btn = document.createElement('button');
