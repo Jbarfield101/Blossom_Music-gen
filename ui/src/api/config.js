@@ -2,4 +2,5 @@ import { invoke } from "@tauri-apps/api/tauri";
 
 export const getConfig = (key) => invoke("get_config", { key });
 export const setConfig = (key, value) => invoke("set_config", { key, value });
-export const exportConfig = (path) => invoke("export_config", { path });
+export const exportSettings = (path) => invoke("export_settings", { path });
+export const importSettings = (path) => invoke("import_settings", { path });

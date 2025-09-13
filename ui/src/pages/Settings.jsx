@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/tauri";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/api/dialog";
-import { readTextFile } from "@tauri-apps/api/fs";
 import {
   listWhisper,
   setWhisper as apiSetWhisper,
@@ -13,7 +12,12 @@ import {
 } from "../api/models";
 import { listDevices, setDevices as apiSetDevices } from "../api/devices";
 import { listHotwords, setHotword as apiSetHotword } from "../api/hotwords";
-import { getConfig, setConfig, exportConfig } from "../api/config";
+import {
+  getConfig,
+  setConfig,
+  exportSettings as apiExportSettings,
+  importSettings as apiImportSettings,
+} from "../api/config";
 import LogPanel from "../components/LogPanel";
 
 export default function Settings() {
@@ -64,7 +68,7 @@ export default function Settings() {
       filters: [{ name: "JSON", extensions: ["json"] }],
     });
     if (filePath) {
-      await exportConfig(filePath);
+      await apiExportSettings(filePath);
     }
   };
 
@@ -74,14 +78,9 @@ export default function Settings() {
       multiple: false,
     });
     if (typeof filePath === "string") {
-      const contents = await readTextFile(filePath);
-      const data = JSON.parse(contents);
-      for (const [key, value] of Object.entries(data)) {
-        await setConfig(key, value);
-      }
-      if (data[VAULT_KEY]) {
-        setVault(data[VAULT_KEY]);
-      }
+      await apiImportSettings(filePath);
+      const path = await getConfig(VAULT_KEY);
+      setVault(path || "");
     }
   };
 

@@ -29,11 +29,25 @@ pub fn set_config(app: AppHandle, key: String, value: Value) -> Result<(), Strin
 }
 
 #[tauri::command]
-pub fn export_config(app: AppHandle, path: String) -> Result<(), String> {
+pub fn export_settings(app: AppHandle, path: String) -> Result<(), String> {
     let store = config_store(&app)?;
     let entries = store.entries().map_err(|e| e.to_string())?;
     let data: Map<String, Value> = entries.into_iter().collect();
     let text = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
     fs::write(path, text).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn import_settings(app: AppHandle, path: String) -> Result<(), String> {
+    let store = config_store(&app)?;
+    let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let data: Map<String, Value> = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    for (key, value) in data.into_iter() {
+        store.insert(key.clone(), value.clone());
+        app.emit("settings::updated", json!({ "key": key, "value": value }))
+            .map_err(|e| e.to_string())?;
+    }
+    store.save().map_err(|e| e.to_string())?;
     Ok(())
 }
