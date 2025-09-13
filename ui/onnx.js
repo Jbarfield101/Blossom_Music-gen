@@ -128,6 +128,13 @@ async function tauriOnnxMain(){
       }
     }
     const midiFile = midiInput.files[0];
+    if (!songSpecInput.value.trim() && !midiFile) {
+      const msg = 'Please provide a song spec or a MIDI file.';
+      log.textContent = msg;
+      log.scrollTop = log.scrollHeight;
+      startBtn.disabled = false;
+      return;
+    }
     if (midiFile) {
       cfg.midi = await convertMidiFileToDataUri(midiFile);
     }
