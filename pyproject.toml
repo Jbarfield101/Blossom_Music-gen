@@ -6,6 +6,7 @@ requires-python = ">=3.10,<3.11"
 [project.optional-dependencies]
 midi = ["mido"]
 diarization = ["pyannote.audio"]
+tts = ["piper-tts"]
 
 [build-system]
 requires = ["setuptools>=61"]
