@@ -14,6 +14,7 @@ import {
 } from "../api/models";
 import { listDevices, setDevices as apiSetDevices } from "../api/devices";
 import { listHotwords, setHotword as apiSetHotword } from "../api/hotwords";
+import LogPanel from "../components/LogPanel";
 
 export default function Settings() {
   const store = new Store("settings.dat");
@@ -225,6 +226,7 @@ export default function Settings() {
           Upload Hotword Model
         </button>
       </div>
+      <LogPanel />
     </div>
   );
 }
