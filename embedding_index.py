@@ -17,7 +17,7 @@ Examples
 
 from pathlib import Path
 import sqlite3
-from typing import Iterable, Tuple, Dict, Any
+from typing import Iterable, Tuple, Dict, Any, List
 
 import numpy as np
 
@@ -148,3 +148,65 @@ def save_metadata(conn: sqlite3.Connection) -> None:
     """Commit and persist any pending metadata changes."""
 
     conn.commit()
+
+
+def search_index(
+    query: str,
+    index_path: str | Path,
+    db_path: str | Path,
+    tags: List[str] | None = None,
+    top_k: int = 5,
+    model_name: str = DEFAULT_MODEL,
+) -> list[tuple[int, float]]:
+    """Return ``top_k`` matching chunk ids and distances for ``query``.
+
+    Parameters
+    ----------
+    query:
+        Natural language search string.
+    index_path:
+        Path to the FAISS index created by :func:`build_index`.
+    db_path:
+        Path to the SQLite metadata database created alongside the index.
+    tags:
+        Optional list of tag strings. When provided, only chunks having at
+        least one of these tags are considered.
+    top_k:
+        Number of results to return.
+    model_name:
+        Sentence-transformer model used for embedding the query.
+
+    Returns
+    -------
+    list[tuple[int, float]]
+        A list of ``(chunk_id, distance)`` pairs sorted by ascending distance.
+    """
+
+    # Embed the query text
+    query_vec = embed_texts([query], model_name)[0].astype("float32")
+
+    import faiss
+
+    conn = sqlite3.connect(db_path)
+    try:
+        if tags:
+            placeholders = " OR ".join(["tags LIKE ?"] * len(tags))
+            params = [f"%{t}%" for t in tags]
+            rows = conn.execute(
+                f"SELECT chunk_id FROM metadata WHERE {placeholders}", params
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT chunk_id FROM metadata").fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        return []
+
+    chunk_ids = [int(r[0]) for r in rows]
+    index = faiss.read_index(str(index_path))
+    vectors = np.vstack([index.reconstruct(cid) for cid in chunk_ids])
+    diffs = vectors - query_vec
+    dists = np.sum(diffs * diffs, axis=1)
+    order = np.argsort(dists)[:top_k]
+    return [(chunk_ids[i], float(dists[i])) for i in order]
