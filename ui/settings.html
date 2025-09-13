@@ -6,20 +6,19 @@
   <script type="module" src="./theme.js"></script>
   <link rel="stylesheet" href="/ui/theme.css">
   <style>
-    body { font-family: sans-serif; margin: 1em; background: var(--bg); color: var(--text); }
-    section { margin-bottom: 2rem; }
-    label { display: block; margin-bottom: 0.5em; }
+    body { background: var(--bg); color: var(--text); }
+    label { display: block; margin-bottom: var(--space-sm); }
   </style>
 </head>
-<body>
+<body class="m-md">
   <h1>Settings</h1>
-  <section id="general">
+  <section id="general" class="mb-xl">
     <h2>General</h2>
     <label>Default Output Directory
       <input type="text" id="default_outdir" placeholder="/path/to/output" />
     </label>
   </section>
-  <section id="appearance">
+  <section id="appearance" class="mb-xl">
     <h2>Appearance</h2>
     <label for="theme_select">Theme</label>
     <select id="theme_select">

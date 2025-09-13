@@ -11,7 +11,7 @@ export default function OnnxCrafter() {
   };
 
   return (
-    <div>
+    <div className="m-md">
       <h1>ONNX Crafter</h1>
       <section id="instructions">
         <h2>Instructions</h2>

@@ -26,7 +26,7 @@ async function tauriOnnxMain(){
   const modelBanner = document.createElement('div');
   modelBanner.id = 'model-banner';
   modelBanner.style.color = 'red';
-  modelBanner.style.marginBottom = '1em';
+  modelBanner.style.marginBottom = 'var(--space-md)';
   modelBanner.hidden = true;
   inputsDiv.insertAdjacentElement('beforebegin', modelBanner);
   let jobId = null;
@@ -43,7 +43,7 @@ async function tauriOnnxMain(){
       err = document.createElement('span');
       err.id = errId;
       err.style.color = 'red';
-      err.style.marginLeft = '0.5em';
+      err.style.marginLeft = 'var(--space-sm)';
       input.insertAdjacentElement('afterend', err);
     }
     const raw = input.value.trim();

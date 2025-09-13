@@ -10,8 +10,6 @@
       background: var(--bg);
       color: var(--text);
       margin: 0;
-      font-family: sans-serif;
-      padding: 1rem;
     }
     a {
       color: var(--link);
@@ -21,11 +19,11 @@
       padding: 0;
     }
     li {
-      margin: 0.5rem 0;
+      margin: var(--space-sm) 0;
     }
   </style>
 </head>
-<body>
+<body class="p-md">
   <h1>Available Models</h1>
   <ul id="models"></ul>
   <script type="module" src="./topbar.js"></script>
