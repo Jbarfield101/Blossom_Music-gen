@@ -2,6 +2,7 @@
 
 use std::{
     collections::HashMap,
+    env,
     fs,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
@@ -17,6 +18,7 @@ use regex::Regex;
 use serde_json::{json, Value};
 use tauri::Emitter;
 use tauri::{AppHandle, State};
+use tauri::api::dialog::blocking::message;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_store::{Builder, StoreBuilder};
 use url::Url;
@@ -561,6 +563,38 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(Builder::new().build())
+        .setup(|app| -> Result<(), Box<dyn std::error::Error>> {
+            let venv_dir = if cfg!(target_os = "windows") {
+                Path::new(".venv").join("Scripts")
+            } else {
+                Path::new(".venv").join("bin")
+            };
+            let sep = if cfg!(target_os = "windows") { ';' } else { ':' };
+            let mut path_var = env::var("PATH").unwrap_or_default();
+            env::set_var("PATH", format!("{}{}{}", venv_dir.display(), sep, path_var));
+
+            let version_ok = Command::new("python")
+                .args([
+                    "-c",
+                    "import sys; exit(0) if sys.version_info[:2]==(3,10) else exit(1)",
+                ])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+
+            if !version_ok {
+                let status = Command::new("python").arg("start.py").status();
+                if !status.map(|s| s.success()).unwrap_or(false) {
+                    if let Some(window) = app.get_window("main") {
+                        message(Some(&window), "Setup Error", "Failed to set up Python environment.");
+                    }
+                    return Err("Python setup failed".into());
+                }
+                path_var = env::var("PATH").unwrap_or_default();
+                env::set_var("PATH", format!("{}{}{}", venv_dir.display(), sep, path_var));
+            }
+            Ok(())
+        })
         .manage(JobRegistry::default())
         .invoke_handler(tauri::generate_handler![
             list_presets,
