@@ -21,9 +21,9 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_store::{Builder, Store, StoreBuilder};
 use url::Url;
+mod config;
 mod musiclang;
 mod util;
-mod config;
 use crate::util::list_from_dir;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -230,8 +230,9 @@ fn list_whisper(app: AppHandle) -> Result<Value, String> {
     let store = models_store::<tauri::Wry>(&app)?;
     let selected = store
         .get("whisper")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
     if let Some(sel) = &selected {
         std::env::set_var("WHISPER_MODEL", sel);
     }
@@ -264,8 +265,9 @@ fn list_piper(app: AppHandle) -> Result<Value, String> {
     let store = models_store::<tauri::Wry>(&app)?;
     let selected = store
         .get("piper")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
     if let Some(sel) = &selected {
         std::env::set_var("PIPER_VOICE", sel);
     }
@@ -356,8 +358,9 @@ fn list_llm(app: AppHandle) -> Result<Value, String> {
     let store = models_store::<tauri::Wry>(&app)?;
     let selected = store
         .get("llm")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
     if let Some(sel) = &selected {
         std::env::set_var("LLM_MODEL", sel);
     }
