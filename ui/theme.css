@@ -1,16 +1,16 @@
 [data-theme="dark"] {
-  --bg: #121212;
-  --text: #f5f5f5;
-  --icon: #f5f5f5;
-  --accent: #7f5af0;
-  --card-bg: #1e1e1e;
-  --card-hover-bg: #272727;
+  --bg: #0d0d10;
+  --text: #f5f5f7;
+  --icon: #f5f5f7;
+  --accent: #ff4d6d;
+  --card-bg: #1a1a23;
+  --card-hover-bg: #242433;
   --card-shadow: 0 4px 8px rgba(0, 0, 0, 0.4);
-  --button-bg: #2e2e2e;
-  --button-hover-bg: #3a3a3a;
-  --link: #7f5af0;
-  --log-bg: #1e1e1e;
-  --log-fg: #0f0;
+  --button-bg: #2e2e3f;
+  --button-hover-bg: #3a3a4f;
+  --link: #ff4d6d;
+  --log-bg: #1a1a23;
+  --log-fg: #00d26a;
   --overlay-bg: rgba(0, 0, 0, 0.6);
   --topbar-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
   --font: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -22,18 +22,18 @@
 }
 
 [data-theme="light"] {
-  --bg: #f8f9fa;
-  --text: #212529;
-  --icon: #212529;
-  --accent: #0066cc;
+  --bg: #fff8fa;
+  --text: #222222;
+  --icon: #222222;
+  --accent: #c9184a;
   --card-bg: #ffffff;
-  --card-hover-bg: #e9ecef;
+  --card-hover-bg: #ffe3ec;
   --card-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-  --button-bg: #e0e0e0;
-  --button-hover-bg: #d5d5d5;
-  --link: #0066cc;
+  --button-bg: #ffd6e5;
+  --button-hover-bg: #ffcadc;
+  --link: #c9184a;
   --log-bg: #ffffff;
-  --log-fg: #070;
+  --log-fg: #006b3c;
   --overlay-bg: rgba(255, 255, 255, 0.6);
   --topbar-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   --font: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
