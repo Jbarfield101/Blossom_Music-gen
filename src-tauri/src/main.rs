@@ -320,8 +320,11 @@ fn hotword_set(
     if !status.success() {
         return Err("hotword configuration failed".into());
     }
-    app.emit("settings::hotwords", json!({ "name": name, "enabled": enabled }))
-        .map_err(|e| e.to_string())?;
+    app.emit(
+        "settings::hotwords",
+        json!({ "name": name, "enabled": enabled }),
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -802,9 +805,7 @@ fn discord_profile_set(guild_id: u64, channel_id: u64, profile: Value) -> Result
 fn select_vault(path: String) -> Result<(), String> {
     let status = Command::new("python")
         .arg("-c")
-        .arg(
-            "import sys; from config.obsidian import select_vault; select_vault(sys.argv[1])",
-        )
+        .arg("import sys; from config.obsidian import select_vault; select_vault(sys.argv[1])")
         .arg(&path)
         .status()
         .map_err(|e| e.to_string())?;
@@ -928,6 +929,8 @@ fn main() {
                 }
                 jobs.clear();
             }
+            // Return the default output to satisfy trait requirements
+            Default::default()
         })
         .run(tauri::generate_context!())
     {
