@@ -16,7 +16,7 @@ use std::{
 use regex::Regex;
 use tauri::Manager;
 use tauri::{AppHandle, State};
-use serde_json::Value;
+use serde_json::{json, Value};
 mod musiclang;
 mod util;
 use crate::util::list_from_dir;
@@ -86,6 +86,21 @@ fn list_models() -> Result<Vec<String>, String> {
     }
     items.sort();
     Ok(items)
+}
+
+#[tauri::command]
+fn app_version() -> Result<Value, String> {
+    let app = env!("CARGO_PKG_VERSION").to_string();
+    let output = Command::new("python")
+        .arg("--version")
+        .output()
+        .map_err(|e| e.to_string())?;
+    let python = if output.stdout.is_empty() {
+        String::from_utf8_lossy(&output.stderr).trim().to_string()
+    } else {
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    };
+    Ok(json!({ "app": app, "python": python }))
 }
 
 #[tauri::command]
@@ -372,6 +387,7 @@ fn main() {
             list_presets,
             list_styles,
             list_models,
+            app_version,
             start_job,
             onnx_generate,
             cancel_render,
