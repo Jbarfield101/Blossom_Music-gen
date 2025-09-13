@@ -7,6 +7,7 @@ import contextlib
 from typing import Optional
 
 from ears import pipeline
+from ears.whisper_service import TranscriptionSegment
 from brain import dialogue
 from mouth.discord_player import DiscordPlayer
 
@@ -30,8 +31,11 @@ class DiscordOrchestrator:
         await asyncio.sleep(self.debounce)
         self._partial_count = 0
 
-    async def _handle_segment(self, part, speaker) -> None:
-        """Callback for :func:`ears.pipeline.run_bot` transcription parts."""
+    async def _handle_segment(
+        self, part: TranscriptionSegment, speaker: Optional[str]
+    ) -> None:
+        """Handle partial and final segments from the transcription pipeline."""
+
         if not part.is_final:
             if self._play_task and not self._play_task.done():
                 self._partial_count += 1
@@ -41,6 +45,11 @@ class DiscordOrchestrator:
                 if self._partial_count >= 2:
                     self._play_task.cancel()
             return
+
+        self._partial_count = 0
+        if self._partial_reset is not None:
+            self._partial_reset.cancel()
+            self._partial_reset = None
 
         if not self._listening:
             return
