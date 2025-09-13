@@ -325,8 +325,21 @@ transcribe speech using Whisper. Transcripts are written to JSONL files under
 import asyncio
 from ears.pipeline import run_bot
 
-asyncio.run(run_bot("TOKEN", 123456789012345678))
+
+async def on_part(part, speaker):
+    print(f"{speaker}: {part.text}")
+
+
+asyncio.run(
+    run_bot(
+        "TOKEN",
+        123456789012345678,
+        part_callback=on_part,
+        rate_limit=0.3,
+    )
+)
 ```
 
 Replace `TOKEN` with your bot token and the integer with the target voice
-channel ID.
+channel ID. ``part_callback`` receives both partial and final transcript
+segments; ``rate_limit`` throttles how often partial updates are emitted.
