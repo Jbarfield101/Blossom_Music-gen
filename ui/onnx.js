@@ -1,4 +1,5 @@
 const isTauri = typeof window !== 'undefined' && window.__TAURI__;
+const path = isTauri ? require("path") : null;
 
 async function tauriOnnxMain(){
   const { invoke, event, shell } = window.__TAURI__;
@@ -86,8 +87,9 @@ async function tauriOnnxMain(){
   });
 
     startBtn.addEventListener('click', async () => {
+      const modelPath = path.join("models", modelSelect.value.split(/[\\/]/).pop());
       const cfg = {
-        model: `models/${modelSelect.value.split(/[\\/]/).pop()}`,
+        model: modelPath,
         steps: parseInt(stepsInput.value) || 0,
         sampling: {}
       };
