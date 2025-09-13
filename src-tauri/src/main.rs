@@ -14,8 +14,7 @@ use std::{
 };
 
 use regex::Regex;
-use tauri::Manager;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_store::Builder;
 use tauri_plugin_shell::ShellExt;
 use serde_json::{json, Value};
@@ -169,7 +168,7 @@ fn start_job(
                     step: None,
                     total: None,
                 };
-                let _ = app_handle.emit_all(&format!("progress::{}", id), event);
+                let _ = app_handle.emit(&format!("progress::{}", id), event);
             }
         });
     }
@@ -225,7 +224,7 @@ fn onnx_generate(
                             step: None,
                             total: None,
                         };
-                        let _ = app_handle.emit_all(&format!("onnx::progress::{}", id_clone), event);
+                        let _ = app_handle.emit(&format!("onnx::progress::{}", id_clone), event);
                     }
                 }
             }
@@ -250,7 +249,7 @@ fn onnx_generate(
                         let pct = ((step as f64 / total as f64) * 100.0).round() as u8;
                         event.percent = Some(pct);
                     }
-                    let _ = app_handle.emit_all(&format!("onnx::progress::{}", id_clone), event);
+                    let _ = app_handle.emit(&format!("onnx::progress::{}", id_clone), event);
                 } else if serde_json::from_str::<Value>(&line).is_ok() {
                     let event = ProgressEvent {
                         stage: None,
@@ -260,7 +259,7 @@ fn onnx_generate(
                         step: None,
                         total: None,
                     };
-                    let _ = app_handle.emit_all(&format!("onnx::progress::{}", id_clone), event);
+                    let _ = app_handle.emit(&format!("onnx::progress::{}", id_clone), event);
                 }
             }
         });
@@ -324,7 +323,7 @@ fn cancel_render(app: AppHandle, registry: State<JobRegistry>, job_id: u64) -> R
                 let status = child.wait().map_err(|e| e.to_string())?;
                 job.status = Some(status.success());
                 job.child = None;
-                let _ = app.emit_all(&format!("onnx::cancelled::{}", job_id), ());
+                let _ = app.emit(&format!("onnx::cancelled::{}", job_id), ());
                 Ok(())
             } else {
                 Err("Job already completed".into())
