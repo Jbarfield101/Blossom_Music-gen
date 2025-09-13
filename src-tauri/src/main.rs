@@ -16,7 +16,7 @@ use std::{
 use regex::Regex;
 use tauri::Manager;
 use tauri::{AppHandle, State};
-use tauri_plugin_store::PluginBuilder;
+use tauri_plugin_store::Builder;
 use tauri_plugin_shell::ShellExt;
 use serde_json::{json, Value};
 mod musiclang;
@@ -415,7 +415,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(PluginBuilder::default().build())
+        .plugin(Builder::new().build())
         .manage(JobRegistry::default())
         .invoke_handler(tauri::generate_handler![
             list_presets,
