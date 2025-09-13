@@ -15,3 +15,8 @@ watchfiles
 piper-tts
 
 discord.py[voice] @ git+https://github.com/jg-l/discord.py
+
+# Optional: phrase models and MIDI support
+torch
+onnxruntime
+mido
