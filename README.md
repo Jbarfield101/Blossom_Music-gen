@@ -19,10 +19,11 @@ falling back to `localStorage` when the plugin is not available.
    pip install -r requirements.txt
    ```
 
-2. Install Node dependencies and launch the desktop app in development mode:
+2. Install Node dependencies (including the `ui/` front-end) and launch the desktop app in development mode:
 
    ```bash
    npm install
+   npm install --prefix ui
    npm run tauri dev
    ```
 
@@ -40,7 +41,8 @@ falling back to `localStorage` when the plugin is not available.
 
 The `start.py` helper creates a persistent virtual environment in `.venv`
 (reusing it on subsequent runs), installs the packages from `requirements.txt`
-if needed, and aborts if installation fails.
+if needed, installs Node dependencies in both the repository root and `ui/`,
+and aborts if installation fails.
 
 ## Dependencies
 
