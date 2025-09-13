@@ -19,6 +19,17 @@ from .transcript_logger import TranscriptLogger
 from .vad import DiarizationHook, VoiceActivityDetector
 from .whisper_service import TranscriptionSegment, WhisperService
 
+# Hotword configuration is optional – the application should still work if the
+# module is missing or the configuration file has not been created yet.  We
+# query the configuration once at start-up to determine whether any hotword is
+# enabled.
+try:  # pragma: no cover - optional dependency
+    from .hotword import list_hotwords
+
+    _HOTWORD_ACTIVE = any(list_hotwords().values())
+except Exception:  # pragma: no cover - if hotword module unavailable
+    _HOTWORD_ACTIVE = True
+
 
 def _resample(pcm: bytes, source_rate: int, target_rate: int) -> bytes:
     """Convert 48 kHz stereo PCM to mono ``target_rate`` using ``resampy``.
@@ -114,6 +125,11 @@ async def run_bot(
     vad = VoiceActivityDetector(segment_callback=handle_segment, diarizer=diarizer)
 
     async def handle_frame(member, pcm: bytes) -> None:
+        # Respect hotword configuration – when no hotwords are enabled the
+        # pipeline simply ignores incoming audio.  This allows the UI to toggle
+        # voice recognition without restarting the Discord listener.
+        if not _HOTWORD_ACTIVE:
+            return
         frame = _resample(pcm, 48000, vad.sample_rate)
         await vad.process(frame, str(member.id))
 
