@@ -74,7 +74,18 @@ fn list_styles() -> Result<Vec<String>, String> {
 
 #[tauri::command]
 fn list_models() -> Result<Vec<String>, String> {
-    list_from_dir(Path::new("models"))
+    let mut items = Vec::new();
+    for entry in fs::read_dir("models").map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) == Some("onnx") {
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                items.push(stem.to_string());
+            }
+        }
+    }
+    items.sort();
+    Ok(items)
 }
 
 #[tauri::command]

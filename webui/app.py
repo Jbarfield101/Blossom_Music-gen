@@ -276,8 +276,8 @@ async def list_models(request: Request):
         return HTMLResponse(html)
     if not MODELS_DIR.exists():
         return []
-    files = sorted(p for p in MODELS_DIR.glob("*") if p.is_file())
-    return [{"name": p.name, "url": f"/models/{p.name}"} for p in files]
+    files = sorted(p for p in MODELS_DIR.glob("*.onnx") if p.is_file())
+    return [{"name": p.stem, "url": f"/models/{p.name}"} for p in files]
 
 
 @app.get("/models/{filename}")
