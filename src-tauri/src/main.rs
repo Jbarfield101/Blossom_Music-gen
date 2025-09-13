@@ -16,6 +16,7 @@ use std::{
 use regex::Regex;
 use serde_json::{json, Value};
 use tauri::{AppHandle, State};
+use tauri::Emitter;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_store::Builder;
 mod musiclang;
