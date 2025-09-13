@@ -17,7 +17,7 @@ use regex::Regex;
 use serde_json::{json, Value};
 use tauri::api::dialog::blocking::message;
 use tauri::Emitter;
-use tauri::{AppHandle, Manager, State};
+use tauri::{async_runtime, AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_store::{Builder, StoreBuilder};
 use url::Url;
@@ -463,12 +463,14 @@ fn start_job(
     let stderr_buf = Arc::new(Mutex::new(String::new()));
     if let Some(stderr) = stderr_pipe {
         let stderr_buf_clone = stderr_buf.clone();
-        std::thread::spawn(move || {
+        let app_handle = app.clone();
+        async_runtime::spawn(async move {
             let reader = BufReader::new(stderr);
             for line in reader.lines().flatten() {
                 let mut buf = stderr_buf_clone.lock().unwrap();
                 buf.push_str(&line);
                 buf.push('\n');
+                let _ = app_handle.emit("logs::line", line.clone());
             }
         });
     }
@@ -481,7 +483,7 @@ fn start_job(
 
     if let Some(stdout) = stdout {
         let app_handle = app.clone();
-        std::thread::spawn(move || {
+        async_runtime::spawn(async move {
             let stage_re = Regex::new(r"^\s*([\w-]+):").unwrap();
             let percent_re = Regex::new(r"(\d+)%").unwrap();
             let eta_re = Regex::new(r"ETA[:\s]+([0-9:]+)").unwrap();
@@ -500,6 +502,7 @@ fn start_job(
                     step: None,
                     total: None,
                 };
+                let _ = app_handle.emit("logs::line", line.clone());
                 let _ = app_handle.emit(&format!("progress::{}", id), event);
             }
         });
@@ -536,7 +539,7 @@ fn onnx_generate(
         let stderr_buf_clone = stderr_buf.clone();
         let app_handle = app.clone();
         let id_clone = id;
-        std::thread::spawn(move || {
+        async_runtime::spawn(async move {
             let reader = BufReader::new(stderr);
             for line in reader.lines().flatten() {
                 {
@@ -544,6 +547,7 @@ fn onnx_generate(
                     buf.push_str(&line);
                     buf.push('\n');
                 }
+                let _ = app_handle.emit("logs::line", line.clone());
                 let trimmed = line.trim();
                 if let Ok(val) = serde_json::from_str::<Value>(trimmed) {
                     if let Some(err_msg) = val.get("error").and_then(|v| v.as_str()) {
@@ -567,7 +571,7 @@ fn onnx_generate(
         let app_handle = app.clone();
         let tx2 = tx.clone();
         let id_clone = id;
-        std::thread::spawn(move || {
+        async_runtime::spawn(async move {
             let reader = BufReader::new(stdout);
             let mut first = true;
             for line in reader.lines().flatten() {
@@ -575,6 +579,7 @@ fn onnx_generate(
                     let _ = tx2.send(());
                     first = false;
                 }
+                let _ = app_handle.emit("logs::line", line.clone());
                 if let Ok(mut event) = serde_json::from_str::<ProgressEvent>(&line) {
                     if let (Some(step), Some(total)) = (event.step, event.total) {
                         let pct = ((step as f64 / total as f64) * 100.0).round() as u8;
