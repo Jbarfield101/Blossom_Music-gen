@@ -3,6 +3,7 @@ from __future__ import annotations
 """Dialogue helpers with context injection from Obsidian notes."""
 
 from typing import List
+import re
 
 import service_api
 from . import prompt_router, ollama_client
@@ -31,10 +32,19 @@ def respond(message: str) -> str:
 
     If the message is classified as ``"lore"`` or ``"npc"``, relevant note
     summaries are searched and prepended to the prompt. When no matching notes
-    are found the original message is used unchanged.
+    are found the original message is used unchanged. Messages beginning with
+    ``"note"`` are stored directly in the selected vault instead of being sent
+    to the language model.
     """
 
     category = prompt_router.classify(message)
+    if category == "note":
+        match = re.match(r"note\s+(\S+)\s*:\s*(.+)", message.strip(), re.I | re.S)
+        if match:
+            path, text = match.group(1), match.group(2).strip()
+            service_api.create_note(path, text)
+            return f"Saved note to {path}"
+
     summaries: List[str] = []
     if category in ("lore", "npc"):
         results = service_api.search(message, tags=[category])
