@@ -2,9 +2,9 @@ from __future__ import annotations
 
 """Minimal frontmatter parser used for tests.
 
-This provides a tiny subset of the :mod:`python-frontmatter` package.  It only
-implements :func:`load` and the :class:`Post` dataclass, which are sufficient
-for the unit tests in this repository.
+Implements a small subset of functionality with :func:`load` and the
+:class:`Post` dataclass, which are sufficient for the unit tests in this
+repository.
 """
 
 from dataclasses import dataclass
