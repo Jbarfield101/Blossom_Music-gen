@@ -101,6 +101,14 @@ async function tauriOnnxMain(){
   async function populateModels(){
     modelBanner.hidden = true;
     modelBanner.textContent = '';
+    const loadingOverlay = document.getElementById('loading-overlay');
+    const loadingMsg = 'ONNX is loading, searching for MusicLang models…';
+    if (loadingOverlay) loadingOverlay.hidden = false;
+    if (dialog && typeof dialog.message === 'function') {
+      dialog.message(loadingMsg);
+    } else if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+      window.alert(loadingMsg);
+    }
     try {
       const models = await invoke('list_musiclang_models');
       modelSelect.innerHTML = '';
@@ -149,6 +157,8 @@ async function tauriOnnxMain(){
       modelBanner.textContent = `${msg}. Install models in the models folder or retry.`;
       modelBanner.hidden = false;
       if (typeof alert === 'function') alert(`${msg}. Install models in the models folder or retry.`);
+    } finally {
+      if (loadingOverlay) loadingOverlay.hidden = true;
     }
   }
 
