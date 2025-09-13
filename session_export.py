@@ -46,9 +46,8 @@ def export_session(transcript_root: str | Path | None = None,
         if summary:
             summaries.append((channel, summary))
 
-    lines: list[str] = []
+    lines: list[str] = ["## Combat"]
     if events:
-        lines.append("## Combat")
         for event in events:
             ts = event.get("ts")
             desc = event.get("desc") or event.get("event") or event.get("text") or ""
@@ -57,11 +56,16 @@ def export_session(transcript_root: str | Path | None = None,
                 lines.append(f"- {ts_text} {desc}")
             else:
                 lines.append(f"- {desc}")
+    else:
+        lines.append("No combat events.")
+
+    lines.append("## Transcripts")
     if summaries:
-        lines.append("## Transcripts")
         for channel, summary in summaries:
             lines.append(f"### {channel}")
             lines.append(summary)
+    else:
+        lines.append("No transcripts.")
 
     content = "\n".join(lines)
     date_str = datetime.now().strftime("%Y-%m-%d")

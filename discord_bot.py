@@ -158,7 +158,8 @@ class BlossomBot(commands.Bot):
         except Exception as exc:  # pragma: no cover - runtime errors
             await interaction.response.send_message(f"Error: {exc}", ephemeral=True)
             return
-        await interaction.response.send_message(f"Exported session log to {note_path}")
+        await interaction.response.send_message(
+            f"Exported session log to {str(note_path)}")
 
     # ------------------------------------------------------------------
     @scene_group.command(name="as", description="Switch the narrator TTS voice")
