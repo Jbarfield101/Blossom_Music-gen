@@ -6,6 +6,7 @@ import math
 from typing import Awaitable, Callable, Optional
 
 import numpy as np
+import logging
 
 try:
     import resampy
@@ -28,6 +29,15 @@ def _resample(pcm: bytes, source_rate: int, target_rate: int) -> bytes:
     to mono but no resampling is performed. If ``resampy`` is unavailable,
     ``scipy.signal.resample_poly`` is used as a fallback.
     """
+    # ``pcm`` should contain 16-bit stereo frames (4 bytes). If the byte
+    # length is not a multiple of four, drop any trailing partial frame before
+    # reshaping. Logging the number of discarded bytes helps diagnose
+    # misaligned buffers.
+    remainder = len(pcm) % 4
+    if remainder:
+        pcm = pcm[: len(pcm) - remainder]
+        logging.debug("Truncated %d incomplete PCM byte(s)", remainder)
+
     audio = (
         np.frombuffer(pcm, dtype=np.int16).reshape(-1, 2).mean(axis=1).astype(np.float32)
     )
