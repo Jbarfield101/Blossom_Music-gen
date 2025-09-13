@@ -24,19 +24,17 @@ class _FakeInfo:
 
 class _FakeWhisperModel:
     def __init__(self, *args, **kwargs):
-        self._decode_calls = 0
+        self._partial_calls = 0
 
-    def transcribe(self, audio, word_timestamps=True):
+    def transcribe(self, audio, word_timestamps=True, initial_prompt="", vad_filter=False):
         import time
 
         time.sleep(0.1)
         duration = len(audio) / 16000
+        if vad_filter:
+            self._partial_calls += 1
+            return [_FakeSeg(f"partial{self._partial_calls}", 0.0, duration, -0.2)], None
         return [_FakeSeg("final", 0.0, duration, -0.1)], _FakeInfo()
-
-    def decode(self, audio):
-        self._decode_calls += 1
-        duration = len(audio) / 16000
-        return _FakeSeg(f"partial{self._decode_calls}", 0.0, duration, -0.2)
 
 
 def _make_service(monkeypatch):
@@ -103,7 +101,7 @@ def test_transcription_segment_fields(monkeypatch):
     assert partial.language == ""
     assert partial.language_confidence == 0.0
     assert not partial.is_final
-    assert partial.confidence == pytest.approx(1.0)
+    assert partial.confidence == pytest.approx(math.exp(-0.2))
 
     assert final.text == "final"
     assert final.start == 0.0
