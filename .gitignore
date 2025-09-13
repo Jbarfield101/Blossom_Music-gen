@@ -37,3 +37,5 @@ audio_stems/
 *.tar
 *.tar.gz
 .venv/
+node_modules
+src-tauri/target
