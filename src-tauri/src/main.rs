@@ -2,8 +2,7 @@
 
 use std::{
     collections::HashMap,
-    env,
-    fs,
+    env, fs,
     io::{BufRead, BufReader},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
@@ -16,9 +15,9 @@ use std::{
 
 use regex::Regex;
 use serde_json::{json, Value};
+use tauri::api::dialog::blocking::message;
 use tauri::Emitter;
 use tauri::{AppHandle, State};
-use tauri::api::dialog::blocking::message;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_store::{Builder, StoreBuilder};
 use url::Url;
@@ -112,6 +111,71 @@ fn models_store(app: &AppHandle) -> Result<tauri_plugin_store::Store, String> {
         .map_err(|e| e.to_string())?
         .join("models.json");
     Ok(StoreBuilder::new(app.clone(), path).build())
+}
+
+fn devices_store(app: &AppHandle) -> Result<tauri_plugin_store::Store, String> {
+    let path = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?
+        .join("devices.json");
+    Ok(StoreBuilder::new(app.clone(), path).build())
+}
+
+#[tauri::command]
+fn list_devices(app: AppHandle) -> Result<Value, String> {
+    let output = Command::new("python")
+        .args(["-m", "ears.devices"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let devices: Value = serde_json::from_str(stdout.trim()).map_err(|e| e.to_string())?;
+    let store = devices_store(&app)?;
+    let selected_input = store
+        .get("input")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32);
+    let selected_output = store
+        .get("output")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32);
+
+    let input_options = devices
+        .get("input")
+        .cloned()
+        .unwrap_or_else(|| Value::Array(vec![]));
+    let output_options = devices
+        .get("output")
+        .cloned()
+        .unwrap_or_else(|| Value::Array(vec![]));
+
+    Ok(json!({
+        "input": {"options": input_options, "selected": selected_input},
+        "output": {"options": output_options, "selected": selected_output}
+    }))
+}
+
+#[tauri::command]
+fn set_devices(app: AppHandle, input: Option<u32>, output: Option<u32>) -> Result<(), String> {
+    let store = devices_store(&app)?;
+    if let Some(id) = input {
+        store.insert("input".to_string(), id.into());
+        env::set_var("INPUT_DEVICE", id.to_string());
+    }
+    if let Some(id) = output {
+        store.insert("output".to_string(), id.into());
+        env::set_var("OUTPUT_DEVICE", id.to_string());
+    }
+    store.save().map_err(|e| e.to_string())?;
+    app.emit(
+        "settings::devices",
+        json!({ "input": input, "output": output }),
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -570,7 +634,11 @@ fn main() {
             } else {
                 Path::new(".venv").join("bin")
             };
-            let sep = if cfg!(target_os = "windows") { ';' } else { ':' };
+            let sep = if cfg!(target_os = "windows") {
+                ';'
+            } else {
+                ':'
+            };
             let mut path_var = env::var("PATH").unwrap_or_default();
             env::set_var("PATH", format!("{}{}{}", venv_dir.display(), sep, path_var));
 
@@ -587,7 +655,11 @@ fn main() {
                 let status = Command::new("python").arg("start.py").status();
                 if !status.map(|s| s.success()).unwrap_or(false) {
                     if let Some(window) = app.get_window("main") {
-                        message(Some(&window), "Setup Error", "Failed to set up Python environment.");
+                        message(
+                            Some(&window),
+                            "Setup Error",
+                            "Failed to set up Python environment.",
+                        );
                     }
                     return Err("Python setup failed".into());
                 }
@@ -601,6 +673,8 @@ fn main() {
             list_presets,
             list_styles,
             list_models,
+            list_devices,
+            set_devices,
             list_whisper,
             set_whisper,
             list_piper,
