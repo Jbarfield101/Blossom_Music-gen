@@ -137,9 +137,11 @@ class ModelSession:
         temperature = float(sampling.get("temperature", 1.0))
 
         start = time.time()
+        step_times: List[float] = []
         for i in range(int(steps)):
             if self.cancelled:
                 break
+            step_start = time.time()
             inp = np.array(history, dtype=np.int64)[None, :]
             logits = self.sess.run([output_name], {input_name: inp})[0][0, -1]
             next_id = sample_token(
@@ -151,8 +153,18 @@ class ModelSession:
                 rng=rng,
             )
             history.append(int(next_id))
+            step_end = time.time()
+            step_times.append(step_end - step_start)
             if progress_cb is not None and steps > 0 and (i + 1) % max(1, steps // 10) == 0:
-                progress_cb({"step": i + 1, "total": steps})
+                avg = sum(step_times) / len(step_times)
+                remaining = avg * (steps - (i + 1))
+                progress_cb(
+                    {
+                        "step": i + 1,
+                        "total": steps,
+                        "eta": f"{int(remaining)}",
+                    }
+                )
         total = time.time() - start
 
         new_tokens = len(history) - len(tokens)
@@ -160,6 +172,7 @@ class ModelSession:
             "tokens_per_sec": float(new_tokens) / total if total > 0 else 0.0,
             "device": device,
             "time": total,
+            "step_times": step_times,
         }
 
         return history
