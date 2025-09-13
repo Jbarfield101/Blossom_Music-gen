@@ -4,9 +4,9 @@ use serde_json::Value;
 use std::{
     fs::{self, File},
     io::{Read, Write},
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 use crate::{util::list_from_dir, ProgressEvent};
 

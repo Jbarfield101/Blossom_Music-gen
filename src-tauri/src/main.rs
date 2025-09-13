@@ -14,7 +14,6 @@ use std::{
 };
 
 use regex::Regex;
-use tauri::Manager;
 use tauri::{AppHandle, State};
 use tauri_plugin_store::Builder;
 use tauri_plugin_shell::ShellExt;
