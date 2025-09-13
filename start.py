@@ -89,7 +89,10 @@ def main() -> None:
 
     npm_dir = Path.cwd()
     try:
+        # Install root-level dependencies first
         subprocess.run([npm_path, "install"], cwd=npm_dir, check=True)
+        # Then install UI dependencies (Vite, React, etc.)
+        subprocess.run([npm_path, "install"], cwd=npm_dir / "ui", check=True)
     except subprocess.CalledProcessError:
         print("Failed to install NPM dependencies", file=sys.stderr)
         sys.exit(1)
