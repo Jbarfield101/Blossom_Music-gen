@@ -12,6 +12,7 @@ async function tauriOnnxMain(){
   const topPInput = document.getElementById('top_p');
   const tempInput = document.getElementById('temperature');
   const startBtn = document.getElementById('start');
+  startBtn.disabled = true;
   const cancelBtn = document.getElementById('cancel');
   const prog = document.getElementById('progress');
   const etaSpan = document.getElementById('eta');
@@ -87,8 +88,8 @@ async function tauriOnnxMain(){
   async function refreshModels(){
     try {
       const installed = await invoke('list_models');
-      const selected = modelSelect.value.split(/[\\/]/).pop();
-      modelInstalled = installed.includes(selected);
+      const selected = modelSelect.value.split(/[\\/]/).pop().trim();
+      modelInstalled = selected && installed.includes(selected);
     } catch (e) {
       console.error(e);
       modelInstalled = false;
@@ -160,7 +161,10 @@ async function tauriOnnxMain(){
 
   validateInputs();
 
-  modelSelect.addEventListener('change', refreshModels);
+  modelSelect.addEventListener('change', () => {
+    refreshModels();
+    validateInputs();
+  });
 
   stepsInput.addEventListener('input', validateInputs);
   topKInput.addEventListener('input', validateInputs);
