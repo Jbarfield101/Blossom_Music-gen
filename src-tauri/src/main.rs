@@ -425,17 +425,20 @@ fn job_status(registry: State<JobRegistry>, job_id: u64) -> JobState {
 #[tauri::command]
 fn open_path(app: AppHandle, path: String) -> Result<(), String> {
     if let Ok(url) = Url::parse(&path) {
-        app.opener().open_url(url, None).map_err(|e| e.to_string())
+        app.opener()
+            .open_url(url, Option::<String>::None)
+            .map_err(|e| e.to_string())
     } else {
         let path_buf = PathBuf::from(&path);
         if !path_buf.exists() {
             return Err("Path does not exist".into());
         }
-        let path_str =
-            path_buf.to_str().ok_or("Invalid Unicode in path")?.to_string();
-        app
-            .opener()
-            .open_path(path_str, None)
+        let path_str = path_buf
+            .to_str()
+            .ok_or("Invalid Unicode in path")?
+            .to_string();
+        app.opener()
+            .open_path(path_str, Option::<String>::None)
             .map_err(|e| e.to_string())
     }
 }
