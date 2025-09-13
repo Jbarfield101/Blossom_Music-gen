@@ -1,4 +1,5 @@
 use reqwest::blocking;
+use serde::Serialize;
 use serde_json::Value;
 use std::{
     fs::{self, File},
@@ -11,17 +12,57 @@ use crate::{util::list_from_dir, ProgressEvent};
 
 const INDEX_URL: &str = "https://huggingface.co/api/models?search=musiclang";
 
+#[derive(Serialize)]
+pub struct ModelInfo {
+    pub id: String,
+    pub description: Option<String>,
+    pub size: Option<u64>,
+}
+
 #[tauri::command]
-pub fn list_musiclang_models() -> Result<Vec<String>, String> {
+pub fn list_musiclang_models() -> Result<Vec<ModelInfo>, String> {
     let response = blocking::get(INDEX_URL).map_err(|e| e.to_string())?;
     let json: Value = response.json().map_err(|e| e.to_string())?;
     let models = json
         .as_array()
         .map(|arr| {
             arr.iter()
-                .filter_map(|item| item.get("modelId").and_then(|v| v.as_str()))
-                .map(|id| id.to_string())
-                .collect::<Vec<String>>()
+                .filter_map(|item| {
+                    let model_id = item.get("modelId").and_then(|v| v.as_str())?;
+                    // Only keep models from the official MusicLang namespace
+                    if !(model_id.starts_with("musiclang/") || model_id.starts_with("MusicLang/")) {
+                        return None;
+                    }
+                    // Find an ONNX asset among siblings
+                    let onnx_info =
+                        item.get("siblings")
+                            .and_then(|s| s.as_array())
+                            .and_then(|sibs| {
+                                sibs.iter().find_map(|sib| {
+                                    let name = sib.get("rfilename").and_then(|v| v.as_str())?;
+                                    if name.ends_with(".onnx") {
+                                        Some((name, sib.get("size").and_then(|v| v.as_u64())))
+                                    } else {
+                                        None
+                                    }
+                                })
+                            });
+                    let (onnx_name, size) = onnx_info?;
+                    // Ensure the ONNX file is present
+                    if onnx_name.is_empty() {
+                        return None;
+                    }
+                    let description = item
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+                    Some(ModelInfo {
+                        id: model_id.to_string(),
+                        description,
+                        size,
+                    })
+                })
+                .collect::<Vec<ModelInfo>>()
         })
         .unwrap_or_default();
     Ok(models)
