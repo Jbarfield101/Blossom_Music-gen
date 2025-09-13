@@ -20,6 +20,13 @@ async function tauriOnnxMain(){
   const results = document.getElementById('results');
   const midiLink = document.getElementById('midi_link');
   const telemetryPre = document.getElementById('telemetry');
+  const inputsDiv = document.getElementById('inputs');
+  const modelBanner = document.createElement('div');
+  modelBanner.id = 'model-banner';
+  modelBanner.style.color = 'red';
+  modelBanner.style.marginBottom = '1em';
+  modelBanner.hidden = true;
+  inputsDiv.insertAdjacentElement('beforebegin', modelBanner);
   let jobId = null;
   let unlisten = null;
   let modelInstalled = false;
@@ -86,8 +93,28 @@ async function tauriOnnxMain(){
   }
 
   async function populateModels(){
+    modelSelect.innerHTML = '';
+    modelBanner.hidden = true;
+    modelBanner.textContent = '';
+    modelSelect.disabled = false;
+    downloadBtn.disabled = false;
+    startBtn.disabled = false;
     try {
       const models = await invoke('list_musiclang_models');
+      if (!Array.isArray(models) || models.length === 0) {
+        const opt = document.createElement('option');
+        opt.textContent = 'No models found';
+        opt.disabled = true;
+        modelSelect.appendChild(opt);
+        modelSelect.disabled = true;
+        downloadBtn.disabled = true;
+        startBtn.disabled = true;
+        const msg = 'No models found. Place .onnx models in the models folder or try downloading again.';
+        modelBanner.textContent = msg;
+        modelBanner.hidden = false;
+        if (typeof alert === 'function') alert(msg);
+        return;
+      }
       models.forEach(info => {
         const opt = document.createElement('option');
         opt.value = info.id;
@@ -102,9 +129,19 @@ async function tauriOnnxMain(){
       });
       await refreshModels();
     } catch (e) {
-      log.textContent = `Error fetching models: ${e}`;
+      const opt = document.createElement('option');
+      opt.textContent = 'No models found';
+      opt.disabled = true;
+      modelSelect.appendChild(opt);
+      modelSelect.disabled = true;
+      downloadBtn.disabled = true;
+      startBtn.disabled = true;
+      const msg = `Error fetching models: ${e}`;
+      log.textContent = msg;
       log.scrollTop = log.scrollHeight;
-      if (typeof alert === 'function') alert(`Error fetching models: ${e}`);
+      modelBanner.textContent = `${msg}. Install models in the models folder or retry.`;
+      modelBanner.hidden = false;
+      if (typeof alert === 'function') alert(`${msg}. Install models in the models folder or retry.`);
     }
   }
 
