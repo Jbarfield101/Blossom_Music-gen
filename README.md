@@ -6,6 +6,9 @@ A desktop interface built with [Tauri](https://tauri.app/) provides the front‑
 Templates and scripts live under the top‑level `ui/` directory.  Command‑line
 usage via `start.py` remains available for automation.
 
+Theme preference is persisted using Tauri's [store plugin](https://github.com/tauri-apps/plugins-workspace/),
+falling back to `localStorage` when the plugin is not available.
+
 ## Quick Start
 
 1. Create a virtual environment and install the Python dependencies:
