@@ -6,6 +6,7 @@ from typing import List
 
 import service_api
 from . import prompt_router, ollama_client
+from .events import Event
 
 
 def _summarize(content: str) -> str:
@@ -26,12 +27,15 @@ def _summarize(content: str) -> str:
     return lines[0]
 
 
-def respond(message: str) -> str:
-    """Generate a response for ``message`` via Ollama.
+def respond(message: str) -> Event:
+    """Generate a structured :class:`~brain.events.Event` for ``message``.
 
     If the message is classified as ``"lore"`` or ``"npc"``, relevant note
     summaries are searched and prepended to the prompt. When no matching notes
-    are found the original message is used unchanged.
+    are found the original message is used unchanged. The Ollama model is then
+    asked to respond with a JSON object containing ``who``, ``action``,
+    ``targets``, ``effects`` and ``narration`` fields which are parsed into an
+    :class:`Event` instance.
     """
 
     category = prompt_router.classify(message)
@@ -50,4 +54,10 @@ def respond(message: str) -> str:
         )
         prompt = f"{message}\n\nRelevant notes:\n{notes}\n"
 
-    return ollama_client.generate(prompt)
+    prompt = (
+        f"{prompt}\n\nRespond with a JSON object containing keys: "
+        "who, action, targets, effects, narration."
+    )
+
+    raw = ollama_client.generate(prompt)
+    return Event.from_json(raw)

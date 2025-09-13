@@ -1,72 +1,82 @@
 from pathlib import Path
 import sys
-import sqlite3
-import numpy as np
-import faiss
+import types
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+# Minimal stubs for optional dependencies
+numpy_stub = types.ModuleType("numpy")
+numpy_stub.asarray = lambda x, dtype=None: x
+numpy_stub.array = lambda x, dtype=None: x
+numpy_stub.vstack = lambda x: x
+numpy_stub.float32 = float
+numpy_stub.int64 = int
+numpy_stub.arange = lambda n: list(range(n))
+sys.modules["numpy"] = numpy_stub
+
+requests_stub = types.ModuleType("requests")
+class _Resp:
+    def iter_lines(self):
+        return []
+    def raise_for_status(self):
+        pass
+requests_stub.Response = _Resp
+requests_stub.post = lambda *a, **k: _Resp()
+req_exc = types.ModuleType("exceptions")
+class HTTPError(Exception):
+    pass
+class RequestException(Exception):
+    pass
+class Timeout(Exception):
+    pass
+req_exc.HTTPError = HTTPError
+req_exc.RequestException = RequestException
+req_exc.Timeout = Timeout
+sys.modules["requests"] = requests_stub
+sys.modules["requests.exceptions"] = req_exc
+
+watch_stub = types.ModuleType("watchfiles")
+class Change:
+    added = 1
+    modified = 2
+    deleted = 3
+watch_stub.Change = Change
+watch_stub.watch = lambda *a, **k: iter(())
+sys.modules["watchfiles"] = watch_stub
+
 import service_api
 from brain import dialogue, ollama_client
-import notes.search as search_mod
+from brain.events import Event
 
 
-def _fake_embed(texts, model_name=None):
-    vecs = []
-    for text in texts:
-        t = text.lower()
-        if "dragon" in t:
-            vecs.append([1.0, 0.0])
-        elif "king" in t:
-            vecs.append([0.0, 1.0])
-        else:
-            vecs.append([0.0, 0.0])
-    return np.asarray(vecs, dtype="float32")
+def _patch_common(monkeypatch, chunks):
+    def fake_search(query, tags=None):
+        tag = tags[0] if tags else None
+        return [
+            {"content": ch["content"]}
+            for ch in chunks
+            if tag in ch["tags"]
+        ]
 
+    monkeypatch.setattr(service_api, "search", fake_search)
+    monkeypatch.setattr(dialogue.service_api, "search", fake_search)
 
-def _build_vault(root: Path, chunks):
-    db_path = root / "chunks.sqlite"
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "CREATE TABLE chunks (id TEXT PRIMARY KEY, path TEXT, heading TEXT, content TEXT, vector_id INTEGER)"
-    )
-    conn.execute("CREATE TABLE tags (chunk_id TEXT, tag TEXT)")
-    for ch in chunks:
-        conn.execute(
-            "INSERT INTO chunks VALUES (?, ?, ?, ?, ?)",
-            (ch["id"], ch["path"], ch["heading"], ch["content"], ch["vector_id"]),
-        )
-        for tag in ch["tags"]:
-            conn.execute(
-                "INSERT INTO tags VALUES (?, ?)", (ch["id"], tag)
-            )
-    conn.commit()
-    conn.close()
-
-    vectors = np.vstack([c["vector"] for c in chunks]).astype("float32")
-    index = faiss.IndexIDMap(faiss.IndexFlatL2(vectors.shape[1]))
-    ids = np.array([c["vector_id"] for c in chunks], dtype="int64")
-    index.add_with_ids(vectors, ids)
-    faiss.write_index(index, str(root / "obsidian_index.faiss"))
-
-
-def _patch_common(monkeypatch, vault):
-    monkeypatch.setattr(service_api, "get_vault", lambda: vault)
-    monkeypatch.setattr(dialogue.service_api, "get_vault", lambda: vault)
-    monkeypatch.setattr(search_mod, "embed_texts", _fake_embed)
     captured = {}
 
     def fake_generate(prompt: str) -> str:
         captured["prompt"] = prompt
-        return prompt
+        return (
+            '{"who": "npc", "action": "say", "targets": [], '
+            '"effects": [], "narration": "hello"}'
+        )
 
     monkeypatch.setattr(ollama_client, "generate", fake_generate)
     monkeypatch.setattr(dialogue.ollama_client, "generate", fake_generate)
     return captured
 
 
-def test_lore_injection(tmp_path, monkeypatch):
+def test_lore_injection(monkeypatch):
     chunks = [
         {
             "id": "c1",
@@ -75,7 +85,6 @@ def test_lore_injection(tmp_path, monkeypatch):
             "content": "Dragons are ancient creatures.\nThey rule the sky.",
             "vector_id": 0,
             "tags": ["lore"],
-            "vector": np.array([1.0, 0.0], dtype="float32"),
         },
         {
             "id": "c2",
@@ -84,19 +93,17 @@ def test_lore_injection(tmp_path, monkeypatch):
             "content": "- King Arthur\n- Ruler of Camelot\n- Brave and wise",
             "vector_id": 1,
             "tags": ["npc"],
-            "vector": np.array([0.0, 1.0], dtype="float32"),
         },
     ]
-    _build_vault(tmp_path, chunks)
-    captured = _patch_common(monkeypatch, tmp_path)
+    captured = _patch_common(monkeypatch, chunks)
 
-    out = dialogue.respond("Tell me some lore about dragons")
-    assert "Relevant notes:" in out
-    assert "- Dragons are ancient creatures." in out
-    assert captured["prompt"] == out
+    event = dialogue.respond("Tell me some lore about dragons")
+    assert isinstance(event, Event)
+    assert "Relevant notes:" in captured["prompt"]
+    assert "- Dragons are ancient creatures." in captured["prompt"]
 
 
-def test_npc_injection(tmp_path, monkeypatch):
+def test_npc_injection(monkeypatch):
     chunks = [
         {
             "id": "c1",
@@ -105,7 +112,6 @@ def test_npc_injection(tmp_path, monkeypatch):
             "content": "Dragons are ancient creatures.\nThey rule the sky.",
             "vector_id": 0,
             "tags": ["lore"],
-            "vector": np.array([1.0, 0.0], dtype="float32"),
         },
         {
             "id": "c2",
@@ -114,19 +120,17 @@ def test_npc_injection(tmp_path, monkeypatch):
             "content": "- King Arthur\n- Ruler of Camelot\n- Brave and wise",
             "vector_id": 1,
             "tags": ["npc"],
-            "vector": np.array([0.0, 1.0], dtype="float32"),
         },
     ]
-    _build_vault(tmp_path, chunks)
-    captured = _patch_common(monkeypatch, tmp_path)
+    captured = _patch_common(monkeypatch, chunks)
 
-    out = dialogue.respond("Hello, what do I know about the king?")
-    assert "Relevant notes:" in out
-    assert "- King Arthur" in out
-    assert captured["prompt"] == out
+    event = dialogue.respond("Hello, what do I know about the king?")
+    assert isinstance(event, Event)
+    assert "Relevant notes:" in captured["prompt"]
+    assert "- King Arthur" in captured["prompt"]
 
 
-def test_no_notes_fallback(tmp_path, monkeypatch):
+def test_no_notes_fallback(monkeypatch):
     chunks = [
         {
             "id": "c2",
@@ -135,13 +139,39 @@ def test_no_notes_fallback(tmp_path, monkeypatch):
             "content": "- King Arthur\n- Ruler of Camelot\n- Brave and wise",
             "vector_id": 0,
             "tags": ["npc"],
-            "vector": np.array([0.0, 1.0], dtype="float32"),
         }
     ]
-    _build_vault(tmp_path, chunks)
-    captured = _patch_common(monkeypatch, tmp_path)
+    captured = _patch_common(monkeypatch, chunks)
 
     msg = "Tell me some lore about dragons"
-    out = dialogue.respond(msg)
-    assert out == msg
-    assert captured["prompt"] == msg
+    event = dialogue.respond(msg)
+    assert isinstance(event, Event)
+    assert captured["prompt"].startswith(msg)
+    assert "Respond with a JSON object" in captured["prompt"]
+
+
+def test_parses_event(monkeypatch):
+    resp = (
+        '{"who": "alice", "action": "wave", "targets": ["bob"], '
+        '"effects": ["smile"], "narration": "Alice waves."}'
+    )
+    monkeypatch.setattr(ollama_client, "generate", lambda prompt: resp)
+    monkeypatch.setattr(dialogue.ollama_client, "generate", lambda prompt: resp)
+    monkeypatch.setattr(dialogue.prompt_router, "classify", lambda _: "other")
+    event = dialogue.respond("Wave to Bob")
+    assert event == Event(
+        who="alice",
+        action="wave",
+        targets=["bob"],
+        effects=["smile"],
+        narration="Alice waves.",
+    )
+
+
+def test_malformed_json(monkeypatch):
+    resp = '{"who": "alice", "action": "wave"'
+    monkeypatch.setattr(ollama_client, "generate", lambda prompt: resp)
+    monkeypatch.setattr(dialogue.ollama_client, "generate", lambda prompt: resp)
+    monkeypatch.setattr(dialogue.prompt_router, "classify", lambda _: "other")
+    with pytest.raises(ValueError):
+        dialogue.respond("Wave to Bob")
