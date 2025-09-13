@@ -33,10 +33,16 @@ async function tauriOnnxMain(){
   async function populateModels(){
     try {
       const models = await invoke('list_musiclang_models');
-      models.forEach(name => {
+      models.forEach(info => {
         const opt = document.createElement('option');
-        opt.value = name;
-        opt.textContent = name;
+        opt.value = info.id;
+        let label = info.id;
+        if (info.description) label += ` - ${info.description}`;
+        if (info.size) {
+          const mb = (info.size / (1024 * 1024)).toFixed(1);
+          label += ` (${mb} MB)`;
+        }
+        opt.textContent = label;
         modelSelect.appendChild(opt);
       });
       await refreshModels();
