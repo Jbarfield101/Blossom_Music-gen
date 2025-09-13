@@ -29,6 +29,8 @@ async function tauriOnnxMain(){
   inputsDiv.insertAdjacentElement('beforebegin', modelBanner);
   let jobId = null;
   let unlisten = null;
+  let unlistenCancelled = null;
+  let cancelledHandled = false;
   let modelInstalled = false;
   let inputsValid = false;
 
@@ -245,6 +247,7 @@ async function tauriOnnxMain(){
     log.textContent = '';
     results.hidden = true;
     if (unlisten) unlisten();
+    if (unlistenCancelled) unlistenCancelled();
     unlisten = await event.listen(`onnx::progress::${jobId}`, e => {
       const data = e.payload;
       if (data.stage === 'error') {
@@ -285,15 +288,39 @@ async function tauriOnnxMain(){
       }
     });
     poll();
+    cancelledHandled = false;
+    listenCancelled(jobId);
   });
+
+  function handleCancelled() {
+    if (cancelledHandled) return;
+    cancelledHandled = true;
+    prog.value = 0;
+    log.textContent += 'Job cancelled\n';
+    log.scrollTop = log.scrollHeight;
+    cancelBtn.disabled = true;
+    startBtn.disabled = false;
+    if (unlistenCancelled) {
+      unlistenCancelled();
+      unlistenCancelled = null;
+    }
+    jobId = null;
+  }
 
   cancelBtn.addEventListener('click', async () => {
     if (jobId !== null) {
+      cancelledHandled = false;
       await invoke('cancel_render', { jobId });
-      cancelBtn.disabled = true;
-      startBtn.disabled = false;
+      handleCancelled();
     }
   });
+
+  async function listenCancelled(id) {
+    if (unlistenCancelled) unlistenCancelled();
+    unlistenCancelled = await event.listen(`onnx::cancelled::${id}`, () => {
+      handleCancelled();
+    });
+  }
 
   async function poll(){
     if (jobId === null) return;
