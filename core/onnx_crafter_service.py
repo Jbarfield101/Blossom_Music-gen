@@ -311,10 +311,10 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     tokens = session.generate(tokens, steps, sampling, progress_cb=emit)
 
-    out_path = cfg.get("out", "out.mid")
-    midi_path = session.decode_to_midi(tokens, out_path)
+    out_path = Path(cfg.get("out", "out.mid")).expanduser()
+    session.decode_to_midi(tokens, out_path)
 
-    result = {"midi": midi_path, "telemetry": session.telemetry}
+    result = {"midi": str(out_path), "telemetry": session.telemetry}
     print(json.dumps(result))
 
 
