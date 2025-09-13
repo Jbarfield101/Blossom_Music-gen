@@ -41,12 +41,33 @@ class TranscriptLogger:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-    def append(self, channel: str, speaker: str, text: str, *, timestamp: Optional[float] = None) -> None:
+    def append(
+        self,
+        channel: str,
+        speaker: str,
+        text: str,
+        *,
+        timestamp: Optional[float] = None,
+        language: Optional[str] = None,
+        confidence: Optional[float] = None,
+    ) -> None:
         """Append a transcript entry for ``channel``.
 
         Each entry is written atomically to avoid interleaving between
         concurrent writers. The log line is encoded as JSON and flushed using
         the ``O_APPEND`` flag so writes are always appended.
+
+        Parameters
+        ----------
+        channel, speaker, text:
+            Core metadata describing the transcript entry.
+        timestamp:
+            Optional explicit timestamp in seconds since the epoch. When not
+            provided, the current time is used.
+        language:
+            Optional BCP‑47 language code detected for ``text``.
+        confidence:
+            Optional overall confidence score for the transcription.
         """
 
         entry = {
@@ -54,6 +75,10 @@ class TranscriptLogger:
             "speaker": speaker,
             "text": text,
         }
+        if language is not None:
+            entry["language"] = language
+        if confidence is not None:
+            entry["confidence"] = confidence
         data = json.dumps(entry, ensure_ascii=False) + "\n"
         path = self._base_path(channel)
         with self._lock(channel):
