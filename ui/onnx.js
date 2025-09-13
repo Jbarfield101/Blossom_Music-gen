@@ -119,6 +119,13 @@ async function tauriOnnxMain(){
     if (unlisten) unlisten();
     unlisten = await event.listen(`onnx::progress::${jobId}`, e => {
       const data = e.payload;
+      if (data.stage === 'error') {
+        log.textContent += `Error: ${data.message}\n`;
+        log.scrollTop = log.scrollHeight;
+        cancelBtn.disabled = true;
+        startBtn.disabled = false;
+        return;
+      }
       const msg = data.message || '';
       if (msg) {
         log.textContent += msg + '\n';
@@ -135,6 +142,10 @@ async function tauriOnnxMain(){
               midiLink.onclick = () => shell.open(parsed.midi);
               telemetryPre.textContent = JSON.stringify(parsed.telemetry, null, 2);
               results.hidden = false;
+            }
+            if (parsed.error) {
+              log.textContent += `Error: ${parsed.error}\n`;
+              log.scrollTop = log.scrollHeight;
             }
           } catch {
             // ignore
