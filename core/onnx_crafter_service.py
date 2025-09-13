@@ -54,14 +54,14 @@ class ModelSession:
     # ------------------------------------------------------------------
     # Session management
     # ------------------------------------------------------------------
-    def load_session(self, model_dir: str | Path) -> Tuple[object, Dict[str, List[str]]]:
+    def load_session(self, model_path: str | Path | None = None) -> Tuple[object, Dict[str, List[str]]]:
         """Load an ONNX model and cache its input/output schema.
 
         Parameters
         ----------
-        model_dir:
-            Path to either a directory containing an ``.onnx`` file or a direct
-            path to an ONNX graph.
+        model_path:
+            Optional path to a model file or a directory containing one or more
+            ``.onnx`` files.  If omitted, :data:`~core.paths.MODEL_DIR` is used.
 
         Returns
         -------
@@ -72,18 +72,27 @@ class ModelSession:
 
         import onnxruntime as ort  # type: ignore
 
-        path = Path(model_dir)
-        if not path.exists():
-            path = MODEL_DIR / path
+        if model_path is None:
+            path = MODEL_DIR
+        else:
+            path = Path(model_path)
+            if not path.exists():
+                alt = MODEL_DIR / path
+                if alt.exists():
+                    path = alt
+                else:
+                    raise FileNotFoundError(f"Model path does not exist: {model_path}")
 
         if path.is_dir():
-            candidates = list(path.glob("*.onnx"))
+            candidates = sorted(path.rglob("*.onnx"))
             if not candidates:
-                raise FileNotFoundError(f"No ONNX model found in {path}")
+                raise FileNotFoundError(f"No .onnx files found in directory: {path}")
             path = candidates[0]
-
-        if not path.exists():
-            raise FileNotFoundError(f"No model found at {path}")
+        elif path.is_file():
+            if path.suffix != ".onnx":
+                raise FileNotFoundError(f"Expected .onnx model file: {path}")
+        else:
+            raise FileNotFoundError(f"Invalid model path: {path}")
 
         providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
         sess = ort.InferenceSession(str(path), providers=providers)
