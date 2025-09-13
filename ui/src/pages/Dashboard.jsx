@@ -23,10 +23,15 @@ export default function Dashboard() {
           <span className="card-icon">🎚️</span>
           <h2>Train Model</h2>
         </Link>
-        <a className="card" href="/models" title="Manage or download models">
+        <button
+          className="card"
+          type="button"
+          title="Manage or download models"
+          onClick={() => window.__TAURI__?.invoke('open_path', { path: 'models' })}
+        >
           <span className="card-icon">📦</span>
           <h2>Manage/Download Models</h2>
-        </a>
+        </button>
         <Link className="card" to="/onnx">
           <span className="card-icon">🧠</span>
           <h2>ONNX Crafter</h2>
