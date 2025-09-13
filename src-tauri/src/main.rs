@@ -29,6 +29,13 @@ pub struct ProgressEvent {
     eta: Option<String>,
 }
 
+fn extract_error_message(stderr: &str) -> Option<String> {
+    stderr
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l.trim()).ok())
+        .find_map(|v| v.get("error").and_then(|e| e.as_str()).map(|s| s.to_string()))
+}
+
 struct JobInfo {
     child: Option<Child>,
     args: Vec<String>,
@@ -181,17 +188,6 @@ fn onnx_generate(
     let stdout = child.stdout.take();
     let stderr_pipe = child.stderr.take();
     let stderr_buf = Arc::new(Mutex::new(String::new()));
-    if let Some(stderr) = stderr_pipe {
-        let stderr_buf_clone = stderr_buf.clone();
-        std::thread::spawn(move || {
-            let reader = BufReader::new(stderr);
-            for line in reader.lines().flatten() {
-                let mut buf = stderr_buf_clone.lock().unwrap();
-                buf.push_str(&line);
-                buf.push('\n');
-            }
-        });
-    }
     let job = JobInfo {
         child: Some(child),
         args: full_args.clone(),
@@ -200,10 +196,39 @@ fn onnx_generate(
     };
     let id = registry.add(job);
 
+    if let Some(stderr) = stderr_pipe {
+        let stderr_buf_clone = stderr_buf.clone();
+        let app_handle = app.clone();
+        let id_clone = id;
+        std::thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines().flatten() {
+                {
+                    let mut buf = stderr_buf_clone.lock().unwrap();
+                    buf.push_str(&line);
+                    buf.push('\n');
+                }
+                let trimmed = line.trim();
+                if let Ok(val) = serde_json::from_str::<Value>(trimmed) {
+                    if let Some(err_msg) = val.get("error").and_then(|v| v.as_str()) {
+                        let event = ProgressEvent {
+                            stage: Some("error".into()),
+                            percent: None,
+                            message: err_msg.to_string(),
+                            eta: None,
+                        };
+                        let _ = app_handle.emit_all(&format!("onnx::progress::{}", id_clone), event);
+                    }
+                }
+            }
+        });
+    }
+
     let (tx, rx) = std::sync::mpsc::channel();
     if let Some(stdout) = stdout {
         let app_handle = app.clone();
         let tx2 = tx.clone();
+        let id_clone = id;
         std::thread::spawn(move || {
             let stage_re = Regex::new(r"^\s*([\w-]+):").unwrap();
             let percent_re = Regex::new(r"(\d+)%").unwrap();
@@ -223,7 +248,7 @@ fn onnx_generate(
                         message: line.clone(),
                         eta: None,
                     };
-                    let _ = app_handle.emit_all(&format!("onnx::progress::{}", id), event);
+                    let _ = app_handle.emit_all(&format!("onnx::progress::{}", id_clone), event);
                 } else {
                     let stage = stage_re.captures(&line).map(|c| c[1].to_string());
                     let percent = percent_re
@@ -236,7 +261,7 @@ fn onnx_generate(
                         message: line.clone(),
                         eta,
                     };
-                    let _ = app_handle.emit_all(&format!("onnx::progress::{}", id), event);
+                    let _ = app_handle.emit_all(&format!("onnx::progress::{}", id_clone), event);
                 }
             }
         });
@@ -256,11 +281,14 @@ fn onnx_generate(
                                 if !success {
                                     let err = job.stderr.lock().unwrap().clone();
                                     jobs.remove(&id);
-                                    return Err(if err.is_empty() {
-                                        "onnx generation failed".into()
-                                    } else {
-                                        err
+                                    let msg = extract_error_message(&err).unwrap_or_else(|| {
+                                        if err.is_empty() {
+                                            "onnx generation failed".into()
+                                        } else {
+                                            err
+                                        }
                                     });
+                                    return Err(msg);
                                 } else {
                                     job.status = Some(true);
                                     job.child = None;
@@ -323,7 +351,8 @@ fn job_status(registry: State<JobRegistry>, job_id: u64) -> JobState {
                     message: if success {
                         None
                     } else {
-                        Some(job.stderr.lock().unwrap().clone())
+                        let stderr = job.stderr.lock().unwrap().clone();
+                        extract_error_message(&stderr).or_else(|| if stderr.is_empty() { None } else { Some(stderr) })
                     },
                 }
             } else if let Some(child) = job.child.as_mut() {
@@ -337,7 +366,8 @@ fn job_status(registry: State<JobRegistry>, job_id: u64) -> JobState {
                             message: if success {
                                 None
                             } else {
-                                Some(job.stderr.lock().unwrap().clone())
+                                let stderr = job.stderr.lock().unwrap().clone();
+                                extract_error_message(&stderr).or_else(|| if stderr.is_empty() { None } else { Some(stderr) })
                             },
                         }
                     }
@@ -348,9 +378,10 @@ fn job_status(registry: State<JobRegistry>, job_id: u64) -> JobState {
                     Err(_) => {
                         job.status = Some(false);
                         job.child = None;
+                        let stderr = job.stderr.lock().unwrap().clone();
                         JobState {
                             status: "error".into(),
-                            message: Some(job.stderr.lock().unwrap().clone()),
+                            message: extract_error_message(&stderr).or_else(|| if stderr.is_empty() { None } else { Some(stderr) }),
                         }
                     }
                 }
