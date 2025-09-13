@@ -4,6 +4,7 @@
   "productName": "Blossom Music Generator",
   "version": "0.1.0",
   "build": {
+    "beforeDevCommand": "npm --prefix ui run dev",
     "frontendDist": "../ui/dist",
     "devUrl": "http://localhost:5173"
   },
