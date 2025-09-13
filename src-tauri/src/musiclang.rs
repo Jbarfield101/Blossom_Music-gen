@@ -28,7 +28,26 @@ pub fn list_musiclang_models() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-pub fn download_model(app: AppHandle, name: &str) -> Result<Vec<String>, String> {
+pub fn download_model(
+    app: AppHandle,
+    name: &str,
+    force: Option<bool>,
+) -> Result<Vec<String>, String> {
+    fs::create_dir_all("models").map_err(|e| e.to_string())?;
+    let file_name = name.split('/').last().unwrap_or(name);
+    let path = PathBuf::from(format!("models/{}.onnx", file_name));
+
+    if path.exists() && !force.unwrap_or(false) {
+        let event = ProgressEvent {
+            stage: Some("download".into()),
+            percent: Some(100),
+            message: format!("Model {} already exists, skipping download", name),
+            eta: None,
+        };
+        let _ = app.emit_all(&format!("download::progress::{}", name), event);
+        return list_from_dir(Path::new("models"));
+    }
+
     let url = format!("https://huggingface.co/{}/resolve/main/model.onnx", name);
     let mut response = blocking::get(&url)
         .and_then(|res| res.error_for_status())
@@ -39,9 +58,6 @@ pub fn download_model(app: AppHandle, name: &str) -> Result<Vec<String>, String>
         })?;
     let total = response.content_length();
 
-    fs::create_dir_all("models").map_err(|e| e.to_string())?;
-    let file_name = name.split('/').last().unwrap_or(name);
-    let path = PathBuf::from(format!("models/{}.onnx", file_name));
     let mut file = File::create(&path).map_err(|e| e.to_string())?;
     let mut downloaded = 0u64;
     let mut buffer = [0u8; 8192];
