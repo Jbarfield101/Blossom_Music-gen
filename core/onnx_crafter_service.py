@@ -241,6 +241,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         python -m core.onnx_crafter_service '{"model": "models", "steps": 32}'
     """
 
+    # Instantiate a fresh session for each invocation so that generation
+    # state and telemetry remain isolated per job.
     session = ModelSession()
     signal.signal(signal.SIGINT, session.cancel)
     signal.signal(signal.SIGTERM, session.cancel)
