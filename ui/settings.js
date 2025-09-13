@@ -1,3 +1,5 @@
+import { setTheme } from './theme.js';
+
 (function() {
   function $(id) { return document.getElementById(id); }
 
@@ -11,7 +13,7 @@
       themeToggle.checked = theme === 'dark';
       themeToggle.addEventListener('change', () => {
         const newTheme = themeToggle.checked ? 'dark' : 'light';
-        window.setTheme(newTheme);
+        setTheme(newTheme);
       });
     }
   }
