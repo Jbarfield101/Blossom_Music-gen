@@ -17,20 +17,15 @@ import session_export
 class BlossomBot(commands.Bot):
     """Discord bot providing slash commands for lore and note management."""
 
+    scene_group = app_commands.Group(name="scene", description="Scene related commands")
+    export_group = app_commands.Group(name="export", description="Export utilities")
+
     def __init__(self) -> None:
         intents = discord.Intents.default()
         super().__init__(command_prefix="!", intents=intents)
         self.voice_registry = VoiceRegistry()
         self.permissions = get_permission_rules()
         self.tree.interaction_check = self._permission_check
-        self.scene_group = app_commands.Group(
-            name="scene", description="Scene related commands"
-        )
-        self.scene_group.command(name="as")(self.scene_as)
-        self.export_group = app_commands.Group(
-            name="export", description="Export utilities"
-        )
-        self.export_group.command(name="session")(self.export_session)
 
     async def setup_hook(self) -> None:  # pragma: no cover - Discord runtime
         """Register slash commands once the bot is ready."""
@@ -155,6 +150,7 @@ class BlossomBot(commands.Bot):
         await interaction.response.send_message(f"{stat} is now {new_value}")
 
     # ------------------------------------------------------------------
+    @export_group.command(name="session", description="Export the current session log")
     async def export_session(self, interaction: discord.Interaction) -> None:
         """Handle the ``/export session`` command."""
         try:
@@ -165,6 +161,8 @@ class BlossomBot(commands.Bot):
         await interaction.response.send_message(f"Exported session log to {note_path}")
 
     # ------------------------------------------------------------------
+    @scene_group.command(name="as", description="Switch the narrator TTS voice")
+    @app_commands.describe(voice="Registered narrator profile to use")
     async def scene_as(
         self, interaction: discord.Interaction, voice: str
     ) -> None:
