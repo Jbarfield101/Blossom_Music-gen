@@ -7,13 +7,24 @@ import { setTheme, getTheme } from './theme.js';
     const outInput = $('default_outdir');
     if (outInput) outInput.value = localStorage.getItem('default_outdir') || '';
 
-    const themeToggle = $('theme_toggle');
-    if (themeToggle) {
+    const themeSelect = $('theme_select');
+    const themeHelp = $('theme_help');
+    function updateThemeHelp(theme) {
+      if (themeHelp) {
+        themeHelp.textContent = theme === 'dark'
+          ? 'Dark mode reduces eye strain.'
+          : 'Light mode improves readability in bright environments.';
+      }
+    }
+
+    if (themeSelect) {
       const current = (await getTheme()) || 'dark';
-      themeToggle.checked = current === 'dark';
-      themeToggle.addEventListener('change', () => {
-        const newTheme = themeToggle.checked ? 'dark' : 'light';
+      themeSelect.value = current;
+      updateThemeHelp(current);
+      themeSelect.addEventListener('change', () => {
+        const newTheme = themeSelect.value;
         setTheme(newTheme);
+        updateThemeHelp(newTheme);
       });
     }
 

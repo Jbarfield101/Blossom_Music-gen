@@ -21,10 +21,12 @@
   </section>
   <section id="appearance">
     <h2>Appearance</h2>
-    <label>
-      <input type="checkbox" id="theme_toggle">
-      Dark Theme
-    </label>
+    <label for="theme_select">Theme</label>
+    <select id="theme_select">
+      <option value="light">Light</option>
+      <option value="dark">Dark</option>
+    </select>
+    <p id="theme_help"></p>
   </section>
   <button id="save" type="button">Save</button>
   <script type="module" src="./topbar.js"></script>
