@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/api/dialog";
+import { readBinaryFile, writeBinaryFile } from "@tauri-apps/api/fs";
+import { basename, join, resourceDir } from "@tauri-apps/api/path";
 import {
   listWhisper,
   setWhisper as apiSetWhisper,
@@ -9,6 +12,7 @@ import {
   setLlm as apiSetLlm,
 } from "../api/models";
 import { listDevices, setDevices as apiSetDevices } from "../api/devices";
+import { listHotwords, setHotword as apiSetHotword } from "../api/hotword";
 
 export default function Settings() {
   const [whisper, setWhisper] = useState({ options: [], selected: "" });
@@ -16,6 +20,7 @@ export default function Settings() {
   const [llm, setLlm] = useState({ options: [], selected: "" });
   const [input, setInput] = useState({ options: [], selected: "" });
   const [output, setOutput] = useState({ options: [], selected: "" });
+  const [hotwords, setHotwords] = useState({});
 
   useEffect(() => {
     const load = async () => {
@@ -25,13 +30,16 @@ export default function Settings() {
       const devices = await listDevices();
       setInput(devices.input);
       setOutput(devices.output);
+      setHotwords(await listHotwords());
     };
     load();
     const unlistenModels = listen("settings::models", () => load());
     const unlistenDevices = listen("settings::devices", () => load());
+    const unlistenHot = listen("settings::hotwords", () => load());
     return () => {
       unlistenModels.then((f) => f());
       unlistenDevices.then((f) => f());
+      unlistenHot.then((f) => f());
     };
   }, []);
 
@@ -122,6 +130,33 @@ export default function Settings() {
             ))}
           </select>
         </label>
+      </div>
+      <div>
+        <h2>Hotwords</h2>
+        {Object.entries(hotwords).map(([name, enabled]) => (
+          <label key={name} style={{ display: "block" }}>
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={() => apiSetHotword(name, !enabled)}
+            />
+            {name}
+          </label>
+        ))}
+        <button
+          onClick={async () => {
+            const file = await open({ multiple: false });
+            if (file) {
+              const data = await readBinaryFile(file);
+              const dir = await join(await resourceDir(), "ears", "hotwords");
+              const dest = await join(dir, await basename(file));
+              await writeBinaryFile({ path: dest, contents: data });
+              setHotwords(await listHotwords());
+            }
+          }}
+        >
+          Upload model
+        </button>
       </div>
     </div>
   );

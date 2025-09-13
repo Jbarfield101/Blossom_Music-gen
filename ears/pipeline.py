@@ -5,6 +5,8 @@ import asyncio
 import math
 from typing import Awaitable, Callable, Optional
 
+from .hotword import list_hotwords
+
 import numpy as np
 import logging
 
@@ -114,6 +116,9 @@ async def run_bot(
     vad = VoiceActivityDetector(segment_callback=handle_segment, diarizer=diarizer)
 
     async def handle_frame(member, pcm: bytes) -> None:
+        cfg = list_hotwords()
+        if cfg and not any(cfg.values()):
+            return
         frame = _resample(pcm, 48000, vad.sample_rate)
         await vad.process(frame, str(member.id))
 

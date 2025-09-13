@@ -291,6 +291,35 @@ fn set_devices(app: AppHandle, input: Option<u32>, output: Option<u32>) -> Resul
 }
 
 #[tauri::command]
+fn hotword_get() -> Result<Value, String> {
+    let output = Command::new("python")
+        .args(["-m", "ears.hotword"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+    let parsed: Value = serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())?;
+    Ok(parsed)
+}
+
+#[tauri::command]
+fn hotword_set(app: AppHandle, name: String, enabled: bool) -> Result<Value, String> {
+    let arg_state = if enabled { "true" } else { "false" };
+    let output = Command::new("python")
+        .args(["-m", "ears.hotword", &name, arg_state])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+    let parsed: Value = serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())?;
+    app.emit("settings::hotwords", parsed.clone())
+        .map_err(|e| e.to_string())?;
+    Ok(parsed)
+}
+
+#[tauri::command]
 fn app_version() -> Result<Value, String> {
     let app = env!("CARGO_PKG_VERSION").to_string();
     let output = Command::new("python")
@@ -690,6 +719,8 @@ fn main() {
             set_llm,
             list_devices,
             set_devices,
+            hotword_get,
+            hotword_set,
             app_version,
             start_job,
             onnx_generate,
