@@ -36,7 +36,7 @@
 #sidebar svg {
   width: 24px;
   height: 24px;
-  fill: var(--icon);
+  color: var(--icon);
 }
 #sidebar-toggle {
   position: fixed;
@@ -51,7 +51,7 @@
 #sidebar-toggle svg {
   width: 24px;
   height: 24px;
-  fill: var(--icon);
+  color: var(--icon);
 }
 @media (min-width: 768px) {
   #sidebar {
