@@ -883,9 +883,7 @@ fn main() {
                 let status = Command::new("python").arg("start.py").status();
                 if !status.map(|s| s.success()).unwrap_or(false) {
                     if let Some(window) = app.get_webview_window("main") {
-                        window
-                            .dialog()
-                            .message("Setup Error", "Failed to set up Python environment.");
+                        window.dialog().title("Setup Error").message("Failed to set up Python environment.");
                     }
                     return Err("Python setup failed".into());
                 }
