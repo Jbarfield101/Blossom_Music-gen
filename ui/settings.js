@@ -1,4 +1,4 @@
-import { setTheme, getTheme } from './theme.js';
+import { setTheme, getTheme, setAccent, getAccent } from './theme.js';
 
 (function() {
   function $(id) { return document.getElementById(id); }
@@ -9,6 +9,7 @@ import { setTheme, getTheme } from './theme.js';
 
     const themeSelect = $('theme_select');
     const themeHelp = $('theme_help');
+    const accentInput = $('accent_color');
     function updateThemeHelp(theme) {
       if (themeHelp) {
         themeHelp.textContent = theme === 'dark'
@@ -25,6 +26,14 @@ import { setTheme, getTheme } from './theme.js';
         const newTheme = themeSelect.value;
         setTheme(newTheme);
         updateThemeHelp(newTheme);
+      });
+    }
+
+    if (accentInput) {
+      const saved = (await getAccent()) || getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+      if (saved) accentInput.value = saved;
+      accentInput.addEventListener('input', () => {
+        setAccent(accentInput.value);
       });
     }
 
