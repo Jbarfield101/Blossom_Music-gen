@@ -2,7 +2,7 @@ const isTauri = typeof window !== 'undefined' && window.__TAURI__;
 const path = isTauri ? require("path") : null;
 
 async function tauriOnnxMain(){
-  const { invoke, event, shell } = window.__TAURI__;
+  const { invoke, event, shell, dialog } = window.__TAURI__;
   const modelSelect = document.getElementById('model-select');
   const downloadBtn = document.getElementById('download');
   const songSpecInput = document.getElementById('song_spec');
@@ -184,33 +184,41 @@ async function tauriOnnxMain(){
     await refreshModels();
   });
 
-    startBtn.addEventListener('click', async () => {
-      const parsed = validateInputs();
-      if (!parsed) return;
-      const modelName = modelSelect.value.split(/[\\/]/).pop();
-      const modelPath = path.join("models", `${modelName}.onnx`);
-      let installed;
-      try {
-        installed = await invoke('list_models');
-      } catch (e) {
-        const msg = `Error listing models: ${e}`;
-        log.textContent = msg;
-        log.scrollTop = log.scrollHeight;
-        if (typeof alert === 'function') alert(msg);
-        return;
-      }
-      if (!installed.includes(modelName)) {
-        const msg = `Model not found: ${modelName}`;
-        log.textContent = msg;
-        log.scrollTop = log.scrollHeight;
-        if (typeof alert === 'function') alert(msg);
-        return;
-      }
-      const cfg = {
-        model: modelPath,
-        steps: parsed.steps,
-        sampling: {}
-      };
+  startBtn.addEventListener('click', async () => {
+    const parsed = validateInputs();
+    if (!parsed) return;
+    const modelName = modelSelect.value.split(/[\\/]/).pop();
+    const modelPath = path.join("models", `${modelName}.onnx`);
+    let installed;
+    try {
+      installed = await invoke('list_models');
+    } catch (e) {
+      const msg = `Error listing models: ${e}`;
+      log.textContent = msg;
+      log.scrollTop = log.scrollHeight;
+      if (typeof alert === 'function') alert(msg);
+      return;
+    }
+    if (!installed.includes(modelName)) {
+      const msg = `Model not found: ${modelName}`;
+      log.textContent = msg;
+      log.scrollTop = log.scrollHeight;
+      if (typeof alert === 'function') alert(msg);
+      return;
+    }
+    const cfg = {
+      model: modelPath,
+      steps: parsed.steps,
+      sampling: {}
+    };
+    const outPath = await dialog.save({
+      title: 'Save MIDI as...',
+      defaultPath: 'output.mid'
+    });
+    if (!outPath) {
+      return;
+    }
+    cfg.out = outPath;
     if (parsed.top_k !== undefined) cfg.sampling.top_k = parsed.top_k;
     if (parsed.top_p !== undefined) cfg.sampling.top_p = parsed.top_p;
     if (parsed.temperature !== undefined) cfg.sampling.temperature = parsed.temperature;
