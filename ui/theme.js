@@ -5,6 +5,7 @@ import { Store } from '@tauri-apps/plugin-store';
 
 const THEME_KEY = 'theme';
 const ACCENT_KEY = 'accent';
+const FONT_SIZE_KEY = 'base_font_size';
 let store;
 try {
   store = new Store('settings.dat');
@@ -60,5 +61,30 @@ export async function getAccent() {
   return localStorage.getItem(ACCENT_KEY);
 }
 
+export async function setBaseFontSize(size) {
+  if (store) {
+    try {
+      await store.set(FONT_SIZE_KEY, size);
+      await store.save();
+    } catch (_) {
+      localStorage.setItem(FONT_SIZE_KEY, size);
+    }
+  } else {
+    localStorage.setItem(FONT_SIZE_KEY, size);
+  }
+  document.documentElement.style.setProperty('--base-font-size', size);
+}
+
+export async function getBaseFontSize() {
+  if (store) {
+    try {
+      const size = await store.get(FONT_SIZE_KEY);
+      if (size) return size;
+    } catch (_) {}
+  }
+  return localStorage.getItem(FONT_SIZE_KEY);
+}
+
 getTheme().then((savedTheme) => setTheme(savedTheme || 'dark'));
 getAccent().then((savedAccent) => savedAccent && setAccent(savedAccent));
+getBaseFontSize().then((savedSize) => savedSize && setBaseFontSize(savedSize));
