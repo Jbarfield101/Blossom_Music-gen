@@ -3,6 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <title>Blossom Music Generator</title>
+  <script>
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme) {
+      document.documentElement.dataset.theme = savedTheme;
+    }
+  </script>
   <link rel="stylesheet" href="/ui/theme.css">
   <style>
     body {
@@ -90,6 +96,7 @@
       <h2>ONNX Crafter</h2>
     </a>
   </div>
+  <script src="/ui/topbar.js"></script>
   <script src="/ui/train.js"></script>
   <script>
     const carousel = document.querySelector('.carousel');
