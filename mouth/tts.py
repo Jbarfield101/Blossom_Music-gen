@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 import hashlib
 import json
 import time
+import os
 from pathlib import Path
 from typing import Optional, Union
 
@@ -93,6 +94,7 @@ class TTSEngine:
         if backend == "piper":
             from .backends.piper import PiperBackend
 
+            backend_kwargs.setdefault("model_path", os.getenv("PIPER_VOICE", "narrator"))
             self.backend: TTSBackend = PiperBackend(**backend_kwargs)
         else:  # pragma: no cover - defensive programming
             raise ValueError(f"Unsupported TTS backend: {backend}")

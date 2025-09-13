@@ -18,6 +18,7 @@ from typing import AsyncIterator, Optional
 
 import numpy as np
 from faster_whisper import WhisperModel
+import os
 
 
 @dataclass
@@ -50,11 +51,12 @@ class WhisperService:
 
     def __init__(
         self,
-        model_path: str = "small",
+        model_path: Optional[str] = None,
         *,
         device: str = "cuda",
         compute_type: str = "float16",
     ) -> None:
+        model_path = model_path or os.getenv("WHISPER_MODEL", "small")
         self._model = WhisperModel(model_path, device=device, compute_type=compute_type)
 
     async def transcribe(self, pcm: bytes) -> AsyncIterator[TranscriptionSegment]:
