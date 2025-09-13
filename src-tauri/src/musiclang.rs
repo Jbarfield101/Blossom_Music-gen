@@ -75,7 +75,9 @@ pub fn download_model(
     force: Option<bool>,
 ) -> Result<Vec<String>, String> {
     let file_name = name.split('/').last().unwrap_or(name);
-    let path = PathBuf::from("models").join(file_name).with_extension("onnx");
+    let path = PathBuf::from("models")
+        .join(file_name)
+        .with_extension("onnx");
     fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
 
     if path.exists() && !force.unwrap_or(false) {
@@ -87,7 +89,7 @@ pub fn download_model(
             step: None,
             total: None,
         };
-        let _ = app.emit_all(&format!("download::progress::{}", name), event);
+        let _ = app.emit(&format!("download::progress::{}", name), event);
         return list_from_dir(path.parent().unwrap());
     }
 
@@ -120,7 +122,7 @@ pub fn download_model(
             step: None,
             total: None,
         };
-        let _ = app.emit_all(&format!("download::progress::{}", name), event);
+        let _ = app.emit(&format!("download::progress::{}", name), event);
     }
 
     list_from_dir(path.parent().unwrap())

@@ -14,10 +14,10 @@ use std::{
 };
 
 use regex::Regex;
-use tauri::{AppHandle, State};
-use tauri_plugin_store::Builder;
-use tauri_plugin_opener::OpenerExt;
 use serde_json::{json, Value};
+use tauri::{AppHandle, State};
+use tauri_plugin_opener::OpenerExt;
+use tauri_plugin_store::Builder;
 mod musiclang;
 mod util;
 use crate::util::list_from_dir;
@@ -36,7 +36,11 @@ fn extract_error_message(stderr: &str) -> Option<String> {
     stderr
         .lines()
         .filter_map(|l| serde_json::from_str::<Value>(l.trim()).ok())
-        .find_map(|v| v.get("error").and_then(|e| e.as_str()).map(|s| s.to_string()))
+        .find_map(|v| {
+            v.get("error")
+                .and_then(|e| e.as_str())
+                .map(|s| s.to_string())
+        })
 }
 
 struct JobInfo {
@@ -168,7 +172,7 @@ fn start_job(
                     step: None,
                     total: None,
                 };
-                let _ = app_handle.emit_all(&format!("progress::{}", id), event);
+                let _ = app_handle.emit(&format!("progress::{}", id), event);
             }
         });
     }
@@ -224,7 +228,7 @@ fn onnx_generate(
                             step: None,
                             total: None,
                         };
-                        let _ = app_handle.emit_all(&format!("onnx::progress::{}", id_clone), event);
+                        let _ = app_handle.emit(&format!("onnx::progress::{}", id_clone), event);
                     }
                 }
             }
@@ -249,7 +253,7 @@ fn onnx_generate(
                         let pct = ((step as f64 / total as f64) * 100.0).round() as u8;
                         event.percent = Some(pct);
                     }
-                    let _ = app_handle.emit_all(&format!("onnx::progress::{}", id_clone), event);
+                    let _ = app_handle.emit(&format!("onnx::progress::{}", id_clone), event);
                 } else if serde_json::from_str::<Value>(&line).is_ok() {
                     let event = ProgressEvent {
                         stage: None,
@@ -259,7 +263,7 @@ fn onnx_generate(
                         step: None,
                         total: None,
                     };
-                    let _ = app_handle.emit_all(&format!("onnx::progress::{}", id_clone), event);
+                    let _ = app_handle.emit(&format!("onnx::progress::{}", id_clone), event);
                 }
             }
         });
@@ -323,7 +327,7 @@ fn cancel_render(app: AppHandle, registry: State<JobRegistry>, job_id: u64) -> R
                 let status = child.wait().map_err(|e| e.to_string())?;
                 job.status = Some(status.success());
                 job.child = None;
-                let _ = app.emit_all(&format!("onnx::cancelled::{}", job_id), ());
+                let _ = app.emit(&format!("onnx::cancelled::{}", job_id), ());
                 Ok(())
             } else {
                 Err("Job already completed".into())
@@ -351,7 +355,13 @@ fn job_status(registry: State<JobRegistry>, job_id: u64) -> JobState {
                         None
                     } else {
                         let stderr = job.stderr.lock().unwrap().clone();
-                        extract_error_message(&stderr).or_else(|| if stderr.is_empty() { None } else { Some(stderr) })
+                        extract_error_message(&stderr).or_else(|| {
+                            if stderr.is_empty() {
+                                None
+                            } else {
+                                Some(stderr)
+                            }
+                        })
                     },
                 }
             } else if let Some(child) = job.child.as_mut() {
@@ -366,7 +376,13 @@ fn job_status(registry: State<JobRegistry>, job_id: u64) -> JobState {
                                 None
                             } else {
                                 let stderr = job.stderr.lock().unwrap().clone();
-                                extract_error_message(&stderr).or_else(|| if stderr.is_empty() { None } else { Some(stderr) })
+                                extract_error_message(&stderr).or_else(|| {
+                                    if stderr.is_empty() {
+                                        None
+                                    } else {
+                                        Some(stderr)
+                                    }
+                                })
                             },
                         }
                     }
@@ -380,7 +396,13 @@ fn job_status(registry: State<JobRegistry>, job_id: u64) -> JobState {
                         let stderr = job.stderr.lock().unwrap().clone();
                         JobState {
                             status: "error".into(),
-                            message: extract_error_message(&stderr).or_else(|| if stderr.is_empty() { None } else { Some(stderr) }),
+                            message: extract_error_message(&stderr).or_else(|| {
+                                if stderr.is_empty() {
+                                    None
+                                } else {
+                                    Some(stderr)
+                                }
+                            }),
                         }
                     }
                 }
