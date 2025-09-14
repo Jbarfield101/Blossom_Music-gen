@@ -75,6 +75,7 @@ pub fn list_musiclang_models() -> Result<Vec<ModelInfo>, String> {
 pub fn download_model(
     app: AppHandle,
     name: &str,
+    onnx_path: &str,
     force: Option<bool>,
 ) -> Result<Vec<String>, String> {
     let file_name = name.split('/').last().unwrap_or(name);
@@ -96,7 +97,10 @@ pub fn download_model(
         return list_from_dir(path.parent().unwrap());
     }
 
-    let url = format!("https://huggingface.co/{}/resolve/main/model.onnx", name);
+    let url = format!(
+        "https://huggingface.co/{}/resolve/main/{}",
+        name, onnx_path
+    );
     let mut response = blocking::get(&url)
         .and_then(|res| res.error_for_status())
         .map_err(|e| {
