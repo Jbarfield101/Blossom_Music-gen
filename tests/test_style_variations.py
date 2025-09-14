@@ -82,6 +82,18 @@ def test_phrase_style_tokens_change_output(monkeypatch):
     assert seq_lofi != seq_rock
 
 
+def test_unsupported_style_token_rejected(monkeypatch):
+    monkeypatch.setattr(
+        phrase_model,
+        "load_model",
+        lambda inst, *, timeout=1.0, verbose=False: ("onnx", DummyStyleSession()),
+    )
+    with pytest.raises(ValueError):
+        phrase_model.generate_phrase(
+            "keys", style=int(StyleToken.CHILL_LOFI_JAM)
+        )
+
+
 def test_style_files_affect_lpf_cutoff():
     sr = 44100
     t = np.arange(sr, dtype=np.float32) / sr

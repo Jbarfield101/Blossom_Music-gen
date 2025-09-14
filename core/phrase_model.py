@@ -195,6 +195,17 @@ def generate_phrase(
     affected.
     """
 
+    style_token = StyleToken.LOFI if style is None else StyleToken(style)
+    if style_token not in {
+        StyleToken.LOFI,
+        StyleToken.ROCK,
+        StyleToken.CINEMATIC,
+    }:
+        raise ValueError(
+            f"phrase models do not support style {style_token.name}"
+        )
+    style_id = int(style_token)
+
     fmt, model = load_model(inst, timeout=timeout, verbose=verbose)
     if model is None:
         raise RuntimeError(f"no model available for {inst}")
@@ -204,7 +215,6 @@ def generate_phrase(
 
     def _sample_loop():  # pragma: no cover - relies on optional deps
         history = list(prompt)
-        style_id = int(StyleToken.LOFI if style is None else style)
         for _ in range(max_steps):
             if fmt == "torchscript":
                 inp = torch.tensor([history], dtype=torch.long)
