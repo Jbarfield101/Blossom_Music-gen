@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { getProfile, setProfile } from "../api/discordProfiles";
+import BackButton from "../components/BackButton.jsx";
 
 export default function Profiles() {
   const [guildId, setGuildId] = useState("");
@@ -32,6 +33,7 @@ export default function Profiles() {
 
   return (
     <div>
+      <BackButton />
       <h1>Profiles</h1>
       <div>
         <label>
