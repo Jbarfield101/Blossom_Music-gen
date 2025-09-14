@@ -6,12 +6,10 @@ import Settings from './pages/Settings.jsx';
 import Train from './pages/Train.jsx';
 import OnnxCrafter from './pages/OnnxCrafter.jsx';
 import Profiles from './pages/Profiles.jsx';
-import Sidebar from './components/Sidebar.jsx';
 
 export default function App() {
   return (
     <>
-      <Sidebar />
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/generate" element={<Generate />} />
