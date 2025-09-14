@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { listNpcs, saveNpc, deleteNpc } from "../api/npcs";
 import { listPiper, testPiper } from "../api/models";
+import BackButton from "../components/BackButton.jsx";
 
 export default function Dnd() {
   const emptyNpc = { name: "", description: "", prompt: "", voice: "" };
@@ -40,6 +41,7 @@ export default function Dnd() {
 
   return (
     <div>
+      <BackButton />
       <h1>Dungeons & Dragons</h1>
       <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
         {["Lore", "Piper", "Discord", "Chat"].map((name) => (

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import './OnnxCrafter.css';
 import { open } from '@tauri-apps/plugin-dialog';
+import BackButton from "../components/BackButton.jsx";
 
 export default function OnnxCrafter() {
   const [log] = useState('');
@@ -12,6 +13,7 @@ export default function OnnxCrafter() {
 
   return (
     <div className="m-md">
+      <BackButton />
       <h1>ONNX Crafter</h1>
       <section id="instructions">
         <h2>Instructions</h2>

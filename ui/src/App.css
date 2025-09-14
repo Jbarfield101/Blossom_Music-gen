@@ -57,3 +57,8 @@ header {
   margin-top: var(--space-sm);
   font-size: 0.9rem;
 }
+
+.back-button {
+  margin: var(--space-md);
+}
+

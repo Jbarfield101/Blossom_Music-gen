@@ -27,6 +27,7 @@ import {
   setBaseFontSize,
   getBaseFontSize,
 } from "../../theme.js";
+import BackButton from "../components/BackButton.jsx";
 
 export default function Settings() {
   const VAULT_KEY = "vaultPath";
@@ -132,6 +133,7 @@ export default function Settings() {
 
   return (
     <div>
+      <BackButton />
       <h1>Settings</h1>
       <div>
         <p>Vault path: {vault || "(none)"}</p>
