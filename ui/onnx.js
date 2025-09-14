@@ -35,6 +35,7 @@ async function tauriOnnxMain(){
   let cancelledHandled = false;
   let modelInstalled = false;
   let inputsValid = false;
+  let modelInfos = [];
 
   function numberParser(input, { min = 0, max = Infinity, required = false } = {}) {
     const errId = `${input.id}_error`;
@@ -111,8 +112,9 @@ async function tauriOnnxMain(){
     }
     try {
       const models = await invoke('list_musiclang_models');
+      modelInfos = Array.isArray(models) ? models : [];
       modelSelect.innerHTML = '';
-      if (!Array.isArray(models) || models.length === 0) {
+      if (modelInfos.length === 0) {
         const opt = document.createElement('option');
         opt.textContent = 'No models found';
         opt.disabled = true;
@@ -126,7 +128,7 @@ async function tauriOnnxMain(){
         if (typeof alert === 'function') alert(msg);
         return;
       }
-      models.forEach(info => {
+      modelInfos.forEach(info => {
         const opt = document.createElement('option');
         opt.value = info.id;
         let label = info.id;
@@ -183,6 +185,7 @@ async function tauriOnnxMain(){
 
   downloadBtn.addEventListener('click', async e => {
     const name = modelSelect.value;
+    const info = modelInfos.find(m => m.id === name);
     prog.value = 0;
     log.textContent = '';
     const unlistenDownload = await event.listen(`download::progress::${name}`, e => {
@@ -197,7 +200,8 @@ async function tauriOnnxMain(){
       }
     });
     try {
-      await invoke('download_model', { name, force: e.shiftKey });
+      if (!info) throw new Error(`Model info not found: ${name}`);
+      await invoke('download_model', { name: info.id, onnxPath: info.path, force: e.shiftKey });
     } catch (e) {
       log.textContent += `Error downloading model: ${e}\n`;
       log.scrollTop = log.scrollHeight;
