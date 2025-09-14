@@ -21,9 +21,9 @@ body {
   --bg: #0d0d10;
   --text: #f5f5f7;
   --icon: #f5f5f7;
-  --accent: #ff4d6d;
+  --accent: #d05e79;
   --link: var(--accent);
-  --button-bg: #d3003f; /* darkened for >=4.5:1 contrast with light text */
+  --button-bg: #a64b61; /* darkened for >=4.5:1 contrast with light text */
   --button-hover-bg: color-mix(in srgb, var(--button-bg), white 10%);
   --card-bg: #1a1a23;
   --card-hover-bg: #242433;
@@ -43,9 +43,9 @@ body {
   --bg: #fff8fa;
   --text: #222222;
   --icon: #222222;
-  --accent: #c9184a;
+  --accent: #b14b67;
   --link: var(--accent);
-  --button-bg: #e07996; /* lightened to meet 4.5:1 contrast with dark text */
+  --button-bg: #c5788d; /* lightened to meet 4.5:1 contrast with dark text */
   --button-hover-bg: color-mix(in srgb, var(--button-bg), black 10%);
   --card-bg: #ffffff;
   --card-hover-bg: #ffe3ec;
