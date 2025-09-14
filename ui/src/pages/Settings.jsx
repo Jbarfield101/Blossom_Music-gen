@@ -53,9 +53,11 @@ export default function Settings() {
         setAccentState(defaultAccent || "#ff4d6d");
       }
     });
-    getBaseFontSize().then((savedSize) =>
-      setBaseFontSizeState(savedSize || "16px")
-    );
+    getBaseFontSize().then((savedSize) => {
+      const size = savedSize || "16px";
+      setBaseFontSizeState(size);
+      setBaseFontSize(size);
+    });
   }, []);
 
   useEffect(() => {
@@ -266,7 +268,7 @@ export default function Settings() {
         </div>
         <div>
           <label>
-            Font size
+            Font Size
             <select
               value={baseFontSize}
               onChange={async (e) => {
@@ -279,6 +281,9 @@ export default function Settings() {
               <option value="18px">Large</option>
             </select>
           </label>
+          <p>
+            Larger fonts improve readability for visually impaired users.
+          </p>
         </div>
       </div>
       <div>

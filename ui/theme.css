@@ -9,9 +9,12 @@
   --space-xl: 2.4rem;
 }
 
+html {
+  font-size: var(--base-font-size);
+}
+
 body {
   font-family: var(--font);
-  font-size: var(--base-font-size);
 }
 
 [data-theme="dark"] {
