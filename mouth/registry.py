@@ -15,6 +15,7 @@ class VoiceProfile:
     voice_id: str
     speed: float = 1.0
     emotion: str = "neutral"
+    tags: list[str] | None = None
 
 
 class VoiceRegistry:

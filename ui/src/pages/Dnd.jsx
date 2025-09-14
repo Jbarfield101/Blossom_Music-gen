@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { listNpcs, saveNpc, deleteNpc } from "../api/npcs";
 import { listPiper } from "../api/models";
-import { testPiper } from "../api/piper";
+import { testPiper, discoverPiperVoices, addPiperVoice } from "../api/piper";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import BackButton from "../components/BackButton.jsx";
 
@@ -16,6 +16,10 @@ export default function Dnd() {
   const [piperAudio, setPiperAudio] = useState("");
   const [piperPath, setPiperPath] = useState("");
   const [piperVoicesSection, setPiperVoicesSection] = useState("Find Voices");
+  const [piperAvailableVoices, setPiperAvailableVoices] = useState([]);
+  const [addingVoice, setAddingVoice] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [voiceTags, setVoiceTags] = useState("");
 
   const refresh = async () => {
     setNpcs(await listNpcs());
@@ -189,8 +193,89 @@ export default function Dnd() {
             ))}
           </div>
           {piperVoicesSection === "Find Voices" && (
-            <div>
-              <p>Find voices coming soon.</p>
+            <div
+              style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}
+            >
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const list = await discoverPiperVoices();
+                    setPiperAvailableVoices(list || []);
+                  } catch (err) {
+                    console.error(err);
+                  }
+                }}
+              >
+                Find Voices
+              </button>
+              <ul>
+                {piperAvailableVoices.map((v) => (
+                  <li key={v}>
+                    {v}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAddingVoice(v);
+                        setDisplayName(v);
+                        setVoiceTags("");
+                      }}
+                    >
+                      Add
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {addingVoice && (
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "0.5rem",
+                  }}
+                >
+                  <input
+                    placeholder="Display Name"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                  />
+                  <input
+                    placeholder="Tags"
+                    value={voiceTags}
+                    onChange={(e) => setVoiceTags(e.target.value)}
+                  />
+                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await addPiperVoice(
+                            addingVoice,
+                            displayName,
+                            voiceTags
+                          );
+                          setAddingVoice("");
+                          setDisplayName("");
+                          setVoiceTags("");
+                          listPiper().then((v) =>
+                            setVoices(v.options || [])
+                          );
+                        } catch (err) {
+                          console.error(err);
+                        }
+                      }}
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAddingVoice("")}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           {piperVoicesSection === "Chosen Voices" && (
