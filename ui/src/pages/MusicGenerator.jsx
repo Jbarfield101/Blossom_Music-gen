@@ -1,5 +1,4 @@
 import Card from '../components/Card.jsx';
-import { Cpu, FileText, BookOpen, Music2 } from 'lucide-react';
 
 export default function MusicGenerator() {
   return (
@@ -10,22 +9,22 @@ export default function MusicGenerator() {
       <main className="dashboard">
         <Card
           to="/music-generator/algorithmic"
-          icon={Cpu}
+          icon="Cpu"
           title="Algorithmic"
         />
         <Card
           to="/music-generator/phrase"
-          icon={FileText}
+          icon="FileText"
           title="Phrase Model"
         />
         <Card
           to="/music-generator/musiclang"
-          icon={BookOpen}
+          icon="BookOpen"
           title="MusicLang"
         />
         <Card
           to="/music-generator/musicgen"
-          icon={Music2}
+          icon="Music2"
           title="MusicGen"
         />
       </main>
