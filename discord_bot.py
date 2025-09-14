@@ -231,6 +231,6 @@ __all__ = ["BlossomBot"]
 
 
 if __name__ == "__main__":  # pragma: no cover - manual execution
-    TOKEN = "YOUR_DISCORD_TOKEN"  # Replace with the actual Blossombot token
+    TOKEN = os.environ["DISCORD_TOKEN"]
     bot = BlossomBot()
     bot.run(TOKEN)
