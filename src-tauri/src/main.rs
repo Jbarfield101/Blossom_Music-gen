@@ -40,7 +40,7 @@ fn read_npcs() -> Result<Vec<Npc>, String> {
         return Ok(Vec::new());
     }
     let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let npcs = serde_json::from_str(&text).unwrap_or_default();
+    let npcs = serde_json::from_str(&text).map_err(|e| e.to_string())?;
     Ok(npcs)
 }
 
