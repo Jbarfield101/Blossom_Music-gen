@@ -644,141 +644,6 @@ fn train_model(
 }
 
 #[tauri::command]
-fn onnx_generate(
-    app: AppHandle,
-    registry: State<JobRegistry>,
-    args: Vec<String>,
-) -> Result<u64, String> {
-    let mut full_args = vec!["core/onnx_crafter_service.py".into()];
-    full_args.extend(args.iter().cloned());
-    let mut child = Command::new("python")
-        .args(&full_args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| e.to_string())?;
-    let stdout = child.stdout.take();
-    let stderr_pipe = child.stderr.take();
-    let stderr_buf = Arc::new(Mutex::new(String::new()));
-    let job = JobInfo {
-        child: Some(child),
-        status: None,
-        stderr: stderr_buf.clone(),
-    };
-    let id = registry.add(job);
-
-    if let Some(stderr) = stderr_pipe {
-        let stderr_buf_clone = stderr_buf.clone();
-        let app_handle = app.clone();
-        let id_clone = id;
-        async_runtime::spawn(async move {
-            let reader = BufReader::new(stderr);
-            for line in reader.lines().flatten() {
-                {
-                    let mut buf = stderr_buf_clone.lock().unwrap();
-                    buf.push_str(&line);
-                    buf.push('\n');
-                }
-                let _ = app_handle.emit("logs::line", line.clone());
-                let trimmed = line.trim();
-                if let Ok(val) = serde_json::from_str::<Value>(trimmed) {
-                    if let Some(err_msg) = val.get("error").and_then(|v| v.as_str()) {
-                        let event = ProgressEvent {
-                            stage: Some("error".into()),
-                            percent: None,
-                            message: Some(err_msg.to_string()),
-                            eta: None,
-                            step: None,
-                            total: None,
-                        };
-                        let _ = app_handle.emit(&format!("onnx::progress::{}", id_clone), event);
-                    }
-                }
-            }
-        });
-    }
-
-    let (tx, rx) = std::sync::mpsc::channel();
-    if let Some(stdout) = stdout {
-        let app_handle = app.clone();
-        let tx2 = tx.clone();
-        let id_clone = id;
-        async_runtime::spawn(async move {
-            let reader = BufReader::new(stdout);
-            let mut first = true;
-            for line in reader.lines().flatten() {
-                if first {
-                    let _ = tx2.send(());
-                    first = false;
-                }
-                let _ = app_handle.emit("logs::line", line.clone());
-                if let Ok(mut event) = serde_json::from_str::<ProgressEvent>(&line) {
-                    if let (Some(step), Some(total)) = (event.step, event.total) {
-                        let pct = ((step as f64 / total as f64) * 100.0).round() as u8;
-                        event.percent = Some(pct);
-                    }
-                    let _ = app_handle.emit(&format!("onnx::progress::{}", id_clone), event);
-                } else if serde_json::from_str::<Value>(&line).is_ok() {
-                    let event = ProgressEvent {
-                        stage: None,
-                        percent: None,
-                        message: Some(line.clone()),
-                        eta: None,
-                        step: None,
-                        total: None,
-                    };
-                    let _ = app_handle.emit(&format!("onnx::progress::{}", id_clone), event);
-                }
-            }
-        });
-    }
-
-    // Wait for first progress line or early failure
-    loop {
-        match rx.try_recv() {
-            Ok(_) => break,
-            Err(std::sync::mpsc::TryRecvError::Empty) => {
-                let mut jobs = registry.jobs.lock().unwrap();
-                if let Some(job) = jobs.get_mut(&id) {
-                    if let Some(child) = job.child.as_mut() {
-                        match child.try_wait() {
-                            Ok(Some(status)) => {
-                                let success = status.success();
-                                if !success {
-                                    let err = job.stderr.lock().unwrap().clone();
-                                    jobs.remove(&id);
-                                    let msg = extract_error_message(&err).unwrap_or_else(|| {
-                                        if err.is_empty() {
-                                            "onnx generation failed".into()
-                                        } else {
-                                            err
-                                        }
-                                    });
-                                    return Err(msg);
-                                } else {
-                                    job.status = Some(true);
-                                    job.child = None;
-                                    break;
-                                }
-                            }
-                            Ok(None) => {}
-                            Err(e) => {
-                                jobs.remove(&id);
-                                return Err(e.to_string());
-                            }
-                        }
-                    }
-                }
-                std::thread::sleep(Duration::from_millis(10));
-            }
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
-        }
-    }
-
-    Ok(id)
-}
-
-#[tauri::command]
 fn cancel_render(app: AppHandle, registry: State<JobRegistry>, job_id: u64) -> Result<(), String> {
     let mut jobs = registry.jobs.lock().map_err(|e| e.to_string())?;
     match jobs.get_mut(&job_id) {
@@ -791,7 +656,6 @@ fn cancel_render(app: AppHandle, registry: State<JobRegistry>, job_id: u64) -> R
                 let status = child.wait().map_err(|e| e.to_string())?;
                 job.status = Some(status.success());
                 job.child = None;
-                let _ = app.emit(&format!("onnx::cancelled::{}", job_id), ());
                 Ok(())
             } else {
                 Err("Job already completed".into())
@@ -1087,7 +951,6 @@ fn main() {
             app_version,
             start_job,
             train_model,
-            onnx_generate,
             cancel_render,
             job_status,
             discord_profile_get,
