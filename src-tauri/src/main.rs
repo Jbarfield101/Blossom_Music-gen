@@ -283,6 +283,28 @@ fn set_piper(app: AppHandle, voice: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn discover_piper_voices() -> Result<Vec<String>, String> {
+    let output = Command::new("piper")
+        .arg("--list")
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let re = Regex::new(r"^([A-Za-z0-9_-]+)").unwrap();
+    let voices = stdout
+        .lines()
+        .filter_map(|line| {
+            re.captures(line)
+                .and_then(|c| c.get(1))
+                .map(|m| m.as_str().to_string())
+        })
+        .collect::<Vec<_>>();
+    Ok(voices)
+}
+
+#[tauri::command]
 fn piper_test(text: String, voice: String) -> Result<PathBuf, String> {
     let base = Path::new("data/piper_tests");
     fs::create_dir_all(base).map_err(|e| e.to_string())?;
@@ -1025,6 +1047,7 @@ fn main() {
             set_whisper,
             list_piper,
             set_piper,
+            discover_piper_voices,
             piper_test,
             list_llm,
             set_llm,
