@@ -415,14 +415,18 @@ fn list_devices(app: AppHandle) -> Result<Value, String> {
 fn set_devices(app: AppHandle, input: Option<u32>, output: Option<u32>) -> Result<(), String> {
     let store = devices_store(&app)?;
     if let Some(id) = input {
-        store.set("input".to_string(), id.into());
+        store
+            .set("input".to_string(), id)
+            .map_err(|e| e.to_string())?;
         env::set_var("INPUT_DEVICE", id.to_string());
     } else {
         store.delete("input");
         env::remove_var("INPUT_DEVICE");
     }
     if let Some(id) = output {
-        store.set("output".to_string(), id.into());
+        store
+            .set("output".to_string(), id)
+            .map_err(|e| e.to_string())?;
         env::set_var("OUTPUT_DEVICE", id.to_string());
     } else {
         store.delete("output");
