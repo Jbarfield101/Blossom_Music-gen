@@ -19,7 +19,14 @@ import {
   importSettings as apiImportSettings,
 } from "../api/config";
 import LogPanel from "../components/LogPanel";
-import { setTheme, getTheme } from "../../theme.js";
+import {
+  setTheme,
+  getTheme,
+  setAccent,
+  getAccent,
+  setBaseFontSize,
+  getBaseFontSize,
+} from "../../theme.js";
 
 export default function Settings() {
   const VAULT_KEY = "vaultPath";
@@ -31,9 +38,24 @@ export default function Settings() {
   const [vault, setVault] = useState("");
   const [hotwords, setHotwords] = useState({});
   const [theme, setThemeState] = useState("dark");
+  const [accent, setAccentState] = useState("#ff4d6d");
+  const [baseFontSize, setBaseFontSizeState] = useState("16px");
 
   useEffect(() => {
     getTheme().then((savedTheme) => setThemeState(savedTheme || "dark"));
+    getAccent().then((savedAccent) => {
+      if (savedAccent) {
+        setAccentState(savedAccent);
+      } else {
+        const defaultAccent = getComputedStyle(document.documentElement)
+          .getPropertyValue("--accent")
+          .trim();
+        setAccentState(defaultAccent || "#ff4d6d");
+      }
+    });
+    getBaseFontSize().then((savedSize) =>
+      setBaseFontSizeState(savedSize || "16px")
+    );
   }, []);
 
   useEffect(() => {
@@ -208,18 +230,56 @@ export default function Settings() {
       </div>
       <div>
         <h2>Appearance</h2>
-        <label>
-          <input
-            type="checkbox"
-            checked={theme === "dark"}
-            onChange={async (e) => {
-              const newTheme = e.target.checked ? "dark" : "light";
-              await setTheme(newTheme);
-              setThemeState(newTheme);
-            }}
-          />
-          Dark mode
-        </label>
+        <div>
+          <label>
+            Theme
+            <select
+              value={theme}
+              onChange={async (e) => {
+                const newTheme = e.target.value;
+                await setTheme(newTheme);
+                setThemeState(newTheme);
+              }}
+            >
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+            </select>
+          </label>
+          <p>
+            Dark mode reduces eye strain in low-light environments, while light
+            mode provides better readability in bright settings.
+          </p>
+        </div>
+        <div>
+          <label>
+            Accent color
+            <input
+              type="color"
+              value={accent}
+              onChange={async (e) => {
+                const color = e.target.value;
+                await setAccent(color);
+                setAccentState(color);
+              }}
+            />
+          </label>
+        </div>
+        <div>
+          <label>
+            Font size
+            <select
+              value={baseFontSize}
+              onChange={async (e) => {
+                const size = e.target.value;
+                await setBaseFontSize(size);
+                setBaseFontSizeState(size);
+              }}
+            >
+              <option value="16px">Default</option>
+              <option value="18px">Large</option>
+            </select>
+          </label>
+        </div>
       </div>
       <div>
         <h2>Hotwords</h2>
