@@ -57,3 +57,11 @@ header {
   margin-top: var(--space-sm);
   font-size: 0.9rem;
 }
+
+.back-button {
+  margin: var(--space-md);
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+}

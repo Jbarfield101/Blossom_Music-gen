@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import BackButton from "../components/BackButton.jsx";
 
 export default function PhraseModel() {
   const [preset, setPreset] = useState("");
@@ -158,6 +159,7 @@ export default function PhraseModel() {
 
   return (
     <div>
+      <BackButton />
       <h1>Phrase Model</h1>
       <div>
         <label>

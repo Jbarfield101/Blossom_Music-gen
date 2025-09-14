@@ -19,6 +19,7 @@ import {
   importSettings as apiImportSettings,
 } from "../api/config";
 import LogPanel from "../components/LogPanel";
+import BackButton from "../components/BackButton.jsx";
 import {
   setTheme,
   getTheme,
@@ -132,6 +133,7 @@ export default function Settings() {
 
   return (
     <div>
+      <BackButton />
       <h1>Settings</h1>
       <div>
         <p>Vault path: {vault || "(none)"}</p>
