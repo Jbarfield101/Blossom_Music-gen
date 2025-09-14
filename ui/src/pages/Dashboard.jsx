@@ -7,7 +7,11 @@ export default function Dashboard() {
         <h1>Blossom Music Generation</h1>
       </header>
       <main className="dashboard">
-        <Card to="/music-generator" icon="Music" title="Music Generator" />
+        <Card
+          to="/music-generator/musicgen"
+          icon="Music2"
+          title="MusicGen"
+        />
         <Card to="/dnd" icon="Dice5" title="Dungeons & Dragons" />
         <Card to="/settings" icon="Settings" title="Settings" />
         <Card to="/train" icon="Sliders" title="Train Model" />
