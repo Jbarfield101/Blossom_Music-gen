@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import './OnnxCrafter.css';
-import { open } from '@tauri-apps/api/dialog';
+import { open } from '@tauri-apps/plugin-dialog';
 
 export default function OnnxCrafter() {
   const [log] = useState('');
@@ -87,3 +87,4 @@ export default function OnnxCrafter() {
     </div>
   );
 }
+

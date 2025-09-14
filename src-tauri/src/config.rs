@@ -34,7 +34,7 @@ pub fn set_config(app: AppHandle, key: String, value: serde_json::Value) -> Resu
 #[tauri::command]
 pub fn export_settings(app: AppHandle, path: String) -> Result<(), String> {
     let store = config_store(&app)?;
-    let entries = store.entries()?;
+    let entries = store.entries();
     let data: Map<String, serde_json::Value> = entries.into_iter().collect();
     let text = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
     fs::write(path, text).map_err(|e| e.to_string())?;

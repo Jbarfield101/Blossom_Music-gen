@@ -240,9 +240,7 @@ fn list_whisper(app: AppHandle) -> Result<Value, String> {
 #[tauri::command]
 fn set_whisper(app: AppHandle, model: String) -> Result<(), String> {
     let store = models_store::<tauri::Wry>(&app)?;
-    store
-        .set("whisper".to_string(), model.clone().into())
-        .map_err(|e| e.to_string())?;
+    store.set("whisper".to_string(), model.clone());
     store.save().map_err(|e| e.to_string())?;
     std::env::set_var("WHISPER_MODEL", &model);
     app.emit("settings::models", json!({"whisper": model}))
@@ -275,9 +273,7 @@ fn list_piper(app: AppHandle) -> Result<Value, String> {
 #[tauri::command]
 fn set_piper(app: AppHandle, voice: String) -> Result<(), String> {
     let store = models_store::<tauri::Wry>(&app)?;
-    store
-        .set("piper".to_string(), voice.clone().into())
-        .map_err(|e| e.to_string())?;
+    store.set("piper".to_string(), voice.clone());
     store.save().map_err(|e| e.to_string())?;
     std::env::set_var("PIPER_VOICE", &voice);
     app.emit("settings::models", json!({"piper": voice}))
@@ -368,9 +364,7 @@ fn list_llm(app: AppHandle) -> Result<Value, String> {
 #[tauri::command]
 fn set_llm(app: AppHandle, model: String) -> Result<(), String> {
     let store = models_store::<tauri::Wry>(&app)?;
-    store
-        .set("llm".to_string(), model.clone().into())
-        .map_err(|e| e.to_string())?;
+    store.set("llm".to_string(), model.clone());
     store.save().map_err(|e| e.to_string())?;
     std::env::set_var("LLM_MODEL", &model);
     app.emit("settings::models", json!({"llm": model}))
@@ -421,25 +415,17 @@ fn list_devices(app: AppHandle) -> Result<Value, String> {
 fn set_devices(app: AppHandle, input: Option<u32>, output: Option<u32>) -> Result<(), String> {
     let store = devices_store(&app)?;
     if let Some(id) = input {
-        store
-            .set("input".to_string(), id)
-            .map_err(|e| e.to_string())?;
+        store.set("input".to_string(), id as u64);
         env::set_var("INPUT_DEVICE", id.to_string());
     } else {
-        store
-            .delete("input")
-            .map_err(|e| e.to_string())?;
+        store.delete("input");
         env::remove_var("INPUT_DEVICE");
     }
     if let Some(id) = output {
-        store
-            .set("output".to_string(), id)
-            .map_err(|e| e.to_string())?;
+        store.set("output".to_string(), id as u64);
         env::set_var("OUTPUT_DEVICE", id.to_string());
     } else {
-        store
-            .delete("output")
-            .map_err(|e| e.to_string())?;
+        store.delete("output");
         env::remove_var("OUTPUT_DEVICE");
     }
     store.save().map_err(|e| e.to_string())?;
@@ -838,7 +824,7 @@ fn open_path(app: AppHandle, path: String) -> Result<(), String> {
     if let Ok(url) = Url::parse(&path) {
         // Use new tauri_plugin_opener API which requires an optional identifier
         app.opener()
-            .open_url(url, Option::<String>::None)
+            .open_url(url, Option::<&str>::None)
             .map_err(|e| e.to_string())
     } else {
         let path_buf = PathBuf::from(&path);
@@ -850,7 +836,7 @@ fn open_path(app: AppHandle, path: String) -> Result<(), String> {
             .ok_or("Invalid Unicode in path")?
             .to_string();
         app.opener()
-            .open_path(path_str, Option::<String>::None)
+            .open_path(path_str, Option::<&str>::None)
             .map_err(|e| e.to_string())
     }
 }
@@ -865,10 +851,16 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(Builder::new().build())
         .setup(|app| -> Result<(), Box<dyn std::error::Error>> {
-            let venv_dir = if cfg!(target_os = "windows") {
-                Path::new(".venv").join("Scripts")
+            // Prefer a repo-root virtualenv (../.venv) when running from src-tauri
+            let venv_base = if Path::new(".venv").exists() {
+                PathBuf::from(".venv")
             } else {
-                Path::new(".venv").join("bin")
+                PathBuf::from("..").join(".venv")
+            };
+            let venv_dir = if cfg!(target_os = "windows") {
+                venv_base.join("Scripts")
+            } else {
+                venv_base.join("bin")
             };
             let sep = if cfg!(target_os = "windows") {
                 ';'
@@ -888,16 +880,60 @@ fn main() {
                 .unwrap_or(false);
 
             if !version_ok {
-                let status = Command::new("python").arg("start.py").status();
-                if !status.map(|s| s.success()).unwrap_or(false) {
+                // Resolve start.py whether current dir is repo root or src-tauri
+                let start_py = if Path::new("start.py").exists() {
+                    PathBuf::from("start.py")
+                } else {
+                    PathBuf::from("..").join("start.py")
+                };
+                let mut cmd = Command::new("python");
+                cmd.arg(&start_py)
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                if let Some(parent) = start_py.parent() {
+                    cmd.current_dir(parent);
+                }
+                let output = cmd.output();
+                if !output.as_ref().map(|o| o.status.success()).unwrap_or(false) {
+                    let mut msg = String::from("Failed to set up Python environment.");
+                    if let Ok(o) = output {
+                        let out = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                        let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
+                        if !out.is_empty() {
+                            msg.push_str("\nstdout: ");
+                            msg.push_str(&out);
+                        }
+                        if !err.is_empty() {
+                            msg.push_str("\nstderr: ");
+                            msg.push_str(&err);
+                        }
+                    }
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.set_title("Setup Error");
-                        window.dialog().message("Failed to set up Python environment.");
+                        window.dialog().message(&msg);
                     }
                     return Err("Python setup failed".into());
                 }
                 path_var = env::var("PATH").unwrap_or_default();
                 env::set_var("PATH", format!("{}{}{}", venv_dir.display(), sep, path_var));
+                // Re-check the version now that setup ran
+                let version_ok_after = Command::new("python")
+                    .args([
+                        "-c",
+                        "import sys; exit(0) if sys.version_info[:2]==(3,10) else exit(1)",
+                    ])
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+                if !version_ok_after {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.set_title("Setup Error");
+                        window
+                            .dialog()
+                            .message("Python 3.10 environment not available after setup.");
+                    }
+                    return Err("Python setup failed".into());
+                }
             }
             Ok(())
         })
@@ -947,8 +983,6 @@ fn main() {
                 }
                 jobs.clear();
             }
-            // Return the default output to satisfy trait requirements
-            Default::default()
         })
         .run(tauri::generate_context!())
     {

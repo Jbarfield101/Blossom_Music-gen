@@ -8,7 +8,7 @@
     "@tauri-apps/plugin-dialog": "^2.0.0",
     "@tauri-apps/plugin-shell": "^2.0.0",
     "@tauri-apps/plugin-store": "^2.0.0",
-    "@tauri-apps/plugin-opener": "^2.0.0"
+    "@tauri-apps/plugin-opener": "^2.5.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
