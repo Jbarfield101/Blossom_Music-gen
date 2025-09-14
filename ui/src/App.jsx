@@ -10,6 +10,7 @@ import Generate from './pages/Generate.jsx';
 import MusicGenerator from './pages/MusicGenerator.jsx';
 import MusicLang from './pages/MusicLang.jsx';
 import MusicGen from './pages/MusicGen.jsx';
+import PhraseModel from './pages/PhraseModel.jsx';
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/music-generator" element={<MusicGenerator />} />
         <Route path="/music-generator/algorithmic" element={<Generate />} />
+        <Route path="/music-generator/phrase" element={<PhraseModel />} />
         <Route path="/music-generator/musiclang" element={<MusicLang />} />
         <Route path="/music-generator/musicgen" element={<MusicGen />} />
         <Route path="/generate" element={<Generate />} />
