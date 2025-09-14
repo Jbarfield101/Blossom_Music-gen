@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import { listNpcs, saveNpc, deleteNpc } from "../api/npcs";
 import { listPiper } from "../api/models";
-import { testPiper, discoverPiperVoices, addPiperVoice } from "../api/piper";
+import {
+  testPiper,
+  discoverPiperVoices,
+  addPiperVoice,
+  listPiperProfiles,
+  updatePiperProfile,
+  removePiperProfile,
+} from "../api/piper";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import BackButton from "../components/BackButton.jsx";
 
@@ -20,9 +27,25 @@ export default function Dnd() {
   const [addingVoice, setAddingVoice] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [voiceTags, setVoiceTags] = useState("");
+  const [piperProfiles, setPiperProfiles] = useState([]);
 
   const refresh = async () => {
     setNpcs(await listNpcs());
+  };
+
+  const fetchProfiles = async () => {
+    try {
+      const list = await listPiperProfiles();
+      setPiperProfiles(
+        (list || []).map((p) => ({
+          ...p,
+          tags: (p.tags || []).join(", "),
+          original: p.name,
+        }))
+      );
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   useEffect(() => {
@@ -35,6 +58,12 @@ export default function Dnd() {
     });
   }, []);
 
+  useEffect(() => {
+    if (piperVoicesSection === "Chosen Voices") {
+      fetchProfiles();
+    }
+  }, [piperVoicesSection]);
+
   const edit = (npc) => setCurrent(npc);
   const newNpc = () => setCurrent(emptyNpc);
   const save = async () => {
@@ -45,6 +74,33 @@ export default function Dnd() {
   const remove = async (name) => {
     await deleteNpc(name);
     refresh();
+  };
+
+  const handleProfileChange = (idx, field, value) => {
+    const updated = [...piperProfiles];
+    updated[idx][field] = value;
+    setPiperProfiles(updated);
+  };
+
+  const saveProfile = async (idx) => {
+    const p = piperProfiles[idx];
+    try {
+      await updatePiperProfile(p.original, p.name, p.tags);
+      await fetchProfiles();
+      listPiper().then((v) => setVoices(v.options || []));
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const removeProfile = async (name) => {
+    try {
+      await removePiperProfile(name);
+      await fetchProfiles();
+      listPiper().then((v) => setVoices(v.options || []));
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   return (
@@ -280,7 +336,44 @@ export default function Dnd() {
           )}
           {piperVoicesSection === "Chosen Voices" && (
             <div>
-              <p>Chosen voices coming soon.</p>
+              {piperProfiles.length === 0 ? (
+                <p>No voices added.</p>
+              ) : (
+                <ul>
+                  {piperProfiles.map((p, idx) => (
+                    <li
+                      key={p.original}
+                      style={{
+                        display: "flex",
+                        gap: "0.5rem",
+                        marginBottom: "0.5rem",
+                      }}
+                    >
+                      <input
+                        value={p.name}
+                        onChange={(e) =>
+                          handleProfileChange(idx, "name", e.target.value)
+                        }
+                      />
+                      <input
+                        value={p.tags}
+                        onChange={(e) =>
+                          handleProfileChange(idx, "tags", e.target.value)
+                        }
+                      />
+                      <button type="button" onClick={() => saveProfile(idx)}>
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeProfile(p.original)}
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
         </div>

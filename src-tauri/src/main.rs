@@ -35,6 +35,13 @@ struct Npc {
     voice: String,
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct PiperProfile {
+    name: String,
+    voice_id: String,
+    tags: Vec<String>,
+}
+
 fn read_npcs() -> Result<Vec<Npc>, String> {
     let path = Path::new("data/npcs.json");
     if !path.exists() {
@@ -327,6 +334,73 @@ fn add_piper_voice(name: String, voice: String, tags: String) -> Result<(), Stri
             "tags": tag_list,
         }),
     );
+    let text = serde_json::to_string_pretty(&map).map_err(|e| e.to_string())?;
+    fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
+    fs::write(path, text).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn list_piper_profiles() -> Result<Vec<PiperProfile>, String> {
+    let path = Path::new("data/voices.json");
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let map: serde_json::Map<String, Value> =
+        serde_json::from_str(&text).unwrap_or_default();
+    let mut profiles = Vec::new();
+    for (name, v) in map {
+        let voice_id = v
+            .get("voice_id")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
+        let tags = v
+            .get("tags")
+            .and_then(|x| x.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|t| t.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        profiles.push(PiperProfile { name, voice_id, tags });
+    }
+    Ok(profiles)
+}
+
+#[tauri::command]
+fn update_piper_profile(original: String, name: String, tags: String) -> Result<(), String> {
+    let path = Path::new("data/voices.json");
+    let mut map: serde_json::Map<String, Value> = if path.exists() {
+        let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&text).unwrap_or_default()
+    } else {
+        serde_json::Map::new()
+    };
+    let mut profile = map.remove(&original).ok_or("profile not found")?;
+    let tag_list: Vec<String> = tags
+        .split(',')
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .collect();
+    profile["tags"] = json!(tag_list);
+    map.insert(name, profile);
+    let text = serde_json::to_string_pretty(&map).map_err(|e| e.to_string())?;
+    fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
+    fs::write(path, text).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn remove_piper_profile(name: String) -> Result<(), String> {
+    let path = Path::new("data/voices.json");
+    let mut map: serde_json::Map<String, Value> = if path.exists() {
+        let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&text).unwrap_or_default()
+    } else {
+        serde_json::Map::new()
+    };
+    map.remove(&name);
     let text = serde_json::to_string_pretty(&map).map_err(|e| e.to_string())?;
     fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
     fs::write(path, text).map_err(|e| e.to_string())
@@ -938,6 +1012,9 @@ fn main() {
             set_piper,
             discover_piper_voices,
             add_piper_voice,
+            list_piper_profiles,
+            update_piper_profile,
+            remove_piper_profile,
             piper_test,
             list_llm,
             set_llm,
