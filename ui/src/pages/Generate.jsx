@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import BackButton from "../components/BackButton.jsx";
 
-export default function Generate() {
+export default function AlgorithmicGenerator() {
   const [preset, setPreset] = useState("");
   const [presets, setPresets] = useState([]);
   const [style, setStyle] = useState("");
@@ -15,7 +15,6 @@ export default function Generate() {
   const [outdir, setOutdir] = useState("");
   const [mixConfig, setMixConfig] = useState(null);
   const [arrangeConfig, setArrangeConfig] = useState(null);
-  const [phrase, setPhrase] = useState(false);
   const [drumsModel, setDrumsModel] = useState("");
   const [bassModel, setBassModel] = useState("");
   const [keysModel, setKeysModel] = useState("");
@@ -101,7 +100,6 @@ export default function Generate() {
     if (bassSfz) fd.append("bass_sfz", bassSfz);
     if (drumsSfz) fd.append("drums_sfz", drumsSfz);
     if (melodyMidi) fd.append("melody_midi", melodyMidi);
-    if (phrase) fd.append("phrase", "true");
     if (drumsModel) fd.append("drums_model", drumsModel);
     if (bassModel) fd.append("bass_model", bassModel);
     if (keysModel) fd.append("keys_model", keysModel);
@@ -267,14 +265,6 @@ export default function Generate() {
             type="file"
             onChange={(e) => setArrangeConfig(e.target.files[0] || null)}
           />
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={phrase}
-            onChange={(e) => setPhrase(e.target.checked)}
-          />
-          Phrase backend
         </label>
         <label>
           Drums model
