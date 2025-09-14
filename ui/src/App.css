@@ -32,7 +32,9 @@ header {
   text-align: center;
   text-decoration: none;
   color: var(--text);
-  transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  border: 2px solid transparent;
+  transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease,
+    border-color 0.2s ease, color 0.2s ease;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -44,13 +46,22 @@ header {
 .card:focus {
   background: var(--card-hover-bg);
   box-shadow: var(--card-shadow);
-  transform: translateY(-4px);
+  transform: translateY(-4px) scale(1.02);
+}
+
+.card.active {
+  border-color: var(--accent);
+}
+
+.card.active .card-icon {
+  color: var(--accent);
 }
 
 .card-icon {
   color: var(--icon);
   width: 3rem;
   height: 3rem;
+  transition: color 0.2s ease;
 }
 
 .card-caption {
