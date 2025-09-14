@@ -21,6 +21,7 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_store::{Builder, Store, StoreBuilder};
 use url::Url;
+use tempfile::NamedTempFile;
 mod config;
 mod musiclang;
 mod util;
@@ -279,6 +280,59 @@ fn set_piper(app: AppHandle, voice: String) -> Result<(), String> {
     app.emit("settings::models", json!({"piper": voice}))
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+fn piper_test(text: String, voice: String) -> Result<PathBuf, String> {
+    let base = Path::new("data/piper_tests");
+    fs::create_dir_all(base).map_err(|e| e.to_string())?;
+    let prefix = format!("{}_", voice);
+    let count = fs::read_dir(base)
+        .map_err(|e| e.to_string())?
+        .filter(|entry| {
+            entry
+                .as_ref()
+                .ok()
+                .and_then(|e| e.file_name().to_str().map(|n| n.starts_with(&prefix) && n.ends_with(".mp3")))
+                .unwrap_or(false)
+        })
+        .count();
+    let file = base.join(format!("{}_{:03}.mp3", voice, count + 1));
+
+    let tmp = NamedTempFile::new().map_err(|e| e.to_string())?;
+    let tmp_path = tmp.into_temp_path();
+    let wav_path = tmp_path.to_path_buf();
+    let py_script = format!(
+        r#"
+import soundfile as sf
+from mouth.tts import TTSEngine
+engine = TTSEngine()
+audio = engine.synthesize({text:?}, voice={voice:?})
+sf.write({wav:?}, audio, 22050)
+"#,
+        text = text,
+        voice = voice,
+        wav = wav_path.to_string_lossy()
+    );
+    let status = Command::new("python")
+        .arg("-c")
+        .arg(py_script)
+        .status()
+        .map_err(|e| e.to_string())?;
+    if !status.success() {
+        return Err("piper synthesis failed".into());
+    }
+    let wav_str = wav_path.to_string_lossy().to_string();
+    let out_str = file.to_string_lossy().to_string();
+    let status = Command::new("ffmpeg")
+        .args(["-y", "-i", &wav_str, &out_str])
+        .status()
+        .map_err(|e| e.to_string())?;
+    if !status.success() {
+        return Err("audio conversion failed".into());
+    }
+    drop(tmp_path);
+    Ok(file)
 }
 
 #[tauri::command]
@@ -971,6 +1025,7 @@ fn main() {
             set_whisper,
             list_piper,
             set_piper,
+            piper_test,
             list_llm,
             set_llm,
             npc_list,
