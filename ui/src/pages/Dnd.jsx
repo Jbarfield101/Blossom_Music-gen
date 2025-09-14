@@ -28,6 +28,7 @@ export default function Dnd() {
   const [displayName, setDisplayName] = useState("");
   const [voiceTags, setVoiceTags] = useState("");
   const [piperProfiles, setPiperProfiles] = useState([]);
+  const [piperBinaryAvailable, setPiperBinaryAvailable] = useState(true);
 
   const refresh = async () => {
     setNpcs(await listNpcs());
@@ -56,6 +57,15 @@ export default function Dnd() {
         setPiperVoice(v.selected);
       }
     });
+    discoverPiperVoices()
+      .then(() => setPiperBinaryAvailable(true))
+      .catch((err) => {
+        console.error(err);
+        const msg = String(err);
+        if (msg.includes("No such file") || msg.includes("not found")) {
+          setPiperBinaryAvailable(false);
+        }
+      });
   }, []);
 
   useEffect(() => {
@@ -260,8 +270,22 @@ export default function Dnd() {
                     setPiperAvailableVoices(list || []);
                   } catch (err) {
                     console.error(err);
+                    const msg = String(err);
+                    if (
+                      msg.includes("No such file") ||
+                      msg.includes("not found")
+                    ) {
+                      alert(
+                        "Piper CLI not found. Please install the `piper` command line tool."
+                      );
+                    }
                   }
                 }}
+                disabled={!piperBinaryAvailable}
+                title=
+                  {!piperBinaryAvailable
+                    ? "Install the piper CLI to enable voice discovery"
+                    : undefined}
               >
                 Find Voices
               </button>
