@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { listNpcs, saveNpc, deleteNpc } from "../api/npcs";
-import { listPiper, testPiper } from "../api/models";
+import { listPiper } from "../api/models";
+import { testPiper } from "../api/piper";
+import { convertFileSrc } from "@tauri-apps/api/core";
 
 export default function Dnd() {
   const emptyNpc = { name: "", description: "", prompt: "", voice: "" };
@@ -11,6 +13,7 @@ export default function Dnd() {
   const [piperVoice, setPiperVoice] = useState("");
   const [piperText, setPiperText] = useState("");
   const [piperAudio, setPiperAudio] = useState("");
+  const [piperPath, setPiperPath] = useState("");
 
   const refresh = async () => {
     setNpcs(await listNpcs());
@@ -135,9 +138,11 @@ export default function Dnd() {
             type="button"
             onClick={async () => {
               try {
-                const res = await testPiper(piperText, piperVoice);
+                const res = await testPiper(piperVoice, piperText);
                 if (res) {
-                  const url = res.url || res.path || res;
+                  const path = res.path || res;
+                  const url = res.url ? res.url : convertFileSrc(path);
+                  setPiperPath(path);
                   setPiperAudio(url);
                 }
               } catch (err) {
@@ -151,7 +156,7 @@ export default function Dnd() {
             <div>
               <audio controls src={piperAudio} />
               <div>
-                <a href={piperAudio} download="piper.mp3">
+                <a href={piperPath || piperAudio} download="piper.mp3">
                   Download
                 </a>
               </div>
