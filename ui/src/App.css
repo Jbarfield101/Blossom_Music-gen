@@ -16,8 +16,8 @@ header {
 .dashboard {
   flex: 1;
   display: grid;
-  gap: var(--space-lg);
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-xl);
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   padding: var(--space-xl);
   max-width: 1200px;
   margin: 0 auto;
@@ -27,29 +27,30 @@ header {
 
 .card {
   background: var(--card-bg);
-  border-radius: 12px;
-  padding: var(--space-xl) var(--space-md);
+  border-radius: 8px;
+  padding: var(--space-lg);
   text-align: center;
   text-decoration: none;
   color: var(--text);
-  box-shadow: var(--card-shadow);
-  transition: background 0.3s, transform 0.3s;
+  transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: var(--space-md);
 }
 
 .card:hover,
 .card:focus {
   background: var(--card-hover-bg);
+  box-shadow: var(--card-shadow);
   transform: translateY(-4px);
 }
 
 .card-icon {
-  font-size: 3rem;
-  margin-bottom: var(--space-md);
   color: var(--icon);
+  width: 3rem;
+  height: 3rem;
 }
 
 .card-caption {

@@ -1,4 +1,5 @@
-import { Link } from 'react-router-dom';
+import Card from '../components/Card.jsx';
+import { Music, Dice5, Settings, Sliders, Package, Brain } from 'lucide-react';
 
 export default function Dashboard() {
   return (
@@ -7,30 +8,12 @@ export default function Dashboard() {
         <h1>Blossom Music Generation</h1>
       </header>
       <main className="dashboard">
-        <Link className="card" to="/generate">
-          <span className="card-icon">🎵</span>
-          <h2>Music Generator</h2>
-        </Link>
-        <Link className="card" to="/dnd">
-          <span className="card-icon">🐉</span>
-          <h2>Dungeons & Dragons</h2>
-        </Link>
-        <Link className="card" to="/settings">
-          <span className="card-icon">⚙️</span>
-          <h2>Settings</h2>
-        </Link>
-        <Link className="card" to="/train">
-          <span className="card-icon">🎚️</span>
-          <h2>Train Model</h2>
-        </Link>
-        <Link className="card" to="/models">
-          <span className="card-icon">📦</span>
-          <h2>Available Models</h2>
-        </Link>
-        <Link className="card" to="/onnx">
-          <span className="card-icon">🧠</span>
-          <h2>ONNX Crafter</h2>
-        </Link>
+        <Card to="/generate" icon={Music} title="Music Generator" />
+        <Card to="/dnd" icon={Dice5} title="Dungeons & Dragons" />
+        <Card to="/settings" icon={Settings} title="Settings" />
+        <Card to="/train" icon={Sliders} title="Train Model" />
+        <Card to="/models" icon={Package} title="Available Models" />
+        <Card to="/onnx" icon={Brain} title="ONNX Crafter" />
       </main>
     </>
   );
