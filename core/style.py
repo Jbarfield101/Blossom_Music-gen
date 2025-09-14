@@ -16,6 +16,7 @@ class StyleToken(IntEnum):
     CINEMATIC = 2
     CHILL_LOFI_JAM = 3
     UPBEAT_FUNK_GROOVE = 4
+    ACOUSTIC_FOLK_BALLAD = 6
     SYNTHWAVE_RETRO = 7
 
 
