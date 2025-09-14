@@ -426,7 +426,7 @@ fn set_devices(app: AppHandle, input: Option<u32>, output: Option<u32>) -> Resul
             .map_err(|e| e.to_string())?;
         env::set_var("INPUT_DEVICE", id.to_string());
     } else {
-        store.delete("input");
+        store.remove("input");
         env::remove_var("INPUT_DEVICE");
     }
     if let Some(id) = output {
@@ -435,7 +435,7 @@ fn set_devices(app: AppHandle, input: Option<u32>, output: Option<u32>) -> Resul
             .map_err(|e| e.to_string())?;
         env::set_var("OUTPUT_DEVICE", id.to_string());
     } else {
-        store.delete("output");
+        store.remove("output");
         env::remove_var("OUTPUT_DEVICE");
     }
     store.save().map_err(|e| e.to_string())?;

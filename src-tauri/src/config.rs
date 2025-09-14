@@ -24,7 +24,7 @@ pub fn get_config(app: AppHandle, key: String) -> Result<serde_json::Value, Stri
 #[tauri::command]
 pub fn set_config(app: AppHandle, key: String, value: serde_json::Value) -> Result<(), String> {
     let store = config_store(&app)?;
-    store.set(key.clone(), value.clone())?;
+    store.set(key.clone(), value.clone());
     store.save().map_err(|e| e.to_string())?;
     app.emit("settings::updated", json!({"key": key, "value": value}))
         .map_err(|e| e.to_string())?;
@@ -48,7 +48,7 @@ pub fn import_settings(app: AppHandle, path: String) -> Result<(), String> {
     let data: Map<String, serde_json::Value> =
         serde_json::from_str(&text).map_err(|e| e.to_string())?;
     for (key, value) in data.into_iter() {
-        store.set(key.clone(), value.clone())?;
+        store.set(key.clone(), value.clone());
         app.emit("settings::updated", json!({ "key": key, "value": value }))
             .map_err(|e| e.to_string())?;
     }
