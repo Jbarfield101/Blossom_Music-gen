@@ -4,18 +4,18 @@ import { listen } from "@tauri-apps/api/event";
 import BackButton from "../components/BackButton.jsx";
 
 export default function Train() {
-  const [dataset, setDataset] = useState(null);
-  const [epochs, setEpochs] = useState(1);
+  const [midiFiles, setMidiFiles] = useState([]);
+  const [epochs, setEpochs] = useState(10);
   const [lr, setLr] = useState(0.001);
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState("");
 
   const startTraining = async () => {
-    if (!dataset) return;
+    if (!midiFiles.length) return;
     setProgress(0);
     setStatus("Starting...");
     const id = await invoke("train_model", {
-      dataset: dataset.path || dataset.name,
+      midiFiles: midiFiles.map((f) => f.path || f.name),
       epochs: Number(epochs),
       lr: Number(lr),
     });
@@ -38,15 +38,16 @@ export default function Train() {
         }}
       >
         <label>
-          Dataset File
+          MIDI Files
           <input
             type="file"
-            accept=".mid,.midi,.npz,.json"
-            onChange={(e) => setDataset(e.target.files[0])}
+            accept=".mid,.midi"
+            multiple
+            onChange={(e) => setMidiFiles(Array.from(e.target.files))}
           />
         </label>
         <label>
-          Epochs
+          Epochs <small>(recommended: 10)</small>
           <input
             type="number"
             value={epochs}
