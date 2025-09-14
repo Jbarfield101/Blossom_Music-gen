@@ -1,22 +1,22 @@
 import { useEffect, useState } from "react";
+import { listModels } from "../api/models.js";
 
 export default function Models() {
   const [models, setModels] = useState([]);
 
   useEffect(() => {
-    fetch("/models", { headers: { Accept: "application/json" } })
-      .then((r) => r.json())
-      .then((data) => setModels(data))
+    listModels()
+      .then(setModels)
       .catch((e) => console.error(e));
   }, []);
 
   return (
     <div className="p-md">
-      <h1>Available Models</h1>
+      <h1 className="mb-md">Available Models</h1>
       <ul>
-        {models.map((m) => (
-          <li key={m.name}>
-            <a href={m.url}>{m.name}</a>
+        {models.map((name) => (
+          <li key={name} className="mb-sm">
+            {name}
           </li>
         ))}
       </ul>
