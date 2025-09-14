@@ -414,6 +414,16 @@ during startup warms the cache and eliminates initial latency.
 See ``docs/examples/discord_piper_tts.py`` for an end-to-end snippet that
 joins a voice channel and speaks a line of dialog.
 
+### Running the Discord bot
+
+Set the bot token in the ``DISCORD_TOKEN`` environment variable before
+starting the bot:
+
+```bash
+export DISCORD_TOKEN="your_bot_token"
+python discord_bot.py
+```
+
 
 ## LLM Orchestrator
 

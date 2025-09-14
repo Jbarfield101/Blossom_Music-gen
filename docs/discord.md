@@ -1,5 +1,13 @@
 # Discord Configuration
 
+Set the bot token in the ``DISCORD_TOKEN`` environment variable before
+starting ``discord_bot.py``:
+
+```bash
+export DISCORD_TOKEN="your_bot_token"
+python discord_bot.py
+```
+
 The Discord bot reads command permission rules from `config/discord.yaml` on startup.
 Each top-level key in the file is the name of a slash command (use the full
 `group subcommand` name for grouped commands).  Every command maps to two lists:
