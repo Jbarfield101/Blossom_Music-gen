@@ -230,8 +230,6 @@ fn list_whisper(app: AppHandle) -> Result<Value, String> {
     let store = models_store::<tauri::Wry>(&app)?;
     let selected = store
         .get("whisper")
-        .ok()
-        .flatten()
         .and_then(|v| v.as_str().map(|s| s.to_string()));
     if let Some(sel) = &selected {
         std::env::set_var("WHISPER_MODEL", sel);
@@ -265,8 +263,6 @@ fn list_piper(app: AppHandle) -> Result<Value, String> {
     let store = models_store::<tauri::Wry>(&app)?;
     let selected = store
         .get("piper")
-        .ok()
-        .flatten()
         .and_then(|v| v.as_str().map(|s| s.to_string()));
     if let Some(sel) = &selected {
         std::env::set_var("PIPER_VOICE", sel);
@@ -358,8 +354,6 @@ fn list_llm(app: AppHandle) -> Result<Value, String> {
     let store = models_store::<tauri::Wry>(&app)?;
     let selected = store
         .get("llm")
-        .ok()
-        .flatten()
         .and_then(|v| v.as_str().map(|s| s.to_string()));
     if let Some(sel) = &selected {
         std::env::set_var("LLM_MODEL", sel);
@@ -421,17 +415,17 @@ fn list_devices(app: AppHandle) -> Result<Value, String> {
 fn set_devices(app: AppHandle, input: Option<u32>, output: Option<u32>) -> Result<(), String> {
     let store = devices_store(&app)?;
     if let Some(id) = input {
-        store.insert("input".to_string(), id.into());
+        store.set("input".to_string(), id.into());
         env::set_var("INPUT_DEVICE", id.to_string());
     } else {
-        store.remove("input");
+        store.delete("input");
         env::remove_var("INPUT_DEVICE");
     }
     if let Some(id) = output {
-        store.insert("output".to_string(), id.into());
+        store.set("output".to_string(), id.into());
         env::set_var("OUTPUT_DEVICE", id.to_string());
     } else {
-        store.remove("output");
+        store.delete("output");
         env::remove_var("OUTPUT_DEVICE");
     }
     store.save().map_err(|e| e.to_string())?;
