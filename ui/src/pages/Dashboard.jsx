@@ -11,7 +11,6 @@ export default function Dashboard() {
         <Card to="/dnd" icon="Dice5" title="Dungeons & Dragons" />
         <Card to="/settings" icon="Settings" title="Settings" />
         <Card to="/train" icon="Sliders" title="Train Model" />
-        <Card to="/models" icon="Package" title="Available Models" />
       </main>
     </>
   );
