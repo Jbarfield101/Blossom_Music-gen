@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
 import { listen } from "@tauri-apps/api/event";
+import BackButton from "../components/BackButton.jsx";
 
 export default function Train() {
   const [dataset, setDataset] = useState(null);
@@ -28,6 +29,7 @@ export default function Train() {
 
   return (
     <div className="m-md">
+      <BackButton />
       <h1>Train Model</h1>
       <form
         onSubmit={(e) => {

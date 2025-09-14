@@ -1,9 +1,11 @@
 import Card from '../components/Card.jsx';
+import BackButton from '../components/BackButton.jsx';
 
 export default function MusicGenerator() {
   return (
     <>
       <header>
+        <BackButton />
         <h1>Music Generator</h1>
       </header>
       <main className="dashboard">

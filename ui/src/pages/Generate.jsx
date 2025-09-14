@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import BackButton from "../components/BackButton.jsx";
 
 export default function Generate() {
   const [preset, setPreset] = useState("");
@@ -160,6 +161,7 @@ export default function Generate() {
 
   return (
     <div>
+      <BackButton />
       <h1>Music Generator</h1>
       <div>
         <label>
