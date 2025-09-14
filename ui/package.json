@@ -8,10 +8,11 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.x",
+    "blossom-music-gen": "file:..",
+    "lucide-react": "^0.379.0",
     "react": "^18",
     "react-dom": "^18",
-    "react-router-dom": "^6",
-    "lucide-react": "^0.379.0"
+    "react-router-dom": "^6"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4",
