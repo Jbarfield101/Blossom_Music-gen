@@ -21,8 +21,8 @@ export default function LogPanel() {
   return (
     <div
       style={{
-        backgroundColor: "#000",
-        color: "#0f0",
+        backgroundColor: "var(--log-bg)",
+        color: "var(--log-fg)",
         padding: "0.5rem",
         maxHeight: "200px",
         overflowY: "auto",
