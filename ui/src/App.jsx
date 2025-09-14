@@ -5,7 +5,6 @@ import Settings from './pages/Settings.jsx';
 import Train from './pages/Train.jsx';
 import OnnxCrafter from './pages/OnnxCrafter.jsx';
 import Profiles from './pages/Profiles.jsx';
-import Models from './pages/Models.jsx';
 import Generate from './pages/Generate.jsx';
 import MusicGenerator from './pages/MusicGenerator.jsx';
 import MusicLang from './pages/MusicLang.jsx';
@@ -28,7 +27,6 @@ export default function App() {
         <Route path="/profiles" element={<Profiles />} />
         <Route path="/train" element={<Train />} />
         <Route path="/onnx" element={<OnnxCrafter />} />
-        <Route path="/models" element={<Models />} />
       </Routes>
     </>
   );
