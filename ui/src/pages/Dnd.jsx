@@ -45,13 +45,18 @@ export default function Dnd() {
     <div>
       <h1>Dungeons & Dragons</h1>
       <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
-        {["Lore", "Piper", "Discord", "Chat"].map((name) => (
+        {["Lore", "NPCs", "Piper", "Discord", "Chat"].map((name) => (
           <button key={name} type="button" onClick={() => setSection(name)}>
             {name}
           </button>
         ))}
       </div>
       {section === "Lore" && (
+        <div>
+          <p>Lore coming soon.</p>
+        </div>
+      )}
+      {section === "NPCs" && (
         <div>
           <button type="button" onClick={newNpc}>
             New NPC
