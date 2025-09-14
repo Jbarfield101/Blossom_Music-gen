@@ -19,6 +19,7 @@ import {
   importSettings as apiImportSettings,
 } from "../api/config";
 import LogPanel from "../components/LogPanel";
+import { setTheme, getTheme } from "../../theme.js";
 
 export default function Settings() {
   const VAULT_KEY = "vaultPath";
@@ -29,6 +30,11 @@ export default function Settings() {
   const [output, setOutput] = useState({ options: [], selected: "" });
   const [vault, setVault] = useState("");
   const [hotwords, setHotwords] = useState({});
+  const [theme, setThemeState] = useState("dark");
+
+  useEffect(() => {
+    getTheme().then((savedTheme) => setThemeState(savedTheme || "dark"));
+  }, []);
 
   useEffect(() => {
     const load = async () => {
@@ -198,6 +204,21 @@ export default function Settings() {
               </option>
             ))}
           </select>
+        </label>
+      </div>
+      <div>
+        <h2>Appearance</h2>
+        <label>
+          <input
+            type="checkbox"
+            checked={theme === "dark"}
+            onChange={async (e) => {
+              const newTheme = e.target.checked ? "dark" : "light";
+              await setTheme(newTheme);
+              setThemeState(newTheme);
+            }}
+          />
+          Dark mode
         </label>
       </div>
       <div>
