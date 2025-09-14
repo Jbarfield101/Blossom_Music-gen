@@ -5,3 +5,6 @@ export const testPiper = (voice, text) =>
 export const discoverPiperVoices = () =>
     invoke("discover_piper_voices");
 
+export const addPiperVoice = (voice, name, tags) =>
+    invoke("add_piper_voice", { voice, name, tags });
+
