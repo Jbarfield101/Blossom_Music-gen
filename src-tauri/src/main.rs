@@ -518,6 +518,31 @@ fn start_job(
 }
 
 #[tauri::command]
+fn train_model(
+    app: AppHandle,
+    registry: State<JobRegistry>,
+    dataset: String,
+    epochs: u32,
+    lr: f32,
+) -> Result<u64, String> {
+    let script = if Path::new("training/simple_train.py").exists() {
+        "training/simple_train.py".to_string()
+    } else {
+        "../training/simple_train.py".to_string()
+    };
+    let args = vec![
+        script,
+        "--dataset".into(),
+        dataset,
+        "--epochs".into(),
+        epochs.to_string(),
+        "--lr".into(),
+        lr.to_string(),
+    ];
+    start_job(app, registry, args)
+}
+
+#[tauri::command]
 fn onnx_generate(
     app: AppHandle,
     registry: State<JobRegistry>,
@@ -957,6 +982,7 @@ fn main() {
             hotword_set,
             app_version,
             start_job,
+            train_model,
             onnx_generate,
             cancel_render,
             job_status,
