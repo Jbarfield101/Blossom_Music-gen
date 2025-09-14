@@ -518,6 +518,24 @@ fn start_job(
 }
 
 #[tauri::command]
+fn train_phrase(
+    app: AppHandle,
+    registry: State<JobRegistry>,
+    dataset: String,
+    epochs: u32,
+    lr: f32,
+) -> Result<u64, String> {
+    let mut args = vec!["training/phrase_models/train_phrase_models.py".into()];
+    args.push("--dataset".into());
+    args.push(dataset);
+    args.push("--epochs".into());
+    args.push(epochs.to_string());
+    args.push("--lr".into());
+    args.push(lr.to_string());
+    start_job(app, registry, args)
+}
+
+#[tauri::command]
 fn onnx_generate(
     app: AppHandle,
     registry: State<JobRegistry>,
@@ -957,6 +975,7 @@ fn main() {
             hotword_set,
             app_version,
             start_job,
+            train_phrase,
             onnx_generate,
             cancel_render,
             job_status,
