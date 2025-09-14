@@ -16,6 +16,7 @@ class StyleToken(IntEnum):
     CINEMATIC = 2
     CHILL_LOFI_JAM = 3
     UPBEAT_FUNK_GROOVE = 4
+    SYNTHWAVE_RETRO = 7
 
 
 # Mapping of human readable style names to token IDs used by phrase models
