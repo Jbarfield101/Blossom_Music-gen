@@ -12,7 +12,6 @@ export default function Dashboard() {
         <Card to="/settings" icon="Settings" title="Settings" />
         <Card to="/train" icon="Sliders" title="Train Model" />
         <Card to="/models" icon="Package" title="Available Models" />
-        <Card to="/onnx" icon="Brain" title="ONNX Crafter" />
       </main>
     </>
   );
