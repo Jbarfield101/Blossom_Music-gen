@@ -305,6 +305,34 @@ fn discover_piper_voices() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
+fn add_piper_voice(name: String, voice: String, tags: String) -> Result<(), String> {
+    let path = Path::new("data/voices.json");
+    let mut map: serde_json::Map<String, Value> = if path.exists() {
+        let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&text).unwrap_or_default()
+    } else {
+        serde_json::Map::new()
+    };
+    let tag_list: Vec<String> = tags
+        .split(',')
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .collect();
+    map.insert(
+        name,
+        json!({
+            "voice_id": voice,
+            "speed": 1.0,
+            "emotion": "neutral",
+            "tags": tag_list,
+        }),
+    );
+    let text = serde_json::to_string_pretty(&map).map_err(|e| e.to_string())?;
+    fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
+    fs::write(path, text).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn piper_test(text: String, voice: String) -> Result<PathBuf, String> {
     let base = Path::new("data/piper_tests");
     fs::create_dir_all(base).map_err(|e| e.to_string())?;
@@ -1048,6 +1076,7 @@ fn main() {
             list_piper,
             set_piper,
             discover_piper_voices,
+            add_piper_voice,
             piper_test,
             list_llm,
             set_llm,
