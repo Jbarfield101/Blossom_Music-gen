@@ -119,13 +119,14 @@ models are present.
 
 Training requires [PyTorch](https://pytorch.org/) and, for ONNX export, `onnxruntime`, both of which are included in `requirements.txt`.  Datasets consist of token sequences stored in `train.jsonl` and
 `val.jsonl` which can be created with `data/build_dataset.py` (see
-[`docs/datasets.md`](docs/datasets.md)).  Running
+[`docs/datasets.md`](docs/datasets.md)).  Run the training script and point it at
+these files:
 
 ```bash
-python training/phrase_models/train_phrase_models.py
+python training/phrase_models/train_phrase_models.py --train data/train.jsonl --val data/val.jsonl
 ```
 
-trains toy GRU models and writes checkpoints.
+This trains tiny demonstration models and writes checkpoints.
 
 ### Export and placement
 

@@ -1,11 +1,12 @@
 """Toy training script for phrase generation models.
 
-The original version of this file used small GRU based networks.  In order to
-exercise the model loading code in :mod:`core.phrase_model` with something a
-little more interesting we now provide tiny Transformer encoder/decoder based
-models for drums, bass and keys phrases.  These models are intentionally
-light‑weight; they merely serve as stand‑ins for real networks while keeping the
-repository free from heavy training requirements.
+The original version of this file used small GRU based networks backed by
+synthesised random data.  To better exercise the loading utilities this script
+now consumes token sequences produced by :mod:`data.build_dataset` and trains
+tiny Transformer encoder/decoder networks for drums, bass and keys phrases.
+The models are intentionally light‑weight – they merely serve as stand‑ins for
+real networks while keeping the repository free from heavy training
+requirements.
 
 The exported TorchScript/ONNX artefacts are still compatible with
 ``core.phrase_model.load_model`` which looks for ``*_phrase.ts.pt`` and
@@ -14,10 +15,13 @@ The exported TorchScript/ONNX artefacts are still compatible with
 
 from pathlib import Path
 from typing import Sequence, Union
+import argparse
+import json
 
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.utils.data import DataLoader, Dataset
 
 from core.sampling import sample
 from core.style import StyleToken, NUM_STYLES
@@ -68,28 +72,48 @@ class TransformerDecoder(nn.Module):
         return self.fc(x)
 
 
-def synthetic_dataset(
-    n_samples: int, seq_len: int, in_dim: int
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Generates random training data and style tokens."""
-    data = torch.randn(n_samples, seq_len, in_dim)
-    styles = torch.randint(0, NUM_STYLES, (n_samples,), dtype=torch.long)
-    return data, styles
+class TokenDataset(Dataset):
+    """Load token sequences from a JSONL file."""
+
+    def __init__(self, path: Path) -> None:
+        self.records: list[list[list[float]]] = []
+        with path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                rec = json.loads(line)
+                self.records.append(rec.get("tokens", []))
+
+    def __len__(self) -> int:  # pragma: no cover - trivial
+        return len(self.records)
+
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+        seq = torch.tensor(self.records[idx], dtype=torch.float32)
+        style = torch.tensor(StyleToken.LOFI, dtype=torch.long)
+        return seq, style
 
 
-def train_model(
-    model: nn.Module, data: torch.Tensor, styles: torch.Tensor, epochs: int = 2
-) -> nn.Module:
+def _collate(batch: Sequence[tuple[torch.Tensor, torch.Tensor]]) -> tuple[torch.Tensor, torch.Tensor]:
+    data, styles = zip(*batch)
+    max_len = max(x.shape[0] for x in data)
+    dim = data[0].shape[1]
+    padded = torch.zeros(len(data), max_len, dim, dtype=torch.float32)
+    for i, seq in enumerate(data):
+        padded[i, : seq.shape[0]] = seq
+    styles = torch.stack(styles)
+    return padded, styles
+
+
+def train_model(model: nn.Module, loader: DataLoader, epochs: int = 2) -> nn.Module:
     """Very small training loop used for demonstration."""
     optim = torch.optim.Adam(model.parameters(), lr=1e-3)
     criterion = nn.MSELoss()
     model.train()
     for _ in range(epochs):
-        optim.zero_grad()
-        out = model(data, styles)
-        loss = criterion(out, torch.zeros_like(out))
-        loss.backward()
-        optim.step()
+        for data, styles in loader:
+            optim.zero_grad()
+            out = model(data, styles)
+            loss = criterion(out, torch.zeros_like(out))
+            loss.backward()
+            optim.step()
     return model
 
 
@@ -132,45 +156,45 @@ def export(model: nn.Module, example: Union[torch.Tensor, Sequence[torch.Tensor]
 
 # Main training routine ------------------------------------------------------
 
-def main() -> None:
-    # Drum phrase: 16-32 bars (simulated by seq_len=32)
-    drum_in, drum_hidden, drum_out = 8, 32, 8
-    drum_data, drum_styles = synthetic_dataset(4, 32, drum_in)
-    drum_model = train_model(
-        TransformerEncoder(drum_in, drum_hidden, drum_out), drum_data, drum_styles
-    )
-    torch.save(drum_model.state_dict(), Path(__file__).with_name("drum_phrase.pt"))
-    export(drum_model.eval(), (drum_data[:1], drum_styles[:1]), "drum_phrase")
+def main(argv: Sequence[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--train", type=Path, required=True, help="Training JSONL file")
+    parser.add_argument("--val", type=Path, default=None, help="Validation JSONL file")
+    parser.add_argument("--epochs", type=int, default=2, help="Number of training epochs")
+    parser.add_argument("--batch-size", type=int, default=4, help="Mini-batch size")
+    args = parser.parse_args(argv)
 
-    # Demonstrate sampling with the centralized utilities using a fixed style
+    train_ds = TokenDataset(args.train)
+    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, collate_fn=_collate)
+
+    # One batch for shape inference / export examples
+    example_batch, example_styles = next(iter(train_loader))
+    in_dim = example_batch.shape[-1]
+    out_dim = in_dim
+
+    # Drum phrase -------------------------------------------------------------
+    drum_model = train_model(TransformerEncoder(in_dim, 32, out_dim), train_loader, args.epochs)
+    torch.save(drum_model.state_dict(), Path(__file__).with_name("drum_phrase.pt"))
+    export(drum_model.eval(), (example_batch[:1], example_styles[:1]), "drum_phrase")
+
     logits = (
-        drum_model(
-            drum_data[:1], torch.tensor([StyleToken.LOFI], dtype=torch.long)
-        )[0, -1]
+        drum_model(example_batch[:1], torch.tensor([StyleToken.LOFI], dtype=torch.long))[0, -1]
         .detach()
         .cpu()
         .numpy()
     )
     _ = sample(logits, top_k=4, top_p=0.9, rng=np.random.default_rng(0))
 
-    # Bass phrase: chord conditioned
-    bass_in, bass_hidden, bass_out = 12, 32, 12  # additional dims for chords
-    bass_data, bass_styles = synthetic_dataset(4, 16, bass_in)
-    bass_model = train_model(
-        TransformerDecoder(bass_in, bass_hidden, bass_out), bass_data, bass_styles
-    )
+    # Bass phrase -------------------------------------------------------------
+    bass_model = train_model(TransformerDecoder(in_dim, 32, out_dim), train_loader, args.epochs)
     torch.save(bass_model.state_dict(), Path(__file__).with_name("bass_phrase.pt"))
-    export(bass_model.eval(), (bass_data[:1], bass_styles[:1]), "bass_phrase")
+    export(bass_model.eval(), (example_batch[:1], example_styles[:1]), "bass_phrase")
 
-    # Keys phrase: voicing aware
-    keys_in, keys_hidden, keys_out = 16, 32, 16
-    keys_data, key_styles = synthetic_dataset(4, 16, keys_in)
-    keys_model = train_model(
-        TransformerEncoder(keys_in, keys_hidden, keys_out), keys_data, key_styles
-    )
+    # Keys phrase -------------------------------------------------------------
+    keys_model = train_model(TransformerEncoder(in_dim, 32, out_dim), train_loader, args.epochs)
     torch.save(keys_model.state_dict(), Path(__file__).with_name("keys_phrase.pt"))
-    export(keys_model.eval(), (keys_data[:1], key_styles[:1]), "keys_phrase")
+    export(keys_model.eval(), (example_batch[:1], example_styles[:1]), "keys_phrase")
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - CLI entry point
     main()
