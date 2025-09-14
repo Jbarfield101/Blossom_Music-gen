@@ -228,3 +228,9 @@ class BlossomBot(commands.Bot):
 
 
 __all__ = ["BlossomBot"]
+
+
+if __name__ == "__main__":  # pragma: no cover - manual execution
+    TOKEN = "YOUR_DISCORD_TOKEN"  # Replace with the actual Blossombot token
+    bot = BlossomBot()
+    bot.run(TOKEN)
