@@ -14,6 +14,7 @@ export default function Dnd() {
   const [piperText, setPiperText] = useState("");
   const [piperAudio, setPiperAudio] = useState("");
   const [piperPath, setPiperPath] = useState("");
+  const [piperVoicesSection, setPiperVoicesSection] = useState("Find Voices");
 
   const refresh = async () => {
     setNpcs(await listNpcs());
@@ -45,7 +46,8 @@ export default function Dnd() {
     <div>
       <h1>Dungeons & Dragons</h1>
       <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
-        {["Lore", "NPCs", "Piper", "Discord", "Chat"].map((name) => (
+        {["Lore", "NPCs", "Piper", "Piper Voices", "Discord", "Chat"].map(
+          (name) => (
           <button key={name} type="button" onClick={() => setSection(name)}>
             {name}
           </button>
@@ -165,6 +167,33 @@ export default function Dnd() {
                   Download
                 </a>
               </div>
+            </div>
+          )}
+        </div>
+      )}
+      {section === "Piper Voices" && (
+        <div>
+          <div
+            style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}
+          >
+            {["Find Voices", "Chosen Voices"].map((name) => (
+              <button
+                key={name}
+                type="button"
+                onClick={() => setPiperVoicesSection(name)}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+          {piperVoicesSection === "Find Voices" && (
+            <div>
+              <p>Find voices coming soon.</p>
+            </div>
+          )}
+          {piperVoicesSection === "Chosen Voices" && (
+            <div>
+              <p>Chosen voices coming soon.</p>
             </div>
           )}
         </div>
