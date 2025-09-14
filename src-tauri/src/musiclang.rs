@@ -18,6 +18,7 @@ pub struct ModelInfo {
     pub id: String,
     pub description: Option<String>,
     pub size: Option<u64>,
+    pub path: String,
 }
 
 #[tauri::command]
@@ -42,15 +43,15 @@ pub fn list_musiclang_models() -> Result<Vec<ModelInfo>, String> {
                                 sibs.iter().find_map(|sib| {
                                     let name = sib.get("rfilename").and_then(|v| v.as_str())?;
                                     if name.ends_with(".onnx") {
-                                        Some((name, sib.get("size").and_then(|v| v.as_u64())))
+                                        Some((name.to_string(), sib.get("size").and_then(|v| v.as_u64())))
                                     } else {
                                         None
                                     }
                                 })
                             });
-                    let (onnx_name, size) = onnx_info?;
+                    let (path, size) = onnx_info?;
                     // Ensure the ONNX file is present
-                    if onnx_name.is_empty() {
+                    if path.is_empty() {
                         return None;
                     }
                     let description = item
@@ -61,6 +62,7 @@ pub fn list_musiclang_models() -> Result<Vec<ModelInfo>, String> {
                         id: model_id.to_string(),
                         description,
                         size,
+                        path,
                     })
                 })
                 .collect::<Vec<ModelInfo>>()
