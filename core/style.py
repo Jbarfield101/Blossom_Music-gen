@@ -15,6 +15,7 @@ class StyleToken(IntEnum):
     ROCK = 1
     CINEMATIC = 2
     CHILL_LOFI_JAM = 3
+    ACOUSTIC_FOLK_BALLAD = 6
 
 
 # Mapping of human readable style names to token IDs used by phrase models
