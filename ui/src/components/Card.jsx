@@ -1,9 +1,12 @@
-import { Link } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import Icon from './Icon.jsx';
 
 export default function Card({ to, icon, title, children }) {
   return (
-    <Link className="card" to={to}>
+    <NavLink
+      to={to}
+      className={({ isActive }) => `card${isActive ? ' active' : ''}`}
+    >
       {icon && (
         <Icon
           name={icon}
@@ -14,6 +17,6 @@ export default function Card({ to, icon, title, children }) {
       )}
       <h2>{title}</h2>
       {children && <p className="card-caption">{children}</p>}
-    </Link>
+    </NavLink>
   );
 }
