@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
+export const listModels = () => invoke("list_models");
+
 export const listWhisper = () => invoke("list_whisper");
 export const setWhisper = (model) => invoke("set_whisper", { model });
 
