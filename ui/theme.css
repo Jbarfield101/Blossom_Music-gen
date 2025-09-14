@@ -1,12 +1,12 @@
 /* global tokens */
 :root {
-  --font: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  --font: "Inter", "Roboto", "Helvetica Neue", sans-serif;
   --base-font-size: 16px;
   --space-xs: 0.25rem;
-  --space-sm: 0.5rem;
-  --space-md: 1rem;
-  --space-lg: 1.5rem;
-  --space-xl: 2rem;
+  --space-sm: 0.6rem;
+  --space-md: 1.2rem;
+  --space-lg: 1.8rem;
+  --space-xl: 2.4rem;
 }
 
 body {
