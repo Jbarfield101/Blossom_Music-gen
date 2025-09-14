@@ -30,8 +30,21 @@ falling back to `localStorage` when the plugin is not available.
 3. Build a release bundle with:
 
    ```bash
-   npm run tauri build
-   ```
+    npm run tauri build
+    ```
+
+## MusicGen smoke test
+
+Generate a short clip with Meta's pretrained MusicGen model:
+
+```bash
+python scripts/test_musicgen.py
+```
+
+The first run downloads the `facebook/musicgen-small` weights (about 3 GB).
+Expect roughly 3 GB of GPU memory or 6 GB of system RAM for inference.
+Producing a four‑second clip typically finishes in under 10 seconds on a
+recent GPU and in roughly one to two minutes on a modern CPU.
 
 ## Prerequisites
 
