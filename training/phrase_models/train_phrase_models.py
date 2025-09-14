@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Sequence, Union
 import argparse
 import json
+import sys
 
 import numpy as np
 import torch
@@ -103,17 +104,24 @@ def _collate(batch: Sequence[tuple[torch.Tensor, torch.Tensor]]) -> tuple[torch.
 
 
 def train_model(model: nn.Module, loader: DataLoader, epochs: int = 2) -> nn.Module:
-    """Very small training loop used for demonstration."""
+    """Very small training loop used for demonstration.
+
+    Emits progress information to ``stdout`` after each epoch so external
+    callers can track training status.
+    """
     optim = torch.optim.Adam(model.parameters(), lr=1e-3)
     criterion = nn.MSELoss()
     model.train()
-    for _ in range(epochs):
+    for epoch in range(1, epochs + 1):
         for data, styles in loader:
             optim.zero_grad()
             out = model(data, styles)
             loss = criterion(out, torch.zeros_like(out))
             loss.backward()
             optim.step()
+        percent = int(epoch * 100 / epochs)
+        print(f"train: {percent}% epoch {epoch}/{epochs}")
+        sys.stdout.flush()
     return model
 
 

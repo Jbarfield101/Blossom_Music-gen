@@ -597,24 +597,21 @@ fn start_job(
 fn train_model(
     app: AppHandle,
     registry: State<JobRegistry>,
-    dataset: String,
+    midi_files: Vec<String>,
     epochs: u32,
     lr: f32,
 ) -> Result<u64, String> {
-    let script = if Path::new("training/simple_train.py").exists() {
-        "training/simple_train.py".to_string()
+    let script = if Path::new("training/run_phrase_train.py").exists() {
+        "training/run_phrase_train.py".to_string()
     } else {
-        "../training/simple_train.py".to_string()
+        "../training/run_phrase_train.py".to_string()
     };
-    let args = vec![
-        script,
-        "--dataset".into(),
-        dataset,
-        "--epochs".into(),
-        epochs.to_string(),
-        "--lr".into(),
-        lr.to_string(),
-    ];
+    let mut args = vec![script, "--midis".into()];
+    args.extend(midi_files);
+    args.push("--epochs".into());
+    args.push(epochs.to_string());
+    args.push("--lr".into());
+    args.push(lr.to_string());
     start_job(app, registry, args)
 }
 
