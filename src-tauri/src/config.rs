@@ -1,4 +1,4 @@
-use serde_json::{json, Map, Value};
+use serde_json::{json, Map};
 use std::{fs, sync::Arc};
 use tauri::Emitter;
 use tauri::{AppHandle, Manager};
@@ -16,17 +16,15 @@ fn config_store(app: &AppHandle) -> Result<Arc<Store<tauri::Wry>>, String> {
 }
 
 #[tauri::command]
-pub fn get_config(app: AppHandle, key: String) -> Result<Value, String> {
+pub fn get_config(app: AppHandle, key: String) -> Result<serde_json::Value, String> {
     let store = config_store(&app)?;
-    Ok(store.get(&key).ok().flatten().unwrap_or(Value::Null))
+    Ok(store.get(&key).unwrap_or(serde_json::Value::Null))
 }
 
 #[tauri::command]
-pub fn set_config(app: AppHandle, key: String, value: Value) -> Result<(), String> {
+pub fn set_config(app: AppHandle, key: String, value: serde_json::Value) -> Result<(), String> {
     let store = config_store(&app)?;
-    store
-        .set(key.clone(), value.clone())
-        .map_err(|e| e.to_string())?;
+    store.set(key.clone(), value.clone())?;
     store.save().map_err(|e| e.to_string())?;
     app.emit("settings::updated", json!({"key": key, "value": value}))
         .map_err(|e| e.to_string())?;
@@ -36,8 +34,8 @@ pub fn set_config(app: AppHandle, key: String, value: Value) -> Result<(), Strin
 #[tauri::command]
 pub fn export_settings(app: AppHandle, path: String) -> Result<(), String> {
     let store = config_store(&app)?;
-    let entries = store.entries().map_err(|e| e.to_string())?;
-    let data: Map<String, Value> = entries.into_iter().collect();
+    let entries = store.entries()?;
+    let data: Map<String, serde_json::Value> = entries.into_iter().collect();
     let text = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
     fs::write(path, text).map_err(|e| e.to_string())?;
     Ok(())
@@ -47,11 +45,10 @@ pub fn export_settings(app: AppHandle, path: String) -> Result<(), String> {
 pub fn import_settings(app: AppHandle, path: String) -> Result<(), String> {
     let store = config_store(&app)?;
     let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let data: Map<String, Value> = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let data: Map<String, serde_json::Value> =
+        serde_json::from_str(&text).map_err(|e| e.to_string())?;
     for (key, value) in data.into_iter() {
-        store
-            .set(key.clone(), value.clone())
-            .map_err(|e| e.to_string())?;
+        store.set(key.clone(), value.clone())?;
         app.emit("settings::updated", json!({ "key": key, "value": value }))
             .map_err(|e| e.to_string())?;
     }
