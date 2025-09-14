@@ -25,8 +25,7 @@ export default function LogPanel() {
         color: "var(--log-fg)",
         padding: "0.5rem",
         maxHeight: "200px",
-        overflowY: "auto",
-        fontFamily: "monospace",
+        overflowY: "auto"
       }}
     >
       {lines.map((line, idx) => (
