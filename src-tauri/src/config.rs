@@ -8,7 +8,7 @@ fn config_store(app: &AppHandle) -> Result<Arc<Store<tauri::Wry>>, String> {
     let path = app
         .path()
         .app_config_dir()
-        .map_err(|e| e.to_string())?
+        .map_err(|_| "Unable to resolve app config directory".to_string())?
         .join("settings.json");
     StoreBuilder::new(app, path)
         .build()
