@@ -1,34 +1,38 @@
-import Card from '../components/Card.jsx';
+import { useState } from 'react';
+import AlgorithmicGenerator from './Generate.jsx';
+import PhraseModel from './PhraseModel.jsx';
 import BackButton from '../components/BackButton.jsx';
 
 export default function MusicGenerator() {
+  const [activeTab, setActiveTab] = useState('algorithmic');
+
   return (
     <>
       <header>
         <BackButton />
         <h1>Music Generator</h1>
+        <nav className="tabs">
+          <button
+            className={activeTab === 'algorithmic' ? 'active' : ''}
+            onClick={() => setActiveTab('algorithmic')}
+          >
+            Algorithmic
+          </button>
+          <button
+            className={activeTab === 'phrase' ? 'active' : ''}
+            onClick={() => setActiveTab('phrase')}
+          >
+            Phrase Model
+          </button>
+        </nav>
       </header>
-      <main className="dashboard">
-        <Card
-          to="/music-generator/algorithmic"
-          icon="Cpu"
-          title="Algorithmic"
-        />
-        <Card
-          to="/music-generator/phrase"
-          icon="FileText"
-          title="Phrase Model"
-        />
-        <Card
-          to="/music-generator/musiclang"
-          icon="BookOpen"
-          title="MusicLang"
-        />
-        <Card
-          to="/music-generator/musicgen"
-          icon="Music2"
-          title="MusicGen"
-        />
+      <main>
+        <section hidden={activeTab !== 'algorithmic'}>
+          <AlgorithmicGenerator />
+        </section>
+        <section hidden={activeTab !== 'phrase'}>
+          <PhraseModel />
+        </section>
       </main>
     </>
   );
