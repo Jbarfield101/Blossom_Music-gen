@@ -15,7 +15,15 @@
         "width": 800,
         "height": 600
       }
-    ]
+    ],
+    "security": {
+      "capabilities": [
+        {
+          "identifier": "allow-internal-toggle-devtools",
+          "permissions": ["core:webview:allow-internal-toggle-devtools"]
+        }
+      ]
+    }
   },
   "plugins": {
   }
