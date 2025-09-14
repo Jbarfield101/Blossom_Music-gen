@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 
-export default function Generate() {
+export default function Algorithmic() {
   const [preset, setPreset] = useState("");
   const [presets, setPresets] = useState([]);
   const [style, setStyle] = useState("");
@@ -8,16 +8,11 @@ export default function Generate() {
   const [minutes, setMinutes] = useState("");
   const [sections, setSections] = useState("");
   const [seed, setSeed] = useState(42);
-  const [samplerSeed, setSamplerSeed] = useState("");
   const [mixPreset, setMixPreset] = useState("");
   const [name, setName] = useState("output");
   const [outdir, setOutdir] = useState("");
   const [mixConfig, setMixConfig] = useState(null);
   const [arrangeConfig, setArrangeConfig] = useState(null);
-  const [phrase, setPhrase] = useState(false);
-  const [drumsModel, setDrumsModel] = useState("");
-  const [bassModel, setBassModel] = useState("");
-  const [keysModel, setKeysModel] = useState("");
   const [preview, setPreview] = useState("");
   const [bundleStems, setBundleStems] = useState(false);
   const [evalOnly, setEvalOnly] = useState(false);
@@ -30,10 +25,6 @@ export default function Generate() {
   const [arrange, setArrange] = useState("");
   const [outro, setOutro] = useState("");
   const outdirPicker = useRef(null);
-
-  const [drumsOptions, setDrumsOptions] = useState([]);
-  const [bassOptions, setBassOptions] = useState([]);
-  const [keysOptions, setKeysOptions] = useState([]);
 
   const [jobId, setJobId] = useState(null);
   const [running, setRunning] = useState(false);
@@ -49,16 +40,12 @@ export default function Generate() {
   useEffect(() => {
     async function loadOptions() {
       try {
-        const [p, s, m] = await Promise.all([
+        const [p, s] = await Promise.all([
           fetch("/presets").then((r) => r.json()),
           fetch("/styles").then((r) => r.json()),
-          fetch("/models").then((r) => r.json()),
         ]);
         setPresets(p);
         setStyles(s);
-        setDrumsOptions(m.filter((x) => x.startsWith("drums")));
-        setBassOptions(m.filter((x) => x.startsWith("bass")));
-        setKeysOptions(m.filter((x) => x.startsWith("keys")));
       } catch (e) {
         console.error("failed to load options", e);
       }
@@ -87,7 +74,6 @@ export default function Generate() {
     if (minutes) fd.append("minutes", minutes);
     if (sections) fd.append("sections", sections);
     fd.append("seed", seed);
-    if (samplerSeed) fd.append("sampler_seed", samplerSeed);
     if (mixPreset) fd.append("mix_preset", mixPreset);
     fd.append("name", name);
     if (mixConfig) fd.append("mix_config", mixConfig);
@@ -100,10 +86,6 @@ export default function Generate() {
     if (bassSfz) fd.append("bass_sfz", bassSfz);
     if (drumsSfz) fd.append("drums_sfz", drumsSfz);
     if (melodyMidi) fd.append("melody_midi", melodyMidi);
-    if (phrase) fd.append("phrase", "true");
-    if (drumsModel) fd.append("drums_model", drumsModel);
-    if (bassModel) fd.append("bass_model", bassModel);
-    if (keysModel) fd.append("keys_model", keysModel);
     if (arrange) fd.append("arrange", arrange);
     if (outro) fd.append("outro", outro);
     if (preview) fd.append("preview", preview);
@@ -212,19 +194,11 @@ export default function Generate() {
             🎲
           </button>
         </label>
-        <label>
-          Sampler seed
-          <input
-            type="number"
-            value={samplerSeed}
-            onChange={(e) => setSamplerSeed(e.target.value)}
-          />
-        </label>
-        <label>
-          Mix preset
-          <input
-            type="text"
-            value={mixPreset}
+          <label>
+            Mix preset
+            <input
+              type="text"
+              value={mixPreset}
             onChange={(e) => setMixPreset(e.target.value)}
           />
         </label>
@@ -265,56 +239,6 @@ export default function Generate() {
             type="file"
             onChange={(e) => setArrangeConfig(e.target.files[0] || null)}
           />
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={phrase}
-            onChange={(e) => setPhrase(e.target.checked)}
-          />
-          Phrase backend
-        </label>
-        <label>
-          Drums model
-          <select
-            value={drumsModel}
-            onChange={(e) => setDrumsModel(e.target.value)}
-          >
-            <option value="">(default)</option>
-            {drumsOptions.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Bass model
-          <select
-            value={bassModel}
-            onChange={(e) => setBassModel(e.target.value)}
-          >
-            <option value="">(default)</option>
-            {bassOptions.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Keys model
-          <select
-            value={keysModel}
-            onChange={(e) => setKeysModel(e.target.value)}
-          >
-            <option value="">(default)</option>
-            {keysOptions.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
         </label>
         <label>
           Preview bars

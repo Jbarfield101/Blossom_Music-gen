@@ -6,7 +6,7 @@ import Train from './pages/Train.jsx';
 import OnnxCrafter from './pages/OnnxCrafter.jsx';
 import Profiles from './pages/Profiles.jsx';
 import Models from './pages/Models.jsx';
-import Generate from './pages/Generate.jsx';
+import Algorithmic from './pages/Algorithmic.jsx';
 import MusicGenerator from './pages/MusicGenerator.jsx';
 import MusicLang from './pages/MusicLang.jsx';
 import MusicGen from './pages/MusicGen.jsx';
@@ -17,10 +17,10 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/music-generator" element={<MusicGenerator />} />
-        <Route path="/music-generator/algorithmic" element={<Generate />} />
+        <Route path="/music-generator/algorithmic" element={<Algorithmic />} />
         <Route path="/music-generator/musiclang" element={<MusicLang />} />
         <Route path="/music-generator/musicgen" element={<MusicGen />} />
-        <Route path="/generate" element={<Generate />} />
+        <Route path="/generate" element={<Algorithmic />} />
         <Route path="/dnd" element={<Dnd />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/profiles" element={<Profiles />} />
