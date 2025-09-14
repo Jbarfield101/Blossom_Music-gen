@@ -4,7 +4,6 @@ import Dnd from './pages/Dnd.jsx';
 import Settings from './pages/Settings.jsx';
 import Train from './pages/Train.jsx';
 import Profiles from './pages/Profiles.jsx';
-import Models from './pages/Models.jsx';
 import AlgorithmicGenerator from './pages/Generate.jsx';
 import MusicGenerator from './pages/MusicGenerator.jsx';
 import MusicLang from './pages/MusicLang.jsx';
@@ -26,7 +25,6 @@ export default function App() {
         <Route path="/settings" element={<Settings />} />
         <Route path="/profiles" element={<Profiles />} />
         <Route path="/train" element={<Train />} />
-        <Route path="/models" element={<Models />} />
       </Routes>
     </>
   );
