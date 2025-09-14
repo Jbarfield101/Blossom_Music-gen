@@ -1,0 +1,5 @@
+{ "swing": 0.02,
+  "drums": { "swing": 0.0 },
+  "synth_defaults": { "lpf_cutoff": 9000.0, "chorus": 0.15, "saturation": 0.05 },
+  "bass": { "tendencies": ["roots","fifths"] },
+  "sections": ["intro","verse","chorus","verse","bridge","chorus","outro"] }
