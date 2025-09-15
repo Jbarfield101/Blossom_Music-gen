@@ -37,6 +37,13 @@ export default function LoopMaker() {
       const url = URL.createObjectURL(mediaSource);
       mediaSource.addEventListener('sourceopen', async () => {
         try {
+          if (!MediaSource.isTypeSupported(file.type)) {
+            alert(
+              'This video format is not supported for seamless looping; using basic repeat.'
+            );
+            resolve(null);
+            return;
+          }
           const sourceBuffer = mediaSource.addSourceBuffer(file.type);
           const data = await file.arrayBuffer();
           let i = 0;
