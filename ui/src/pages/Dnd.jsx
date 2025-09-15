@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { listNpcs, saveNpc, deleteNpc } from "../api/npcs";
 import {
-  testPiper,
   addPiperVoice,
   listPiperProfiles,
   updatePiperProfile,
   removePiperProfile,
 } from "../api/piper";
 import { listPiperVoices } from "../lib/piperVoices";
+import { synthWithPiper } from "../lib/piperSynth";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import BackButton from "../components/BackButton.jsx";
 import Icon from "../components/Icon.jsx";
@@ -312,14 +312,13 @@ export default function Dnd() {
                     return;
                   }
                   try {
-                    const res = await testPiper(piperVoice, piperText);
-                    if (res) {
-                      const path = res.path || res;
-                      const url = res.url ? res.url : convertFileSrc(path);
-                      setPiperPath(path);
-                      setPiperAudio(url);
-                      setPiperError("");
-                    }
+                    const model = `assets/voice_models/${piperVoice}/${piperVoice}.onnx`;
+                    const config = `assets/voice_models/${piperVoice}/${piperVoice}.onnx.json`;
+                    const path = await synthWithPiper(piperText, model, config);
+                    const url = convertFileSrc(path);
+                    setPiperPath(path);
+                    setPiperAudio(url);
+                    setPiperError("");
                   } catch (err) {
                     console.error(err);
                     setPiperError("Failed to generate audio.");
@@ -332,7 +331,7 @@ export default function Dnd() {
                 <div>
                   <audio controls src={piperAudio} />
                   <div>
-                    <a href={piperPath || piperAudio} download="piper.mp3">
+                    <a href={piperPath || piperAudio} download="piper.wav">
                       Download
                     </a>
                   </div>
