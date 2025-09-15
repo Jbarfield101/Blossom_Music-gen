@@ -38,13 +38,16 @@ falling back to `localStorage` when the plugin is not available.
 Generate a short clip with Meta's pretrained MusicGen model:
 
 ```bash
-python scripts/test_musicgen.py
+python main_musicgen.py --prompt "lofi hip hop beat for studying"
 ```
 
-The first run downloads the `facebook/musicgen-small` weights (about 3 GB).
-Expect roughly 3 GB of GPU memory or 6 GB of system RAM for inference.
-Producing a four‑second clip typically finishes in under 10 seconds on a
-recent GPU and in roughly one to two minutes on a modern CPU.
+This writes the output WAV file under `out/musicgen/`. The first run downloads
+the `facebook/musicgen-small` weights (about 3 GB).
+
+The legacy `scripts/test_musicgen.py` helper remains available for a minimal
+smoke test. Expect roughly 3 GB of GPU memory or 6 GB of system RAM for
+inference. Producing a four‑second clip typically finishes in under 10 seconds
+on a recent GPU and in roughly one to two minutes on a modern CPU.
 
 ## Prerequisites
 
