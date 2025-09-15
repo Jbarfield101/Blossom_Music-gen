@@ -31,7 +31,7 @@
               "identifier": "fs:scope",
               "allow": [
                 { "path": "$APPDATA/*" },
-                { "path": "D:/Blossom/Blossom_Music/assets/voice_models/**" }
+                { "path": "$RESOURCE/assets/voice_models/**" }
               ]
             }
           ]
@@ -50,6 +50,9 @@
         }
       ]
     }
+  },
+  "bundle": {
+    "resources": ["assets/voice_models/**"]
   },
   "plugins": {
     "shell": {

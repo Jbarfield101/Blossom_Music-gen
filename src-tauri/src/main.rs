@@ -19,10 +19,10 @@ use tauri::Emitter;
 use tauri::Manager;
 use tauri::{async_runtime, AppHandle, Runtime, State};
 use tauri_plugin_dialog::DialogExt;
-use tauri_plugin_opener::OpenerExt;
-use tauri_plugin_store::{Builder, Store, StoreBuilder};
-use tauri_plugin_shell::init as shell_init;
 use tauri_plugin_fs::init as fs_init;
+use tauri_plugin_opener::OpenerExt;
+use tauri_plugin_shell::init as shell_init;
+use tauri_plugin_store::{Builder, Store, StoreBuilder};
 use tempfile::NamedTempFile;
 use url::Url;
 mod commands;
@@ -247,9 +247,17 @@ fn set_whisper(app: AppHandle, model: String) -> Result<(), String> {
 
 #[tauri::command]
 fn list_piper(app: AppHandle) -> Result<Value, String> {
-    let mut options = match list_from_dir(Path::new("assets/voice_models")) {
-        Ok(opts) if !opts.is_empty() => opts,
-        _ => {
+    let mut options = list_from_dir("assets/voice_models")
+        .ok()
+        .filter(|opts| !opts.is_empty())
+        .or_else(|| {
+            app.path()
+                .resolve("assets/voice_models", BaseDirectory::Resource)
+                .ok()
+                .and_then(|dir| list_from_dir(dir).ok())
+                .filter(|opts| !opts.is_empty())
+        })
+        .unwrap_or_else(|| {
             let mut fallback = Vec::new();
             if let Ok(text) = fs::read_to_string("data/voices.json") {
                 if let Ok(map) = serde_json::from_str::<serde_json::Map<String, Value>>(&text) {
@@ -262,8 +270,7 @@ fn list_piper(app: AppHandle) -> Result<Value, String> {
                 fallback.sort();
             }
             fallback
-        }
-    };
+        });
     options.sort();
     let store = models_store::<tauri::Wry>(&app)?;
     let selected = store
