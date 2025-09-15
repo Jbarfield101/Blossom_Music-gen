@@ -9,10 +9,14 @@ pub async fn generate_musicgen(
     model_name: String,
     temperature: f32,
 ) -> Result<String, String> {
-    let code = format!(concat!(
-        "import core.musicgen_backend as m; ",
-        "print(m.generate_music({prompt:?}, {duration}, {model_name:?}, {temperature}, 'out'))",
-    ));
+    let code = format!(
+        "import core.musicgen_backend as m; \
+         print(m.generate_music({prompt:?}, {duration}, {model_name:?}, {temperature}, 'out'))",
+        prompt = prompt,
+        duration = duration,
+        model_name = model_name,
+        temperature = temperature,
+    );
 
     let output =
         async_runtime::spawn_blocking(move || Command::new("python").args(["-c", &code]).output())
