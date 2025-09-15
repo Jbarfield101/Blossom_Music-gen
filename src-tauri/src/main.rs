@@ -14,6 +14,7 @@ use std::{
 
 use regex::Regex;
 use serde_json::{json, Value};
+use tauri::path::BaseDirectory;
 use tauri::Emitter;
 use tauri::Manager;
 use tauri::{async_runtime, AppHandle, Runtime, State};
@@ -483,8 +484,8 @@ sf.write({wav:?}, audio, 22050)
 fn musicgen_test(app_handle: AppHandle) -> Result<Vec<u8>, String> {
     let script = app_handle
         .path()
-        .resolve("scripts/test_musicgen.py")
-        .ok_or("failed to resolve test script")?;
+        .resolve("scripts/test_musicgen.py", BaseDirectory::Resource)
+        .map_err(|_| "failed to resolve test script".to_string())?;
     let output = Command::new("python")
         .arg(script)
         .output()
