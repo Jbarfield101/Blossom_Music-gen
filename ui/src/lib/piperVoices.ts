@@ -5,7 +5,7 @@ export interface PiperVoice {
   modelPath: string;
   configPath: string;
   lang?: string;
-  speaker?: string;
+  speaker?: number | string;
 }
 
 export async function listPiperVoices(): Promise<PiperVoice[]> {
@@ -26,7 +26,7 @@ export async function listPiperVoices(): Promise<PiperVoice[]> {
     const modelPath = await join(root, id, `${id}.onnx`);
 
     let lang: string | undefined;
-    let speaker: string | undefined;
+    let speaker: number | string | undefined;
 
     try {
       const cfgRaw = await readTextFile(configPath, {
@@ -43,8 +43,9 @@ export async function listPiperVoices(): Promise<PiperVoice[]> {
       if (!lang && typeof cfg?.language === "string") {
         lang = cfg.language;
       }
-      if (typeof cfg?.default_speaker === "string") {
-        speaker = cfg.default_speaker;
+      const defaultSpeaker = cfg?.default_speaker;
+      if (typeof defaultSpeaker === "string" || typeof defaultSpeaker === "number") {
+        speaker = defaultSpeaker;
       }
     } catch {
       // Ignore errors reading or parsing config files.
