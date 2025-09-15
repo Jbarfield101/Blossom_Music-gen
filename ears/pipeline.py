@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import os
 from typing import Awaitable, Callable, Optional
 
 import numpy as np
@@ -18,6 +19,7 @@ from .discord_listener import DiscordListener
 from .transcript_logger import TranscriptLogger
 from .vad import DiarizationHook, VoiceActivityDetector
 from .whisper_service import TranscriptionSegment, WhisperService
+from config.discord_token import get_token
 
 # Hotword configuration is optional – the application should still work if the
 # module is missing or the configuration file has not been created yet.  We
@@ -63,7 +65,7 @@ def _resample(pcm: bytes, source_rate: int, target_rate: int) -> bytes:
 
 
 async def run_bot(
-    token: str,
+    token: str | None,
     channel_id: int,
     *,
     model_path: str = "small",
@@ -79,7 +81,9 @@ async def run_bot(
     Parameters
     ----------
     token, channel_id:
-        Discord bot token and target voice channel identifier.
+        Discord bot token and target voice channel identifier. If ``token`` is
+        ``None`` the value is read from the ``DISCORD_TOKEN`` environment
+        variable or ``config/discord_token.txt``.
     model_path:
         Whisper model name or path.
     transcript_root:
@@ -98,6 +102,10 @@ async def run_bot(
     Incoming 48 kHz stereo frames are converted to 16 kHz mono before voice
     activity detection and Whisper transcription.
     """
+    token = token or os.getenv("DISCORD_TOKEN") or get_token()
+    if not token:
+        raise RuntimeError("Discord token not provided")
+
     logger = TranscriptLogger(transcript_root)
     whisper = WhisperService(model_path)
 

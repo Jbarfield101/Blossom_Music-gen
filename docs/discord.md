@@ -1,11 +1,18 @@
 # Discord Configuration
 
 Set the bot token in the ``DISCORD_TOKEN`` environment variable before
-starting ``discord_bot.py``:
+starting ``discord_bot.py`` or persist it to ``config/discord_token.txt`` using
+``config.discord_token.set_token``. When the environment variable is not set
+the bot falls back to the stored token.
 
 ```bash
 export DISCORD_TOKEN="your_bot_token"
 python discord_bot.py
+```
+
+```python
+from config.discord_token import set_token
+set_token("your_bot_token")
 ```
 
 The Discord bot reads command permission rules from `config/discord.yaml` on startup.

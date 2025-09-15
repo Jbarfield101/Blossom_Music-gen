@@ -12,6 +12,7 @@ from brain import dialogue
 from mouth.registry import VoiceRegistry
 from config.discord import get_permission_rules
 from config.discord_profiles import get_profile, set_profile
+from config.discord_token import get_token
 import session_export
 
 
@@ -231,6 +232,8 @@ __all__ = ["BlossomBot"]
 
 
 if __name__ == "__main__":  # pragma: no cover - manual execution
-    TOKEN = os.environ["DISCORD_TOKEN"]
+    TOKEN = os.getenv("DISCORD_TOKEN") or get_token()
+    if not TOKEN:
+        raise RuntimeError("Discord token not configured")
     bot = BlossomBot()
     bot.run(TOKEN)
