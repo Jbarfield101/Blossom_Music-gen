@@ -277,35 +277,51 @@ fn set_piper(app: AppHandle, voice: String) -> Result<(), String> {
 
 #[tauri::command]
 fn discover_piper_voices() -> Result<Vec<String>, String> {
-    let output = Command::new("piper-voices")
-        .arg("--json")
-        .output()
-        .map_err(|e| {
-            if e.kind() == ErrorKind::NotFound {
-                "piper-voices binary not found".into()
-            } else {
-                e.to_string()
+    match Command::new("piper-voices").arg("--json").output() {
+        Ok(output) => {
+            if !output.status.success() {
+                return Err(String::from_utf8_lossy(&output.stderr).to_string());
             }
-        })?;
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+            let voices_json: Value = serde_json::from_slice(&output.stdout)
+                .map_err(|e| format!("failed to parse voice list: {e}"))?;
+            let voices = match voices_json {
+                Value::Object(map) => map.keys().cloned().collect(),
+                Value::Array(arr) => arr
+                    .into_iter()
+                    .filter_map(|v| {
+                        v.as_object()
+                            .and_then(|o| o.get("id"))
+                            .and_then(|id| id.as_str())
+                            .map(|s| s.to_string())
+                    })
+                    .collect(),
+                _ => Vec::new(),
+            };
+            Ok(voices)
+        }
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            let output = Command::new("piper").arg("--list").output().map_err(|e| {
+                if e.kind() == ErrorKind::NotFound {
+                    "neither piper-voices nor piper binary found".into()
+                } else {
+                    e.to_string()
+                }
+            })?;
+            if !output.status.success() {
+                return Err(String::from_utf8_lossy(&output.stderr).to_string());
+            }
+            let voices = String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .filter_map(|l| l.split_whitespace().next())
+                .map(|s| s.trim_start_matches('-').to_string())
+                .filter(|s| s.contains('-'))
+                .collect();
+            Ok(voices)
+        }
+        Err(e) => Err(e.to_string()),
     }
-    let voices_json: Value = serde_json::from_slice(&output.stdout)
-        .map_err(|e| format!("failed to parse voice list: {e}"))?;
-    let voices = match voices_json {
-        Value::Object(map) => map.keys().cloned().collect(),
-        Value::Array(arr) => arr
-            .into_iter()
-            .filter_map(|v| {
-                v.as_object()
-                    .and_then(|o| o.get("id"))
-                    .and_then(|id| id.as_str())
-                    .map(|s| s.to_string())
-            })
-            .collect(),
-        _ => Vec::new(),
-    };
-    Ok(voices)
 }
 
 #[tauri::command]
