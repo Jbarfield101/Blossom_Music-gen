@@ -23,6 +23,11 @@ try:  # pragma: no cover - optional dependency
 except Exception:  # pragma: no cover - handled gracefully
     pipeline = None  # type: ignore
 
+try:  # pragma: no cover - optional dependency
+    import torch
+except Exception:  # pragma: no cover - handled gracefully
+    torch = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 # Mapping from shorthand aliases exposed in the UI to the fully qualified
@@ -70,7 +75,22 @@ def _get_pipeline(model_name: str):
 
         logger.info("Loading MusicGen model: %s", normalized_name)
         try:
-            pipe = pipeline("text-to-audio", model=normalized_name)
+            # Prefer GPU when available; otherwise fall back to CPU.
+            device = -1
+            torch_dtype = None
+            if (torch is not None) and getattr(torch.cuda, "is_available", lambda: False)():
+                device = 0  # first CUDA device
+                torch_dtype = getattr(torch, "float16", None)
+                logger.info("Using device: cuda:0 for MusicGen")
+            else:
+                logger.info("Using device: cpu for MusicGen")
+
+            pipe_kwargs = {"model": normalized_name, "device": device}
+            if torch_dtype is not None and device == 0:
+                # Only set dtype on CUDA; CPU float16 is inefficient/unsupported
+                pipe_kwargs["torch_dtype"] = torch_dtype
+
+            pipe = pipeline("text-to-audio", **pipe_kwargs)
         except Exception as exc:  # pragma: no cover - depends on HF hub
             logger.exception("Failed to load MusicGen model %s: %s", normalized_name, exc)
             raise

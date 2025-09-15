@@ -9,6 +9,8 @@ import {
 import { listPiperVoices } from "../lib/piperVoices";
 import { synthWithPiper } from "../lib/piperSynth";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { readBinaryFile, BaseDirectory } from "@tauri-apps/plugin-fs";
+import { appDataDir } from "@tauri-apps/api/path";
 import BackButton from "../components/BackButton.jsx";
 import Icon from "../components/Icon.jsx";
 import "./Dnd.css";
@@ -323,9 +325,33 @@ export default function Dnd() {
                       ? "D:\\Blossom\\Blossom_Music\\assets\\voice_models\\en-us-amy-medium\\en_US-amy-medium.onnx.json"
                       : `assets/voice_models/${piperVoice}/${piperVoice}.onnx.json`;
                     const path = await synthWithPiper(piperText, model, config);
-                    const url = convertFileSrc(path);
                     setPiperPath(path);
-                    setPiperAudio(url);
+
+                    // Prefer a Blob URL to avoid asset:// resolution issues in dev.
+                    let blobUrl = "";
+                    try {
+                      // First try reading the absolute path directly.
+                      const data = await readBinaryFile(path);
+                      const blob = new Blob([data], { type: "audio/wav" });
+                      blobUrl = URL.createObjectURL(blob);
+                    } catch (e1) {
+                      try {
+                        const base = await appDataDir();
+                        const norm = (s) => s.replace(/\\\\/g, "/");
+                        const nBase = norm(base);
+                        const nPath = norm(path);
+                        if (nPath.startsWith(nBase)) {
+                          const rel = nPath.substring(nBase.length);
+                          const data = await readBinaryFile(rel, { baseDir: BaseDirectory.AppData });
+                          const blob = new Blob([data], { type: "audio/wav" });
+                          blobUrl = URL.createObjectURL(blob);
+                        }
+                      } catch {
+                        // Fallback to asset protocol if reading fails.
+                        blobUrl = convertFileSrc(path);
+                      }
+                    }
+                    setPiperAudio(blobUrl);
                     setPiperError("");
                   } catch (err) {
                     console.error(err);
