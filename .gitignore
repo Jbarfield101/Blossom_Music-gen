@@ -43,3 +43,6 @@ src-tauri/target
 # Environment variables
 .env
 *.env.local
+
+# Piper voices (big files)
+assets/voice_models/**
