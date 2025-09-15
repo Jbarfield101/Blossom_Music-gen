@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/tauri";
 import BackButton from "../components/BackButton.jsx";
 
@@ -14,6 +14,7 @@ export default function MusicGen() {
   const generate = async () => {
     setGenerating(true);
     setAudioUrl(null);
+    setError(null);
     try {
       const resp = await fetch("/musicgen", {
         method: "POST",
@@ -25,14 +26,26 @@ export default function MusicGen() {
           top_k: Number(topK),
         }),
       });
+      if (!resp.ok) {
+        throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
+      }
       const blob = await resp.blob();
       setAudioUrl(URL.createObjectURL(blob));
     } catch (err) {
       console.error("music generation failed", err);
+      setError(String(err));
     } finally {
       setGenerating(false);
     }
   };
+
+  useEffect(() => {
+    return () => {
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl);
+      }
+    };
+  }, [audioUrl]);
 
   const runTest = async () => {
     setGenerating(true);
