@@ -10,7 +10,7 @@ export default function Dashboard() {
         <Card to="/musicgen" icon="Music" title="MusicGen" />
         <Card to="/dnd" icon="Dice5" title="Dungeons & Dragons" />
         <Card to="/games" icon="Gamepad2" title="Games" />
-        <Card to="/tools" icon="Tool" title="Tools" />
+        <Card to="/tools" icon="Wrench" title="Tools" />
         <Card to="/settings" icon="Settings" title="Settings" />
         <Card to="/train" icon="Sliders" title="Train Model" />
       </main>
