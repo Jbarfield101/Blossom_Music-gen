@@ -28,6 +28,7 @@ import {
   setBaseFontSize,
   getBaseFontSize,
 } from "../../theme.js";
+import "./Settings.css";
 
 export default function Settings() {
   const VAULT_KEY = "vaultPath";
@@ -132,22 +133,24 @@ export default function Settings() {
   };
 
   return (
-    <div>
+    <main className="settings">
       <BackButton />
       <h1>Settings</h1>
-      <div>
+      <section className="settings-section">
         <p>Vault path: {vault || "(none)"}</p>
-        <button type="button" onClick={chooseVault}>
-          Choose Vault
-        </button>
-        <button type="button" onClick={exportSettings}>
-          Export Settings
-        </button>
-        <button type="button" onClick={importSettings}>
-          Import Settings
-        </button>
-      </div>
-      <div>
+        <div className="button-row">
+          <button type="button" onClick={chooseVault}>
+            Choose Vault
+          </button>
+          <button type="button" onClick={exportSettings}>
+            Export Settings
+          </button>
+          <button type="button" onClick={importSettings}>
+            Import Settings
+          </button>
+        </div>
+      </section>
+      <section className="settings-section">
         <label>
           Whisper size
           <select
@@ -161,8 +164,8 @@ export default function Settings() {
             ))}
           </select>
         </label>
-      </div>
-      <div>
+      </section>
+      <section className="settings-section">
         <label>
           Piper voice
           <select
@@ -176,8 +179,8 @@ export default function Settings() {
             ))}
           </select>
         </label>
-      </div>
-      <div>
+      </section>
+      <section className="settings-section">
         <label>
           LLM model
           <select
@@ -191,8 +194,8 @@ export default function Settings() {
             ))}
           </select>
         </label>
-      </div>
-      <div>
+      </section>
+      <section className="settings-section">
         <label>
           Input device
           <select
@@ -211,8 +214,8 @@ export default function Settings() {
             ))}
           </select>
         </label>
-      </div>
-      <div>
+      </section>
+      <section className="settings-section">
         <label>
           Output device
           <select
@@ -231,8 +234,8 @@ export default function Settings() {
             ))}
           </select>
         </label>
-      </div>
-      <div>
+      </section>
+      <section className="settings-section">
         <h2>Appearance</h2>
         <div>
           <label>
@@ -287,8 +290,8 @@ export default function Settings() {
             Larger fonts improve readability for visually impaired users.
           </p>
         </div>
-      </div>
-      <div>
+      </section>
+      <section className="settings-section">
         <h2>Hotwords</h2>
         <ul>
           {Object.entries(hotwords).map(([name, enabled]) => (
@@ -307,9 +310,11 @@ export default function Settings() {
         <button type="button" onClick={addHotword}>
           Upload Hotword Model
         </button>
-      </div>
-      <LogPanel />
-    </div>
+      </section>
+      <section className="settings-section">
+        <LogPanel />
+      </section>
+    </main>
   );
 }
 
