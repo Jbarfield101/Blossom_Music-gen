@@ -8,6 +8,9 @@ import MusicGen from './pages/MusicGen.jsx';
 import Tools from './pages/Tools.jsx';
 import Fusion from './pages/Fusion.jsx';
 import LoopMaker from './pages/LoopMaker.jsx';
+import Games from './pages/Games.jsx';
+import RainBlocks from './pages/RainBlocks.jsx';
+import Snake from './pages/Snake.jsx';
 
 export default function App() {
   return (
@@ -22,6 +25,9 @@ export default function App() {
         <Route path="/tools" element={<Tools />} />
         <Route path="/fusion" element={<Fusion />} />
         <Route path="/loopmaker" element={<LoopMaker />} />
+        <Route path="/games" element={<Games />} />
+        <Route path="/games/rain-blocks" element={<RainBlocks />} />
+        <Route path="/games/snake" element={<Snake />} />
       </Routes>
     </>
   );
