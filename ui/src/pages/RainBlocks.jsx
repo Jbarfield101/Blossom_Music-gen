@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
+import './RainBlocks.css';
 
 export const CELL_SIZE = 24;
 export const BOARD_COLUMNS = 10;
@@ -47,13 +48,26 @@ export default function RainBlocks() {
 
     if (!isCellFree(0, startColumn)) {
       setGameOverMessage('Game Over');
+      activePieceRef.current = null;
       setActivePiece(null);
       return false;
     }
 
-    setActivePiece({ row: 0, col: startColumn });
+    const nextPiece = { row: 0, col: startColumn };
+    activePieceRef.current = nextPiece;
+    setActivePiece(nextPiece);
     return true;
   }, [isCellFree]);
+
+  const resetGame = useCallback(() => {
+    const freshBoard = createEmptyBoard();
+    boardRef.current = freshBoard;
+    setBoard(freshBoard);
+    activePieceRef.current = null;
+    setActivePiece(null);
+    setGameOverMessage(null);
+    spawnNewPiece();
+  }, [spawnNewPiece]);
 
   const movePieceHorizontally = useCallback(
     (direction) => {
@@ -185,16 +199,35 @@ export default function RainBlocks() {
   return (
     <>
       <BackButton />
-      <h1>Rain Blocks</h1>
-      {gameOverMessage && (
-        <p className="game-over-message">{gameOverMessage}</p>
-      )}
-      <canvas
-        ref={canvasRef}
-        width={CANVAS_WIDTH}
-        height={CANVAS_HEIGHT}
-        className="game-canvas"
-      ></canvas>
+      <div className="game-container">
+        <h1>Rain Blocks</h1>
+        <div className="game-board">
+          <canvas
+            ref={canvasRef}
+            width={CANVAS_WIDTH}
+            height={CANVAS_HEIGHT}
+            className="game-canvas"
+          ></canvas>
+          {gameOverMessage && (
+            <div className="game-overlay">
+              <div className="game-overlay-content">
+                <p className="game-overlay-title">{gameOverMessage}</p>
+                <p className="game-overlay-text">Try again?</p>
+                <button
+                  type="button"
+                  className="game-overlay-button"
+                  onClick={resetGame}
+                >
+                  Restart
+                </button>
+                <p className="game-overlay-hint">
+                  Use A/D or ←/→ to move blocks
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </>
   );
 }
