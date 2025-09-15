@@ -26,6 +26,6 @@
     }
   },
   "plugins": {
-    "shell": { "scope": [{ "name": "piper", "cmd": "piper" }] }
+    "shell": { "open": [{ "name": "piper", "cmd": "piper" }] }
   }
 }
