@@ -2,6 +2,12 @@ import { useState, useEffect } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import BackButton from "../components/BackButton.jsx";
 
+const MODEL_OPTIONS = [
+  { value: "small", label: "MusicGen Small" },
+  { value: "medium", label: "MusicGen Medium" },
+  { value: "melody", label: "MusicGen Melody" },
+];
+
 export default function MusicGen() {
   const [prompt, setPrompt] = useState(
     "Slow lofi beat, 60 BPM, warm Rhodes, vinyl crackle, soft snare, cozy night mood"
@@ -97,9 +103,11 @@ export default function MusicGen() {
             value={modelName}
             onChange={(e) => setModelName(e.target.value)}
           >
-            <option value="small">small</option>
-            <option value="medium">medium</option>
-            <option value="melody">melody</option>
+            {MODEL_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
         </label>
         <label className="mb-md">
