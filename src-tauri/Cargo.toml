@@ -13,6 +13,7 @@ reqwest = { version = "0.11", default-features = false, features = ["blocking", 
 tauri-plugin-dialog = { version = "2.0.0-rc.8" }
 tauri-plugin-opener = { version = "2.0.0-rc.8" }
 tauri-plugin-store = { version = "2.0.0-rc.8" }
+tauri-plugin-shell = "2"
 url = "2"
 futures-sink = "0.3.31"
 

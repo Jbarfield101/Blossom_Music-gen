@@ -26,5 +26,6 @@
     }
   },
   "plugins": {
+    "shell": { "scope": [{ "name": "piper", "cmd": "piper" }] }
   }
 }

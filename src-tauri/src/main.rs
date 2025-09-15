@@ -21,6 +21,7 @@ use tauri::{async_runtime, AppHandle, Runtime, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_store::{Builder, Store, StoreBuilder};
+use tauri_plugin_shell::init as shell_init;
 use tempfile::NamedTempFile;
 use url::Url;
 mod commands;
@@ -952,6 +953,7 @@ fn main() {
     if let Err(e) = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(shell_init())
         .plugin(Builder::new().build())
         .setup(|app| -> Result<(), Box<dyn std::error::Error>> {
             // Prefer a repo-root virtualenv (../.venv) when running from src-tauri
