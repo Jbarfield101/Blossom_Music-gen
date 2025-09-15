@@ -15,6 +15,7 @@ use std::{
 use regex::Regex;
 use serde_json::{json, Value};
 use tauri::Emitter;
+use tauri::Manager;
 use tauri::{async_runtime, AppHandle, Runtime, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
