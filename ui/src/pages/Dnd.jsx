@@ -11,6 +11,7 @@ import {
 } from "../api/piper";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import BackButton from "../components/BackButton.jsx";
+import Icon from "../components/Icon.jsx";
 
 export default function Dnd() {
   const emptyNpc = { name: "", description: "", prompt: "", voice: "" };
@@ -117,11 +118,22 @@ export default function Dnd() {
     <div>
       <BackButton />
       <h1>Dungeons & Dragons</h1>
-      <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
-        {["Lore", "NPCs", "Piper", "Piper Voices", "Discord", "Chat"].map(
-          (name) => (
-          <button key={name} type="button" onClick={() => setSection(name)}>
-            {name}
+      <div className="dnd-section-nav">
+        {[
+          { name: "Lore", icon: "BookOpen" },
+          { name: "NPCs", icon: "Users" },
+          { name: "Piper", icon: "Mic2" },
+          { name: "Discord", icon: "MessageCircle" },
+          { name: "Chat", icon: "MessageSquare" },
+        ].map(({ name, icon }) => (
+          <button
+            key={name}
+            type="button"
+            className="dnd-section-btn"
+            onClick={() => setSection(name)}
+          >
+            <Icon name={icon} size={48} />
+            <span>{name}</span>
           </button>
         ))}
       </div>
