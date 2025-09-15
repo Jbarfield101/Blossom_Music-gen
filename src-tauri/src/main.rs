@@ -247,15 +247,23 @@ fn set_whisper(app: AppHandle, model: String) -> Result<(), String> {
 
 #[tauri::command]
 fn list_piper(app: AppHandle) -> Result<Value, String> {
-    let mut options = Vec::new();
-    if let Ok(text) = fs::read_to_string("data/voices.json") {
-        if let Ok(map) = serde_json::from_str::<serde_json::Map<String, Value>>(&text) {
-            options.extend(map.keys().cloned());
+    let mut options = match list_from_dir(Path::new("assets/voice_models")) {
+        Ok(opts) if !opts.is_empty() => opts,
+        _ => {
+            let mut fallback = Vec::new();
+            if let Ok(text) = fs::read_to_string("data/voices.json") {
+                if let Ok(map) = serde_json::from_str::<serde_json::Map<String, Value>>(&text) {
+                    fallback.extend(map.keys().cloned());
+                }
+            }
+            if fallback.is_empty() {
+                fallback.push("narrator".to_string());
+            } else {
+                fallback.sort();
+            }
+            fallback
         }
-    }
-    if options.is_empty() {
-        options.push("narrator".to_string());
-    }
+    };
     options.sort();
     let store = models_store::<tauri::Wry>(&app)?;
     let selected = store
