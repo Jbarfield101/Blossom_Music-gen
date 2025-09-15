@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
+import './Snake.css';
 
 const CELL_SIZE = 20;
 const WIDTH = 400;
@@ -171,13 +172,15 @@ export default function Snake() {
   return (
     <>
       <BackButton />
-      <h1>Snake</h1>
-      <canvas
-        ref={canvasRef}
-        width={WIDTH}
-        height={HEIGHT}
-        className="game-canvas"
-      ></canvas>
+      <div className="game-container">
+        <h1>Snake</h1>
+        <canvas
+          ref={canvasRef}
+          width={WIDTH}
+          height={HEIGHT}
+          className="game-canvas"
+        ></canvas>
+      </div>
     </>
   );
 }
