@@ -9,7 +9,7 @@ repository.
 
 from dataclasses import dataclass
 from typing import Any, Dict, IO
-import yaml
+import mini_yaml as yaml
 
 
 @dataclass

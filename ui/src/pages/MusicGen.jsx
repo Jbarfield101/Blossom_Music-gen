@@ -3,7 +3,9 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import BackButton from "../components/BackButton.jsx";
 
 export default function MusicGen() {
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(
+    "Slow lofi beat, 60 BPM, warm Rhodes, vinyl crackle, soft snare, cozy night mood"
+  );
   const [duration, setDuration] = useState(30);
   const [temperature, setTemperature] = useState(1);
   const [modelName, setModelName] = useState("small");
@@ -71,6 +73,7 @@ export default function MusicGen() {
           <input
             type="text"
             className="mt-sm p-sm"
+            placeholder="Slow lofi beat, 60 BPM, warm Rhodes, vinyl crackle, soft snare, cozy night mood"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
           />

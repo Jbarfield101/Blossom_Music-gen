@@ -38,3 +38,4 @@ def safe_load(text: str) -> Dict[str, Any]:
         else:
             result[key] = value
     return result
+

@@ -32,9 +32,20 @@ _CACHE_LOCK = threading.Lock()
 
 
 def _get_pipeline(model_name: str):
-    """Return a cached ``transformers`` pipeline for ``model_name``."""
+    """Return a cached ``transformers`` pipeline for ``model_name``.
+
+    Raises a helpful error if the optional ``transformers`` dependency is not
+    available, including guidance on how to install the needed packages.
+    """
     if pipeline is None:  # pragma: no cover - dependency missing
-        raise RuntimeError("transformers is not installed")
+        raise RuntimeError(
+            "Missing dependency: transformers.\n"
+            "To enable MusicGen, install:\n"
+            "  pip install --upgrade transformers accelerate\n"
+            "And install PyTorch (CPU-only example):\n"
+            "  pip install --index-url https://download.pytorch.org/whl/cpu torch torchaudio\n"
+            "Also ensure scipy is installed for writing WAV files."
+        )
 
     with _CACHE_LOCK:
         if model_name in _PIPELINE_CACHE:
@@ -85,7 +96,10 @@ def generate_music(
         raise
 
     if write_wav is None:  # pragma: no cover - dependency missing
-        raise RuntimeError("scipy is required for writing wav files")
+        raise RuntimeError(
+            "Missing dependency: scipy is required for writing .wav files.\n"
+            "Install with: pip install --upgrade scipy"
+        )
 
     # ``max_new_tokens`` is roughly 50 tokens per second for MusicGen models.
     max_new_tokens = max(1, int(duration * 50))

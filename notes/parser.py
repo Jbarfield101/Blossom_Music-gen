@@ -14,7 +14,7 @@ from typing import Any, Dict, List
 import re
 
 import frontmatter
-import yaml
+import mini_yaml as yaml
 
 
 class NoteParseError(Exception):
