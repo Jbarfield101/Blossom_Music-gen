@@ -2,7 +2,7 @@
 
 This script downloads the pre-trained ``facebook/musicgen-small`` model on
 first use and generates a short audio clip from a text prompt.  The output is
-saved to ``musicgen_sample.wav`` in the current directory.
+saved to ``out/musicgen_sample.wav`` in the current directory.
 """
 
 from pathlib import Path
@@ -21,7 +21,8 @@ def main(prompt: str = DEFAULT_PROMPT) -> Path:
     result = pipe(prompt)
     audio = result[0]["audio"]
     sample_rate = result[0]["sampling_rate"]
-    out_path = Path("musicgen_sample.wav")
+    out_path = Path("out") / "musicgen_sample.wav"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     write_wav(out_path, sample_rate, audio)
     print(f"Saved {out_path}")
     return out_path
