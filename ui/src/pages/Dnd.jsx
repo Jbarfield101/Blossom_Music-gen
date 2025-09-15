@@ -62,10 +62,11 @@ export default function Dnd() {
     discoverPiperVoices()
       .then(() => setPiperBinaryAvailable(true))
       .catch((err) => {
-        console.error(err);
+        console.warn(err);
         const msg = String(err);
         if (msg.includes("No such file") || msg.includes("not found")) {
           setPiperBinaryAvailable(false);
+          setPiperError("Install the piper CLI to use voice features.");
         }
       });
   }, []);
@@ -212,6 +213,7 @@ export default function Dnd() {
       )}
       {section === "Piper" && (
         <div>
+          {piperError && <div className="warning">{piperError}</div>}
           <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
             <button
               type="button"
@@ -297,9 +299,6 @@ export default function Dnd() {
               >
                 Test
               </button>
-              {piperError && (
-                <div style={{ color: "red" }}>{piperError}</div>
-              )}
               {piperAudio && (
                 <div>
                   <audio controls src={piperAudio} />
@@ -323,7 +322,7 @@ export default function Dnd() {
                     const list = await discoverPiperVoices();
                     setPiperAvailableVoices(list || []);
                   } catch (err) {
-                    console.error(err);
+                    console.warn(err);
                     const msg = String(err);
                     if (
                       msg.includes("No such file") ||
