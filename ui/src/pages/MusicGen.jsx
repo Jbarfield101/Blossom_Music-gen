@@ -1,59 +1,61 @@
 import { useState, useEffect } from "react";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import BackButton from "../components/BackButton.jsx";
 
 export default function MusicGen() {
   const [prompt, setPrompt] = useState("");
   const [duration, setDuration] = useState(30);
   const [temperature, setTemperature] = useState(1);
-  const [model, setModel] = useState("small");
-  const [audioUrl, setAudioUrl] = useState(null);
+  const [modelName, setModelName] = useState("small");
+  const [audioSrc, setAudioSrc] = useState(null);
+  const [downloadUrl, setDownloadUrl] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState(null);
 
   const generate = async (e) => {
     e.preventDefault();
     setGenerating(true);
-    setAudioUrl(null);
+    setAudioSrc(null);
+    if (downloadUrl) {
+      URL.revokeObjectURL(downloadUrl);
+      setDownloadUrl(null);
+    }
     setError(null);
     try {
-      const resp = await fetch("/musicgen", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt,
-          duration: Number(duration),
-          temperature: Number(temperature),
-          model,
-        }),
+      const path = await invoke("generate_musicgen", {
+        prompt,
+        duration: Number(duration),
+        model: modelName,
+        temperature: Number(temperature),
       });
-      if (!resp.ok) {
-        throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
-      }
-      const blob = await resp.blob();
-      setAudioUrl(URL.createObjectURL(blob));
+      const src = convertFileSrc(path);
+      setAudioSrc(src);
+      const blob = await fetch(src).then((r) => r.blob());
+      setDownloadUrl(URL.createObjectURL(blob));
     } catch (err) {
       console.error("music generation failed", err);
       setError(String(err));
+      alert(String(err));
     } finally {
       setGenerating(false);
     }
   };
 
   const download = () => {
-    if (!audioUrl) return;
+    if (!downloadUrl) return;
     const link = document.createElement("a");
-    link.href = audioUrl;
+    link.href = downloadUrl;
     link.download = "musicgen.wav";
     link.click();
   };
 
   useEffect(() => {
     return () => {
-      if (audioUrl) {
-        URL.revokeObjectURL(audioUrl);
+      if (downloadUrl) {
+        URL.revokeObjectURL(downloadUrl);
       }
     };
-  }, [audioUrl]);
+  }, [downloadUrl]);
 
   return (
     <>
@@ -89,8 +91,8 @@ export default function MusicGen() {
           <select
             id="model-select"
             className="mt-sm p-sm"
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
+            value={modelName}
+            onChange={(e) => setModelName(e.target.value)}
           >
             <option value="small">small</option>
             <option value="medium">medium</option>
@@ -121,8 +123,8 @@ export default function MusicGen() {
           {generating && <progress />}
         </div>
       </form>
-      <audio id="generated-audio" src={audioUrl || ""} hidden controls />
-      {audioUrl && (
+      <audio id="generated-audio" src={audioSrc || ""} hidden controls />
+      {downloadUrl && (
         <button
           id="download-btn"
           onClick={download}
