@@ -46,6 +46,12 @@ Expect roughly 3 GB of GPU memory or 6 GB of system RAM for inference.
 Producing a four‑second clip typically finishes in under 10 seconds on a
 recent GPU and in roughly one to two minutes on a modern CPU.
 
+The Tauri backend exposes a `musicgen_test` command that runs the same
+generation logic and returns the resulting WAV bytes to the UI.  It relies on
+the Python `transformers`, `scipy`, and `torch` packages and downloads the
+`facebook/musicgen-small` weights on first use.  If these dependencies or the
+model weights are missing, the command reports the error to the caller.
+
 ## Prerequisites
 
 - **64-bit Python 3.10**

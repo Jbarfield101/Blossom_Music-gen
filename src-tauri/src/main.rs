@@ -451,6 +451,35 @@ sf.write({wav:?}, audio, 22050)
 }
 
 #[tauri::command]
+fn musicgen_test() -> Result<Vec<u8>, String> {
+    let output = Command::new("python")
+        .args(["scripts/test_musicgen.py"])
+        .output()
+        .map_err(|e| {
+            if e.kind() == ErrorKind::NotFound {
+                "python binary not found".to_string()
+            } else {
+                e.to_string()
+            }
+        })?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(if stderr.is_empty() {
+            "musicgen generation failed".to_string()
+        } else {
+            stderr.to_string()
+        });
+    }
+    let path = Path::new("musicgen_sample.wav");
+    if !path.exists() {
+        return Err("musicgen output missing".into());
+    }
+    let bytes = fs::read(path).map_err(|e| e.to_string())?;
+    let _ = fs::remove_file(path);
+    Ok(bytes)
+}
+
+#[tauri::command]
 fn hotword_get() -> Result<Value, String> {
     let output = Command::new("python")
         .args(["-m", "ears.hotword", "list"])
@@ -1006,6 +1035,7 @@ fn main() {
             update_piper_profile,
             remove_piper_profile,
             piper_test,
+            musicgen_test,
             list_llm,
             set_llm,
             npc_list,
