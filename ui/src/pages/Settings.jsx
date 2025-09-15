@@ -18,6 +18,7 @@ import {
   exportSettings as apiExportSettings,
   importSettings as apiImportSettings,
 } from "../api/config";
+import { getVersion } from "../api/version";
 import LogPanel from "../components/LogPanel";
 import BackButton from "../components/BackButton.jsx";
 import {
@@ -42,6 +43,7 @@ export default function Settings() {
   const [theme, setThemeState] = useState("dark");
   const [accent, setAccentState] = useState("#ff4d6d");
   const [baseFontSize, setBaseFontSizeState] = useState("16px");
+  const [versions, setVersions] = useState({ app: "", python: "" });
 
   useEffect(() => {
     getTheme().then((savedTheme) => setThemeState(savedTheme || "dark"));
@@ -60,6 +62,31 @@ export default function Settings() {
       setBaseFontSizeState(size);
       setBaseFontSize(size);
     });
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    getVersion()
+      .then((fetched) => {
+        if (!active) {
+          return;
+        }
+        setVersions({
+          app: fetched?.app ?? "",
+          python: fetched?.python ?? "",
+        });
+      })
+      .catch(() => {
+        if (!active) {
+          return;
+        }
+        setVersions({ app: "", python: "" });
+      });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -334,6 +361,13 @@ export default function Settings() {
       </section>
       <section className="settings-section">
         <LogPanel />
+      </section>
+      <section className="settings-section">
+        <fieldset>
+          <legend>About</legend>
+          <p>App Version: {versions.app}</p>
+          <p>Python Version: {versions.python}</p>
+        </fieldset>
       </section>
     </main>
   );
