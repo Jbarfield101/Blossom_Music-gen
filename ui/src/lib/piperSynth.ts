@@ -1,6 +1,6 @@
 import { Command } from "@tauri-apps/plugin-shell";
 import { join } from "@tauri-apps/api/path";
-import { createDir } from "@tauri-apps/plugin-fs";
+import { mkdir } from "@tauri-apps/plugin-fs";
 
 interface PiperSynthOptions {
   outDir?: string;
@@ -45,11 +45,11 @@ export async function synthWithPiper(
     outPath = options.outPath;
     const derivedDir = getDirectoryFromPath(options.outPath);
     if (derivedDir) {
-      await createDir(derivedDir, { recursive: true });
+      await mkdir(derivedDir, { recursive: true });
     }
   } else {
     const dir = options.outDir ?? defaultDir;
-    await createDir(dir, { recursive: true });
+    await mkdir(dir, { recursive: true });
     outPath = await join(dir, `${Date.now()}.wav`);
   }
 
