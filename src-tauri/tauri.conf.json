@@ -43,7 +43,8 @@
               "identifier": "shell:allow-execute",
               "allow": [
                 { "name": "piper", "cmd": "piper", "args": true },
-                { "name": "piper-voices", "cmd": "piper-voices", "args": true }
+                { "name": "piper-voices", "cmd": "piper-voices", "args": true },
+                { "name": "piper-venv", "cmd": "$APP/../.venv/Scripts/piper.exe", "args": true }
               ]
             }
           ]

@@ -55,15 +55,16 @@ export default function Dnd() {
     refresh();
     listPiperVoices().then((list) => {
       const opts = list.map((v) => v.id);
-      setVoices(opts);
-      setPiperVoice((prev) =>
-        prev && opts.includes(prev) ? prev : opts[0] || ""
-      );
       if (opts.length === 0) {
-        setPiperError(
-          "No Piper voices installed. Run `piper --download <voice_id>` to fetch a model."
-        );
+        // Fallback: hardcode a local model path when no packaged voices are found.
+        // This enables testing without requiring the discovery flow.
+        const fallback = "en-us-amy-medium";
+        setVoices([fallback]);
+        setPiperVoice(fallback);
+        setPiperError("");
       } else {
+        setVoices(opts);
+        setPiperVoice((prev) => (prev && opts.includes(prev) ? prev : opts[0] || ""));
         setPiperError("");
       }
     });
@@ -313,8 +314,14 @@ export default function Dnd() {
                     return;
                   }
                   try {
-                    const model = `assets/voice_models/${piperVoice}/${piperVoice}.onnx`;
-                    const config = `assets/voice_models/${piperVoice}/${piperVoice}.onnx.json`;
+                    // If we are using the fallback entry, point to the absolute model/config paths.
+                    const isFallback = voices.length === 0 || piperVoice === "en-us-amy-medium";
+                    const model = isFallback
+                      ? "D:\\Blossom\\Blossom_Music\\assets\\voice_models\\en-us-amy-medium\\en_US-amy-medium.onnx"
+                      : `assets/voice_models/${piperVoice}/${piperVoice}.onnx`;
+                    const config = isFallback
+                      ? "D:\\Blossom\\Blossom_Music\\assets\\voice_models\\en-us-amy-medium\\en_US-amy-medium.onnx.json"
+                      : `assets/voice_models/${piperVoice}/${piperVoice}.onnx.json`;
                     const path = await synthWithPiper(piperText, model, config);
                     const url = convertFileSrc(path);
                     setPiperPath(path);
@@ -322,7 +329,7 @@ export default function Dnd() {
                     setPiperError("");
                   } catch (err) {
                     console.error(err);
-                    setPiperError("Failed to generate audio.");
+                    setPiperError(err?.message || String(err) || "Failed to generate audio.");
                   }
                 }}
               >

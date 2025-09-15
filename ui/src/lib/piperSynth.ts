@@ -1,5 +1,5 @@
 import { Command } from "@tauri-apps/plugin-shell";
-import { join } from "@tauri-apps/api/path";
+import { join, appDataDir } from "@tauri-apps/api/path";
 import { mkdir } from "@tauri-apps/plugin-fs";
 
 interface PiperSynthOptions {
@@ -37,7 +37,9 @@ export async function synthWithPiper(
   config: string,
   options: PiperSynthOptions = {},
 ): Promise<string> {
-  const defaultDir = await join("data", "piper_tests");
+  // Write under the app data directory to ensure an absolute, writable path.
+  const dataRoot = await appDataDir();
+  const defaultDir = await join(dataRoot, "piper_tests");
 
   let outPath: string;
 
@@ -53,7 +55,7 @@ export async function synthWithPiper(
     outPath = await join(dir, `${Date.now()}.wav`);
   }
 
-  const cmd = Command.create("piper", [
+  const args = [
     "--model",
     model,
     "--config",
@@ -61,8 +63,17 @@ export async function synthWithPiper(
     "--output_file",
     outPath,
     text,
-  ]);
-  const res = await cmd.execute();
+  ];
+
+  // Try system `piper` first.
+  let res = await Command.create("piper", args).execute();
+  // Fallback to venv `piper` if the system one fails to launch or returns an error.
+  if (res.code !== 0) {
+    const maybeNotFound = /not recognized|not found|No such file|ENOENT/i.test(res.stderr || "");
+    if (maybeNotFound || res.code === 9009) {
+      res = await Command.create("piper-venv", args).execute();
+    }
+  }
   if (res.code !== 0) {
     const message = res.stderr?.trim() || `Piper command failed with code ${res.code}`;
     throw new Error(message);
