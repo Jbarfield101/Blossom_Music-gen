@@ -35,9 +35,15 @@ falling back to `localStorage` when the plugin is not available.
 
 ## MusicGen smoke test
 
-Generate a short clip with Meta's pretrained MusicGen model:
+Generate a short clip with Meta's pretrained MusicGen model. The `--prompt`
+argument defaults to "60 bpm, chill, lofi vibe", so the script runs without
+any parameters. Override it by passing your own prompt:
 
 ```bash
+# uses the default prompt
+python main_musicgen.py
+
+# override the prompt
 python main_musicgen.py --prompt "lofi hip hop beat for studying"
 ```
 
