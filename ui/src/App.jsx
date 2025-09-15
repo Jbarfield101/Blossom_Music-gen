@@ -7,6 +7,7 @@ import Profiles from './pages/Profiles.jsx';
 import MusicGen from './pages/MusicGen.jsx';
 import Tools from './pages/Tools.jsx';
 import Fusion from './pages/Fusion.jsx';
+import LoopMaker from './pages/LoopMaker.jsx';
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
         <Route path="/train" element={<Train />} />
         <Route path="/tools" element={<Tools />} />
         <Route path="/fusion" element={<Fusion />} />
+        <Route path="/loopmaker" element={<LoopMaker />} />
       </Routes>
     </>
   );

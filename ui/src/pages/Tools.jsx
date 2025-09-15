@@ -8,7 +8,10 @@ export default function Tools() {
       <h1>Tools</h1>
       <main className="dashboard">
         <Card to="/fusion" icon="Atom" title="Fusion">
-          Loop Maker
+          Concept Combiner
+        </Card>
+        <Card to="/loopmaker" icon="Repeat" title="Loop Maker">
+          Beat Loop Creator
         </Card>
       </main>
     </>
