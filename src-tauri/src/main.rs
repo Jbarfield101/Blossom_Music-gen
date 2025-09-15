@@ -22,10 +22,12 @@ use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_store::{Builder, Store, StoreBuilder};
 use tempfile::NamedTempFile;
 use url::Url;
+mod commands;
 mod config;
 mod musiclang;
 mod util;
 use crate::util::list_from_dir;
+use commands::generate_musicgen;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 struct Npc {
@@ -1036,6 +1038,7 @@ fn main() {
             remove_piper_profile,
             piper_test,
             musicgen_test,
+            generate_musicgen,
             list_llm,
             set_llm,
             npc_list,
