@@ -25,6 +25,14 @@ except Exception:  # pragma: no cover - handled gracefully
 
 logger = logging.getLogger(__name__)
 
+# Mapping from shorthand aliases exposed in the UI to the fully qualified
+# HuggingFace model identifiers expected by ``transformers``.
+MODEL_NAME_ALIASES: Dict[str, str] = {
+    "small": "facebook/musicgen-small",
+    "medium": "facebook/musicgen-medium",
+    "melody": "facebook/musicgen-melody",
+}
+
 # Cache for loaded MusicGen pipelines.  Access is guarded by a lock since model
 # loading may be expensive and not thread safe.
 _PIPELINE_CACHE: Dict[str, object] = {}
@@ -47,17 +55,19 @@ def _get_pipeline(model_name: str):
             "Also ensure scipy is installed for writing WAV files."
         )
 
-    with _CACHE_LOCK:
-        if model_name in _PIPELINE_CACHE:
-            return _PIPELINE_CACHE[model_name]
+    normalized_name = MODEL_NAME_ALIASES.get(model_name, model_name)
 
-        logger.info("Loading MusicGen model: %s", model_name)
+    with _CACHE_LOCK:
+        if normalized_name in _PIPELINE_CACHE:
+            return _PIPELINE_CACHE[normalized_name]
+
+        logger.info("Loading MusicGen model: %s", normalized_name)
         try:
-            pipe = pipeline("text-to-audio", model=model_name)
+            pipe = pipeline("text-to-audio", model=normalized_name)
         except Exception as exc:  # pragma: no cover - depends on HF hub
-            logger.exception("Failed to load MusicGen model %s: %s", model_name, exc)
+            logger.exception("Failed to load MusicGen model %s: %s", normalized_name, exc)
             raise
-        _PIPELINE_CACHE[model_name] = pipe
+        _PIPELINE_CACHE[normalized_name] = pipe
         return pipe
 
 
