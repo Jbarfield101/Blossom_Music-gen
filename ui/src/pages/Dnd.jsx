@@ -54,13 +54,26 @@ export default function Dnd() {
   useEffect(() => {
     refresh();
     listPiper().then((v) => {
-      setVoices(v.options || []);
+      const opts = v.options || [];
+      setVoices(opts);
       if (v.selected) {
         setPiperVoice(v.selected);
       }
+      if (opts.length > 0) {
+        setPiperError("");
+      }
     });
     discoverPiperVoices()
-      .then(() => setPiperBinaryAvailable(true))
+      .then((list) => {
+        setPiperBinaryAvailable(true);
+        if ((list || []).length === 0) {
+          setPiperError(
+            "No Piper voices installed. Run `piper --download <voice_id>` to fetch a model."
+          );
+        } else {
+          setPiperError("");
+        }
+      })
       .catch((err) => {
         console.warn(err);
         const msg = String(err);
@@ -112,7 +125,17 @@ export default function Dnd() {
     try {
       await updatePiperProfile(p.original, p.name, p.tags);
       await fetchProfiles();
-      listPiper().then((v) => setVoices(v.options || []));
+      listPiper().then((v) => {
+        const opts = v.options || [];
+        setVoices(opts);
+        if (opts.length === 0) {
+          setPiperError(
+            "No Piper voices installed. Run `piper --download <voice_id>` to fetch a model."
+          );
+        } else {
+          setPiperError("");
+        }
+      });
     } catch (err) {
       console.error(err);
     }
@@ -122,7 +145,17 @@ export default function Dnd() {
     try {
       await removePiperProfile(name);
       await fetchProfiles();
-      listPiper().then((v) => setVoices(v.options || []));
+      listPiper().then((v) => {
+        const opts = v.options || [];
+        setVoices(opts);
+        if (opts.length === 0) {
+          setPiperError(
+            "No Piper voices installed. Run `piper --download <voice_id>` to fetch a model."
+          );
+        } else {
+          setPiperError("");
+        }
+      });
     } catch (err) {
       console.error(err);
     }
@@ -332,7 +365,15 @@ export default function Dnd() {
                 onClick={async () => {
                   try {
                     const list = await discoverPiperVoices();
-                    setPiperAvailableVoices(list || []);
+                    const opts = list || [];
+                    setPiperAvailableVoices(opts);
+                    if (opts.length === 0) {
+                      setPiperError(
+                        "No Piper voices installed. Run `piper --download <voice_id>` to fetch a model."
+                      );
+                    } else {
+                      setPiperError("");
+                    }
                   } catch (err) {
                     console.warn(err);
                     const msg = String(err);
@@ -402,9 +443,17 @@ export default function Dnd() {
                           setAddingVoice("");
                           setDisplayName("");
                           setVoiceTags("");
-                          listPiper().then((v) =>
-                            setVoices(v.options || [])
-                          );
+                          listPiper().then((v) => {
+                            const opts = v.options || [];
+                            setVoices(opts);
+                            if (opts.length === 0) {
+                              setPiperError(
+                                "No Piper voices installed. Run `piper --download <voice_id>` to fetch a model."
+                              );
+                            } else {
+                              setPiperError("");
+                            }
+                          });
                         } catch (err) {
                           console.error(err);
                         }
