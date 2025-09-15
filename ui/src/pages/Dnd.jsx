@@ -114,14 +114,28 @@ export default function Dnd() {
     }
   };
 
+  const sections = [
+    { name: "Lore", icon: "BookOpen" },
+    { name: "NPCs", icon: "Users" },
+    { name: "Piper", icon: "Mic2" },
+    { name: "Discord", icon: "MessageCircle" },
+    { name: "Chat", icon: "MessageSquare" },
+  ];
+
   return (
     <div>
       <BackButton />
       <h1>Dungeons & Dragons</h1>
-      <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
-        {["Lore", "NPCs", "Piper", "Discord", "Chat"].map((name) => (
-          <button key={name} type="button" onClick={() => setSection(name)}>
-            {name}
+      <div className="dnd-section-nav">
+        {sections.map(({ name, icon }) => (
+          <button
+            key={name}
+            type="button"
+            className="dnd-section-btn"
+            onClick={() => setSection(name)}
+          >
+            <Icon name={icon} size={48} />
+            <span>{name}</span>
           </button>
         ))}
       </div>
