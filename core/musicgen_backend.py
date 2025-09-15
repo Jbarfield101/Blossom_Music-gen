@@ -129,12 +129,24 @@ def generate_music(
     )
 
     try:
-        result = pipe(
-            prompt,
-            max_new_tokens=max_new_tokens,
-            do_sample=True,
-            temperature=temperature,
-        )
+        try:
+            logger.debug("Calling MusicGen pipeline with max_new_tokens")
+            result = pipe(
+                prompt,
+                max_new_tokens=max_new_tokens,
+                do_sample=True,
+                temperature=temperature,
+            )
+        except TypeError:
+            logger.info(
+                "MusicGen pipeline rejected max_new_tokens; retrying with max_length"
+            )
+            result = pipe(
+                prompt,
+                max_length=max_new_tokens,
+                do_sample=True,
+                temperature=temperature,
+            )
         audio = result[0]["audio"]
         sample_rate = result[0]["sampling_rate"]
     except Exception as exc:  # pragma: no cover - depends on HF pipeline
