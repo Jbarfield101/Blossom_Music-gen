@@ -13,6 +13,70 @@ export default function LoopMaker() {
   const [elapsed, setElapsed] = useState(0);
   const [useConcatenated, setUseConcatenated] = useState(false);
 
+  const progressPercent = TARGET_SECONDS
+    ? Math.min((elapsed / TARGET_SECONDS) * 100, 100)
+    : 0;
+
+  const styles = {
+    layout: {
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      gap: '1.5rem',
+      marginTop: '2rem',
+    },
+    frame: {
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: '1.5rem',
+      border: '14px solid #2f2a27',
+      borderRadius: '32px',
+      background: 'linear-gradient(145deg, #52463d 0%, #201712 100%)',
+      boxShadow: '0 20px 45px rgba(0, 0, 0, 0.45)',
+      maxWidth: '720px',
+      width: '100%',
+    },
+    video: {
+      width: '100%',
+      borderRadius: '18px',
+      backgroundColor: '#000',
+      boxShadow: 'inset 0 0 20px rgba(0, 0, 0, 0.6)',
+    },
+    counters: {
+      display: 'flex',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      gap: '1rem',
+      fontSize: '1.5rem',
+      fontWeight: 700,
+      color: '#111827',
+      textAlign: 'center',
+    },
+    counterBox: {
+      padding: '0.75rem 1.5rem',
+      borderRadius: '0.85rem',
+      background: '#f9fafb',
+      boxShadow: '0 10px 20px rgba(17, 24, 39, 0.15)',
+      minWidth: '200px',
+    },
+    progressTrack: {
+      width: '100%',
+      maxWidth: '480px',
+      height: '14px',
+      borderRadius: '999px',
+      background: '#e5e7eb',
+      overflow: 'hidden',
+      border: '2px solid #111827',
+    },
+    progressFill: {
+      height: '100%',
+      width: `${progressPercent}%`,
+      background: 'linear-gradient(90deg, #22d3ee, #6366f1)',
+      transition: 'width 150ms ease-out',
+    },
+  };
+
   useEffect(() => {
     return () => {
       if (videoURL) URL.revokeObjectURL(videoURL);
@@ -112,24 +176,32 @@ export default function LoopMaker() {
       <h1>Loop Maker</h1>
       <input type="file" accept="video/*" onChange={handleFileChange} />
       {videoURL && (
-        <div>
-          <video
-            ref={videoRef}
-            src={videoURL}
-            muted
-            playsInline
-            onLoadedMetadata={handleLoadedMetadata}
-            onTimeUpdate={handleTimeUpdate}
-            onEnded={handleEnded}
-          />
-          <p>
-            Progress: {Math.floor(elapsed)} / {TARGET_SECONDS} seconds
-          </p>
-          {!useConcatenated && loopsNeeded > 0 && (
-            <p>
-              Loops: {loopsCompleted} / {loopsNeeded}
-            </p>
-          )}
+        <div style={styles.layout}>
+          <div style={styles.frame}>
+            <video
+              ref={videoRef}
+              src={videoURL}
+              muted
+              playsInline
+              onLoadedMetadata={handleLoadedMetadata}
+              onTimeUpdate={handleTimeUpdate}
+              onEnded={handleEnded}
+              style={styles.video}
+            />
+          </div>
+          <div style={styles.counters}>
+            <div style={styles.counterBox}>
+              Progress: {Math.floor(elapsed)} / {TARGET_SECONDS} seconds
+            </div>
+            {!useConcatenated && loopsNeeded > 0 && (
+              <div style={styles.counterBox}>
+                Loops: {loopsCompleted} / {loopsNeeded}
+              </div>
+            )}
+          </div>
+          <div style={styles.progressTrack}>
+            <div style={styles.progressFill} />
+          </div>
         </div>
       )}
     </>
