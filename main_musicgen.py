@@ -9,7 +9,9 @@ from core.musicgen_backend import generate_music
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Generate music from a text prompt using MusicGen")
-    ap.add_argument("--prompt", required=True, help="Text prompt for generation")
+    ap.add_argument("--prompt",
+                    default="60 bpm, chill, lofi vibe",
+                    help="Text prompt for generation (default: %(default)s)")
     ap.add_argument("--duration", type=float, default=10, help="Duration of the clip in seconds")
     ap.add_argument("--model", default="facebook/musicgen-small", help="MusicGen model identifier")
     ap.add_argument("--temperature", type=float, default=1.0, help="Sampling temperature")
