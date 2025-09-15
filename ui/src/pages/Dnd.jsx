@@ -80,13 +80,25 @@ export default function Dnd() {
   const edit = (npc) => setCurrent(npc);
   const newNpc = () => setCurrent(emptyNpc);
   const save = async () => {
-    await saveNpc(current);
-    setCurrent(emptyNpc);
-    refresh();
+    try {
+      await saveNpc(current);
+      setCurrent(emptyNpc);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to save NPC: " + String(err));
+    } finally {
+      refresh();
+    }
   };
   const remove = async (name) => {
-    await deleteNpc(name);
-    refresh();
+    try {
+      await deleteNpc(name);
+    } catch (err) {
+      console.error(err);
+      alert("Failed to delete NPC: " + String(err));
+    } finally {
+      refresh();
+    }
   };
 
   const handleProfileChange = (idx, field, value) => {
