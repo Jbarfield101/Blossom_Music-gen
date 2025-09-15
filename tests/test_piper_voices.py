@@ -4,6 +4,7 @@ import re
 import subprocess
 import sys
 
+import pytest
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -14,7 +15,14 @@ from mouth.registry import VoiceProfile, VoiceRegistry
 
 def discover_piper_voices(executable: str = "piper") -> list[str]:
     """Return available Piper voices by invoking ``piper --list``."""
-    proc = subprocess.run([executable, "--list"], stdout=subprocess.PIPE, check=True)
+    try:
+        proc = subprocess.run(
+            [executable, "--list"], stdout=subprocess.PIPE, check=True
+        )
+    except FileNotFoundError as exc:  # pragma: no cover - depends on environment
+        raise RuntimeError(f"{executable} CLI not found") from exc
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(f"{executable} CLI failed") from exc
     pattern = re.compile(r"^([A-Za-z0-9_-]+)")
     lines = proc.stdout.decode().splitlines()
     return [m.group(1) for line in lines if (m := pattern.match(line))]
@@ -30,6 +38,21 @@ def test_discover_piper_voices(monkeypatch):
     voices = discover_piper_voices()
     assert voices == ["en_US-amy-medium", "fr_FR-siwis-medium"]
     run.assert_called_once_with(["piper", "--list"], stdout=subprocess.PIPE, check=True)
+
+
+def test_discover_piper_voices_cli_missing(monkeypatch):
+    run = MagicMock(side_effect=FileNotFoundError("piper"))
+    monkeypatch.setattr(subprocess, "run", run)
+    with pytest.raises(RuntimeError, match="piper CLI not found"):
+        discover_piper_voices()
+
+
+def test_discover_piper_voices_cli_error(monkeypatch):
+    err = subprocess.CalledProcessError(1, ["piper", "--list"])
+    run = MagicMock(side_effect=err)
+    monkeypatch.setattr(subprocess, "run", run)
+    with pytest.raises(RuntimeError, match="piper CLI failed"):
+        discover_piper_voices()
 
 
 def test_voice_profile_crud(tmp_path):
