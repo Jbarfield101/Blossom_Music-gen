@@ -737,7 +737,7 @@ fn train_model(
 }
 
 #[tauri::command]
-fn cancel_render(app: AppHandle, registry: State<JobRegistry>, job_id: u64) -> Result<(), String> {
+fn cancel_render(registry: State<JobRegistry>, job_id: u64) -> Result<(), String> {
     let mut jobs = registry.jobs.lock().map_err(|e| e.to_string())?;
     match jobs.get_mut(&job_id) {
         Some(job) => {
