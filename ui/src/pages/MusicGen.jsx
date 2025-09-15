@@ -25,7 +25,7 @@ export default function MusicGen() {
       const path = await invoke("generate_musicgen", {
         prompt,
         duration: Number(duration),
-        model: modelName,
+        modelName,
         temperature: Number(temperature),
       });
       const src = convertFileSrc(path);
