@@ -13,6 +13,9 @@ export default function Tools() {
         <Card to="/loopmaker" icon="Repeat" title="Loop Maker">
           Beat Loop Creator
         </Card>
+        <Card to="/train" icon="Sliders" title="Train Model">
+          Custom Model Trainer
+        </Card>
       </main>
     </>
   );
