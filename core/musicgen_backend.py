@@ -182,8 +182,17 @@ def generate_music(
                     do_sample=True,
                     temperature=temperature,
                 )
-        audio = result[0]["audio"]
-        sample_rate = result[0]["sampling_rate"]
+
+        if isinstance(result, list):
+            audio = result[0]["audio"]
+            sample_rate = result[0]["sampling_rate"]
+        elif isinstance(result, dict):
+            audio = result["audio"]
+            sample_rate = result["sampling_rate"]
+        else:
+            raise TypeError(
+                "Unexpected result type from MusicGen pipeline: " f"{type(result).__name__}"
+            )
     except Exception as exc:  # pragma: no cover - depends on HF pipeline
         logger.exception("Music generation failed: %s", exc)
         raise
