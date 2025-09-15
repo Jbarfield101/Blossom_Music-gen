@@ -11,6 +11,7 @@ import {
 } from "../api/piper";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import BackButton from "../components/BackButton.jsx";
+import Icon from "../components/Icon.jsx";
 
 export default function Dnd() {
   const emptyNpc = { name: "", description: "", prompt: "", voice: "" };
@@ -22,7 +23,7 @@ export default function Dnd() {
   const [piperText, setPiperText] = useState("");
   const [piperAudio, setPiperAudio] = useState("");
   const [piperPath, setPiperPath] = useState("");
-  const [piperVoicesSection, setPiperVoicesSection] = useState("Find Voices");
+  const [piperSection, setPiperSection] = useState("");
   const [piperAvailableVoices, setPiperAvailableVoices] = useState([]);
   const [addingVoice, setAddingVoice] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -69,10 +70,10 @@ export default function Dnd() {
   }, []);
 
   useEffect(() => {
-    if (piperVoicesSection === "Chosen Voices") {
+    if (piperSection === "Manage Voices") {
       fetchProfiles();
     }
-  }, [piperVoicesSection]);
+  }, [piperSection]);
 
   const edit = (npc) => setCurrent(npc);
   const newNpc = () => setCurrent(emptyNpc);
@@ -118,8 +119,7 @@ export default function Dnd() {
       <BackButton />
       <h1>Dungeons & Dragons</h1>
       <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
-        {["Lore", "NPCs", "Piper", "Piper Voices", "Discord", "Chat"].map(
-          (name) => (
+        {["Lore", "NPCs", "Piper", "Discord", "Chat"].map((name) => (
           <button key={name} type="button" onClick={() => setSection(name)}>
             {name}
           </button>
@@ -196,69 +196,92 @@ export default function Dnd() {
         </div>
       )}
       {section === "Piper" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-          <select
-            value={piperVoice}
-            onChange={(e) => setPiperVoice(e.target.value)}
-          >
-            <option value="">Select voice</option>
-            {voices.map((v) => (
-              <option key={v} value={v}>
-                {v}
-              </option>
-            ))}
-          </select>
-          <textarea
-            placeholder="Enter text"
-            value={piperText}
-            onChange={(e) => setPiperText(e.target.value)}
-          />
-          <button
-            type="button"
-            onClick={async () => {
-              try {
-                const res = await testPiper(piperVoice, piperText);
-                if (res) {
-                  const path = res.path || res;
-                  const url = res.url ? res.url : convertFileSrc(path);
-                  setPiperPath(path);
-                  setPiperAudio(url);
-                }
-              } catch (err) {
-                console.error(err);
+        <div>
+          <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
+            <button
+              type="button"
+              className={`piper-section-btn${
+                piperSection === "Find Voices" ? " active" : ""
+              }`}
+              onClick={() =>
+                setPiperSection(
+                  piperSection === "Find Voices" ? "" : "Find Voices"
+                )
               }
-            }}
-          >
-            Test
-          </button>
-          {piperAudio && (
-            <div>
-              <audio controls src={piperAudio} />
-              <div>
-                <a href={piperPath || piperAudio} download="piper.mp3">
-                  Download
-                </a>
-              </div>
+            >
+              <Icon name="Search" className="piper-section-icon" size={48} />
+              <span>Find Voices</span>
+            </button>
+            <button
+              type="button"
+              className={`piper-section-btn${
+                piperSection === "Manage Voices" ? " active" : ""
+              }`}
+              onClick={() =>
+                setPiperSection(
+                  piperSection === "Manage Voices" ? "" : "Manage Voices"
+                )
+              }
+            >
+              <Icon
+                name="Settings2"
+                className="piper-section-icon"
+                size={48}
+              />
+              <span>Manage Voices</span>
+            </button>
+          </div>
+          {piperSection === "" && (
+            <div
+              style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}
+            >
+              <select
+                value={piperVoice}
+                onChange={(e) => setPiperVoice(e.target.value)}
+              >
+                <option value="">Select voice</option>
+                {voices.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+              <textarea
+                placeholder="Enter text"
+                value={piperText}
+                onChange={(e) => setPiperText(e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const res = await testPiper(piperVoice, piperText);
+                    if (res) {
+                      const path = res.path || res;
+                      const url = res.url ? res.url : convertFileSrc(path);
+                      setPiperPath(path);
+                      setPiperAudio(url);
+                    }
+                  } catch (err) {
+                    console.error(err);
+                  }
+                }}
+              >
+                Test
+              </button>
+              {piperAudio && (
+                <div>
+                  <audio controls src={piperAudio} />
+                  <div>
+                    <a href={piperPath || piperAudio} download="piper.mp3">
+                      Download
+                    </a>
+                  </div>
+                </div>
+              )}
             </div>
           )}
-        </div>
-      )}
-      {section === "Piper Voices" && (
-        <div>
-          <div
-            style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}
-          >
-            {["Find Voices", "Chosen Voices"].map((name) => (
-              <button
-                key={name}
-                type="button"
-                onClick={() => setPiperVoicesSection(name)}
-              >
-                {name}
-              </button>
-            ))}
-          </div>
-          {piperVoicesSection === "Find Voices" && (
+          {piperSection === "Find Voices" && (
             <div
               style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}
             >
@@ -358,7 +381,7 @@ export default function Dnd() {
               )}
             </div>
           )}
-          {piperVoicesSection === "Chosen Voices" && (
+          {piperSection === "Manage Voices" && (
             <div>
               {piperProfiles.length === 0 ? (
                 <p>No voices added.</p>
