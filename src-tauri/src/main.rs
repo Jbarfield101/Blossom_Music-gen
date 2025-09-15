@@ -10,7 +10,6 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc, Mutex,
     },
-    time::Duration,
 };
 
 use regex::Regex;
