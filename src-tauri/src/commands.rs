@@ -18,11 +18,16 @@ pub async fn generate_musicgen(
         temperature = temperature,
     );
 
-    let output = async_runtime
-        ::spawn_blocking(move || Command::new("python").args(["-c", &code]).output())
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())?;
+    let output = async_runtime::spawn_blocking(move || {
+        Command::new("python")
+            .current_dir("..")
+            .env("PYTHONPATH", "..")
+            .args(["-c", &code])
+            .output()
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
 
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).to_string());
