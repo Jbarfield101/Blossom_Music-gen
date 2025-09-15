@@ -12,7 +12,6 @@ export default function Dashboard() {
         <Card to="/games" icon="Gamepad2" title="Games" />
         <Card to="/tools" icon="Wrench" title="Tools" />
         <Card to="/settings" icon="Settings" title="Settings" />
-        <Card to="/train" icon="Sliders" title="Train Model" />
       </main>
     </>
   );
