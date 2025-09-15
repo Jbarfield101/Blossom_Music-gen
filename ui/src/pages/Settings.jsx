@@ -5,11 +5,11 @@ import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialo
 import {
   listWhisper,
   setWhisper as apiSetWhisper,
-  listPiper,
   setPiper as apiSetPiper,
   listLlm,
   setLlm as apiSetLlm,
 } from "../api/models";
+import { listPiperVoices } from "../lib/piperVoices";
 import { listDevices, setDevices as apiSetDevices } from "../api/devices";
 import { listHotwords, setHotword as apiSetHotword } from "../api/hotwords";
 import {
@@ -65,7 +65,14 @@ export default function Settings() {
   useEffect(() => {
     const load = async () => {
       setWhisper(await listWhisper());
-      setPiper(await listPiper());
+      const voices = await listPiperVoices();
+      setPiper((prev) => {
+        const options = voices.map((v) => v.id);
+        const selected = options.includes(prev.selected)
+          ? prev.selected
+          : options[0] || "";
+        return { options, selected };
+      });
       setLlm(await listLlm());
       const devices = await listDevices();
       setInput(devices.input);
@@ -170,7 +177,11 @@ export default function Settings() {
           Piper voice
           <select
             value={piper.selected || ""}
-            onChange={(e) => apiSetPiper(e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value;
+              setPiper((prev) => ({ ...prev, selected: value }));
+              apiSetPiper(value);
+            }}
           >
             {piper.options.map((o) => (
               <option key={o} value={o}>
