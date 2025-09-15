@@ -28,6 +28,11 @@ export async function synthWithPiper(
     outPath,
     text,
   ]);
-  await cmd.execute();
+  const res = await cmd.execute();
+  if (res.code !== 0) {
+    const message = res.stderr?.trim() || `Piper command failed with code ${res.code}`;
+    throw new Error(message);
+  }
+
   return outPath;
 }
