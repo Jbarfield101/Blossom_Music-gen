@@ -1,17 +1,17 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/tauri";
 import BackButton from "../components/BackButton.jsx";
 
 export default function MusicGen() {
   const [prompt, setPrompt] = useState("");
-  const [duration, setDuration] = useState(10);
+  const [duration, setDuration] = useState(30);
   const [temperature, setTemperature] = useState(1);
-  const [topK, setTopK] = useState(250);
+  const [model, setModel] = useState("small");
   const [audioUrl, setAudioUrl] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState(null);
 
-  const generate = async () => {
+  const generate = async (e) => {
+    e.preventDefault();
     setGenerating(true);
     setAudioUrl(null);
     setError(null);
@@ -23,7 +23,7 @@ export default function MusicGen() {
           prompt,
           duration: Number(duration),
           temperature: Number(temperature),
-          top_k: Number(topK),
+          model,
         }),
       });
       if (!resp.ok) {
@@ -39,6 +39,14 @@ export default function MusicGen() {
     }
   };
 
+  const download = () => {
+    if (!audioUrl) return;
+    const link = document.createElement("a");
+    link.href = audioUrl;
+    link.download = "musicgen.wav";
+    link.click();
+  };
+
   useEffect(() => {
     return () => {
       if (audioUrl) {
@@ -47,75 +55,87 @@ export default function MusicGen() {
     };
   }, [audioUrl]);
 
-  const runTest = async () => {
-    setGenerating(true);
-    setAudioUrl(null);
-    setError(null);
-    try {
-      const bytes = await invoke("musicgen_test");
-      const blob = new Blob([new Uint8Array(bytes)]);
-      setAudioUrl(URL.createObjectURL(blob));
-    } catch (err) {
-      console.error("musicgen test failed", err);
-      setError(String(err));
-    } finally {
-      setGenerating(false);
-    }
-  };
-
   return (
     <>
       <BackButton />
-      <h1>MusicGen</h1>
-      <div className="musicgen-controls">
-        <label>
+      <h1 className="mb-md">MusicGen</h1>
+      <form
+        onSubmit={generate}
+        className="p-md"
+        style={{ background: "var(--card-bg)", color: "var(--text)" }}
+      >
+        <label className="mb-md">
           Prompt
           <input
             type="text"
+            className="mt-sm p-sm"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
           />
         </label>
-        <label>
-          Duration (s)
+        <label className="mb-md">
+          Duration: {duration}s
           <input
-            type="number"
-            min="1"
+            type="range"
+            min="15"
+            max="120"
             value={duration}
             onChange={(e) => setDuration(e.target.value)}
+            className="mt-sm"
           />
         </label>
-        <label>
-          Temperature
+        <label className="mb-md">
+          Model
+          <select
+            id="model-select"
+            className="mt-sm p-sm"
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+          >
+            <option value="small">small</option>
+            <option value="medium">medium</option>
+            <option value="melody">melody</option>
+          </select>
+        </label>
+        <label className="mb-md">
+          Temperature: {temperature}
           <input
-            type="number"
+            type="range"
+            min="0"
+            max="2"
             step="0.1"
             value={temperature}
             onChange={(e) => setTemperature(e.target.value)}
+            className="mt-sm"
           />
         </label>
-        <label>
-          Top-k
-          <input
-            type="number"
-            value={topK}
-            onChange={(e) => setTopK(e.target.value)}
-          />
-        </label>
-        <button type="button" onClick={generate} disabled={generating}>
-          {generating ? "Generating..." : "Generate"}
+        <button
+          type="submit"
+          disabled={generating}
+          className="mt-md p-sm"
+          style={{ background: "var(--button-bg)", color: "var(--text)" }}
+        >
+          Generate
         </button>
-        <button type="button" onClick={runTest} disabled={generating}>
-          {generating ? "Testing..." : "Run Test"}
-        </button>
-      </div>
-      {audioUrl && (
-        <div style={{ marginTop: "1rem" }}>
-          <audio controls src={audioUrl} />
+        <div id="progress-placeholder" className="mt-md mb-md">
+          {generating && <progress />}
         </div>
+      </form>
+      <audio id="generated-audio" src={audioUrl || ""} hidden controls />
+      {audioUrl && (
+        <button
+          id="download-btn"
+          onClick={download}
+          className="mt-sm p-sm"
+          style={{ background: "var(--button-bg)", color: "var(--text)" }}
+        >
+          Download
+        </button>
       )}
       {error && (
-        <p style={{ color: "red", marginTop: "1rem" }}>{error}</p>
+        <p className="mt-md" style={{ color: "var(--accent)" }}>
+          {error}
+        </p>
       )}
     </>
   );
