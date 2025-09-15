@@ -23,18 +23,37 @@
           "permissions": [
             "core:webview:allow-internal-toggle-devtools"
           ]
+        },
+        {
+          "identifier": "allow-fs-voice-models",
+          "permissions": [
+            {
+              "identifier": "fs:scope",
+              "allow": [
+                { "path": "$APPDATA/*" },
+                { "path": "D:/Blossom/Blossom_Music/assets/voice_models/**" }
+              ]
+            }
+          ]
+        },
+        {
+          "identifier": "allow-shell-piper",
+          "permissions": [
+            {
+              "identifier": "shell:allow-execute",
+              "allow": [
+                { "name": "piper", "cmd": "piper", "args": true },
+                { "name": "piper-voices", "cmd": "piper-voices", "args": true }
+              ]
+            }
+          ]
         }
       ]
     }
   },
   "plugins": {
     "shell": {
-      "scope": [
-        {
-          "name": "piper",
-          "cmd": "piper"
-        }
-      ]
+      "open": true
     }
   }
 }
