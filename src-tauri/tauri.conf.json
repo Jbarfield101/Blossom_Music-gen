@@ -52,7 +52,7 @@
     }
   },
   "bundle": {
-    "resources": ["assets/voice_models/**"]
+    "resources": []
   },
   "plugins": {
     "shell": {
