@@ -57,6 +57,13 @@ def _get_pipeline(model_name: str):
 
     normalized_name = MODEL_NAME_ALIASES.get(model_name, model_name)
 
+    if normalized_name not in MODEL_NAME_ALIASES.values():
+        valid_options = ", ".join(MODEL_NAME_ALIASES)
+        raise ValueError(
+            f"Unsupported MusicGen model '{model_name}'. "
+            f"Please choose one of: {valid_options}, or provide a valid Hugging Face identifier."
+        )
+
     with _CACHE_LOCK:
         if normalized_name in _PIPELINE_CACHE:
             return _PIPELINE_CACHE[normalized_name]

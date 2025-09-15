@@ -10,8 +10,14 @@ pub async fn generate_musicgen(
     temperature: f32,
 ) -> Result<String, String> {
     let code = format!(
-        "import core.musicgen_backend as m; \
-         print(m.generate_music({prompt:?}, {duration}, {model_name:?}, {temperature}, 'out'))",
+        r#"import sys
+import core.musicgen_backend as m
+try:
+    print(m.generate_music({prompt:?}, {duration}, {model_name:?}, {temperature}, 'out'))
+except Exception as exc:
+    sys.stderr.write(str(exc))
+    sys.exit(1)
+"#,
         prompt = prompt,
         duration = duration,
         model_name = model_name,
