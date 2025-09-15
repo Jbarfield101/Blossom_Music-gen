@@ -45,4 +45,6 @@ src-tauri/target
 *.env.local
 
 # Piper voices (big files)
-assets/voice_models/**
+assets/voice_models/*
+!assets/voice_models/
+!assets/voice_models/.gitkeep
