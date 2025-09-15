@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
 import './Snake.css';
 
@@ -42,20 +42,41 @@ export default function Snake() {
   const [direction, setDirection] = useState({ x: 1, y: 0 });
   const [food, setFood] = useState(() => randomFood(INITIAL_SNAKE));
   const [gameOver, setGameOver] = useState(false);
+  const [isRunning, setIsRunning] = useState(false);
   const canvasRef = useRef(null);
+
+  const resetGameState = useCallback(() => {
+    const startingSnake = INITIAL_SNAKE.map((segment) => ({ ...segment }));
+    setSnake(startingSnake);
+    setDirection({ x: 1, y: 0 });
+    setFood(randomFood(startingSnake));
+    setGameOver(false);
+  }, []);
+
+  const startGame = useCallback(() => {
+    setIsRunning((prevIsRunning) => {
+      if (prevIsRunning) {
+        return prevIsRunning;
+      }
+
+      resetGameState();
+      return true;
+    });
+  }, [resetGameState]);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
       const newDirection = directionByKey[event.key];
+
+      if (!isRunning) {
+        startGame();
+      }
+
       if (!newDirection) {
         return;
       }
 
       setDirection((prevDirection) => {
-        if (gameOver) {
-          return prevDirection;
-        }
-
         if (
           prevDirection.x === -newDirection.x &&
           prevDirection.y === -newDirection.y
@@ -72,10 +93,10 @@ export default function Snake() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [gameOver]);
+  }, [isRunning, startGame]);
 
   useEffect(() => {
-    if (gameOver) {
+    if (gameOver || !isRunning) {
       return undefined;
     }
 
@@ -117,7 +138,13 @@ export default function Snake() {
     return () => {
       clearInterval(intervalId);
     };
-  }, [direction, food, gameOver]);
+  }, [direction, food, gameOver, isRunning]);
+
+  useEffect(() => {
+    if (gameOver) {
+      setIsRunning(false);
+    }
+  }, [gameOver]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -174,12 +201,32 @@ export default function Snake() {
       <BackButton />
       <div className="game-container">
         <h1>Snake</h1>
-        <canvas
-          ref={canvasRef}
-          width={WIDTH}
-          height={HEIGHT}
-          className="game-canvas"
-        ></canvas>
+        <div className="game-board">
+          <canvas
+            ref={canvasRef}
+            width={WIDTH}
+            height={HEIGHT}
+            className="game-canvas"
+          ></canvas>
+          {!isRunning && (
+            <div className="game-overlay">
+              <div className="game-overlay-content">
+                {gameOver && (
+                  <p className="game-overlay-title">Game Over</p>
+                )}
+                <p className="game-overlay-text">Press Start</p>
+                <button
+                  type="button"
+                  className="game-overlay-button"
+                  onClick={startGame}
+                >
+                  Start
+                </button>
+                <p className="game-overlay-hint">Press any key to begin</p>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </>
   );
