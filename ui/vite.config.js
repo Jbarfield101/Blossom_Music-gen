@@ -6,6 +6,13 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   root: '.',
+  // Ensure the dev server matches Tauri's devUrl (http://localhost:5173)
+  // so the Tauri window can load the UI during `tauri dev`.
+  server: {
+    host: 'localhost',
+    port: 5173,
+    strictPort: true,
+  },
   resolve: {
     alias: {
       // Core invoke API moved from 'api/tauri' (v1) to 'api/core' (v2)
