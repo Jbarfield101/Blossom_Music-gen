@@ -1,0 +1,42 @@
+.settings {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: var(--space-lg);
+}
+
+.settings-section {
+  margin-top: var(--space-lg);
+  padding: var(--space-md);
+  background: var(--card-bg);
+  border-radius: var(--space-sm);
+  box-shadow: var(--card-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.settings label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.settings button + button {
+  margin-left: var(--space-sm);
+}
+
+.settings .button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.settings-section ul {
+  list-style: none;
+  padding-left: 0;
+}
+
+.settings-section ul li + li {
+  margin-top: var(--space-xs);
+}
+
