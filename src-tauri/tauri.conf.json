@@ -20,12 +20,22 @@
       "capabilities": [
         {
           "identifier": "allow-internal-toggle-devtools",
+          "windows": ["*"],
           "permissions": [
             "core:webview:allow-internal-toggle-devtools"
           ]
         },
         {
+          "identifier": "allow-path-resolve",
+          "windows": ["*"],
+          "permissions": [
+            "core:path:default",
+            "core:path:allow-resolve-directory"
+          ]
+        },
+        {
           "identifier": "allow-fs-voice-models",
+          "windows": ["*"],
           "permissions": [
             {
               "identifier": "fs:scope",
@@ -33,11 +43,16 @@
                 { "path": "$APPDATA/*" },
                 { "path": "$RESOURCE/assets/voice_models/**" }
               ]
-            }
+            },
+            "fs:allow-mkdir",
+            "fs:allow-write-file",
+            "fs:allow-read-file",
+            "fs:allow-read-dir"
           ]
         },
         {
           "identifier": "allow-shell-piper",
+          "windows": ["*"],
           "permissions": [
             {
               "identifier": "shell:allow-execute",
