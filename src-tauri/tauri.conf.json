@@ -20,12 +20,21 @@
       "capabilities": [
         {
           "identifier": "allow-internal-toggle-devtools",
-          "permissions": ["core:webview:allow-internal-toggle-devtools"]
+          "permissions": [
+            "core:webview:allow-internal-toggle-devtools"
+          ]
         }
       ]
     }
   },
   "plugins": {
-    "shell": { "open": [{ "name": "piper", "cmd": "piper" }] }
+    "shell": {
+      "scope": [
+        {
+          "name": "piper",
+          "cmd": "piper"
+        }
+      ]
+    }
   }
 }
