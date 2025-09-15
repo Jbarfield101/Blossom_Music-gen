@@ -11,6 +11,7 @@ import { synthWithPiper } from "../lib/piperSynth";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import BackButton from "../components/BackButton.jsx";
 import Icon from "../components/Icon.jsx";
+import "./Dnd.css";
 
 export default function Dnd() {
   const emptyNpc = { name: "", description: "", prompt: "", voice: "" };
