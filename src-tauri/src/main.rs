@@ -20,8 +20,8 @@ use tauri::{async_runtime, AppHandle, Manager, Runtime, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_store::{Builder, Store, StoreBuilder};
-use url::Url;
 use tempfile::NamedTempFile;
+use url::Url;
 mod config;
 mod musiclang;
 mod util;
@@ -191,7 +191,6 @@ fn list_styles() -> Result<Vec<String>, String> {
     list_from_dir(Path::new("assets/styles"))
 }
 
-
 fn models_store<R: Runtime>(app: &AppHandle<R>) -> Result<Arc<Store<R>>, String> {
     let path = app
         .path()
@@ -276,12 +275,12 @@ fn set_piper(app: AppHandle, voice: String) -> Result<(), String> {
 
 #[tauri::command]
 fn discover_piper_voices() -> Result<Vec<String>, String> {
-    let output = Command::new("piper")
-        .arg("--list")
+    let output = Command::new("piper-voices")
+        .arg("--json")
         .output()
         .map_err(|e| {
             if e.kind() == ErrorKind::NotFound {
-                "piper binary not found".into()
+                "piper-voices binary not found".into()
             } else {
                 e.to_string()
             }
@@ -289,16 +288,21 @@ fn discover_piper_voices() -> Result<Vec<String>, String> {
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).to_string());
     }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let re = Regex::new(r"^([A-Za-z0-9_-]+)").unwrap();
-    let voices = stdout
-        .lines()
-        .filter_map(|line| {
-            re.captures(line)
-                .and_then(|c| c.get(1))
-                .map(|m| m.as_str().to_string())
-        })
-        .collect::<Vec<_>>();
+    let voices_json: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("failed to parse voice list: {e}"))?;
+    let voices = match voices_json {
+        Value::Object(map) => map.keys().cloned().collect(),
+        Value::Array(arr) => arr
+            .into_iter()
+            .filter_map(|v| {
+                v.as_object()
+                    .and_then(|o| o.get("id"))
+                    .and_then(|id| id.as_str())
+                    .map(|s| s.to_string())
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
     Ok(voices)
 }
 
@@ -337,8 +341,7 @@ fn list_piper_profiles() -> Result<Vec<PiperProfile>, String> {
         return Ok(Vec::new());
     }
     let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let map: serde_json::Map<String, Value> =
-        serde_json::from_str(&text).unwrap_or_default();
+    let map: serde_json::Map<String, Value> = serde_json::from_str(&text).unwrap_or_default();
     let mut profiles = Vec::new();
     for (name, v) in map {
         let voice_id = v
@@ -355,7 +358,11 @@ fn list_piper_profiles() -> Result<Vec<PiperProfile>, String> {
                     .collect()
             })
             .unwrap_or_default();
-        profiles.push(PiperProfile { name, voice_id, tags });
+        profiles.push(PiperProfile {
+            name,
+            voice_id,
+            tags,
+        });
     }
     Ok(profiles)
 }
@@ -408,7 +415,11 @@ fn piper_test(text: String, voice: String) -> Result<PathBuf, String> {
             entry
                 .as_ref()
                 .ok()
-                .and_then(|e| e.file_name().to_str().map(|n| n.starts_with(&prefix) && n.ends_with(".mp3")))
+                .and_then(|e| {
+                    e.file_name()
+                        .to_str()
+                        .map(|n| n.starts_with(&prefix) && n.ends_with(".mp3"))
+                })
                 .unwrap_or(false)
         })
         .count();
