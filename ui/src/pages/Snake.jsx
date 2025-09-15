@@ -16,33 +16,30 @@ const directionByKey = {
   ArrowRight: { x: 1, y: 0 },
 };
 
-function getRandomFoodPosition(snakePositions) {
+function randomFood(snakePositions) {
   const occupied = new Set(
     snakePositions.map((segment) => `${segment.x},${segment.y}`)
   );
 
-  const available = [];
-  for (let x = 0; x < GRID_WIDTH; x += 1) {
-    for (let y = 0; y < GRID_HEIGHT; y += 1) {
-      const key = `${x},${y}`;
-      if (!occupied.has(key)) {
-        available.push({ x, y });
-      }
-    }
-  }
-
-  if (available.length === 0) {
+  if (occupied.size >= GRID_WIDTH * GRID_HEIGHT) {
     return snakePositions[0];
   }
 
-  const index = Math.floor(Math.random() * available.length);
-  return available[index];
+  let position = null;
+  do {
+    position = {
+      x: Math.floor(Math.random() * GRID_WIDTH),
+      y: Math.floor(Math.random() * GRID_HEIGHT),
+    };
+  } while (occupied.has(`${position.x},${position.y}`));
+
+  return position;
 }
 
 export default function Snake() {
   const [snake, setSnake] = useState(INITIAL_SNAKE);
   const [direction, setDirection] = useState({ x: 1, y: 0 });
-  const [food, setFood] = useState(() => getRandomFoodPosition(INITIAL_SNAKE));
+  const [food, setFood] = useState(() => randomFood(INITIAL_SNAKE));
   const [gameOver, setGameOver] = useState(false);
   const canvasRef = useRef(null);
 
@@ -108,7 +105,7 @@ export default function Snake() {
 
         if (ateFood) {
           const grownSnake = [newHead, ...prevSnake];
-          setFood(getRandomFoodPosition(grownSnake));
+          setFood(randomFood(grownSnake));
           return grownSnake;
         }
 
