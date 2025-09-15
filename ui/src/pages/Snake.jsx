@@ -125,6 +125,7 @@ export default function Snake() {
     }
 
     const context = canvas.getContext('2d');
+    context.clearRect(0, 0, WIDTH, HEIGHT);
     context.fillStyle = '#111827';
     context.fillRect(0, 0, WIDTH, HEIGHT);
 
@@ -145,17 +146,27 @@ export default function Snake() {
         CELL_SIZE
       );
     });
+  }, [snake, food]);
 
-    if (gameOver) {
-      context.fillStyle = 'rgba(0, 0, 0, 0.5)';
-      context.fillRect(0, 0, WIDTH, HEIGHT);
-
-      context.fillStyle = '#f87171';
-      context.font = '24px sans-serif';
-      context.textAlign = 'center';
-      context.fillText('Game Over', WIDTH / 2, HEIGHT / 2);
+  useEffect(() => {
+    if (!gameOver) {
+      return;
     }
-  }, [snake, food, gameOver]);
+
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      return;
+    }
+
+    const context = canvas.getContext('2d');
+    context.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    context.fillRect(0, 0, WIDTH, HEIGHT);
+
+    context.fillStyle = '#f87171';
+    context.font = '24px sans-serif';
+    context.textAlign = 'center';
+    context.fillText('Game Over', WIDTH / 2, HEIGHT / 2);
+  }, [gameOver]);
 
   return (
     <>
