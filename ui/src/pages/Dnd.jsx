@@ -9,7 +9,7 @@ import {
 import { listPiperVoices } from "../lib/piperVoices";
 import { synthWithPiper } from "../lib/piperSynth";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { readBinaryFile, BaseDirectory } from "@tauri-apps/plugin-fs";
+import { readFile, BaseDirectory } from "@tauri-apps/plugin-fs";
 import { appDataDir } from "@tauri-apps/api/path";
 import BackButton from "../components/BackButton.jsx";
 import Icon from "../components/Icon.jsx";
@@ -331,7 +331,7 @@ export default function Dnd() {
                     let blobUrl = "";
                     try {
                       // First try reading the absolute path directly.
-                      const data = await readBinaryFile(path);
+                      const data = await readFile(path);
                       const blob = new Blob([data], { type: "audio/wav" });
                       blobUrl = URL.createObjectURL(blob);
                     } catch (e1) {
@@ -342,7 +342,7 @@ export default function Dnd() {
                         const nPath = norm(path);
                         if (nPath.startsWith(nBase)) {
                           const rel = nPath.substring(nBase.length);
-                          const data = await readBinaryFile(rel, { baseDir: BaseDirectory.AppData });
+                          const data = await readFile(rel, { baseDir: BaseDirectory.AppData });
                           const blob = new Blob([data], { type: "audio/wav" });
                           blobUrl = URL.createObjectURL(blob);
                         }
