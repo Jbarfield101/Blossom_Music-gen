@@ -1,23 +1,56 @@
 import { Command } from "@tauri-apps/plugin-shell";
 import { createDir, join } from "@tauri-apps/plugin-fs";
 
+interface PiperSynthOptions {
+  outDir?: string;
+  outPath?: string;
+}
+
+function getDirectoryFromPath(filePath: string): string | null {
+  const normalized = filePath.replace(/\\/g, "/");
+  const lastSlashIndex = normalized.lastIndexOf("/");
+
+  if (lastSlashIndex === -1) {
+    return null;
+  }
+
+  if (lastSlashIndex === 0) {
+    return filePath.slice(0, 1);
+  }
+
+  return filePath.slice(0, lastSlashIndex);
+}
+
 /**
  * Synthesize speech using the `piper` CLI.
  *
- * @param text   Text to synthesize.
- * @param model  Path to the piper model (.onnx).
- * @param config Path to the model configuration (.json).
+ * @param text     Text to synthesize.
+ * @param model    Path to the piper model (.onnx).
+ * @param config   Path to the model configuration (.json).
+ * @param options  Optional overrides for output directory or path.
  * @returns The path to the generated WAV file.
  */
 export async function synthWithPiper(
   text: string,
   model: string,
   config: string,
+  options: PiperSynthOptions = {},
 ): Promise<string> {
-  // Ensure output directory exists
-  const dir = await join("data", "piper_tests");
-  await createDir(dir, { recursive: true });
-  const outPath = await join(dir, `${Date.now()}.wav`);
+  const defaultDir = await join("data", "piper_tests");
+
+  let outPath: string;
+
+  if (options.outPath) {
+    outPath = options.outPath;
+    const derivedDir = getDirectoryFromPath(options.outPath);
+    if (derivedDir) {
+      await createDir(derivedDir, { recursive: true });
+    }
+  } else {
+    const dir = options.outDir ?? defaultDir;
+    await createDir(dir, { recursive: true });
+    outPath = await join(dir, `${Date.now()}.wav`);
+  }
 
   const cmd = Command.create("piper", [
     "--model",
