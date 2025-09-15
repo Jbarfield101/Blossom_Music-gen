@@ -158,101 +158,108 @@ export default function Settings() {
         </div>
       </section>
       <section className="settings-section">
-        <label>
-          Whisper size
-          <select
-            value={whisper.selected || ""}
-            onChange={(e) => apiSetWhisper(e.target.value)}
-          >
-            {whisper.options.map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </select>
-        </label>
-      </section>
-      <section className="settings-section">
-        <label>
-          Piper voice
-          <select
-            value={piper.selected || ""}
-            onChange={(e) => {
-              const value = e.target.value;
-              setPiper((prev) => ({ ...prev, selected: value }));
-              apiSetPiper(value);
-            }}
-          >
-            {piper.options.map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </select>
-        </label>
-      </section>
-      <section className="settings-section">
-        <label>
-          LLM model
-          <select
-            value={llm.selected || ""}
-            onChange={(e) => apiSetLlm(e.target.value)}
-          >
-            {llm.options.map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </select>
-        </label>
-      </section>
-      <section className="settings-section">
-        <label>
-          Input device
-          <select
-            value={input.selected || ""}
-            onChange={(e) =>
-              apiSetDevices({
-                input: Number(e.target.value),
-                output: output.selected,
-              })
-            }
-          >
-            {input.options.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      </section>
-      <section className="settings-section">
-        <label>
-          Output device
-          <select
-            value={output.selected || ""}
-            onChange={(e) =>
-              apiSetDevices({
-                input: input.selected,
-                output: Number(e.target.value),
-              })
-            }
-          >
-            {output.options.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      </section>
-      <section className="settings-section">
-        <h2>Appearance</h2>
-        <div>
-          <label>
-            Theme
+        <fieldset>
+          <legend>Models</legend>
+          <div>
+            <label htmlFor="whisper-select">Whisper size</label>
             <select
+              id="whisper-select"
+              value={whisper.selected || ""}
+              onChange={(e) => apiSetWhisper(e.target.value)}
+            >
+              {whisper.options.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="piper-select">Piper voice</label>
+            <select
+              id="piper-select"
+              value={piper.selected || ""}
+              onChange={(e) => {
+                const value = e.target.value;
+                setPiper((prev) => ({ ...prev, selected: value }));
+                apiSetPiper(value);
+              }}
+            >
+              {piper.options.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label htmlFor="llm-select">LLM model</label>
+            <select
+              id="llm-select"
+              value={llm.selected || ""}
+              onChange={(e) => apiSetLlm(e.target.value)}
+            >
+              {llm.options.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          </div>
+        </fieldset>
+      </section>
+      <section className="settings-section">
+          <fieldset>
+            <legend>Devices</legend>
+            <div>
+              <label htmlFor="input-device">Input device</label>
+              <select
+                id="input-device"
+                value={input.selected || ""}
+                onChange={(e) =>
+                  apiSetDevices({
+                    input: Number(e.target.value),
+                    output: output.selected,
+                  })
+                }
+              >
+                {input.options.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="output-device">Output device</label>
+              <select
+                id="output-device"
+                value={output.selected || ""}
+                onChange={(e) =>
+                  apiSetDevices({
+                    input: input.selected,
+                    output: Number(e.target.value),
+                  })
+                }
+              >
+                {output.options.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </fieldset>
+      </section>
+      <section className="settings-section">
+        <fieldset>
+          <legend>Appearance</legend>
+          <div>
+            <label htmlFor="theme-select">Theme</label>
+            <select
+              id="theme-select"
               value={theme}
+              aria-describedby="theme-desc"
               onChange={async (e) => {
                 const newTheme = e.target.value;
                 await setTheme(newTheme);
@@ -262,16 +269,15 @@ export default function Settings() {
               <option value="dark">Dark</option>
               <option value="light">Light</option>
             </select>
-          </label>
-          <p>
-            Dark mode reduces eye strain in low-light environments, while light
-            mode provides better readability in bright settings.
-          </p>
-        </div>
-        <div>
-          <label>
-            Accent color
+            <p id="theme-desc">
+              Dark mode reduces eye strain in low-light environments, while
+              light mode provides better readability in bright settings.
+            </p>
+          </div>
+          <div>
+            <label htmlFor="accent-color">Accent color</label>
             <input
+              id="accent-color"
               type="color"
               value={accent}
               onChange={async (e) => {
@@ -280,13 +286,13 @@ export default function Settings() {
                 setAccentState(color);
               }}
             />
-          </label>
-        </div>
-        <div>
-          <label>
-            Font Size
+          </div>
+          <div>
+            <label htmlFor="font-size-select">Font Size</label>
             <select
+              id="font-size-select"
               value={baseFontSize}
+              aria-describedby="font-size-desc"
               onChange={async (e) => {
                 const size = e.target.value;
                 await setBaseFontSize(size);
@@ -296,31 +302,35 @@ export default function Settings() {
               <option value="16px">Default</option>
               <option value="18px">Large</option>
             </select>
-          </label>
-          <p>
-            Larger fonts improve readability for visually impaired users.
-          </p>
-        </div>
+            <p id="font-size-desc">
+              Larger fonts improve readability for visually impaired users.
+            </p>
+          </div>
+        </fieldset>
       </section>
       <section className="settings-section">
-        <h2>Hotwords</h2>
-        <ul>
-          {Object.entries(hotwords).map(([name, enabled]) => (
-            <li key={name}>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={enabled}
-                  onChange={(e) => toggleHotword(name, e.target.checked)}
-                />
-                {name}
-              </label>
-            </li>
-          ))}
-        </ul>
-        <button type="button" onClick={addHotword}>
-          Upload Hotword Model
-        </button>
+        <fieldset>
+          <legend>Hotwords</legend>
+          <ul>
+            {Object.entries(hotwords).map(([name, enabled]) => {
+              const id = `hotword-${name}`;
+              return (
+                <li key={name}>
+                  <input
+                    id={id}
+                    type="checkbox"
+                    checked={enabled}
+                    onChange={(e) => toggleHotword(name, e.target.checked)}
+                  />
+                  <label htmlFor={id}>{name}</label>
+                </li>
+              );
+            })}
+          </ul>
+          <button type="button" onClick={addHotword}>
+            Upload Hotword Model
+          </button>
+        </fieldset>
       </section>
       <section className="settings-section">
         <LogPanel />
