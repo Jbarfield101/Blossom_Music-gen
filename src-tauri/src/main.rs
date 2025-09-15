@@ -483,8 +483,8 @@ sf.write({wav:?}, audio, 22050)
 fn musicgen_test(app_handle: AppHandle) -> Result<Vec<u8>, String> {
     let script = app_handle
         .path()
-        .resolve_resource("scripts/test_musicgen.py")
-        .map_err(|_| "failed to resolve test script".to_string())?;
+        .resolve("scripts/test_musicgen.py")
+        .ok_or("failed to resolve test script")?;
     let output = Command::new("python")
         .arg(script)
         .output()
