@@ -1,4 +1,5 @@
-import { BaseDirectory, readDir, readTextFile, join } from "@tauri-apps/plugin-fs";
+import { join } from "@tauri-apps/api/path";
+import { BaseDirectory, readDir, readTextFile } from "@tauri-apps/plugin-fs";
 
 export interface PiperVoice {
   id: string;

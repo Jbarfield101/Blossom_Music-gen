@@ -1,5 +1,6 @@
 import { Command } from "@tauri-apps/plugin-shell";
-import { createDir, join } from "@tauri-apps/plugin-fs";
+import { join } from "@tauri-apps/api/path";
+import { createDir } from "@tauri-apps/plugin-fs";
 
 interface PiperSynthOptions {
   outDir?: string;
