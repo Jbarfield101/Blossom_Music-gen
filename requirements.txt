@@ -15,7 +15,7 @@ faiss-cpu
 sentence-transformers
 watchfiles
 
-discord.py[voice] @ git+https://github.com/jg-l/discord.py
+discord.py[voice]==2.3.2
 
 # Optional: phrase models and MIDI support
 torch
