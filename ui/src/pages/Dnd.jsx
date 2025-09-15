@@ -30,6 +30,7 @@ export default function Dnd() {
   const [voiceTags, setVoiceTags] = useState("");
   const [piperProfiles, setPiperProfiles] = useState([]);
   const [piperBinaryAvailable, setPiperBinaryAvailable] = useState(true);
+  const [piperError, setPiperError] = useState("");
 
   const refresh = async () => {
     setNpcs(await listNpcs());
@@ -251,7 +252,10 @@ export default function Dnd() {
             >
               <select
                 value={piperVoice}
-                onChange={(e) => setPiperVoice(e.target.value)}
+                onChange={(e) => {
+                  setPiperVoice(e.target.value);
+                  if (piperError) setPiperError("");
+                }}
               >
                 <option value="">Select voice</option>
                 {voices.map((v) => (
@@ -263,11 +267,19 @@ export default function Dnd() {
               <textarea
                 placeholder="Enter text"
                 value={piperText}
-                onChange={(e) => setPiperText(e.target.value)}
+                onChange={(e) => {
+                  setPiperText(e.target.value);
+                  if (piperError) setPiperError("");
+                }}
               />
               <button
                 type="button"
+                disabled={!piperVoice || !piperText}
                 onClick={async () => {
+                  if (!piperVoice || !piperText) {
+                    setPiperError("Please select a voice and enter text.");
+                    return;
+                  }
                   try {
                     const res = await testPiper(piperVoice, piperText);
                     if (res) {
@@ -275,14 +287,19 @@ export default function Dnd() {
                       const url = res.url ? res.url : convertFileSrc(path);
                       setPiperPath(path);
                       setPiperAudio(url);
+                      setPiperError("");
                     }
                   } catch (err) {
                     console.error(err);
+                    setPiperError("Failed to generate audio.");
                   }
                 }}
               >
                 Test
               </button>
+              {piperError && (
+                <div style={{ color: "red" }}>{piperError}</div>
+              )}
               {piperAudio && (
                 <div>
                   <audio controls src={piperAudio} />
