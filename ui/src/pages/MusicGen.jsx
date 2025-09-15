@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { invoke } from "@tauri-apps/api/tauri";
 import BackButton from "../components/BackButton.jsx";
 
 export default function MusicGen() {
@@ -27,6 +28,26 @@ export default function MusicGen() {
       setAudioUrl(URL.createObjectURL(blob));
     } catch (err) {
       console.error("music generation failed", err);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const runTest = async () => {
+    setGenerating(true);
+    setAudioUrl(null);
+    try {
+      if (window.__TAURI__) {
+        const bytes = await invoke("musicgen_test");
+        const blob = new Blob([new Uint8Array(bytes)], { type: "audio/wav" });
+        setAudioUrl(URL.createObjectURL(blob));
+      } else {
+        const resp = await fetch("/musicgen/test");
+        const blob = await resp.blob();
+        setAudioUrl(URL.createObjectURL(blob));
+      }
+    } catch (err) {
+      console.error("music test failed", err);
     } finally {
       setGenerating(false);
     }
@@ -73,6 +94,9 @@ export default function MusicGen() {
         </label>
         <button type="button" onClick={generate} disabled={generating}>
           {generating ? "Generating..." : "Generate"}
+        </button>
+        <button type="button" onClick={runTest} disabled={generating}>
+          {generating ? "Testing..." : "Run Test"}
         </button>
       </div>
       {audioUrl && (
