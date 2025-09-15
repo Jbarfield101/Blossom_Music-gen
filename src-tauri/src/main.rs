@@ -462,13 +462,17 @@ sf.write({wav:?}, audio, 22050)
 }
 
 #[tauri::command]
-fn musicgen_test() -> Result<Vec<u8>, String> {
-    let status = Command::new("python")
-        .arg("scripts/test_musicgen.py")
-        .status()
+fn musicgen_test(app_handle: AppHandle) -> Result<Vec<u8>, String> {
+    let script = app_handle
+        .path_resolver()
+        .resolve_resource("scripts/test_musicgen.py")
+        .ok_or_else(|| "failed to resolve test script".to_string())?;
+    let output = Command::new("python")
+        .arg(script)
+        .output()
         .map_err(|e| e.to_string())?;
-    if !status.success() {
-        return Err("musicgen test failed".into());
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
     }
     let out_path = Path::new("out/musicgen_sample.wav");
     let bytes = fs::read(out_path).map_err(|e| e.to_string())?;
