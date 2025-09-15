@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import os
 from typing import Optional
 
 import discord
@@ -31,6 +32,7 @@ except Exception:  # pragma: no cover - exercised when resampy missing
 
 from .tts import TTSEngine
 from .registry import VoiceProfile
+from config.discord_token import get_token
 
 
 class DiscordPlayer(discord.Client):
@@ -96,7 +98,7 @@ class DiscordPlayer(discord.Client):
 
 
 async def run_bot(
-    token: str,
+    token: str | None,
     channel_id: int,
     *,
     text: str,
@@ -104,6 +106,10 @@ async def run_bot(
     **engine_kwargs,
 ) -> None:
     """Join a Discord channel and speak ``text`` once."""
+
+    token = token or os.getenv("DISCORD_TOKEN") or get_token()
+    if not token:
+        raise RuntimeError("Discord token not provided")
 
     player = DiscordPlayer(engine=TTSEngine(**engine_kwargs))
 

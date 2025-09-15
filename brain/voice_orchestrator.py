@@ -12,12 +12,24 @@ from ears.whisper_service import TranscriptionSegment
 from brain import dialogue
 from mouth.discord_player import DiscordPlayer
 from config.discord_profiles import get_profile
+from config.discord_token import get_token
 
 
 class DiscordOrchestrator:
     """Coordinate speech recognition, dialogue generation and synthesis."""
 
-    def __init__(self, token: str, guild_id: int, channel_id: int, *, debounce: float = 0.3) -> None:
+    def __init__(
+        self,
+        token: Optional[str],
+        guild_id: int,
+        channel_id: int,
+        *,
+        debounce: float = 0.3,
+    ) -> None:
+        token = token or os.getenv("DISCORD_TOKEN") or get_token()
+        if not token:
+            raise RuntimeError("Discord token not provided")
+
         self.token = token
         self.guild_id = guild_id
         self.channel_id = channel_id
