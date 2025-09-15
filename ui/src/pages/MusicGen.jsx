@@ -9,6 +9,7 @@ export default function MusicGen() {
   const [topK, setTopK] = useState(250);
   const [audioUrl, setAudioUrl] = useState(null);
   const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState(null);
 
   const generate = async () => {
     setGenerating(true);
@@ -36,12 +37,14 @@ export default function MusicGen() {
   const runTest = async () => {
     setGenerating(true);
     setAudioUrl(null);
+    setError(null);
     try {
       const bytes = await invoke("musicgen_test");
       const blob = new Blob([new Uint8Array(bytes)]);
       setAudioUrl(URL.createObjectURL(blob));
     } catch (err) {
       console.error("musicgen test failed", err);
+      setError(String(err));
     } finally {
       setGenerating(false);
     }
@@ -97,6 +100,9 @@ export default function MusicGen() {
         <div style={{ marginTop: "1rem" }}>
           <audio controls src={audioUrl} />
         </div>
+      )}
+      {error && (
+        <p style={{ color: "red", marginTop: "1rem" }}>{error}</p>
       )}
     </>
   );
