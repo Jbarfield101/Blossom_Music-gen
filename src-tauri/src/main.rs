@@ -8,7 +8,7 @@ use std::{
     process::{Child, Command, Stdio},
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
     },
 };
 
@@ -29,8 +29,75 @@ mod commands;
 mod config;
 mod musiclang;
 mod util;
+use crate::commands::{album_concat, generate_musicgen, musicgen_env};
 use crate::util::list_from_dir;
-use crate::commands::{generate_musicgen, musicgen_env, album_concat};
+
+fn looks_like_project_root(dir: &Path) -> bool {
+    [
+        "pyproject.toml",
+        "package.json",
+        "requirements.txt",
+        "blossom.py",
+    ]
+    .iter()
+    .any(|marker| dir.join(marker).exists())
+}
+
+fn find_project_root() -> Option<PathBuf> {
+    if let Ok(mut dir) = env::current_dir() {
+        loop {
+            if looks_like_project_root(&dir) {
+                return Some(dir);
+            }
+            if !dir.pop() {
+                break;
+            }
+        }
+    }
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    if looks_like_project_root(&manifest_dir) {
+        return Some(manifest_dir);
+    }
+    if let Some(parent) = manifest_dir.parent() {
+        let candidate = parent.to_path_buf();
+        if looks_like_project_root(&candidate) {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn project_root() -> PathBuf {
+    static ROOT: OnceLock<PathBuf> = OnceLock::new();
+    ROOT.get_or_init(|| {
+        let candidate = find_project_root().unwrap_or_else(|| PathBuf::from("."));
+        candidate.canonicalize().unwrap_or(candidate)
+    })
+    .clone()
+}
+
+fn configure_python_command(cmd: &mut Command) {
+    let root = project_root();
+    cmd.current_dir(&root);
+    let mut pythonpath = root.clone().into_os_string();
+    if let Some(existing) = env::var_os("PYTHONPATH") {
+        if !existing.is_empty() {
+            pythonpath.push(if cfg!(target_os = "windows") {
+                ";"
+            } else {
+                ":"
+            });
+            pythonpath.push(existing);
+        }
+    }
+    cmd.env("PYTHONPATH", pythonpath);
+}
+
+fn python_command() -> Command {
+    let mut cmd = Command::new("python");
+    configure_python_command(&mut cmd);
+    cmd
+}
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 struct Npc {
@@ -66,7 +133,8 @@ fn write_npcs(npcs: &[Npc]) -> Result<(), String> {
 #[tauri::command]
 fn npc_list() -> Result<Vec<Npc>, String> {
     let mut npcs = read_npcs()?;
-    if let Ok(output) = Command::new("python")
+    let mut cmd = python_command();
+    if let Ok(output) = cmd
         .args([
             "-c",
             "import json, service_api; print(json.dumps(service_api.list_npcs()))",
@@ -476,7 +544,8 @@ sf.write({wav:?}, audio, 22050)
         voice = voice,
         wav = wav_path.to_string_lossy()
     );
-    let status = Command::new("python")
+    let mut cmd = python_command();
+    let status = cmd
         .arg("-c")
         .arg(py_script)
         .status()
@@ -503,10 +572,8 @@ fn musicgen_test(app_handle: AppHandle) -> Result<Vec<u8>, String> {
         .path()
         .resolve("scripts/test_musicgen.py", BaseDirectory::Resource)
         .map_err(|_| "failed to resolve test script".to_string())?;
-    let output = Command::new("python")
-        .arg(script)
-        .output()
-        .map_err(|e| e.to_string())?;
+    let mut cmd = python_command();
+    let output = cmd.arg(script).output().map_err(|e| e.to_string())?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).to_string());
     }
@@ -517,7 +584,8 @@ fn musicgen_test(app_handle: AppHandle) -> Result<Vec<u8>, String> {
 
 #[tauri::command]
 fn hotword_get() -> Result<Value, String> {
-    let output = Command::new("python")
+    let mut cmd = python_command();
+    let output = cmd
         .args(["-m", "ears.hotword", "list"])
         .output()
         .map_err(|e| e.to_string())?;
@@ -544,7 +612,8 @@ fn hotword_set(
             fs::copy(&src_path, &dest).map_err(|e| e.to_string())?;
         }
     }
-    let status = Command::new("python")
+    let mut cmd = python_command();
+    let status = cmd
         .args([
             "-m",
             "ears.hotword",
@@ -608,7 +677,8 @@ fn set_llm(app: AppHandle, model: String) -> Result<(), String> {
 
 #[tauri::command]
 fn list_devices(app: AppHandle) -> Result<Value, String> {
-    let output = Command::new("python")
+    let mut cmd = python_command();
+    let output = cmd
         .args(["-m", "ears.devices"])
         .output()
         .map_err(|e| e.to_string())?;
@@ -674,10 +744,8 @@ fn set_devices(app: AppHandle, input: Option<u32>, output: Option<u32>) -> Resul
 #[tauri::command]
 fn app_version() -> Result<Value, String> {
     let app = env!("CARGO_PKG_VERSION").to_string();
-    let output = Command::new("python")
-        .arg("--version")
-        .output()
-        .map_err(|e| e.to_string())?;
+    let mut cmd = python_command();
+    let output = cmd.arg("--version").output().map_err(|e| e.to_string())?;
     let python = if output.stdout.is_empty() {
         String::from_utf8_lossy(&output.stderr).trim().to_string()
     } else {
@@ -692,12 +760,11 @@ fn start_job(
     registry: State<JobRegistry>,
     args: Vec<String>,
 ) -> Result<u64, String> {
-    let mut child = Command::new("python")
-        .args(&args)
+    let mut cmd = python_command();
+    cmd.args(&args)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| e.to_string())?;
+        .stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
     let stdout = child.stdout.take();
     let stderr_pipe = child.stderr.take();
     let stderr_buf = Arc::new(Mutex::new(String::new()));
@@ -880,7 +947,8 @@ fn job_status(registry: State<JobRegistry>, job_id: u64) -> JobState {
 
 #[tauri::command]
 fn discord_profile_get(guild_id: u64, channel_id: u64) -> Result<Value, String> {
-    let output = Command::new("python")
+    let mut cmd = python_command();
+    let output = cmd
         .arg("-c")
         .arg(
             "import sys, json; from config.discord_profiles import get_profile; print(json.dumps(get_profile(int(sys.argv[1]), int(sys.argv[2]))))",
@@ -900,7 +968,7 @@ fn discord_profile_get(guild_id: u64, channel_id: u64) -> Result<Value, String> 
 
 #[tauri::command]
 fn discord_profile_set(guild_id: u64, channel_id: u64, profile: Value) -> Result<(), String> {
-    let mut cmd = Command::new("python");
+    let mut cmd = python_command();
     cmd.arg("-c").arg(
         "import sys, json; from config.discord_profiles import set_profile; set_profile(int(sys.argv[1]), int(sys.argv[2]), json.loads(sys.stdin.read()))",
     );
@@ -926,7 +994,8 @@ fn discord_profile_set(guild_id: u64, channel_id: u64, profile: Value) -> Result
 
 #[tauri::command]
 fn select_vault(path: String) -> Result<(), String> {
-    let status = Command::new("python")
+    let mut cmd = python_command();
+    let status = cmd
         .arg("-c")
         .arg("import sys; from config.obsidian import select_vault; select_vault(sys.argv[1])")
         .arg(&path)
@@ -992,7 +1061,8 @@ fn main() {
             let mut path_var = env::var("PATH").unwrap_or_default();
             env::set_var("PATH", format!("{}{}{}", venv_dir.display(), sep, path_var));
 
-            let version_ok = Command::new("python")
+            let mut version_cmd = python_command();
+            let version_ok = version_cmd
                 .args([
                     "-c",
                     "import sys; exit(0) if sys.version_info[:2]==(3,10) else exit(1)",
@@ -1008,7 +1078,7 @@ fn main() {
                 } else {
                     PathBuf::from("..").join("start.py")
                 };
-                let mut cmd = Command::new("python");
+                let mut cmd = python_command();
                 cmd.arg(&start_py)
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped());
@@ -1039,7 +1109,8 @@ fn main() {
                 path_var = env::var("PATH").unwrap_or_default();
                 env::set_var("PATH", format!("{}{}{}", venv_dir.display(), sep, path_var));
                 // Re-check the version now that setup ran
-                let version_ok_after = Command::new("python")
+                let mut recheck_cmd = python_command();
+                let version_ok_after = recheck_cmd
                     .args([
                         "-c",
                         "import sys; exit(0) if sys.version_info[:2]==(3,10) else exit(1)",
