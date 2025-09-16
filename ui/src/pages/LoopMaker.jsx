@@ -2,6 +2,21 @@ import { useRef, useState, useEffect } from 'react';
 import BackButton from '../components/BackButton.jsx';
 
 export default function LoopMaker() {
+  const REMAINDER_EPSILON = 0.0001;
+
+  const computeLoopPlan = (target, clipDuration) => {
+    if (!clipDuration || clipDuration <= 0 || !target || target <= 0) {
+      return { fullLoops: 0, remainder: 0 };
+    }
+
+    const rawLoops = Math.floor(target / clipDuration);
+    const fullLoops = Math.max(0, rawLoops);
+    const rawRemainder = target - fullLoops * clipDuration;
+    const remainder = rawRemainder > REMAINDER_EPSILON ? rawRemainder : 0;
+
+    return { fullLoops, remainder };
+  };
+
   const videoRef = useRef(null);
   const [targetSeconds, setTargetSeconds] = useState(3600);
   const [targetInput, setTargetInput] = useState('3600');
@@ -130,10 +145,15 @@ export default function LoopMaker() {
   }, [videoURL]);
 
   useEffect(() => {
-    if (!duration) return;
-    const loops = Math.max(1, Math.ceil(targetSeconds / duration));
-    setLoopsNeeded(loops);
-    setLoopsCompleted((prev) => Math.min(prev, loops));
+    if (!duration || !targetSeconds || targetSeconds <= 0) {
+      setLoopsNeeded(0);
+      setLoopsCompleted(0);
+      return;
+    }
+
+    const { fullLoops } = computeLoopPlan(targetSeconds, duration);
+    setLoopsNeeded(fullLoops);
+    setLoopsCompleted((prev) => Math.min(prev, fullLoops));
   }, [targetSeconds, duration]);
 
   useEffect(() => {
@@ -198,31 +218,63 @@ export default function LoopMaker() {
 
   const handleLoadedMetadata = async (e) => {
     const dur = e.target.duration;
-    setDuration(dur);
-    if (!useConcatenated && file) {
-      const loops = Math.max(1, Math.ceil(targetSeconds / dur));
-      setLoopsNeeded(loops);
-      const concatUrl = await buildConcatenatedSource(file, loops);
-      if (concatUrl) {
-        setUseConcatenated(true);
-        setVideoURL(concatUrl);
-        return; // wait for concatenated video metadata
+    const node = videoRef.current;
+
+    if (!node) return;
+
+    if (!useConcatenated) {
+      setDuration(dur);
+
+      if (!file) {
+        if (targetSeconds > 0) {
+          node.play();
+        }
+        return;
       }
-      videoRef.current.play();
-    } else {
-      // concatenated video loaded or no file
-      setLoopsNeeded(1);
-      videoRef.current.play();
+
+      const { fullLoops, remainder } = computeLoopPlan(targetSeconds, dur);
+      const shouldConcatenate =
+        fullLoops > 1 && remainder <= REMAINDER_EPSILON;
+
+      if (shouldConcatenate) {
+        const concatUrl = await buildConcatenatedSource(file, fullLoops);
+        if (concatUrl) {
+          setUseConcatenated(true);
+          setVideoURL(concatUrl);
+          return; // wait for concatenated video metadata
+        }
+      }
+
+      if (targetSeconds > 0) {
+        node.play();
+      }
+    } else if (targetSeconds > 0) {
+      node.play();
     }
   };
 
   const handleTimeUpdate = (e) => {
-    if (useConcatenated) {
-      setElapsed(Math.min(e.target.currentTime, targetSeconds));
-    } else {
-      const t = loopsCompleted * duration + e.target.currentTime;
-      setElapsed(Math.min(t, targetSeconds));
+    if (!targetSeconds || targetSeconds <= 0) {
+      setElapsed(0);
+      return;
     }
+
+    const node = e.target;
+    let totalElapsed = useConcatenated
+      ? node.currentTime
+      : loopsCompleted * duration + node.currentTime;
+
+    if (totalElapsed >= targetSeconds - REMAINDER_EPSILON) {
+      totalElapsed = targetSeconds;
+      if (!node.paused) {
+        node.pause();
+      }
+      if (!useConcatenated) {
+        setLoopsCompleted((prev) => (prev < loopsNeeded ? loopsNeeded : prev));
+      }
+    }
+
+    setElapsed(totalElapsed);
   };
 
   const handleEnded = (e) => {
@@ -259,15 +311,24 @@ export default function LoopMaker() {
     setTargetError('');
 
     let loops = 0;
+    let remainder = 0;
+
     if (duration) {
-      loops = Math.max(1, Math.ceil(parsed / duration));
-      setLoopsNeeded(loops);
-      setLoopsCompleted((prev) => Math.min(prev, loops));
+      const { fullLoops, remainder: leftover } = computeLoopPlan(
+        parsed,
+        duration
+      );
+      loops = fullLoops;
+      remainder = leftover;
+      setLoopsNeeded(fullLoops);
+      setLoopsCompleted((prev) => Math.min(prev, fullLoops));
     }
 
-    if (!file) return;
+    if (!file || !duration) return;
 
-    if (loops <= 1 || !duration) {
+    const shouldConcatenate = loops > 1 && remainder <= REMAINDER_EPSILON;
+
+    if (!shouldConcatenate) {
       if (useConcatenated) {
         resetToBaseVideo();
       }
