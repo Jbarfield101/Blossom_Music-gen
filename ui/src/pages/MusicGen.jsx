@@ -43,7 +43,6 @@ export default function MusicGen() {
     } catch (err) {
       console.error("music generation failed", err);
       setError(String(err));
-      alert(String(err));
     } finally {
       setGenerating(false);
     }
@@ -146,9 +145,13 @@ export default function MusicGen() {
         </button>
       )}
       {error && (
-        <p className="mt-md" style={{ color: "var(--accent)" }}>
-          {error}
-        </p>
+        <div
+          className="mt-md"
+          role="alert"
+          style={{ color: "var(--accent)", background: "var(--card-bg)", padding: "var(--space-sm)" }}
+        >
+          <strong>Something went wrong:</strong> {error}
+        </div>
       )}
     </>
   );
