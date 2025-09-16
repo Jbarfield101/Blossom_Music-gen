@@ -1,10 +1,11 @@
 import { useRef, useState, useEffect } from 'react';
 import BackButton from '../components/BackButton.jsx';
 
-const TARGET_SECONDS = 3600;
-
 export default function LoopMaker() {
   const videoRef = useRef(null);
+  const [targetSeconds, setTargetSeconds] = useState(3600);
+  const [targetInput, setTargetInput] = useState('3600');
+  const [targetError, setTargetError] = useState('');
   const [file, setFile] = useState(null);
   const [videoURL, setVideoURL] = useState(null);
   const [duration, setDuration] = useState(0);
@@ -13,8 +14,8 @@ export default function LoopMaker() {
   const [elapsed, setElapsed] = useState(0);
   const [useConcatenated, setUseConcatenated] = useState(false);
 
-  const progressPercent = TARGET_SECONDS
-    ? Math.min((elapsed / TARGET_SECONDS) * 100, 100)
+  const progressPercent = targetSeconds
+    ? Math.min((elapsed / targetSeconds) * 100, 100)
     : 0;
 
   const styles = {
@@ -75,6 +76,51 @@ export default function LoopMaker() {
       background: 'linear-gradient(90deg, #22d3ee, #6366f1)',
       transition: 'width 150ms ease-out',
     },
+    targetControls: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '0.75rem',
+      marginTop: '1rem',
+      padding: '0.75rem 1rem',
+      background: '#f9fafb',
+      borderRadius: '0.85rem',
+      boxShadow: '0 10px 20px rgba(17, 24, 39, 0.15)',
+    },
+    targetLabel: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '0.25rem',
+      color: '#111827',
+      fontWeight: 700,
+    },
+    targetInput: {
+      width: '140px',
+      padding: '0.5rem 0.75rem',
+      borderRadius: '0.5rem',
+      border: '1px solid #d1d5db',
+      fontSize: '1rem',
+      fontWeight: 600,
+      color: '#111827',
+      background: '#ffffff',
+      boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.06)',
+    },
+    targetButton: {
+      padding: '0.55rem 1.25rem',
+      borderRadius: '0.75rem',
+      border: 'none',
+      background: 'linear-gradient(90deg, #22d3ee, #6366f1)',
+      color: '#0f172a',
+      fontWeight: 700,
+      fontSize: '1rem',
+      cursor: 'pointer',
+      boxShadow: '0 8px 18px rgba(15, 23, 42, 0.25)',
+    },
+    targetError: {
+      marginTop: '0.5rem',
+      color: '#dc2626',
+      fontWeight: 600,
+      textAlign: 'center',
+    },
   };
 
   useEffect(() => {
@@ -82,6 +128,24 @@ export default function LoopMaker() {
       if (videoURL) URL.revokeObjectURL(videoURL);
     };
   }, [videoURL]);
+
+  useEffect(() => {
+    if (!duration) return;
+    const loops = Math.max(1, Math.ceil(targetSeconds / duration));
+    setLoopsNeeded(loops);
+    setLoopsCompleted((prev) => Math.min(prev, loops));
+  }, [targetSeconds, duration]);
+
+  useEffect(() => {
+    setElapsed((prev) => Math.min(prev, targetSeconds));
+  }, [targetSeconds]);
+
+  const resetToBaseVideo = () => {
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setUseConcatenated(false);
+    setVideoURL(url);
+  };
 
   const handleFileChange = (e) => {
     const f = e.target.files?.[0];
@@ -92,6 +156,8 @@ export default function LoopMaker() {
     setUseConcatenated(false);
     const url = URL.createObjectURL(f);
     setVideoURL(url);
+    setTargetInput(String(targetSeconds));
+    setTargetError('');
   };
 
   const buildConcatenatedSource = (file, loops) =>
@@ -134,7 +200,7 @@ export default function LoopMaker() {
     const dur = e.target.duration;
     setDuration(dur);
     if (!useConcatenated && file) {
-      const loops = Math.ceil(TARGET_SECONDS / dur);
+      const loops = Math.max(1, Math.ceil(targetSeconds / dur));
       setLoopsNeeded(loops);
       const concatUrl = await buildConcatenatedSource(file, loops);
       if (concatUrl) {
@@ -152,10 +218,10 @@ export default function LoopMaker() {
 
   const handleTimeUpdate = (e) => {
     if (useConcatenated) {
-      setElapsed(Math.min(e.target.currentTime, TARGET_SECONDS));
+      setElapsed(Math.min(e.target.currentTime, targetSeconds));
     } else {
       const t = loopsCompleted * duration + e.target.currentTime;
-      setElapsed(Math.min(t, TARGET_SECONDS));
+      setElapsed(Math.min(t, targetSeconds));
     }
   };
 
@@ -164,9 +230,56 @@ export default function LoopMaker() {
     const newLoops = loopsCompleted + 1;
     setLoopsCompleted(newLoops);
     const total = newLoops * duration;
-    if (total < TARGET_SECONDS) {
+    if (total < targetSeconds) {
       e.target.currentTime = 0;
       e.target.play();
+    }
+  };
+
+  const handleTargetInputChange = (e) => {
+    setTargetInput(e.target.value);
+    if (targetError) setTargetError('');
+  };
+
+  const handleTargetSubmit = async (e) => {
+    e.preventDefault();
+    const trimmed = targetInput.trim();
+    if (!trimmed) {
+      setTargetError('Please enter a duration in seconds.');
+      return;
+    }
+    const parsed = Number(trimmed);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      setTargetError('Enter a positive number of seconds.');
+      return;
+    }
+
+    setTargetSeconds(parsed);
+    setTargetInput(String(parsed));
+    setTargetError('');
+
+    let loops = 0;
+    if (duration) {
+      loops = Math.max(1, Math.ceil(parsed / duration));
+      setLoopsNeeded(loops);
+      setLoopsCompleted((prev) => Math.min(prev, loops));
+    }
+
+    if (!file) return;
+
+    if (loops <= 1 || !duration) {
+      if (useConcatenated) {
+        resetToBaseVideo();
+      }
+      return;
+    }
+
+    const concatUrl = await buildConcatenatedSource(file, loops);
+    if (concatUrl) {
+      setUseConcatenated(true);
+      setVideoURL(concatUrl);
+    } else if (useConcatenated) {
+      resetToBaseVideo();
     }
   };
 
@@ -175,6 +288,23 @@ export default function LoopMaker() {
       <BackButton />
       <h1>Loop Maker</h1>
       <input type="file" accept="video/*" onChange={handleFileChange} />
+      <form style={styles.targetControls} onSubmit={handleTargetSubmit}>
+        <label style={styles.targetLabel}>
+          Target Length (seconds)
+          <input
+            type="number"
+            min="1"
+            step="1"
+            value={targetInput}
+            onChange={handleTargetInputChange}
+            style={styles.targetInput}
+          />
+        </label>
+        <button type="submit" style={styles.targetButton}>
+          Update
+        </button>
+      </form>
+      {targetError && <div style={styles.targetError}>{targetError}</div>}
       {videoURL && (
         <div style={styles.layout}>
           <div style={styles.frame}>
@@ -191,7 +321,7 @@ export default function LoopMaker() {
           </div>
           <div style={styles.counters}>
             <div style={styles.counterBox}>
-              Progress: {Math.floor(elapsed)} / {TARGET_SECONDS} seconds
+              Progress: {Math.floor(elapsed)} / {targetSeconds} seconds
             </div>
             {!useConcatenated && loopsNeeded > 0 && (
               <div style={styles.counterBox}>
