@@ -75,9 +75,11 @@ const getRandomShape = () => {
 export default function RainBlocks() {
   const canvasRef = useRef(null);
   const previewCanvasRef = useRef(null);
+  const heldCanvasRef = useRef(null);
   const [board, setBoard] = useState(() => createEmptyBoard());
   const [activePiece, setActivePiece] = useState(null);
   const [nextPiece, setNextPiece] = useState(() => getRandomShape());
+  const [heldPiece, setHeldPiece] = useState(null);
   const [gameOverMessage, setGameOverMessage] = useState(null);
   const [score, setScore] = useState(0);
   const [highScore, setHighScore] = useState(() => {
@@ -86,14 +88,17 @@ export default function RainBlocks() {
   });
   const [linesCleared, setLinesCleared] = useState(0);
   const [level, setLevel] = useState(1);
+  const [holdUsed, setHoldUsed] = useState(false);
 
   const LINES_PER_LEVEL = 10;
 
   const boardRef = useRef(board);
   const activePieceRef = useRef(activePiece);
   const nextPieceRef = useRef(nextPiece);
+  const heldPieceRef = useRef(heldPiece);
   const lockDelayRef = useRef(null);
   const levelRef = useRef(level);
+  const holdUsedRef = useRef(holdUsed);
   useEffect(() => {
     boardRef.current = board;
   }, [board]);
@@ -104,8 +109,14 @@ export default function RainBlocks() {
     nextPieceRef.current = nextPiece;
   }, [nextPiece]);
   useEffect(() => {
+    heldPieceRef.current = heldPiece;
+  }, [heldPiece]);
+  useEffect(() => {
     levelRef.current = level;
   }, [level]);
+  useEffect(() => {
+    holdUsedRef.current = holdUsed;
+  }, [holdUsed]);
 
   const clearLockDelay = useCallback(() => {
     if (lockDelayRef.current) {
@@ -179,10 +190,14 @@ export default function RainBlocks() {
     setBoard(freshBoard);
     activePieceRef.current = null;
     setActivePiece(null);
+    heldPieceRef.current = null;
+    setHeldPiece(null);
     setGameOverMessage(null);
     setScore(0);
     setLinesCleared(0);
     setLevel(1);
+    setHoldUsed(false);
+    holdUsedRef.current = false;
     const initialNext = getRandomShape();
     nextPieceRef.current = initialNext;
     setNextPiece(initialNext);
@@ -236,6 +251,8 @@ export default function RainBlocks() {
         }
         return filtered;
       });
+      setHoldUsed(false);
+      holdUsedRef.current = false;
     },
     [setScore, setHighScore, setLinesCleared, setLevel],
   );
@@ -287,6 +304,52 @@ export default function RainBlocks() {
       return piece;
     });
   }, [clearLockDelay, isValidPosition]);
+
+  const handleHoldPiece = useCallback(() => {
+    const currentPiece = activePieceRef.current;
+    if (!currentPiece || holdUsedRef.current) {
+      return;
+    }
+    clearLockDelay();
+    const currentHold = heldPieceRef.current;
+    if (currentHold) {
+      const startCol = Math.floor(
+        (BOARD_COLUMNS - currentHold.matrix[0].length) / 2,
+      );
+      if (!isValidPosition(currentHold.matrix, 0, startCol)) {
+        return;
+      }
+      const nextActive = {
+        row: 0,
+        col: startCol,
+        shape: currentHold.matrix.map((row) => row.slice()),
+        color: currentHold.color,
+      };
+      const stored = {
+        color: currentPiece.color,
+        matrix: currentPiece.shape.map((row) => row.slice()),
+      };
+      heldPieceRef.current = stored;
+      setHeldPiece(stored);
+      activePieceRef.current = nextActive;
+      setActivePiece(nextActive);
+      setHoldUsed(true);
+      holdUsedRef.current = true;
+      return;
+    }
+
+    const stored = {
+      color: currentPiece.color,
+      matrix: currentPiece.shape.map((row) => row.slice()),
+    };
+    heldPieceRef.current = stored;
+    setHeldPiece(stored);
+    activePieceRef.current = null;
+    setActivePiece(null);
+    setHoldUsed(true);
+    holdUsedRef.current = true;
+    spawnNewPiece();
+  }, [clearLockDelay, isValidPosition, spawnNewPiece]);
 
   useEffect(() => {
     if (!gameOverMessage && !activePiece) {
@@ -343,6 +406,13 @@ export default function RainBlocks() {
           scheduleLock();
           return piece;
         });
+      } else if (
+        event.key === 'Shift' ||
+        event.key === 'c' ||
+        event.key === 'C'
+      ) {
+        event.preventDefault();
+        handleHoldPiece();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -354,6 +424,7 @@ export default function RainBlocks() {
     movePieceHorizontally,
     rotatePiece,
     scheduleLock,
+    handleHoldPiece,
   ]);
 
   useEffect(() => {
@@ -446,6 +517,39 @@ export default function RainBlocks() {
   }, [nextPiece]);
 
   useEffect(() => {
+    const holdCanvas = heldCanvasRef.current;
+    if (!holdCanvas) return;
+    const context = holdCanvas.getContext('2d');
+    context.clearRect(0, 0, PREVIEW_CANVAS_SIZE, PREVIEW_CANVAS_SIZE);
+    context.fillStyle = '#111827';
+    context.fillRect(0, 0, PREVIEW_CANVAS_SIZE, PREVIEW_CANVAS_SIZE);
+
+    if (!heldPiece) {
+      return;
+    }
+
+    const { matrix, color } = heldPiece;
+    const rows = matrix.length;
+    const cols = matrix[0].length;
+    const offsetRow = Math.floor((PREVIEW_GRID_SIZE - rows) / 2);
+    const offsetCol = Math.floor((PREVIEW_GRID_SIZE - cols) / 2);
+
+    context.fillStyle = color;
+    matrix.forEach((rowArr, r) => {
+      rowArr.forEach((cell, c) => {
+        if (cell) {
+          context.fillRect(
+            (offsetCol + c) * PREVIEW_CELL_SIZE,
+            (offsetRow + r) * PREVIEW_CELL_SIZE,
+            PREVIEW_CELL_SIZE,
+            PREVIEW_CELL_SIZE,
+          );
+        }
+      });
+    });
+  }, [heldPiece]);
+
+  useEffect(() => {
     if (!gameOverMessage) return undefined;
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
@@ -485,7 +589,8 @@ export default function RainBlocks() {
                     Restart
                   </button>
                   <p className="game-overlay-hint">
-                    Use A/D or ←/→ to move, W or ↑ to rotate
+                    Use A/D or ←/→ to move, W or ↑ to rotate, Shift or C to
+                    hold
                   </p>
                 </div>
               </div>
@@ -497,6 +602,15 @@ export default function RainBlocks() {
               <span>High Score: {highScore}</span>
               <span>Lines: {linesCleared}</span>
               <span>Level: {level}</span>
+            </div>
+            <div className="hold-container sidebar-card">
+              <p className="hold-title">Hold</p>
+              <canvas
+                ref={heldCanvasRef}
+                width={PREVIEW_CANVAS_SIZE}
+                height={PREVIEW_CANVAS_SIZE}
+                className="hold-canvas"
+              ></canvas>
             </div>
             <div className="preview-container sidebar-card">
               <p className="preview-title">Next</p>
