@@ -7,6 +7,7 @@ export const BOARD_COLUMNS = 10;
 export const BOARD_ROWS = 20;
 export const CANVAS_WIDTH = BOARD_COLUMNS * CELL_SIZE;
 export const CANVAS_HEIGHT = BOARD_ROWS * CELL_SIZE;
+const LOCK_DELAY_MS = 300;
 
 const SHAPES = [
   {
@@ -73,12 +74,27 @@ export default function RainBlocks() {
 
   const boardRef = useRef(board);
   const activePieceRef = useRef(activePiece);
+  const lockDelayRef = useRef(null);
   useEffect(() => {
     boardRef.current = board;
   }, [board]);
   useEffect(() => {
     activePieceRef.current = activePiece;
   }, [activePiece]);
+
+  const clearLockDelay = useCallback(() => {
+    if (lockDelayRef.current) {
+      clearTimeout(lockDelayRef.current);
+      lockDelayRef.current = null;
+    }
+  }, []);
+
+  useEffect(
+    () => () => {
+      clearLockDelay();
+    },
+    [clearLockDelay],
+  );
 
   const isValidPosition = useCallback((shape, row, col) => {
     for (let r = 0; r < shape.length; r += 1) {
@@ -103,6 +119,7 @@ export default function RainBlocks() {
   }, []);
 
   const spawnNewPiece = useCallback(() => {
+    clearLockDelay();
     const randomShape = SHAPES[Math.floor(Math.random() * SHAPES.length)];
     const startCol = Math.floor(
       (BOARD_COLUMNS - randomShape.matrix[0].length) / 2,
@@ -124,9 +141,10 @@ export default function RainBlocks() {
     activePieceRef.current = nextPiece;
     setActivePiece(nextPiece);
     return true;
-  }, [isValidPosition]);
+  }, [clearLockDelay, isValidPosition]);
 
   const resetGame = useCallback(() => {
+    clearLockDelay();
     const freshBoard = createEmptyBoard();
     boardRef.current = freshBoard;
     setBoard(freshBoard);
@@ -135,7 +153,7 @@ export default function RainBlocks() {
     setGameOverMessage(null);
     setScore(0);
     spawnNewPiece();
-  }, [spawnNewPiece]);
+  }, [clearLockDelay, spawnNewPiece]);
 
   const lockPiece = useCallback(
     (piece) => {
@@ -179,18 +197,38 @@ export default function RainBlocks() {
     [setScore, setHighScore],
   );
 
+  const scheduleLock = useCallback(() => {
+    if (lockDelayRef.current) {
+      return;
+    }
+    lockDelayRef.current = setTimeout(() => {
+      lockDelayRef.current = null;
+      const piece = activePieceRef.current;
+      if (!piece) {
+        return;
+      }
+      if (isValidPosition(piece.shape, piece.row + 1, piece.col)) {
+        return;
+      }
+      lockPiece(piece);
+      activePieceRef.current = null;
+      setActivePiece(null);
+    }, LOCK_DELAY_MS);
+  }, [isValidPosition, lockPiece]);
+
   const movePieceHorizontally = useCallback(
     (dir) => {
       setActivePiece((piece) => {
         if (!piece) return piece;
         const newCol = piece.col + dir;
         if (isValidPosition(piece.shape, piece.row, newCol)) {
+          clearLockDelay();
           return { ...piece, col: newCol };
         }
         return piece;
       });
     },
-    [isValidPosition],
+    [clearLockDelay, isValidPosition],
   );
 
   const rotatePiece = useCallback(() => {
@@ -200,11 +238,12 @@ export default function RainBlocks() {
         piece.shape.map((row) => row[idx]).reverse(),
       );
       if (isValidPosition(rotated, piece.row, piece.col)) {
+        clearLockDelay();
         return { ...piece, shape: rotated };
       }
       return piece;
     });
-  }, [isValidPosition]);
+  }, [clearLockDelay, isValidPosition]);
 
   useEffect(() => {
     if (!gameOverMessage && !activePiece) {
@@ -219,14 +258,15 @@ export default function RainBlocks() {
         if (!piece) return piece;
         const newRow = piece.row + 1;
         if (isValidPosition(piece.shape, newRow, piece.col)) {
+          clearLockDelay();
           return { ...piece, row: newRow };
         }
-        lockPiece(piece);
-        return null;
+        scheduleLock();
+        return piece;
       });
     }, 200);
     return () => clearInterval(intervalId);
-  }, [gameOverMessage, isValidPosition, lockPiece]);
+  }, [clearLockDelay, gameOverMessage, isValidPosition, scheduleLock]);
 
   useEffect(() => {
     if (gameOverMessage) return undefined;
@@ -247,16 +287,24 @@ export default function RainBlocks() {
           if (!piece) return piece;
           const newRow = piece.row + 1;
           if (isValidPosition(piece.shape, newRow, piece.col)) {
+            clearLockDelay();
             return { ...piece, row: newRow };
           }
-          lockPiece(piece);
-          return null;
+          scheduleLock();
+          return piece;
         });
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [gameOverMessage, movePieceHorizontally, rotatePiece, isValidPosition, lockPiece]);
+  }, [
+    clearLockDelay,
+    gameOverMessage,
+    isValidPosition,
+    movePieceHorizontally,
+    rotatePiece,
+    scheduleLock,
+  ]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -275,6 +323,29 @@ export default function RainBlocks() {
     });
 
     if (activePiece) {
+      let ghostRow = activePiece.row;
+      while (isValidPosition(activePiece.shape, ghostRow + 1, activePiece.col)) {
+        ghostRow += 1;
+      }
+      if (ghostRow !== activePiece.row) {
+        context.save();
+        context.globalAlpha = 0.35;
+        context.fillStyle = activePiece.color;
+        activePiece.shape.forEach((rowArr, r) => {
+          rowArr.forEach((cell, c) => {
+            if (cell) {
+              context.fillRect(
+                (activePiece.col + c) * CELL_SIZE,
+                (ghostRow + r) * CELL_SIZE,
+                CELL_SIZE,
+                CELL_SIZE,
+              );
+            }
+          });
+        });
+        context.restore();
+      }
+
       context.fillStyle = activePiece.color;
       activePiece.shape.forEach((rowArr, r) => {
         rowArr.forEach((cell, c) => {
@@ -289,7 +360,7 @@ export default function RainBlocks() {
         });
       });
     }
-  }, [board, activePiece]);
+  }, [activePiece, board, isValidPosition]);
 
   useEffect(() => {
     if (!gameOverMessage) return undefined;
