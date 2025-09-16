@@ -154,7 +154,7 @@ def test_get_pipeline_rejects_old_torch_versions(monkeypatch):
     monkeypatch.setattr(musicgen_backend, "pipeline", fail_pipeline)
 
     stub_torch = SimpleNamespace(
-        __version__="2.5.1",
+        __version__="2.4.1",
         cuda=SimpleNamespace(is_available=lambda: False),
     )
     monkeypatch.setattr(musicgen_backend, "torch", stub_torch)
@@ -162,4 +162,24 @@ def test_get_pipeline_rejects_old_torch_versions(monkeypatch):
     with pytest.raises(RuntimeError) as excinfo:
         musicgen_backend._get_pipeline("medium")
 
-    assert "torch>=2.6" in str(excinfo.value)
+    assert "torch>=2.5" in str(excinfo.value)
+
+
+def test_get_pipeline_allows_supported_torch_versions(monkeypatch):
+    monkeypatch.setattr(musicgen_backend, "_PIPELINE_CACHE", {})
+
+    def fake_pipeline(task, **kwargs):
+        assert task == "text-to-audio"
+        return SimpleNamespace(model=SimpleNamespace(config=SimpleNamespace()))
+
+    monkeypatch.setattr(musicgen_backend, "pipeline", fake_pipeline)
+
+    stub_torch = SimpleNamespace(
+        __version__="2.5.0",
+        cuda=SimpleNamespace(is_available=lambda: False),
+    )
+    monkeypatch.setattr(musicgen_backend, "torch", stub_torch)
+
+    pipe = musicgen_backend._get_pipeline("medium")
+
+    assert pipe is not None
