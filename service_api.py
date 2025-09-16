@@ -190,3 +190,58 @@ def list_npcs() -> List[Dict[str, Any]]:
             }
         )
     return results
+
+
+def list_lore() -> List[Dict[str, Any]]:
+    """Return metadata for notes tagged ``#lore``.
+
+    Each lore entry is parsed to gather aliases, tags, custom fields and the
+    cleaned body text. The returned items include a user-facing title derived
+    from the first alias (falling back to the filename) and a short summary
+    built from the first paragraph of the note.
+    """
+
+    vault, db_path, _ = _paths()
+    conn = sqlite3.connect(db_path)
+    try:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT c.path FROM chunks c
+            JOIN tags t ON c.id = t.chunk_id
+            WHERE lower(t.tag) = 'lore'
+            """
+        ).fetchall()
+    finally:
+        conn.close()
+
+    results: List[Dict[str, Any]] = []
+    for (rel_path,) in rows:
+        note_file = vault / rel_path
+        try:
+            parsed = parse_note(note_file)
+        except NoteParseError:
+            continue
+
+        title = parsed.aliases[0] if parsed.aliases else Path(rel_path).stem
+        summary = ""
+        if parsed.text:
+            paragraphs = [p.strip() for p in parsed.text.split("\n\n") if p.strip()]
+            if paragraphs:
+                summary = paragraphs[0]
+            else:
+                lines = [ln.strip() for ln in parsed.text.splitlines() if ln.strip()]
+                if lines:
+                    summary = lines[0]
+
+        results.append(
+            {
+                "path": rel_path,
+                "title": title,
+                "summary": summary,
+                "aliases": parsed.aliases,
+                "tags": parsed.tags,
+                "fields": parsed.fields,
+            }
+        )
+
+    return results
