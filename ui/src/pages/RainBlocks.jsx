@@ -11,6 +11,7 @@ const PREVIEW_GRID_SIZE = 4;
 const PREVIEW_CELL_SIZE = 20;
 const PREVIEW_CANVAS_SIZE = PREVIEW_GRID_SIZE * PREVIEW_CELL_SIZE;
 const LOCK_DELAY_MS = 300;
+const LINE_CLEAR_FLASH_DELAY = 150;
 const HARD_DROP_POINTS_PER_ROW = 2;
 
 const SHAPES = [
@@ -90,6 +91,8 @@ export default function RainBlocks() {
   const [linesCleared, setLinesCleared] = useState(0);
   const [level, setLevel] = useState(1);
   const [holdUsed, setHoldUsed] = useState(false);
+  const [clearingRows, setClearingRows] = useState([]);
+  const [flashPhase, setFlashPhase] = useState(false);
 
   const LINES_PER_LEVEL = 10;
 
@@ -100,6 +103,9 @@ export default function RainBlocks() {
   const lockDelayRef = useRef(null);
   const levelRef = useRef(level);
   const holdUsedRef = useRef(holdUsed);
+  const clearingRowsRef = useRef(clearingRows);
+  const flashTimerRef = useRef(null);
+  const flashToggleCountRef = useRef(0);
   useEffect(() => {
     boardRef.current = board;
   }, [board]);
@@ -118,6 +124,9 @@ export default function RainBlocks() {
   useEffect(() => {
     holdUsedRef.current = holdUsed;
   }, [holdUsed]);
+  useEffect(() => {
+    clearingRowsRef.current = clearingRows;
+  }, [clearingRows]);
 
   const clearLockDelay = useCallback(() => {
     if (lockDelayRef.current) {
@@ -126,11 +135,25 @@ export default function RainBlocks() {
     }
   }, []);
 
+  const clearFlashTimer = useCallback(() => {
+    if (flashTimerRef.current) {
+      clearTimeout(flashTimerRef.current);
+      flashTimerRef.current = null;
+    }
+  }, []);
+
   useEffect(
     () => () => {
       clearLockDelay();
     },
     [clearLockDelay],
+  );
+
+  useEffect(
+    () => () => {
+      clearFlashTimer();
+    },
+    [clearFlashTimer],
   );
 
   const isValidPosition = useCallback((shape, row, col) => {
@@ -186,6 +209,11 @@ export default function RainBlocks() {
 
   const resetGame = useCallback(() => {
     clearLockDelay();
+    clearFlashTimer();
+    setClearingRows([]);
+    clearingRowsRef.current = [];
+    setFlashPhase(false);
+    flashToggleCountRef.current = 0;
     const freshBoard = createEmptyBoard();
     boardRef.current = freshBoard;
     setBoard(freshBoard);
@@ -203,7 +231,7 @@ export default function RainBlocks() {
     nextPieceRef.current = initialNext;
     setNextPiece(initialNext);
     spawnNewPiece();
-  }, [clearLockDelay, spawnNewPiece]);
+  }, [clearFlashTimer, clearLockDelay, spawnNewPiece]);
 
   const adjustScore = useCallback(
     (delta) => {
@@ -227,6 +255,7 @@ export default function RainBlocks() {
 
   const lockPiece = useCallback(
     (piece) => {
+      let rowsToClear = [];
       setBoard((prev) => {
         const next = prev.map((row) => row.slice());
         piece.shape.forEach((rowArr, r) => {
@@ -237,35 +266,74 @@ export default function RainBlocks() {
           });
         });
 
-        let cleared = 0;
-        const filtered = next.filter((row) => {
-          const full = row.every((cell) => cell !== 0);
-          if (full) {
-            cleared += 1;
+        const found = [];
+        next.forEach((row, idx) => {
+          if (row.every((cell) => cell !== 0)) {
+            found.push(idx);
           }
-          return !full;
         });
-        while (filtered.length < BOARD_ROWS) {
-          filtered.unshift(Array(BOARD_COLUMNS).fill(0));
-        }
-        const currentLevel = levelRef.current;
-        const piecePoints = 10 * currentLevel;
-        const linePoints = cleared * 100 * currentLevel;
-        adjustScore(piecePoints + linePoints);
-        if (cleared > 0) {
-          setLinesCleared((prev) => {
-            const total = prev + cleared;
-            const newLevel = Math.min(20, Math.floor(total / LINES_PER_LEVEL) + 1);
-            setLevel(newLevel);
-            return total;
-          });
-        }
-        return filtered;
+        rowsToClear = found;
+        return next;
       });
+
+      const cleared = rowsToClear.length;
+      const currentLevel = levelRef.current;
+      const piecePoints = 10 * currentLevel;
+      const linePoints = cleared * 100 * currentLevel;
+      adjustScore(piecePoints + linePoints);
+
+      if (cleared > 0) {
+        setLinesCleared((prev) => {
+          const total = prev + cleared;
+          const newLevel = Math.min(20, Math.floor(total / LINES_PER_LEVEL) + 1);
+          setLevel(newLevel);
+          return total;
+        });
+
+        clearFlashTimer();
+        clearingRowsRef.current = rowsToClear;
+        setClearingRows(rowsToClear);
+        flashToggleCountRef.current = 0;
+        setFlashPhase(true);
+
+        const runFlashCycle = () => {
+          flashTimerRef.current = setTimeout(() => {
+            flashToggleCountRef.current += 1;
+            setFlashPhase((prevPhase) => !prevPhase);
+            if (flashToggleCountRef.current >= 2) {
+              const rows = clearingRowsRef.current;
+              const rowsSet = new Set(rows);
+              clearFlashTimer();
+              setBoard((prevBoard) => {
+                const remaining = prevBoard.filter((_, idx) => !rowsSet.has(idx));
+                while (remaining.length < BOARD_ROWS) {
+                  remaining.unshift(Array(BOARD_COLUMNS).fill(0));
+                }
+                return remaining;
+              });
+              clearingRowsRef.current = [];
+              setClearingRows([]);
+              setFlashPhase(false);
+              flashToggleCountRef.current = 0;
+              return;
+            }
+            runFlashCycle();
+          }, LINE_CLEAR_FLASH_DELAY);
+        };
+
+        runFlashCycle();
+      } else {
+        clearFlashTimer();
+        clearingRowsRef.current = [];
+        setClearingRows([]);
+        setFlashPhase(false);
+        flashToggleCountRef.current = 0;
+      }
+
       setHoldUsed(false);
       holdUsedRef.current = false;
     },
-    [adjustScore, setLinesCleared, setLevel],
+    [adjustScore, clearFlashTimer, setLinesCleared, setLevel],
   );
 
   const scheduleLock = useCallback(() => {
@@ -394,13 +462,13 @@ export default function RainBlocks() {
   ]);
 
   useEffect(() => {
-    if (!gameOverMessage && !activePiece) {
+    if (!gameOverMessage && !activePiece && clearingRows.length === 0) {
       spawnNewPiece();
     }
-  }, [activePiece, gameOverMessage, spawnNewPiece]);
+  }, [activePiece, clearingRows.length, gameOverMessage, spawnNewPiece]);
 
   useEffect(() => {
-    if (gameOverMessage) return undefined;
+    if (gameOverMessage || clearingRows.length > 0) return undefined;
     const interval = Math.max(100, 500 - (level - 1) * 20);
     const intervalId = setInterval(() => {
       setActivePiece((piece) => {
@@ -421,6 +489,7 @@ export default function RainBlocks() {
     isValidPosition,
     scheduleLock,
     level,
+    clearingRows.length,
   ]);
 
   useEffect(() => {
@@ -480,10 +549,13 @@ export default function RainBlocks() {
     context.fillStyle = '#111827';
     context.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
+    const clearingSet = new Set(clearingRows);
+
     board.forEach((row, r) => {
+      const rowIsClearing = clearingSet.has(r);
       row.forEach((cell, c) => {
         if (cell) {
-          context.fillStyle = cell;
+          context.fillStyle = rowIsClearing && flashPhase ? '#ffffff' : cell;
           context.fillRect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE);
         }
       });
@@ -527,7 +599,7 @@ export default function RainBlocks() {
         });
       });
     }
-  }, [activePiece, board, isValidPosition]);
+  }, [activePiece, board, clearingRows, flashPhase, isValidPosition]);
 
   useEffect(() => {
     const previewCanvas = previewCanvasRef.current;
