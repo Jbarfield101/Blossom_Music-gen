@@ -8,6 +8,7 @@ audio is saved as a ``.wav`` file and the absolute path is returned.
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import logging
 import threading
 import time
@@ -85,12 +86,55 @@ def _get_pipeline(model_name: str):
             else:
                 logger.info("Using device: cpu for MusicGen")
 
-            pipe_kwargs = {"model": normalized_name, "device": device}
-            if torch_dtype is not None and device == 0:
-                # Only set dtype on CUDA; CPU float16 is inefficient/unsupported
-                pipe_kwargs["torch_dtype"] = torch_dtype
+            # Respect offline env if set; avoids network calls when sandboxed.
+            offline = (
+                os.environ.get("HF_HUB_OFFLINE") == "1"
+                or os.environ.get("TRANSFORMERS_OFFLINE") == "1"
+            )
 
-            pipe = pipeline("text-to-audio", **pipe_kwargs)
+            def _build_pipe(use_safetensors: bool):
+                base_kwargs = {
+                    "model": normalized_name,
+                    "device": device,
+                    "model_kwargs": {
+                        "use_safetensors": use_safetensors,
+                        **({"local_files_only": True} if offline else {}),
+                    },
+                }
+                # Try dtype under different parameter names across versions
+                if torch_dtype is not None and device == 0:
+                    try:
+                        return pipeline(
+                            "text-to-audio",
+                            dtype=torch_dtype,
+                            **base_kwargs,
+                        )
+                    except TypeError:
+                        # Older transformers expect torch_dtype at top-level
+                        return pipeline(
+                            "text-to-audio",
+                            torch_dtype=torch_dtype,
+                            **base_kwargs,
+                        )
+                else:
+                    return pipeline("text-to-audio", **base_kwargs)
+
+            # 1) Try safetensors first
+            try:
+                pipe = _build_pipe(use_safetensors=True)
+            except Exception as e1:  # pragma: no cover - hub dependent
+                msg = str(e1)
+                needs_bin_fallback = (
+                    "does not appear to have a file named model.safetensors" in msg
+                    or "safetensors" in msg.lower()
+                )
+                if needs_bin_fallback or offline:
+                    logger.info(
+                        "Retrying MusicGen load without safetensors (offline=%s)", offline
+                    )
+                    pipe = _build_pipe(use_safetensors=False)
+                else:
+                    raise
         except Exception as exc:  # pragma: no cover - depends on HF hub
             logger.exception("Failed to load MusicGen model %s: %s", normalized_name, exc)
             raise

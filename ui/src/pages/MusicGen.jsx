@@ -105,10 +105,10 @@ export default function MusicGen() {
       const result = await invoke("generate_musicgen", {
         prompt,
         duration: Number(duration),
-        model_name: modelName,
+        modelName,
         temperature: Number(temperature),
-        force_cpu: !!forceCpu,
-        output_dir: outputDir || undefined,
+        forceCpu: !!forceCpu,
+        outputDir: outputDir || undefined,
         count: Number(count) || 1,
       });
 
@@ -286,8 +286,15 @@ export default function MusicGen() {
               className="p-sm"
               onClick={async () => {
                 try {
-                  const selected = await open({ directory: true, multiple: false });
-                  if (typeof selected === "string") setOutputDir(selected);
+                  const selected = await open({ directory: true, multiple: false, defaultPath: outputDir || undefined });
+                  if (!selected) return;
+                  if (Array.isArray(selected)) {
+                    if (selected[0]) setOutputDir(selected[0]);
+                  } else if (typeof selected === "string") {
+                    setOutputDir(selected);
+                  } else if (typeof selected === "object" && selected.path) {
+                    setOutputDir(selected.path);
+                  }
                 } catch {}
               }}
               style={{ background: "var(--button-bg)", color: "var(--text)" }}
