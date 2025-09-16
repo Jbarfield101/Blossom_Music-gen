@@ -186,11 +186,12 @@ def test_get_pipeline_retries_without_safetensors(monkeypatch):
 
     def fake_pipeline(task, **kwargs):
         assert task == "text-to-audio"
-        calls.append({
+        captured = {
             **kwargs,
             "model_kwargs": dict(kwargs.get("model_kwargs", {})),
-        })
-        if len(calls) == 1:
+        }
+        calls.append(captured)
+        if captured["model_kwargs"].get("use_safetensors"):
             raise MissingSafetensorsError("safetensors not available")
         return SimpleNamespace(model=SimpleNamespace(config=SimpleNamespace()))
 
@@ -206,9 +207,13 @@ def test_get_pipeline_retries_without_safetensors(monkeypatch):
 
     assert pipe is not None
     assert len(calls) == 2
-    assert calls[0]["use_safetensors"] is True
+    assert "use_safetensors" not in calls[0]
+    assert "dtype" not in calls[0]
+    assert "torch_dtype" not in calls[0]
     assert calls[0]["model_kwargs"]["use_safetensors"] is True
-    assert calls[1]["use_safetensors"] is False
+    assert "use_safetensors" not in calls[1]
+    assert "dtype" not in calls[1]
+    assert "torch_dtype" not in calls[1]
     assert calls[1]["model_kwargs"]["use_safetensors"] is False
 
 
@@ -217,13 +222,13 @@ def test_bin_only_models_skip_safetensors(monkeypatch):
 
     def fake_pipeline(task, **kwargs):
         assert task == "text-to-audio"
-        use_safetensors = kwargs.get("use_safetensors")
-        if use_safetensors:
-            raise OSError("legacy format requires .bin weights")
-        calls.append({
+        captured = {
             **kwargs,
             "model_kwargs": dict(kwargs.get("model_kwargs", {})),
-        })
+        }
+        if captured["model_kwargs"].get("use_safetensors"):
+            raise OSError("legacy format requires .bin weights")
+        calls.append(captured)
         return SimpleNamespace(model=SimpleNamespace(config=SimpleNamespace()))
 
     monkeypatch.setattr(musicgen_backend, "pipeline", fake_pipeline)
@@ -238,8 +243,48 @@ def test_bin_only_models_skip_safetensors(monkeypatch):
 
     assert pipe is not None
     assert len(calls) == 1
-    assert calls[0]["use_safetensors"] is False
+    assert "use_safetensors" not in calls[0]
+    assert "dtype" not in calls[0]
+    assert "torch_dtype" not in calls[0]
     assert calls[0]["model_kwargs"]["use_safetensors"] is False
+
+
+def test_get_pipeline_gpu_dtype_passed_via_model_kwargs(monkeypatch):
+    calls = []
+    torch_float32 = object()
+
+    def fake_pipeline(task, **kwargs):
+        assert task == "text-to-audio"
+        captured = {
+            **kwargs,
+            "model_kwargs": dict(kwargs.get("model_kwargs", {})),
+        }
+        calls.append(captured)
+        return SimpleNamespace(model=SimpleNamespace(config=SimpleNamespace()))
+
+    stub_torch = SimpleNamespace(
+        __version__="2.5.0",
+        float16=object(),
+        float32=torch_float32,
+        cuda=SimpleNamespace(is_available=lambda: True),
+    )
+
+    monkeypatch.setattr(musicgen_backend, "pipeline", fake_pipeline)
+    monkeypatch.setattr(musicgen_backend, "_PIPELINE_CACHE", {})
+    monkeypatch.setattr(musicgen_backend, "torch", stub_torch)
+    monkeypatch.setenv("MUSICGEN_FORCE_GPU", "0")
+    monkeypatch.delenv("MUSICGEN_FP16", raising=False)
+
+    pipe = musicgen_backend._get_pipeline("small")
+
+    assert pipe is not None
+    assert len(calls) == 1
+    call = calls[0]
+    assert "use_safetensors" not in call
+    assert "dtype" not in call
+    assert "torch_dtype" not in call
+    assert call["model_kwargs"]["use_safetensors"] is True
+    assert call["model_kwargs"]["torch_dtype"] is torch_float32
 
 
 def test_get_pipeline_rejects_old_torch_versions(monkeypatch):
