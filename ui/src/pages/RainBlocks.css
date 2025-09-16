@@ -23,6 +23,8 @@
 .scoreboard {
   display: flex;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
   width: 100%;
   font-weight: 600;
   color: var(--text);

@@ -71,16 +71,24 @@ export default function RainBlocks() {
     const stored = Number(localStorage.getItem('rainblocksHighScore'));
     return Number.isNaN(stored) ? 0 : stored;
   });
+  const [linesCleared, setLinesCleared] = useState(0);
+  const [level, setLevel] = useState(1);
+
+  const LINES_PER_LEVEL = 10;
 
   const boardRef = useRef(board);
   const activePieceRef = useRef(activePiece);
   const lockDelayRef = useRef(null);
+  const levelRef = useRef(level);
   useEffect(() => {
     boardRef.current = board;
   }, [board]);
   useEffect(() => {
     activePieceRef.current = activePiece;
   }, [activePiece]);
+  useEffect(() => {
+    levelRef.current = level;
+  }, [level]);
 
   const clearLockDelay = useCallback(() => {
     if (lockDelayRef.current) {
@@ -152,6 +160,8 @@ export default function RainBlocks() {
     setActivePiece(null);
     setGameOverMessage(null);
     setScore(0);
+    setLinesCleared(0);
+    setLevel(1);
     spawnNewPiece();
   }, [clearLockDelay, spawnNewPiece]);
 
@@ -178,23 +188,32 @@ export default function RainBlocks() {
         while (filtered.length < BOARD_ROWS) {
           filtered.unshift(Array(BOARD_COLUMNS).fill(0));
         }
+        const currentLevel = levelRef.current;
+        const piecePoints = 10 * currentLevel;
+        const linePoints = cleared * 100 * currentLevel;
+        setScore((prevScore) => {
+          const newScore = prevScore + piecePoints + linePoints;
+          setHighScore((prevHigh) => {
+            const newHigh = Math.max(prevHigh, newScore);
+            if (newHigh !== prevHigh) {
+              localStorage.setItem('rainblocksHighScore', newHigh);
+            }
+            return newHigh;
+          });
+          return newScore;
+        });
         if (cleared > 0) {
-          setScore((prevScore) => {
-            const newScore = prevScore + cleared * 100;
-            setHighScore((prevHigh) => {
-              const newHigh = Math.max(prevHigh, newScore);
-              if (newHigh !== prevHigh) {
-                localStorage.setItem('rainblocksHighScore', newHigh);
-              }
-              return newHigh;
-            });
-            return newScore;
+          setLinesCleared((prev) => {
+            const total = prev + cleared;
+            const newLevel = Math.min(20, Math.floor(total / LINES_PER_LEVEL) + 1);
+            setLevel(newLevel);
+            return total;
           });
         }
         return filtered;
       });
     },
-    [setScore, setHighScore],
+    [setScore, setHighScore, setLinesCleared, setLevel],
   );
 
   const scheduleLock = useCallback(() => {
@@ -253,6 +272,7 @@ export default function RainBlocks() {
 
   useEffect(() => {
     if (gameOverMessage) return undefined;
+    const interval = Math.max(100, 500 - (level - 1) * 20);
     const intervalId = setInterval(() => {
       setActivePiece((piece) => {
         if (!piece) return piece;
@@ -264,9 +284,15 @@ export default function RainBlocks() {
         scheduleLock();
         return piece;
       });
-    }, 200);
+    }, interval);
     return () => clearInterval(intervalId);
-  }, [clearLockDelay, gameOverMessage, isValidPosition, scheduleLock]);
+  }, [
+    clearLockDelay,
+    gameOverMessage,
+    isValidPosition,
+    scheduleLock,
+    level,
+  ]);
 
   useEffect(() => {
     if (gameOverMessage) return undefined;
@@ -380,6 +406,8 @@ export default function RainBlocks() {
         <div className="scoreboard">
           <span>Score: {score}</span>
           <span>High Score: {highScore}</span>
+          <span>Lines: {linesCleared}</span>
+          <span>Level: {level}</span>
         </div>
         <div className="game-board">
           <canvas
@@ -393,6 +421,8 @@ export default function RainBlocks() {
               <div className="game-overlay-content">
                 <p className="game-overlay-title">{gameOverMessage}</p>
                 <p className="game-overlay-text">Score: {score}</p>
+                <p className="game-overlay-text">Lines: {linesCleared}</p>
+                <p className="game-overlay-text">Level: {level}</p>
                 <p className="game-overlay-text">High Score: {highScore}</p>
                 <p className="game-overlay-text">Try again?</p>
                 <button
