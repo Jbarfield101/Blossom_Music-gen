@@ -77,3 +77,37 @@ def test_generate_music_clamps_to_model_limit(monkeypatch, tmp_path, caplog):
     assert gpu_pipe.calls[0] == 10
     assert cpu_pipe.calls[0] == 10
     assert any("truncating" in record.message for record in caplog.records)
+
+
+def test_get_pipeline_retries_without_safetensors(monkeypatch):
+    calls = []
+
+    class MissingSafetensorsError(RuntimeError):
+        pass
+
+    def fake_pipeline(task, **kwargs):
+        assert task == "text-to-audio"
+        calls.append({
+            **kwargs,
+            "model_kwargs": dict(kwargs.get("model_kwargs", {})),
+        })
+        if len(calls) == 1:
+            raise MissingSafetensorsError("safetensors not available")
+        return SimpleNamespace(model=SimpleNamespace(config=SimpleNamespace()))
+
+    monkeypatch.setattr(musicgen_backend, "pipeline", fake_pipeline)
+    monkeypatch.setattr(musicgen_backend, "_PIPELINE_CACHE", {})
+    monkeypatch.setattr(
+        musicgen_backend,
+        "torch",
+        SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: False)),
+    )
+
+    pipe = musicgen_backend._get_pipeline("small")
+
+    assert pipe is not None
+    assert len(calls) == 2
+    assert calls[0]["use_safetensors"] is True
+    assert calls[0]["model_kwargs"]["use_safetensors"] is True
+    assert calls[1]["use_safetensors"] is False
+    assert calls[1]["model_kwargs"]["use_safetensors"] is False

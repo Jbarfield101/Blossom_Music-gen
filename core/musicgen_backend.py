@@ -118,6 +118,7 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
                     "model": normalized_name,
                     "device": device,
                     "trust_remote_code": True,
+                    "use_safetensors": use_safetensors,
                     "model_kwargs": {
                         "use_safetensors": use_safetensors,
                         # Avoid FlashAttention-related CUDA issues on some builds
