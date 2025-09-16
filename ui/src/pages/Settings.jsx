@@ -110,14 +110,40 @@ export default function Settings() {
       const path = await getConfig(VAULT_KEY);
       setVault(path || "");
     };
-    load();
-    const unlistenModels = listen("settings::models", () => load());
-    const unlistenDevices = listen("settings::devices", () => load());
-    const unlistenHotwords = listen("settings::hotwords", () => load());
+    const reload = () =>
+      load().catch((err) => {
+        console.error("Failed to refresh settings data", err);
+      });
+
+    reload();
+    let active = true;
+    const cleanups = [];
+
+    const registerListener = async (eventName) => {
+      try {
+        const unlisten = await listen(eventName, reload);
+        if (active) {
+          cleanups.push(unlisten);
+        } else {
+          unlisten();
+        }
+      } catch (err) {
+        console.error(`Failed to register listener for ${eventName}`, err);
+      }
+    };
+
+    registerListener("settings::models");
+    registerListener("settings::devices");
+    registerListener("settings::hotwords");
     return () => {
-      unlistenModels.then((f) => f());
-      unlistenDevices.then((f) => f());
-      unlistenHotwords.then((f) => f());
+      active = false;
+      cleanups.forEach((unlisten) => {
+        try {
+          unlisten();
+        } catch (err) {
+          console.error("Failed to unregister settings listener", err);
+        }
+      });
     };
   }, []);
 
