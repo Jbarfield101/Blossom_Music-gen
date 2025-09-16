@@ -143,22 +143,21 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
                 else:
                     return pipeline("text-to-audio", **base_kwargs)
 
-            # 1) Try safetensors first
+            # 1) Try safetensors first; on any failure, attempt a .bin fallback
             try:
                 pipe = _build_pipe(use_safetensors=True)
             except Exception as e1:  # pragma: no cover - hub dependent
-                msg = str(e1)
-                needs_bin_fallback = (
-                    "does not appear to have a file named model.safetensors" in msg
-                    or "safetensors" in msg.lower()
+                logger.info(
+                    "MusicGen load with safetensors failed (%s); retrying with .bin weights",
+                    type(e1).__name__,
                 )
-                if needs_bin_fallback or offline:
-                    logger.info(
-                        "Retrying MusicGen load without safetensors (offline=%s)", offline
-                    )
+                try:
                     pipe = _build_pipe(use_safetensors=False)
-                else:
-                    raise
+                except Exception as e2:
+                    # Surface both errors for clearer diagnosis
+                    raise RuntimeError(
+                        f"MusicGen load failed. Safetensors error: {e1}\nBin weights error: {e2}"
+                    )
             # Patch ambiguous text config in newer Transformers MusicGen variants
             try:
                 model = getattr(pipe, "model", None)
