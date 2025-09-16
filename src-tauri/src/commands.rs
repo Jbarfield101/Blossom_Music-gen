@@ -34,6 +34,8 @@ pub async fn generate_musicgen(
     output_name: Option<String>,
     // Optional: number of samples to generate
     count: Option<u32>,
+    // Optional: path to a melody conditioning clip
+    melody_path: Option<String>,
 ) -> Result<GenResult, String> {
     // Base output directory
     let out_base = if let Some(dir) = output_dir.clone() {
@@ -45,6 +47,18 @@ pub async fn generate_musicgen(
     // Use OS-native separators so it matches appDataDir() prefix on Windows
     let out_dir_str = out_base.to_string_lossy().to_string();
     let times: u32 = count.unwrap_or(1).max(1).min(10);
+    let melody_literal = match melody_path {
+        Some(path) => {
+            if path.trim().is_empty() {
+                "None".to_string()
+            } else {
+                serde_json::to_string(&path)
+                    .map_err(|e| format!("Failed to encode melody path: {}", e))?
+            }
+        }
+        None => "None".to_string(),
+    };
+
     let code = format!(
         r#"import sys
 import core.musicgen_backend as m
@@ -60,7 +74,7 @@ try:
         dev = 'gpu'
     paths = []
     for _ in range({times}):
-        p = m.generate_music({prompt:?}, {duration}, {model_name:?}, {temperature}, {out_dir:?})
+        p = m.generate_music({prompt:?}, {duration}, {model_name:?}, {temperature}, {out_dir:?}, melody_path={melody})
         paths.append(p)
     path = paths[0] if paths else ""
     status = getattr(m, 'get_last_status', lambda: {{}})()
@@ -79,6 +93,7 @@ except Exception as exc:
         out_dir = out_dir_str,
         forced_cpu = if force_cpu.unwrap_or(false) { "True" } else { "False" },
         times = times,
+        melody = melody_literal,
     );
 
     let output = async_runtime::spawn_blocking(move || {

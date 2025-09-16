@@ -15,9 +15,10 @@ import time
 from typing import Dict, Optional
 
 try:  # pragma: no cover - optional dependency
-    from scipy.io.wavfile import write as write_wav
+    from scipy.io.wavfile import write as write_wav, read as read_wav
 except Exception:  # pragma: no cover - handled gracefully
     write_wav = None  # type: ignore
+    read_wav = None  # type: ignore
 
 try:  # pragma: no cover - optional dependency
     from transformers import pipeline
@@ -28,6 +29,11 @@ try:  # pragma: no cover - optional dependency
     import torch
 except Exception:  # pragma: no cover - handled gracefully
     torch = None  # type: ignore
+
+try:  # pragma: no cover - optional dependency
+    import numpy as np  # type: ignore
+except Exception:  # pragma: no cover - handled gracefully
+    np = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -230,6 +236,7 @@ def generate_music(
     model_name: str,
     temperature: float,
     output_dir: str,
+    melody_path: Optional[str] = None,
 ) -> str:
     """Generate audio from ``prompt`` using a MusicGen model.
 
@@ -246,12 +253,31 @@ def generate_music(
     output_dir:
         Base directory where the resulting ``.wav`` file will be written.  The
         audio is saved under ``<output_dir>/musicgen/``.
+    melody_path:
+        Optional path to a melody reference clip. Required when using the
+        ``facebook/musicgen-melody`` model.
 
     Returns
     -------
     str
         Absolute path to the written ``.wav`` file.
     """
+
+    normalized_model = MODEL_NAME_ALIASES.get(model_name, model_name)
+    melody_reference = melody_path if isinstance(melody_path, str) and melody_path.strip() else None
+
+    if normalized_model == "facebook/musicgen-melody" and melody_reference is None:
+        raise ValueError(
+            "The MusicGen melody model requires a reference audio clip. "
+            "Provide melody_path when using facebook/musicgen-melody."
+        )
+
+    if normalized_model != "facebook/musicgen-melody" and melody_reference is not None:
+        logger.warning(
+            "Melody reference provided but %s does not support conditioning; ignoring clip.",
+            normalized_model,
+        )
+        melody_reference = None
 
     try:
         pipe = _get_pipeline(model_name)
@@ -262,6 +288,78 @@ def generate_music(
         raise RuntimeError(
             "Missing dependency: scipy is required for writing .wav files.\n"
             "Install with: pip install --upgrade scipy"
+        )
+
+    melody_audio = None
+    melody_sample_rate: Optional[int] = None
+    if melody_reference is not None and normalized_model == "facebook/musicgen-melody":
+        if read_wav is None:
+            raise RuntimeError(
+                "Melody conditioning requires scipy.io.wavfile.read. "
+                "Install scipy to enable the melody model."
+            )
+        if np is None:
+            raise RuntimeError(
+                "Melody conditioning requires numpy. Install numpy to enable the melody model."
+            )
+
+        melody_file = Path(melody_reference).expanduser()
+        if not melody_file.exists():
+            raise RuntimeError(f"Melody reference not found: {melody_file}")
+
+        try:
+            sample_rate, waveform = read_wav(str(melody_file))
+        except Exception as exc:  # pragma: no cover - file format dependent
+            raise RuntimeError(
+                f"Failed to load melody reference '{melody_file}': {exc}"
+            ) from exc
+
+        if not isinstance(sample_rate, (int, float)) or sample_rate <= 0:
+            raise RuntimeError(
+                f"Melody reference '{melody_file}' reported an invalid sampling rate: {sample_rate}"
+            )
+
+        if np is None:  # pragma: no cover - defensive guard
+            raise RuntimeError(
+                "Melody conditioning requires numpy to process the reference clip."
+            )
+
+        array = np.asarray(waveform)
+        if array.size == 0:
+            raise RuntimeError(f"Melody reference '{melody_file}' is empty.")
+
+        if np.issubdtype(array.dtype, np.integer):
+            if array.dtype == np.uint8:
+                array = array.astype(np.float32)
+                array = (array - 128.0) / 128.0
+            else:
+                info = np.iinfo(array.dtype)
+                max_abs = float(max(abs(info.min), info.max))
+                if max_abs <= 0:
+                    raise RuntimeError(
+                        f"Melody reference '{melody_file}' uses unsupported integer dtype {array.dtype}."
+                    )
+                array = array.astype(np.float32)
+                array /= max_abs
+        else:
+            array = array.astype(np.float32, copy=False)
+
+        if np.max(np.abs(array)) > 1.0:
+            array = np.clip(array, -1.0, 1.0)
+
+        max_samples = int(float(sample_rate) * 30.0)
+        if max_samples > 0 and array.shape[0] > max_samples:
+            array = array[:max_samples]
+
+        array = np.ascontiguousarray(array)
+        melody_audio = array
+        melody_sample_rate = int(float(sample_rate))
+
+        logger.info(
+            "Loaded melody conditioning clip %s (sr=%s, duration=%.2fs)",
+            melody_file,
+            melody_sample_rate,
+            array.shape[0] / melody_sample_rate if melody_sample_rate else 0.0,
         )
 
     approx_tokens = max(1, int(duration * 50))
@@ -307,6 +405,13 @@ def generate_music(
     initial_device = "gpu" if (torch is not None and getattr(torch.cuda, "is_available", lambda: False)()) else "cpu"
     _LAST_STATUS.update({"device": initial_device, "fallback": False, "reason": None})
 
+    audio_kwargs = {}
+    if melody_audio is not None and melody_sample_rate is not None:
+        audio_kwargs = {
+            "audio": melody_audio,
+            "sampling_rate": melody_sample_rate,
+        }
+
     def _gen_once(p, t):
         try:
             logger.debug("Calling MusicGen pipeline (tokens=%s) with generate_kwargs", t)
@@ -317,6 +422,7 @@ def generate_music(
                     "do_sample": True,
                     "temperature": temperature,
                 },
+                **audio_kwargs,
             )
         except TypeError:
             try:
@@ -326,6 +432,7 @@ def generate_music(
                     max_new_tokens=t,
                     do_sample=True,
                     temperature=temperature,
+                    **audio_kwargs,
                 )
             except TypeError:
                 logger.info("Pipeline rejected max_new_tokens; retrying with max_length (tokens=%s)", t)
@@ -334,6 +441,7 @@ def generate_music(
                     max_length=t,
                     do_sample=True,
                     temperature=temperature,
+                    **audio_kwargs,
                 )
 
     def _is_memory_error(exc: Exception) -> bool:

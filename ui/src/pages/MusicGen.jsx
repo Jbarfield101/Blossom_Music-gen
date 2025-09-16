@@ -22,6 +22,7 @@ export default function MusicGen() {
   const [name, setName] = useState("");
   const [audioSrc, setAudioSrc] = useState(null);
   const [audios, setAudios] = useState([]); // [{ url, path }]
+  const [melodyPath, setMelodyPath] = useState("");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState(null);
   const [device, setDevice] = useState("");
@@ -33,7 +34,12 @@ export default function MusicGen() {
   const [outputDirError, setOutputDirError] = useState("");
   const [count, setCount] = useState(1);
   const [fallbackMsg, setFallbackMsg] = useState("");
+  const [formError, setFormError] = useState("");
   const storeRef = useRef(null);
+
+  const melodyFileName = melodyPath
+    ? melodyPath.split(/[\\/]/).filter(Boolean).pop() || melodyPath
+    : "";
 
   // Load persisted outputDir on mount
   useEffect(() => {
@@ -95,8 +101,28 @@ export default function MusicGen() {
     })();
   }, [count]);
 
+  useEffect(() => {
+    if (modelName === "melody") {
+      setFormError(
+        melodyPath
+          ? ""
+          : "Select a melody clip before generating with the melody model."
+      );
+    } else {
+      setFormError("");
+    }
+  }, [modelName, melodyPath]);
+
   const generate = async (e) => {
     e.preventDefault();
+    if (modelName === "melody" && !melodyPath) {
+      const message = "Select a melody clip before generating with the melody model.";
+      setFormError(message);
+      setError(null);
+      return;
+    }
+    setFormError("");
+    setError(null);
     setGenerating(true);
     // cleanup previous blob URLs
     if (audios?.length) {
@@ -105,7 +131,7 @@ export default function MusicGen() {
     }
     setAudioSrc(null);
     setDevice(forceCpu ? "cpu" : "");
-    setError(null);
+    setFallbackMsg("");
     try {
       const result = await invoke("generate_musicgen", {
         prompt,
@@ -118,6 +144,7 @@ export default function MusicGen() {
         outputDir: outputDir || undefined,
         outputName: name || undefined,
         count: Number(count) || 1,
+        melodyPath: modelName === "melody" ? melodyPath || undefined : undefined,
       });
 
       const path = typeof result === "string" ? result : result?.path;
@@ -260,7 +287,19 @@ export default function MusicGen() {
             id="model-select"
             className="mt-sm p-sm"
             value={modelName}
-            onChange={(e) => setModelName(e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value;
+              setModelName(value);
+              if (value === "melody") {
+                setFormError(
+                  melodyPath
+                    ? ""
+                    : "Select a melody clip before generating with the melody model."
+                );
+              } else {
+                setFormError("");
+              }
+            }}
           >
             {MODEL_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -269,9 +308,83 @@ export default function MusicGen() {
             ))}
           </select>
         </label>
+        {modelName === "melody" && (
+          <div className="mb-md">
+            <div style={{ marginBottom: "0.25rem" }}>Melody Reference</div>
+            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="p-sm"
+                onClick={async () => {
+                  try {
+                    const res = await open({
+                      multiple: false,
+                      filters: [
+                        {
+                          name: "Audio Clip",
+                          extensions: ["wav", "mp3"],
+                        },
+                      ],
+                    });
+                    if (!res) return;
+                    const selected = Array.isArray(res)
+                      ? typeof res[0] === "string"
+                        ? res[0]
+                        : res[0]?.path
+                      : typeof res === "string"
+                      ? res
+                      : res?.path;
+                    if (selected) {
+                      setMelodyPath(selected);
+                      setFormError("");
+                    } else {
+                      const message = "Could not determine the selected file. Please try again.";
+                      console.error(message, res);
+                      setFormError(message);
+                    }
+                  } catch (err) {
+                    console.error("Melody picker failed", err);
+                    setFormError("Failed to open the file picker. Please try again.");
+                  }
+                }}
+                style={{ background: "var(--button-bg)", color: "var(--text)" }}
+              >
+                {melodyPath ? "Change Clip" : "Choose Clip"}
+              </button>
+              {melodyPath ? (
+                <span style={{ fontSize: "0.9rem", wordBreak: "break-all" }}>
+                  {melodyFileName}
+                </span>
+              ) : (
+                <span style={{ fontSize: "0.9rem", opacity: 0.7 }}>No clip selected</span>
+              )}
+              {melodyPath && (
+                <button
+                  type="button"
+                  className="p-sm"
+                  onClick={() => {
+                    setMelodyPath("");
+                    setFormError("Select a melody clip before generating with the melody model.");
+                  }}
+                  style={{ background: "var(--button-bg)", color: "var(--text)" }}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            <div style={{ marginTop: "0.25rem", fontSize: "0.85rem", opacity: 0.7 }}>
+              A WAV or MP3 clip is required for melody guidance. Only the first 30 seconds will be used.
+            </div>
+            {formError && (
+              <div className="error" style={{ marginTop: "0.5rem" }}>
+                {formError}
+              </div>
+            )}
+          </div>
+        )}
         <label className="mb-md">
-          Temperature: {temperature}
-          <input
+        Temperature: {temperature}
+        <input
             type="range"
             min="0"
             max="2"
@@ -385,7 +498,9 @@ export default function MusicGen() {
         </div>
         <button
           type="submit"
-          disabled={generating}
+          disabled={
+            generating || (modelName === "melody" && !melodyPath)
+          }
           className="mt-md p-sm"
           style={{ background: "var(--button-bg)", color: "var(--text)" }}
         >
