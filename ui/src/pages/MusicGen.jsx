@@ -290,16 +290,24 @@ export default function MusicGen() {
               className="p-sm"
               onClick={async () => {
                 try {
-                  const selected = await open({ directory: true, multiple: false, defaultPath: outputDir || undefined });
-                  if (!selected) return;
-                  if (Array.isArray(selected)) {
-                    if (selected[0]) setOutputDir(selected[0]);
-                  } else if (typeof selected === "string") {
-                    setOutputDir(selected);
-                  } else if (typeof selected === "object" && selected.path) {
-                    setOutputDir(selected.path);
+                  const res = await open({ directory: true, multiple: false, defaultPath: outputDir || undefined });
+                  if (!res) return;
+                  const path =
+                    Array.isArray(res)
+                      ? typeof res[0] === "string"
+                        ? res[0]
+                        : res[0]?.path
+                      : typeof res === "string"
+                      ? res
+                      : res?.path;
+                  if (path) {
+                    setOutputDir(path);
+                  } else {
+                    console.error("Failed to determine output directory from selection", res);
                   }
-                } catch {}
+                } catch (err) {
+                  console.error("Failed to open directory picker", err);
+                }
               }}
               style={{ background: "var(--button-bg)", color: "var(--text)" }}
             >
