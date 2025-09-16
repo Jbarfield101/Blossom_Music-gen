@@ -11,6 +11,7 @@ const PREVIEW_GRID_SIZE = 4;
 const PREVIEW_CELL_SIZE = 20;
 const PREVIEW_CANVAS_SIZE = PREVIEW_GRID_SIZE * PREVIEW_CELL_SIZE;
 const LOCK_DELAY_MS = 300;
+const HARD_DROP_POINTS_PER_ROW = 2;
 
 const SHAPES = [
   {
@@ -204,6 +205,26 @@ export default function RainBlocks() {
     spawnNewPiece();
   }, [clearLockDelay, spawnNewPiece]);
 
+  const adjustScore = useCallback(
+    (delta) => {
+      if (delta === 0) {
+        return;
+      }
+      setScore((prevScore) => {
+        const newScore = prevScore + delta;
+        setHighScore((prevHigh) => {
+          const newHigh = Math.max(prevHigh, newScore);
+          if (newHigh !== prevHigh) {
+            localStorage.setItem('rainblocksHighScore', newHigh);
+          }
+          return newHigh;
+        });
+        return newScore;
+      });
+    },
+    [setHighScore, setScore],
+  );
+
   const lockPiece = useCallback(
     (piece) => {
       setBoard((prev) => {
@@ -230,17 +251,7 @@ export default function RainBlocks() {
         const currentLevel = levelRef.current;
         const piecePoints = 10 * currentLevel;
         const linePoints = cleared * 100 * currentLevel;
-        setScore((prevScore) => {
-          const newScore = prevScore + piecePoints + linePoints;
-          setHighScore((prevHigh) => {
-            const newHigh = Math.max(prevHigh, newScore);
-            if (newHigh !== prevHigh) {
-              localStorage.setItem('rainblocksHighScore', newHigh);
-            }
-            return newHigh;
-          });
-          return newScore;
-        });
+        adjustScore(piecePoints + linePoints);
         if (cleared > 0) {
           setLinesCleared((prev) => {
             const total = prev + cleared;
@@ -254,7 +265,7 @@ export default function RainBlocks() {
       setHoldUsed(false);
       holdUsedRef.current = false;
     },
-    [setScore, setHighScore, setLinesCleared, setLevel],
+    [adjustScore, setLinesCleared, setLevel],
   );
 
   const scheduleLock = useCallback(() => {
@@ -351,6 +362,37 @@ export default function RainBlocks() {
     spawnNewPiece();
   }, [clearLockDelay, isValidPosition, spawnNewPiece]);
 
+  const handleHardDrop = useCallback(() => {
+    const currentPiece = activePieceRef.current;
+    if (!currentPiece) {
+      return;
+    }
+    clearLockDelay();
+    let dropRow = currentPiece.row;
+    while (isValidPosition(currentPiece.shape, dropRow + 1, currentPiece.col)) {
+      dropRow += 1;
+    }
+    const distance = dropRow - currentPiece.row;
+    if (distance > 0) {
+      const dropBonus =
+        distance * levelRef.current * HARD_DROP_POINTS_PER_ROW;
+      adjustScore(dropBonus);
+    }
+    const droppedPiece = {
+      ...currentPiece,
+      row: dropRow,
+    };
+    lockPiece(droppedPiece);
+    activePieceRef.current = null;
+    setActivePiece(null);
+  }, [
+    adjustScore,
+    clearLockDelay,
+    isValidPosition,
+    lockPiece,
+    setActivePiece,
+  ]);
+
   useEffect(() => {
     if (!gameOverMessage && !activePiece) {
       spawnNewPiece();
@@ -406,6 +448,9 @@ export default function RainBlocks() {
           scheduleLock();
           return piece;
         });
+      } else if (event.code === 'Space' || event.key === ' ') {
+        event.preventDefault();
+        handleHardDrop();
       } else if (
         event.key === 'Shift' ||
         event.key === 'c' ||
@@ -425,6 +470,7 @@ export default function RainBlocks() {
     rotatePiece,
     scheduleLock,
     handleHoldPiece,
+    handleHardDrop,
   ]);
 
   useEffect(() => {
@@ -589,8 +635,8 @@ export default function RainBlocks() {
                     Restart
                   </button>
                   <p className="game-overlay-hint">
-                    Use A/D or ←/→ to move, W or ↑ to rotate, Shift or C to
-                    hold
+                    Use A/D or ←/→ to move, W or ↑ to rotate, S or ↓ to drop
+                    faster, Space to slam, Shift or C to hold
                   </p>
                 </div>
               </div>
