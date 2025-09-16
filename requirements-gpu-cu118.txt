@@ -1,0 +1,25 @@
+--extra-index-url https://download.pytorch.org/whl/cu118
+
+# Core ML stack with CUDA 11.8 wheels
+torch>=2.1
+torchaudio>=2.1
+
+# Project dependencies
+numpy
+scipy>=1.10
+soundfile>=0.12
+piper-tts>=1.2
+resampy
+webrtcvad
+faster-whisper
+pytest
+requests
+faiss-cpu
+sentence-transformers
+watchfiles
+discord.py[voice]==2.3.2
+onnxruntime
+mido
+transformers>=4.39
+accelerate>=0.28
+

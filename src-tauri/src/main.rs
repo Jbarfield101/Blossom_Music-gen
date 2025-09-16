@@ -30,7 +30,7 @@ mod config;
 mod musiclang;
 mod util;
 use crate::util::list_from_dir;
-use commands::generate_musicgen;
+use crate::commands::{generate_musicgen, musicgen_env};
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 struct Npc {
@@ -1075,6 +1075,8 @@ fn main() {
             piper_test,
             musicgen_test,
             generate_musicgen,
+            musicgen_env,
+            commands::read_file_bytes,
             list_llm,
             set_llm,
             npc_list,

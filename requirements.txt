@@ -1,5 +1,5 @@
 numpy
-scipy
+scipy>=1.10
 
 # Piper TTS
 soundfile>=0.12
@@ -18,9 +18,11 @@ watchfiles
 discord.py[voice]==2.3.2
 
 # Optional: phrase models and MIDI support
-torch
+# CPU builds by default from PyPI. For NVIDIA GPU builds see
+# requirements-gpu-cu121.txt or requirements-gpu-cu118.txt.
+torch>=2.3
+torchaudio>=2.3  # for decoding and saving audio
 onnxruntime
 mido
-transformers
-accelerate
-torchaudio  # for decoding and saving audio
+transformers>=4.39
+accelerate>=0.28

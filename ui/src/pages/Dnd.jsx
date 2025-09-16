@@ -365,11 +365,16 @@ export default function Dnd() {
                 <div>
                   <audio controls src={piperAudio} />
                   <div>
-                    <a href={piperPath || piperAudio} download="piper.wav">
+                    <a
+                      href={
+                        piperAudio || (piperPath ? convertFileSrc(piperPath) : "")
+                      }
+                      download="piper.wav"
+                    >
                       Download
                     </a>
                   </div>
-                </div>
+                  </div>
               )}
             </div>
           )}
