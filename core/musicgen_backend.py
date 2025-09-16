@@ -61,7 +61,7 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
             "To enable MusicGen, install:\n"
             "  pip install --upgrade transformers accelerate\n"
             "And install PyTorch (CPU-only example):\n"
-            "  pip install --index-url https://download.pytorch.org/whl/cpu torch torchaudio\n"
+            "  pip install --index-url https://download.pytorch.org/whl/cpu \"torch>=2.6\" \"torchaudio>=2.6\"\n"
             "Also ensure scipy is installed for writing WAV files."
         )
 
