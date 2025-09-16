@@ -3,6 +3,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import musicgen_backend
@@ -141,3 +143,23 @@ def test_bin_only_models_skip_safetensors(monkeypatch):
     assert len(calls) == 1
     assert calls[0]["use_safetensors"] is False
     assert calls[0]["model_kwargs"]["use_safetensors"] is False
+
+
+def test_get_pipeline_rejects_old_torch_versions(monkeypatch):
+    monkeypatch.setattr(musicgen_backend, "_PIPELINE_CACHE", {})
+
+    def fail_pipeline(*_args, **_kwargs):
+        raise AssertionError("pipeline should not be constructed under unsupported torch")
+
+    monkeypatch.setattr(musicgen_backend, "pipeline", fail_pipeline)
+
+    stub_torch = SimpleNamespace(
+        __version__="2.5.1",
+        cuda=SimpleNamespace(is_available=lambda: False),
+    )
+    monkeypatch.setattr(musicgen_backend, "torch", stub_torch)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        musicgen_backend._get_pipeline("medium")
+
+    assert "torch>=2.6" in str(excinfo.value)

@@ -56,6 +56,38 @@ def get_last_status() -> Dict[str, object]:
     return dict(_LAST_STATUS)
 _CACHE_LOCK = threading.Lock()
 
+_PYTORCH_UPGRADE_GUIDANCE = (
+    "To enable MusicGen, install:\n"
+    "  pip install --upgrade transformers accelerate\n"
+    "And install PyTorch (CPU-only example):\n"
+    "  pip install --index-url https://download.pytorch.org/whl/cpu \"torch>=2.6\" \"torchaudio>=2.6\"\n"
+    "Also ensure scipy is installed for writing WAV files."
+)
+
+
+def _assert_supported_torch_version() -> None:
+    if torch is None:  # pragma: no cover - dependency missing
+        return
+
+    version = getattr(torch, "__version__", None)
+    if not isinstance(version, str):
+        return
+
+    base_version = version.split("+", 1)[0]
+    parts = base_version.split(".")
+    try:
+        major = int(parts[0])
+        minor = int(parts[1]) if len(parts) > 1 else 0
+    except (ValueError, IndexError):
+        return
+
+    if (major, minor) < (2, 6):
+        raise RuntimeError(
+            "Unsupported PyTorch version detected: "
+            f"{version}. MusicGen requires torch>=2.6.\n"
+            + _PYTORCH_UPGRADE_GUIDANCE
+        )
+
 
 def _get_pipeline(model_name: str, device_override: Optional[int] = None):
     """Return a cached ``transformers`` pipeline for ``model_name``.
@@ -65,13 +97,10 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
     """
     if pipeline is None:  # pragma: no cover - dependency missing
         raise RuntimeError(
-            "Missing dependency: transformers.\n"
-            "To enable MusicGen, install:\n"
-            "  pip install --upgrade transformers accelerate\n"
-            "And install PyTorch (CPU-only example):\n"
-            "  pip install --index-url https://download.pytorch.org/whl/cpu \"torch>=2.6\" \"torchaudio>=2.6\"\n"
-            "Also ensure scipy is installed for writing WAV files."
+            "Missing dependency: transformers.\n" + _PYTORCH_UPGRADE_GUIDANCE
         )
+
+    _assert_supported_torch_version()
 
     normalized_name = MODEL_NAME_ALIASES.get(model_name, model_name)
 
