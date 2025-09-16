@@ -9,6 +9,7 @@ from typing import List, Tuple
 import numpy as np
 
 from .embedding import embed_texts, DEFAULT_MODEL, DEFAULT_INDEX_PATH
+from .chunker import ensure_chunk_tables
 
 
 def search_chunks(
@@ -51,6 +52,10 @@ def search_chunks(
 
     conn = sqlite3.connect(db_path)
     try:
+        ensure_chunk_tables(conn)
+        cols = [row[1] for row in conn.execute("PRAGMA table_info(chunks)")]
+        if "vector_id" not in cols:
+            return []
         if tags:
             placeholders = ",".join("?" * len(tags))
             sql = (
