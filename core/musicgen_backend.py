@@ -39,6 +39,14 @@ MODEL_NAME_ALIASES: Dict[str, str] = {
     "melody": "facebook/musicgen-melody",
 }
 
+# Models that are only distributed with legacy .bin weights. Attempting to load
+# them with safetensors first just produces a noisy OSError, so skip straight to
+# the .bin branch for these identifiers.
+BIN_ONLY_MODELS = {
+    "facebook/musicgen-medium",
+    "facebook/musicgen-melody",
+}
+
 # Cache for loaded MusicGen pipelines.  Access is guarded by a lock since model
 # loading may be expensive and not thread safe.
 _PIPELINE_CACHE: Dict[str, object] = {}
@@ -144,21 +152,24 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
                 else:
                     return pipeline("text-to-audio", **base_kwargs)
 
-            # 1) Try safetensors first; on any failure, attempt a .bin fallback
-            try:
-                pipe = _build_pipe(use_safetensors=True)
-            except Exception as e1:  # pragma: no cover - hub dependent
-                logger.info(
-                    "MusicGen load with safetensors failed (%s); retrying with .bin weights",
-                    type(e1).__name__,
-                )
+            if normalized_name in BIN_ONLY_MODELS:
+                pipe = _build_pipe(use_safetensors=False)
+            else:
+                # 1) Try safetensors first; on any failure, attempt a .bin fallback
                 try:
-                    pipe = _build_pipe(use_safetensors=False)
-                except Exception as e2:
-                    # Surface both errors for clearer diagnosis
-                    raise RuntimeError(
-                        f"MusicGen load failed. Safetensors error: {e1}\nBin weights error: {e2}"
+                    pipe = _build_pipe(use_safetensors=True)
+                except Exception as e1:  # pragma: no cover - hub dependent
+                    logger.info(
+                        "MusicGen load with safetensors failed (%s); retrying with .bin weights",
+                        type(e1).__name__,
                     )
+                    try:
+                        pipe = _build_pipe(use_safetensors=False)
+                    except Exception as e2:
+                        # Surface both errors for clearer diagnosis
+                        raise RuntimeError(
+                            f"MusicGen load failed. Safetensors error: {e1}\nBin weights error: {e2}"
+                        )
             # Patch ambiguous text config in newer Transformers MusicGen variants
             try:
                 model = getattr(pipe, "model", None)
@@ -312,7 +323,7 @@ def generate_music(
         return any(k.lower() in msg.lower() for k in keywords)
 
     def _generate_with_backoff(p, t0):
-        t = max(100, int(t0))
+        t = max(1, int(t0))
         last_exc = None
         for _ in range(4):
             try:
