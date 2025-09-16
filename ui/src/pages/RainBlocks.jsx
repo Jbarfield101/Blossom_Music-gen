@@ -10,6 +10,9 @@ export const CANVAS_HEIGHT = BOARD_ROWS * CELL_SIZE;
 const PREVIEW_GRID_SIZE = 4;
 const PREVIEW_CELL_SIZE = 20;
 const PREVIEW_CANVAS_SIZE = PREVIEW_GRID_SIZE * PREVIEW_CELL_SIZE;
+const HOLD_GRID_SIZE = 4;
+const HOLD_CELL_SIZE = 16;
+const HOLD_CANVAS_SIZE = HOLD_GRID_SIZE * HOLD_CELL_SIZE;
 const LOCK_DELAY_MS = 300;
 const HARD_DROP_POINTS_PER_ROW = 2;
 
@@ -566,9 +569,9 @@ export default function RainBlocks() {
     const holdCanvas = heldCanvasRef.current;
     if (!holdCanvas) return;
     const context = holdCanvas.getContext('2d');
-    context.clearRect(0, 0, PREVIEW_CANVAS_SIZE, PREVIEW_CANVAS_SIZE);
+    context.clearRect(0, 0, HOLD_CANVAS_SIZE, HOLD_CANVAS_SIZE);
     context.fillStyle = '#111827';
-    context.fillRect(0, 0, PREVIEW_CANVAS_SIZE, PREVIEW_CANVAS_SIZE);
+    context.fillRect(0, 0, HOLD_CANVAS_SIZE, HOLD_CANVAS_SIZE);
 
     if (!heldPiece) {
       return;
@@ -577,18 +580,18 @@ export default function RainBlocks() {
     const { matrix, color } = heldPiece;
     const rows = matrix.length;
     const cols = matrix[0].length;
-    const offsetRow = Math.floor((PREVIEW_GRID_SIZE - rows) / 2);
-    const offsetCol = Math.floor((PREVIEW_GRID_SIZE - cols) / 2);
+    const offsetRow = Math.floor((HOLD_GRID_SIZE - rows) / 2);
+    const offsetCol = Math.floor((HOLD_GRID_SIZE - cols) / 2);
 
     context.fillStyle = color;
     matrix.forEach((rowArr, r) => {
       rowArr.forEach((cell, c) => {
         if (cell) {
           context.fillRect(
-            (offsetCol + c) * PREVIEW_CELL_SIZE,
-            (offsetRow + r) * PREVIEW_CELL_SIZE,
-            PREVIEW_CELL_SIZE,
-            PREVIEW_CELL_SIZE,
+            (offsetCol + c) * HOLD_CELL_SIZE,
+            (offsetRow + r) * HOLD_CELL_SIZE,
+            HOLD_CELL_SIZE,
+            HOLD_CELL_SIZE,
           );
         }
       });
@@ -612,6 +615,15 @@ export default function RainBlocks() {
         <h1>Rain Blocks</h1>
         <div className="game-layout">
           <div className="game-board">
+            <div className="hold-container">
+              <p className="hold-title">Hold</p>
+              <canvas
+                ref={heldCanvasRef}
+                width={HOLD_CANVAS_SIZE}
+                height={HOLD_CANVAS_SIZE}
+                className="hold-canvas"
+              ></canvas>
+            </div>
             <canvas
               ref={canvasRef}
               width={CANVAS_WIDTH}
@@ -648,15 +660,6 @@ export default function RainBlocks() {
               <span>High Score: {highScore}</span>
               <span>Lines: {linesCleared}</span>
               <span>Level: {level}</span>
-            </div>
-            <div className="hold-container sidebar-card">
-              <p className="hold-title">Hold</p>
-              <canvas
-                ref={heldCanvasRef}
-                width={PREVIEW_CANVAS_SIZE}
-                height={PREVIEW_CANVAS_SIZE}
-                className="hold-canvas"
-              ></canvas>
             </div>
             <div className="preview-container sidebar-card">
               <p className="preview-title">Next</p>
