@@ -12,6 +12,7 @@ export default function LoopMaker() {
   const [loopsCompleted, setLoopsCompleted] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [useConcatenated, setUseConcatenated] = useState(false);
+  const [playbackPlan, setPlaybackPlan] = useState({ fullLoops: 0, partialSeconds: 0 });
 
   const progressPercent = TARGET_SECONDS
     ? Math.min((elapsed / TARGET_SECONDS) * 100, 100)
@@ -88,8 +89,10 @@ export default function LoopMaker() {
     if (!f) return;
     setFile(f);
     setLoopsCompleted(0);
+    setLoopsNeeded(0);
     setElapsed(0);
     setUseConcatenated(false);
+    setPlaybackPlan({ fullLoops: 0, partialSeconds: 0 });
     const url = URL.createObjectURL(f);
     setVideoURL(url);
   };
@@ -133,38 +136,67 @@ export default function LoopMaker() {
   const handleLoadedMetadata = async (e) => {
     const dur = e.target.duration;
     setDuration(dur);
+    if (!Number.isFinite(dur) || dur <= 0) {
+      setLoopsNeeded(0);
+      setPlaybackPlan({ fullLoops: 0, partialSeconds: 0 });
+      return;
+    }
     if (!useConcatenated && file) {
-      const loops = Math.ceil(TARGET_SECONDS / dur);
-      setLoopsNeeded(loops);
-      const concatUrl = await buildConcatenatedSource(file, loops);
-      if (concatUrl) {
-        setUseConcatenated(true);
-        setVideoURL(concatUrl);
-        return; // wait for concatenated video metadata
+      const fullLoops = Math.floor(TARGET_SECONDS / dur);
+      const rawRemainder = TARGET_SECONDS - fullLoops * dur;
+      const remainder = rawRemainder > 0 ? rawRemainder : 0;
+      const loopsForDisplay = fullLoops + (remainder > 0 ? 1 : 0);
+      setPlaybackPlan({ fullLoops, partialSeconds: remainder });
+      setLoopsCompleted(0);
+      setLoopsNeeded(loopsForDisplay);
+      if (loopsForDisplay === 0) return;
+      if (fullLoops > 1 && remainder === 0) {
+        const concatUrl = await buildConcatenatedSource(file, fullLoops);
+        if (concatUrl) {
+          setUseConcatenated(true);
+          setVideoURL(concatUrl);
+          return; // wait for concatenated video metadata
+        }
       }
-      videoRef.current.play();
+      if (videoRef.current) {
+        videoRef.current.currentTime = 0;
+        videoRef.current.play();
+      }
     } else {
       // concatenated video loaded or no file
-      setLoopsNeeded(1);
-      videoRef.current.play();
+      if (videoRef.current) {
+        videoRef.current.currentTime = 0;
+        videoRef.current.play();
+      }
     }
   };
 
   const handleTimeUpdate = (e) => {
     if (useConcatenated) {
-      setElapsed(Math.min(e.target.currentTime, TARGET_SECONDS));
+      const clamped = Math.min(e.target.currentTime, TARGET_SECONDS);
+      setElapsed(clamped);
+      if (clamped >= TARGET_SECONDS && !e.target.paused) {
+        e.target.pause();
+      }
     } else {
       const t = loopsCompleted * duration + e.target.currentTime;
-      setElapsed(Math.min(t, TARGET_SECONDS));
+      const clamped = Math.min(t, TARGET_SECONDS);
+      setElapsed(clamped);
+      if (playbackPlan.partialSeconds > 0 && clamped >= TARGET_SECONDS) {
+        if (!e.target.paused) e.target.pause();
+        setLoopsCompleted((prev) => (prev < loopsNeeded ? loopsNeeded : prev));
+      }
     }
   };
 
   const handleEnded = (e) => {
     if (useConcatenated) return;
-    const newLoops = loopsCompleted + 1;
-    setLoopsCompleted(newLoops);
-    const total = newLoops * duration;
-    if (total < TARGET_SECONDS) {
+    const nextLoops = loopsCompleted + 1;
+    setLoopsCompleted(nextLoops);
+    const moreFullLoopsRemaining = nextLoops < playbackPlan.fullLoops;
+    const shouldStartPartialLoop =
+      playbackPlan.partialSeconds > 0 && nextLoops === playbackPlan.fullLoops;
+    if (moreFullLoopsRemaining || shouldStartPartialLoop) {
       e.target.currentTime = 0;
       e.target.play();
     }
