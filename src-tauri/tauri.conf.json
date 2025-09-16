@@ -71,6 +71,14 @@
             "dialog:allow-open",
             "dialog:default"
           ]
+        },
+        {
+          "identifier": "allow-core-event",
+          "windows": ["*"],
+          "permissions": [
+            "core:event:allow-listen",
+            "core:event:default"
+          ]
         }
       ]
     }
