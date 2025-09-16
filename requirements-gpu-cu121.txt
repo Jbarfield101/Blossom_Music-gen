@@ -1,8 +1,8 @@
 --extra-index-url https://download.pytorch.org/whl/cu121
 
 # Core ML stack with CUDA 12.1 wheels
-torch>=2.3
-torchaudio>=2.3
+torch>=2.6
+torchaudio>=2.6
 
 # Project dependencies
 numpy
@@ -20,6 +20,6 @@ watchfiles
 discord.py[voice]==2.3.2
 onnxruntime
 mido
-transformers>=4.39
-accelerate>=0.28
-
+transformers>=4.45
+accelerate>=0.33
+safetensors>=0.4.2

@@ -114,6 +114,7 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
                 base_kwargs = {
                     "model": normalized_name,
                     "device": device,
+                    "trust_remote_code": True,
                     "model_kwargs": {
                         "use_safetensors": use_safetensors,
                         **({"local_files_only": True} if offline else {}),
@@ -261,40 +262,65 @@ def generate_music(
     initial_device = "gpu" if (torch is not None and getattr(torch.cuda, "is_available", lambda: False)()) else "cpu"
     _LAST_STATUS.update({"device": initial_device, "fallback": False, "reason": None})
 
-    try:
+    def _gen_once(p, t):
         try:
-            # Newer Transformers expect generation params under "generate_kwargs".
-            logger.debug("Calling MusicGen pipeline with generate_kwargs")
-            result = pipe(
+            logger.debug("Calling MusicGen pipeline (tokens=%s) with generate_kwargs", t)
+            return p(
                 prompt,
                 generate_kwargs={
-                    "max_new_tokens": max_new_tokens,
+                    "max_new_tokens": t,
                     "do_sample": True,
                     "temperature": temperature,
                 },
             )
         except TypeError:
-            # Fallback for older pipeline versions that accept direct kwargs.
             try:
-                logger.info(
-                    "MusicGen pipeline rejected generate_kwargs; retrying with direct max_new_tokens"
-                )
-                result = pipe(
+                logger.info("Pipeline rejected generate_kwargs; retrying with direct max_new_tokens (tokens=%s)", t)
+                return p(
                     prompt,
-                    max_new_tokens=max_new_tokens,
+                    max_new_tokens=t,
                     do_sample=True,
                     temperature=temperature,
                 )
             except TypeError:
-                logger.info(
-                    "MusicGen pipeline rejected max_new_tokens; retrying with max_length"
-                )
-                result = pipe(
+                logger.info("Pipeline rejected max_new_tokens; retrying with max_length (tokens=%s)", t)
+                return p(
                     prompt,
-                    max_length=max_new_tokens,
+                    max_length=t,
                     do_sample=True,
                     temperature=temperature,
                 )
+
+    def _is_memory_error(exc: Exception) -> bool:
+        msg = str(exc)
+        keywords = (
+            "out of memory",
+            "CUDA out of memory",
+            "DefaultCPUAllocator: not enough memory",
+            "CUBLAS",
+            "OOM",
+        )
+        return any(k.lower() in msg.lower() for k in keywords)
+
+    def _generate_with_backoff(p, t0):
+        t = max(100, int(t0))
+        last_exc = None
+        for _ in range(4):
+            try:
+                return _gen_once(p, t)
+            except Exception as exc:  # pragma: no cover - depends on runtime
+                if _is_memory_error(exc) and t > 120:
+                    logger.warning("Generation failed with memory error at %s tokens; retrying with fewer tokens", t)
+                    last_exc = exc
+                    t = max(100, int(t * 0.6))
+                    continue
+                raise
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("Generation failed after retries")
+
+    try:
+        result = _generate_with_backoff(pipe, max_new_tokens)
 
         if isinstance(result, list):
             audio = result[0]["audio"]
@@ -319,14 +345,7 @@ def generate_music(
             _LAST_STATUS.update({"device": "cpu", "fallback": True, "reason": msg})
             pipe_cpu = _get_pipeline(model_name, device_override=-1)
             try:
-                result = pipe_cpu(
-                    prompt,
-                    generate_kwargs={
-                        "max_new_tokens": max_new_tokens,
-                        "do_sample": True,
-                        "temperature": temperature,
-                    },
-                )
+                result = _generate_with_backoff(pipe_cpu, max_new_tokens)
                 if isinstance(result, list):
                     audio = result[0]["audio"]
                     sample_rate = result[0]["sampling_rate"]

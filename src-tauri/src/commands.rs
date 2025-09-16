@@ -26,6 +26,8 @@ pub async fn generate_musicgen(
     force_cpu: Option<bool>,
     // Optional: output directory; defaults to AppData
     output_dir: Option<String>,
+    // Optional: desired output base name (without extension)
+    output_name: Option<String>,
     // Optional: number of samples to generate
     count: Option<u32>,
 ) -> Result<GenResult, String> {
@@ -96,9 +98,83 @@ except Exception as exc:
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    // Expect JSON {"path": ..., "device": ...}
-    let parsed: GenResult = serde_json::from_str(&stdout)
+    // Expect JSON {"path": ..., "paths": [...], "device": ...}
+    let mut parsed: GenResult = serde_json::from_str(&stdout)
         .map_err(|e| format!("Failed to parse musicgen output: {}\nstdout: {}", e, stdout))?;
+
+    // If a custom name was provided, rename the generated files accordingly.
+    if let Some(name_raw) = output_name {
+        let sanitize = |s: &str| {
+            let mut out = String::new();
+            for ch in s.chars() {
+                let ok = ch.is_ascii_alphanumeric() || ch == ' ' || ch == '_' || ch == '-' || ch == '.';
+                out.push(if ok { ch } else { '_' });
+            }
+            let trimmed = out.trim().trim_matches('.').to_string();
+            let cleaned = if trimmed.is_empty() { "track".to_string() } else { trimmed };
+            cleaned.chars().take(120).collect::<String>()
+        };
+        let base_name = sanitize(&name_raw);
+        let ensure_ext = |mut s: String| {
+            if !s.to_lowercase().ends_with(".wav") { s.push_str(".wav"); }
+            s
+        };
+
+        let mut rename_one = |src: &str, target_name: String| -> Result<String, String> {
+            let mut target = out_base.join(&target_name);
+            // If exists, add (n)
+            if target.exists() {
+                let mut n = 1u32;
+                let stem = std::path::Path::new(&target_name)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("track");
+                let ext = std::path::Path::new(&target_name)
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("wav");
+                loop {
+                    let candidate = out_base.join(format!("{} ({}){}.{}", stem, n, "", ext));
+                    if !candidate.exists() {
+                        target = candidate;
+                        break;
+                    }
+                    n += 1;
+                    if n > 9999 { break; }
+                }
+            }
+            fs::rename(src, &target).map_err(|e| e.to_string())?;
+            Ok(target.to_string_lossy().to_string())
+        };
+
+        if let Some(paths) = parsed.paths.as_ref() {
+            if !paths.is_empty() {
+                let multiple = paths.len() > 1;
+                let width = ((paths.len() as f32).log10().floor() as usize) + 1;
+                let mut new_paths = Vec::with_capacity(paths.len());
+                for (idx, p) in paths.iter().enumerate() {
+                    let mut fname = if multiple {
+                        format!("{}_{:0width$}", base_name, idx + 1, width = width)
+                    } else {
+                        base_name.clone()
+                    };
+                    fname = ensure_ext(fname);
+                    match rename_one(p, fname) {
+                        Ok(np) => new_paths.push(np),
+                        Err(_) => new_paths.push(p.clone()),
+                    }
+                }
+                parsed.path = new_paths.get(0).cloned().unwrap_or_else(|| parsed.path.clone());
+                parsed.paths = Some(new_paths);
+            }
+        } else if !parsed.path.is_empty() {
+            let fname = ensure_ext(base_name.clone());
+            if let Ok(np) = rename_one(&parsed.path, fname) {
+                parsed.path = np.clone();
+                parsed.paths = Some(vec![np]);
+            }
+        }
+    }
     Ok(parsed)
 }
 

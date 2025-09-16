@@ -8,7 +8,7 @@ import {
 } from "../api/piper";
 import { listPiperVoices } from "../lib/piperVoices";
 import { synthWithPiper } from "../lib/piperSynth";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { readFile, BaseDirectory } from "@tauri-apps/plugin-fs";
 import { appDataDir } from "@tauri-apps/api/path";
 import BackButton from "../components/BackButton.jsx";
@@ -346,9 +346,15 @@ export default function Dnd() {
                           const blob = new Blob([data], { type: "audio/wav" });
                           blobUrl = URL.createObjectURL(blob);
                         }
-                      } catch {
-                        // Fallback to asset protocol if reading fails.
-                        blobUrl = convertFileSrc(path);
+                    } catch {
+                        try {
+                          const bytes = await invoke("read_file_bytes", { path });
+                          const blob = new Blob([new Uint8Array(bytes)], { type: "audio/wav" });
+                          blobUrl = URL.createObjectURL(blob);
+                        } catch {
+                          // Final fallback to asset protocol if all direct reads fail.
+                          blobUrl = convertFileSrc(path);
+                        }
                       }
                     }
                     setPiperAudio(blobUrl);

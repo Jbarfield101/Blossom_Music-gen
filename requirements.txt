@@ -24,5 +24,6 @@ torch>=2.6
 torchaudio>=2.6  # for decoding and saving audio
 onnxruntime
 mido
-transformers>=4.39
-accelerate>=0.28
+transformers>=4.45
+accelerate>=0.33
+safetensors>=0.4.2

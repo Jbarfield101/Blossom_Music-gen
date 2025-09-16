@@ -19,6 +19,7 @@ export default function MusicGen() {
   const [duration, setDuration] = useState(30);
   const [temperature, setTemperature] = useState(1);
   const [modelName, setModelName] = useState("small");
+  const [name, setName] = useState("");
   const [audioSrc, setAudioSrc] = useState(null);
   const [audios, setAudios] = useState([]); // [{ url, path }]
   const [generating, setGenerating] = useState(false);
@@ -111,6 +112,7 @@ export default function MusicGen() {
         temperature: Number(temperature),
         forceCpu: !!forceCpu,
         outputDir: outputDir || undefined,
+        outputName: name || undefined,
         count: Number(count) || 1,
       });
 
@@ -215,6 +217,17 @@ export default function MusicGen() {
         className="p-md"
         style={{ background: "var(--card-bg)", color: "var(--text)" }}
       >
+        <label className="mb-md" style={{ display: "block" }}>
+          Name (optional)
+          <input
+            type="text"
+            className="mt-sm p-sm"
+            placeholder="My Awesome Track"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            style={{ width: "100%" }}
+          />
+        </label>
         <label className="mb-md" style={{ display: "block" }}>
           Prompt
           <textarea
