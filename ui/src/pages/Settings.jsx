@@ -121,11 +121,22 @@ export default function Settings() {
   }, []);
 
   const chooseVault = async () => {
-    const selected = await openDialog({ directory: true });
-    if (typeof selected === "string") {
-      await invoke("select_vault", { path: selected });
-      await setConfig(VAULT_KEY, selected);
-      setVault(selected);
+    const res = await openDialog({ directory: true });
+    if (!res) return;
+    const path =
+      Array.isArray(res)
+        ? typeof res[0] === "string"
+          ? res[0]
+          : res[0]?.path
+        : typeof res === "string"
+        ? res
+        : res?.path;
+    if (path) {
+      await invoke("select_vault", { path });
+      await setConfig(VAULT_KEY, path);
+      setVault(path);
+    } else {
+      console.error("Failed to determine vault path from selection", res);
     }
   };
 
