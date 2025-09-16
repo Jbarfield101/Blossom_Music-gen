@@ -60,7 +60,7 @@ _PYTORCH_UPGRADE_GUIDANCE = (
     "To enable MusicGen, install:\n"
     "  pip install --upgrade transformers accelerate\n"
     "And install PyTorch (CPU-only example):\n"
-    "  pip install --index-url https://download.pytorch.org/whl/cpu \"torch>=2.6\" \"torchaudio>=2.6\"\n"
+    "  pip install --index-url https://download.pytorch.org/whl/cpu \"torch>=2.5\" \"torchaudio>=2.5\"\n"
     "Also ensure scipy is installed for writing WAV files."
 )
 
@@ -81,10 +81,10 @@ def _assert_supported_torch_version() -> None:
     except (ValueError, IndexError):
         return
 
-    if (major, minor) < (2, 6):
+    if (major, minor) < (2, 5):
         raise RuntimeError(
             "Unsupported PyTorch version detected: "
-            f"{version}. MusicGen requires torch>=2.6.\n"
+            f"{version}. MusicGen requires torch>=2.5.\n"
             + _PYTORCH_UPGRADE_GUIDANCE
         )
 
