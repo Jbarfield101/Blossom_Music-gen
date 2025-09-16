@@ -20,8 +20,8 @@ discord.py[voice]==2.3.2
 # Optional: phrase models and MIDI support
 # CPU builds by default from PyPI. For NVIDIA GPU builds see
 # requirements-gpu-cu121.txt or requirements-gpu-cu118.txt.
-torch>=2.3
-torchaudio>=2.3  # for decoding and saving audio
+torch>=2.6
+torchaudio>=2.6  # for decoding and saving audio
 onnxruntime
 mido
 transformers>=4.39
