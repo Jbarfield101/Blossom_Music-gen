@@ -63,6 +63,14 @@
               ]
             }
           ]
+        },
+        {
+          "identifier": "allow-dialog-open",
+          "windows": ["*"],
+          "permissions": [
+            "dialog:allow-open",
+            "dialog:default"
+          ]
         }
       ]
     }
