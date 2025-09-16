@@ -43,6 +43,7 @@ export default function Snake() {
   const [food, setFood] = useState(() => randomFood(INITIAL_SNAKE));
   const [gameOver, setGameOver] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  const [score, setScore] = useState(0);
   const canvasRef = useRef(null);
 
   const resetGameState = useCallback(() => {
@@ -51,6 +52,7 @@ export default function Snake() {
     setDirection({ x: 1, y: 0 });
     setFood(randomFood(startingSnake));
     setGameOver(false);
+    setScore(0);
   }, []);
 
   const startGame = useCallback(() => {
@@ -127,6 +129,7 @@ export default function Snake() {
 
         if (ateFood) {
           const grownSnake = [newHead, ...prevSnake];
+          setScore((prev) => prev + 1);
           setFood(randomFood(grownSnake));
           return grownSnake;
         }
@@ -202,6 +205,7 @@ export default function Snake() {
       <div className="game-container">
         <h1>Snake</h1>
         <div className="game-board">
+          <p className="game-score">Score: {score}</p>
           <canvas
             ref={canvasRef}
             width={WIDTH}

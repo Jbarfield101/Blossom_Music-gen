@@ -29,6 +29,19 @@
   display: inline-block;
 }
 
+.game-score {
+  position: absolute;
+  top: var(--space-sm);
+  left: var(--space-sm);
+  margin: 0;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--space-xs);
+  background: rgba(15, 23, 42, 0.85);
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 .game-overlay {
   position: absolute;
   inset: 0;
