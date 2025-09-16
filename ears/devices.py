@@ -17,8 +17,10 @@ def list_devices() -> Dict[str, List[Dict[str, object]]]:
     The result is a dictionary with ``"input"`` and ``"output"`` keys
     mapping to lists of ``{"id": int, "name": str}`` objects.
     """
+    # If the optional dependency is not available, degrade gracefully by
+    # returning empty device lists so the caller/UI can continue loading.
     if sd is None:
-        raise RuntimeError("sounddevice is required to list audio devices")
+        return {"input": [], "output": []}
 
     devices = sd.query_devices()
     inputs: List[Dict[str, object]] = []

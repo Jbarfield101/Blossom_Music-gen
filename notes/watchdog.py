@@ -20,8 +20,10 @@ from .embedding import rebuild_index, DEFAULT_INDEX_PATH
 # Default location of the chunks database relative to the vault
 DEFAULT_DB_PATH = "chunks.sqlite"
 
-# Singleton thread instance
+# Singleton watcher state
 _watch_thread: threading.Thread | None = None
+_watch_vault: Path | None = None
+_stop_event: threading.Event | None = None
 
 
 def _handle_changes(changes, vault: Path, db_path: Path) -> bool:
@@ -63,8 +65,10 @@ def _handle_changes(changes, vault: Path, db_path: Path) -> bool:
     return updated
 
 
-def _watch_loop(vault: Path, db_path: Path, index_path: Path) -> None:
+def _watch_loop(vault: Path, db_path: Path, index_path: Path, stop: threading.Event) -> None:
     for changes in watch(vault, recursive=True):
+        if stop.is_set():
+            break
         if _handle_changes(changes, vault, db_path):
             try:
                 rebuild_index(db_path, index_path)
@@ -72,6 +76,22 @@ def _watch_loop(vault: Path, db_path: Path, index_path: Path) -> None:
                 # Rebuilding the index is best effort; failures shouldn't stop
                 # the watcher.
                 pass
+
+
+def stop_watchdog() -> None:
+    """Stop the currently running watcher thread, if any.
+
+    This waits briefly for the watcher loop to exit.
+    """
+    global _watch_thread, _stop_event, _watch_vault
+    if _watch_thread and _watch_thread.is_alive():
+        if _stop_event is not None:
+            _stop_event.set()
+        # Join with a timeout to avoid hanging shutdowns
+        _watch_thread.join(timeout=1.0)
+    _watch_thread = None
+    _stop_event = None
+    _watch_vault = None
 
 
 def start_watchdog(
@@ -91,16 +111,23 @@ def start_watchdog(
         :data:`notes.embedding.DEFAULT_INDEX_PATH`.
     """
 
-    global _watch_thread
+    global _watch_thread, _watch_vault, _stop_event
+    # If a watcher is already running for the same vault, nothing to do.
     if _watch_thread and _watch_thread.is_alive():
-        return
+        if _watch_vault and Path(vault).resolve() == _watch_vault:
+            return
+        # Different vault: stop and restart
+        stop_watchdog()
 
     vault = Path(vault)
     db_path = Path(db_path) if db_path else vault / DEFAULT_DB_PATH
     index_path = Path(index_path) if index_path else vault / DEFAULT_INDEX_PATH
 
+    stop = threading.Event()
     thread = threading.Thread(
-        target=_watch_loop, args=(vault, db_path, index_path), daemon=True
+        target=_watch_loop, args=(vault, db_path, index_path, stop), daemon=True
     )
     thread.start()
     _watch_thread = thread
+    _watch_vault = Path(vault).resolve()
+    _stop_event = stop

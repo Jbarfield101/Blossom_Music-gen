@@ -26,6 +26,8 @@ export default function MusicGen() {
   const [error, setError] = useState(null);
   const [device, setDevice] = useState("");
   const [forceCpu, setForceCpu] = useState(false);
+  const [forceGpu, setForceGpu] = useState(false);
+  const [useFp16, setUseFp16] = useState(false);
   const [envInfo, setEnvInfo] = useState(null);
   const [outputDir, setOutputDir] = useState("");
   const [outputDirError, setOutputDirError] = useState("");
@@ -111,6 +113,8 @@ export default function MusicGen() {
         modelName,
         temperature: Number(temperature),
         forceCpu: !!forceCpu,
+        forceGpu: !!forceGpu && !forceCpu,
+        useFp16: !!useFp16,
         outputDir: outputDir || undefined,
         outputName: name || undefined,
         count: Number(count) || 1,
@@ -359,6 +363,26 @@ export default function MusicGen() {
           />
           Force CPU
         </label>
+        <div className="mb-md" style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <input
+              type="checkbox"
+              checked={forceGpu}
+              onChange={(e) => setForceGpu(e.target.checked)}
+              disabled={forceCpu}
+            />
+            Force GPU
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+            <input
+              type="checkbox"
+              checked={useFp16}
+              onChange={(e) => setUseFp16(e.target.checked)}
+              disabled={forceCpu}
+            />
+            Use FP16 on GPU (lower VRAM)
+          </label>
+        </div>
         <button
           type="submit"
           disabled={generating}

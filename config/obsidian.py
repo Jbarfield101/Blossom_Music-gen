@@ -30,8 +30,8 @@ def get_vault() -> Path | None:
     return _VAULT_PATH
 
 
-def select_vault(root: Path) -> Path:
-    """Persist the Obsidian vault path in a read-only settings file.
+def select_vault(root: Path | str) -> Path:
+    """Persist or update the Obsidian vault path and (re)start the watcher.
 
     Parameters
     ----------
@@ -48,35 +48,45 @@ def select_vault(root: Path) -> Path:
     FileNotFoundError
         If ``root`` does not exist.
     RuntimeError
-        If a vault has already been selected.
+        No longer raised for re-selection. Previous behavior disallowed
+        changing the vault once set; now this function updates the stored
+        path and restarts the watcher as needed.
     """
 
-    resolved = root.expanduser().resolve()
+    # Accept either Path or string inputs from the Tauri bridge
+    root_path = root if isinstance(root, Path) else Path(root)
+    resolved = root_path.expanduser().resolve()
     if not resolved.exists():
         raise FileNotFoundError(f"Vault path {resolved} does not exist")
 
     existing = get_vault()
-    if existing is not None:
-        raise RuntimeError(f"Vault already selected: {existing}")
-
+    # Persist new path (or overwrite if changed)
+    if VAULT_FILE.exists():
+        try:
+            VAULT_FILE.chmod(0o666)
+        except Exception:
+            pass
     VAULT_FILE.write_text(str(resolved))
     try:
-        # Make the settings file read-only so that it cannot be modified
-        # by the running service.
+        # Permissions best-effort; not strictly required for correctness
         VAULT_FILE.chmod(0o444)
     except Exception:
-        # If changing permissions fails we still continue – the runtime
-        # checks above will prevent further writes.
         pass
 
     global _VAULT_PATH
     _VAULT_PATH = resolved
-    # Start background watcher for note changes. Any failure to start the
-    # watcher should not prevent the vault from being set, hence the
-    # broad ``try`` block.
-    try:
-        from notes.watchdog import start_watchdog
 
+    # (Re)start background watcher for note changes. Any failure to manage
+    # the watcher should not block vault selection.
+    try:
+        from notes.watchdog import start_watchdog, stop_watchdog
+
+        # If an old watcher is running for a different vault, stop it first.
+        if existing is not None and existing.resolve() != resolved:
+            try:
+                stop_watchdog()
+            except Exception:
+                pass
         start_watchdog(resolved)
     except Exception:
         pass

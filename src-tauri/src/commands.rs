@@ -24,6 +24,10 @@ pub async fn generate_musicgen(
     temperature: f32,
     // Optional: force running on CPU regardless of CUDA availability
     force_cpu: Option<bool>,
+    // Optional: force trying GPU (even if torch reports otherwise)
+    force_gpu: Option<bool>,
+    // Optional: request FP16 on GPU to reduce VRAM
+    use_fp16: Option<bool>,
     // Optional: output directory; defaults to AppData
     output_dir: Option<String>,
     // Optional: desired output base name (without extension)
@@ -82,6 +86,12 @@ except Exception as exc:
         if force_cpu.unwrap_or(false) {
             // Force CPU by hiding CUDA devices for this process
             cmd.env("CUDA_VISIBLE_DEVICES", "");
+        }
+        if force_gpu.unwrap_or(false) {
+            cmd.env("MUSICGEN_FORCE_GPU", "1");
+        }
+        if use_fp16.unwrap_or(false) {
+            cmd.env("MUSICGEN_FP16", "1");
         }
         cmd
             .current_dir("..")
@@ -198,12 +208,13 @@ pub struct EnvInfo {
 
 #[tauri::command]
 pub async fn musicgen_env() -> Result<EnvInfo, String> {
-    let code = r#"import json, os, sys
+    let code = r#"import json, os, sys, subprocess, shutil
 info = {
   "device": "cpu",
   "cuda_available": False,
   "name": "",
   "torch": "",
+  "torch_cuda": None,
   "cuda_version": None,
   "total_mem": None,
   "free_mem": None,
@@ -213,11 +224,13 @@ info = {
   "device_count": 0,
   "devices": [],
   "visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
+  "nvidia_smi": None,
 }
 try:
     import torch
     info["torch"] = getattr(torch, "__version__", "")
-    info["cuda_version"] = getattr(getattr(torch, "version", object()), "cuda", None)
+    info["torch_cuda"] = getattr(getattr(torch, "version", object()), "cuda", None)
+    info["cuda_version"] = info["torch_cuda"]
     is_avail = getattr(getattr(torch, "cuda", object()), "is_available", lambda: False)()
     if is_avail:
         info["cuda_available"] = True
@@ -242,6 +255,31 @@ try:
             pass
 except Exception as exc:
     info["error"] = str(exc)
+
+# Fallback: query nvidia-smi if available
+try:
+    smi = shutil.which("nvidia-smi")
+    if smi:
+        res = subprocess.run(
+            [smi, "--query-gpu=name,memory.total,memory.free,driver_version,cuda_version", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=3
+        )
+        if res.returncode == 0:
+            lines = [l.strip() for l in res.stdout.splitlines() if l.strip()]
+            if lines:
+                first = lines[0].split(',')
+                info["nvidia_smi"] = {
+                    "name": first[0].strip(),
+                    "total_mem": int(first[1].strip()) * 1024 * 1024,
+                    "free_mem": int(first[2].strip()) * 1024 * 1024,
+                    "driver": first[3].strip(),
+                    "cuda": first[4].strip(),
+                }
+                if not info.get("cuda_available"):
+                    info["device"] = "gpu"
+except Exception:
+    pass
+
 print(json.dumps(info))
 "#;
 

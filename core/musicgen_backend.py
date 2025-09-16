@@ -89,6 +89,9 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
             device = -1
             torch_dtype = None
             cuda_ok = (torch is not None) and getattr(torch.cuda, "is_available", lambda: False)()
+            # Allow environment override to force trying GPU
+            if os.environ.get("MUSICGEN_FORCE_GPU") == "1":
+                cuda_ok = True
             if device_override is not None:
                 cuda_ok = (device_override == 0)
             if cuda_ok:
@@ -117,6 +120,8 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
                     "trust_remote_code": True,
                     "model_kwargs": {
                         "use_safetensors": use_safetensors,
+                        # Avoid FlashAttention-related CUDA issues on some builds
+                        "attn_implementation": "eager",
                         **({"local_files_only": True} if offline else {}),
                     },
                 }
@@ -299,6 +304,10 @@ def generate_music(
             "DefaultCPUAllocator: not enough memory",
             "CUBLAS",
             "OOM",
+            "illegal memory access",
+            "no kernel image is available",
+            "FlashAttention",
+            "Expected all tensors to be on the same device",
         )
         return any(k.lower() in msg.lower() for k in keywords)
 
@@ -340,6 +349,9 @@ def generate_music(
             or "CUDA out of memory" in msg
             or "CUBLAS" in msg
             or "device-side assert" in msg
+            or "illegal memory access" in msg
+            or "no kernel image is available" in msg
+            or "FlashAttention" in msg
         ):
             logger.warning("GPU generation failed; retrying on CPU: %s", msg)
             _LAST_STATUS.update({"device": "cpu", "fallback": True, "reason": msg})
