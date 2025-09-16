@@ -218,8 +218,37 @@ def generate_music(
             "Install with: pip install --upgrade scipy"
         )
 
-    # ``max_new_tokens`` is roughly 50 tokens per second for MusicGen models.
-    max_new_tokens = max(1, int(duration * 50))
+    approx_tokens = max(1, int(duration * 50))
+    model_limit = approx_tokens
+    limit_enforced = False
+    try:
+        model = getattr(pipe, "model", None)
+        config = getattr(model, "config", None)
+        if config is not None:
+            limit_value = getattr(config, "max_position_embeddings", None)
+            if limit_value is None:
+                limit_value = getattr(config, "max_length", None)
+            if limit_value is not None:
+                try:
+                    limit_value = int(limit_value)
+                except (TypeError, ValueError):
+                    limit_value = None
+            if limit_value is not None and limit_value > 0:
+                model_limit = limit_value
+                limit_enforced = True
+    except Exception:  # pragma: no cover - defensive; logging for diagnostics
+        logger.debug("Unable to determine MusicGen model token limit", exc_info=True)
+
+    # ``max_new_tokens`` is roughly 50 tokens per second for MusicGen models,
+    # but the model configuration may cap the allowable sequence length.
+    max_new_tokens = min(approx_tokens, model_limit)
+    if limit_enforced and max_new_tokens < approx_tokens:
+        logger.warning(
+            "Requested duration %.2fs requires %s tokens but model limit is %s; truncating.",
+            duration,
+            approx_tokens,
+            model_limit,
+        )
 
     logger.info(
         "Generating %ss of audio with %s (temperature=%.2f)",
