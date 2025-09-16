@@ -15,6 +15,7 @@ class DummyPipeline:
         self.limit = limit
         self.fail_first = fail_first
         self.calls = []
+        self.kwargs = []
         self.model = SimpleNamespace(
             config=SimpleNamespace(max_position_embeddings=limit)
         )
@@ -27,6 +28,7 @@ class DummyPipeline:
             if tokens is None:
                 tokens = kwargs.get("max_length")
         self.calls.append(tokens)
+        self.kwargs.append(kwargs)
 
         if tokens is None:
             raise AssertionError("max_new_tokens was not provided to the pipeline")
@@ -81,6 +83,101 @@ def test_generate_music_clamps_to_model_limit(monkeypatch, tmp_path, caplog):
     assert any("truncating" in record.message for record in caplog.records)
 
 
+def test_melody_model_requires_reference(monkeypatch, tmp_path):
+    monkeypatch.setattr(musicgen_backend, "_PIPELINE_CACHE", {})
+
+    dummy_pipe = DummyPipeline(limit=10)
+
+    monkeypatch.setattr(musicgen_backend, "_get_pipeline", lambda *_args, **_kwargs: dummy_pipe)
+    monkeypatch.setattr(musicgen_backend, "write_wav", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(ValueError) as excinfo:
+        musicgen_backend.generate_music(
+            prompt="test",
+            duration=1.0,
+            model_name="melody",
+            temperature=1.0,
+            output_dir=str(tmp_path),
+        )
+
+    assert "melody" in str(excinfo.value).lower()
+
+
+def test_non_melody_model_ignores_reference(monkeypatch, tmp_path):
+    monkeypatch.setattr(musicgen_backend, "_PIPELINE_CACHE", {})
+
+    dummy_pipe = DummyPipeline(limit=10)
+
+    monkeypatch.setattr(musicgen_backend, "_get_pipeline", lambda *_args, **_kwargs: dummy_pipe)
+
+    written = {}
+
+    def fake_write_wav(path, sample_rate, audio):
+        written["path"] = path
+        written["rate"] = sample_rate
+        written["audio"] = audio
+
+    monkeypatch.setattr(musicgen_backend, "write_wav", fake_write_wav)
+
+    output_path = musicgen_backend.generate_music(
+        prompt="test",
+        duration=1.0,
+        model_name="small",
+        temperature=1.0,
+        output_dir=str(tmp_path),
+        melody_path="/tmp/fake.wav",
+    )
+
+    assert output_path
+    assert dummy_pipe.kwargs[0].get("audio") is None
+    assert "rate" in written
+
+
+@pytest.mark.skipif(musicgen_backend.np is None, reason="numpy not available")
+def test_melody_audio_forwarded(monkeypatch, tmp_path):
+    monkeypatch.setattr(musicgen_backend, "_PIPELINE_CACHE", {})
+
+    dummy_pipe = DummyPipeline(limit=10)
+
+    monkeypatch.setattr(musicgen_backend, "_get_pipeline", lambda *_args, **_kwargs: dummy_pipe)
+
+    arr = musicgen_backend.np.array([0, 32767, -32768], dtype=musicgen_backend.np.int16)
+
+    def fake_read_wav(path):
+        return 16000, arr
+
+    monkeypatch.setattr(musicgen_backend, "read_wav", fake_read_wav)
+
+    written = {}
+
+    def fake_write_wav(path, sample_rate, audio):
+        written["path"] = path
+        written["rate"] = sample_rate
+        written["audio"] = audio
+
+    monkeypatch.setattr(musicgen_backend, "write_wav", fake_write_wav)
+
+    clip_path = tmp_path / "clip.wav"
+    clip_path.write_bytes(b"stub")
+
+    output_path = musicgen_backend.generate_music(
+        prompt="melody",
+        duration=1.0,
+        model_name="melody",
+        temperature=1.0,
+        output_dir=str(tmp_path),
+        melody_path=str(clip_path),
+    )
+
+    assert output_path
+    first_kwargs = dummy_pipe.kwargs[0]
+    assert "audio" in first_kwargs
+    assert "sampling_rate" in first_kwargs
+    assert first_kwargs["sampling_rate"] == 16000
+    assert isinstance(first_kwargs["audio"], musicgen_backend.np.ndarray)
+    assert first_kwargs["audio"].dtype == musicgen_backend.np.float32
+    assert musicgen_backend.np.isclose(first_kwargs["audio"][1], 32767.0 / 32768.0)
+    assert musicgen_backend.np.isclose(first_kwargs["audio"][2], -1.0)
 def test_get_pipeline_retries_without_safetensors(monkeypatch):
     calls = []
 
