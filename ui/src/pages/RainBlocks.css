@@ -20,6 +20,14 @@
   color: var(--text);
 }
 
+.scoreboard {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  font-weight: 600;
+  color: var(--text);
+}
+
 .game-board {
   position: relative;
   display: inline-block;
