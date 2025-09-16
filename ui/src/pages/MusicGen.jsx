@@ -28,6 +28,7 @@ export default function MusicGen() {
   const [envInfo, setEnvInfo] = useState(null);
   const [outputDir, setOutputDir] = useState("");
   const [count, setCount] = useState(1);
+  const [fallbackMsg, setFallbackMsg] = useState("");
   const storeRef = useRef(null);
 
   // Load persisted outputDir on mount
@@ -126,6 +127,9 @@ export default function MusicGen() {
       } catch {}
       const dev = typeof result === "object" && result?.device ? result.device : "";
       if (dev) setDevice(dev);
+      const fb = typeof result === "object" && result?.fallback ? true : false;
+      const fr = typeof result === "object" && result?.fallback_reason ? String(result.fallback_reason) : "";
+      setFallbackMsg(fb ? `Fell back to CPU: ${fr.slice(0, 180)}` : "");
 
       // Prefer reading the file directly to generate a Blob URL.
       // This avoids relying on the asset protocol (asset.localhost) in dev.
@@ -276,7 +280,7 @@ export default function MusicGen() {
             <input
               type="text"
               value={outputDir}
-              readOnly
+              onChange={(e) => setOutputDir(e.target.value)}
               className="p-sm"
               placeholder="Default (App Data directory)"
               style={{ flex: 1 }}
@@ -342,6 +346,11 @@ export default function MusicGen() {
             <span style={{ marginLeft: "0.5rem", opacity: 0.8 }}>
               Using {device.toUpperCase()}
             </span>
+          )}
+          {!generating && fallbackMsg && (
+            <div className="mt-sm" style={{ color: "var(--accent)", fontSize: "0.9rem" }}>
+              {fallbackMsg}
+            </div>
           )}
         </div>
       </form>

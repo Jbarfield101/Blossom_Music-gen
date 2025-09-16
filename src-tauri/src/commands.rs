@@ -11,6 +11,8 @@ pub struct GenResult {
     pub path: String,
     pub device: String,
     pub paths: Option<Vec<String>>,
+    pub fallback: Option<bool>,
+    pub fallback_reason: Option<String>,
 }
 
 #[tauri::command]
@@ -55,7 +57,11 @@ try:
         p = m.generate_music({prompt:?}, {duration}, {model_name:?}, {temperature}, {out_dir:?})
         paths.append(p)
     path = paths[0] if paths else ""
-    print(json.dumps({{"path": path, "paths": paths, "device": dev}}))
+    status = getattr(m, 'get_last_status', lambda: {{}})()
+    used_device = status.get('device', dev)
+    fb = status.get('fallback')
+    fr = status.get('reason')
+    print(json.dumps({{"path": path, "paths": paths, "device": used_device, "fallback": fb, "fallback_reason": fr}}))
 except Exception as exc:
     sys.stderr.write(str(exc))
     sys.exit(1)

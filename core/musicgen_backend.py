@@ -12,7 +12,7 @@ import os
 import logging
 import threading
 import time
-from typing import Dict
+from typing import Dict, Optional
 
 try:  # pragma: no cover - optional dependency
     from scipy.io.wavfile import write as write_wav
@@ -42,10 +42,14 @@ MODEL_NAME_ALIASES: Dict[str, str] = {
 # Cache for loaded MusicGen pipelines.  Access is guarded by a lock since model
 # loading may be expensive and not thread safe.
 _PIPELINE_CACHE: Dict[str, object] = {}
+_LAST_STATUS: Dict[str, object] = {"device": "cpu", "fallback": False, "reason": None}
+
+def get_last_status() -> Dict[str, object]:
+    return dict(_LAST_STATUS)
 _CACHE_LOCK = threading.Lock()
 
 
-def _get_pipeline(model_name: str):
+def _get_pipeline(model_name: str, device_override: Optional[int] = None):
     """Return a cached ``transformers`` pipeline for ``model_name``.
 
     Raises a helpful error if the optional ``transformers`` dependency is not
@@ -71,18 +75,32 @@ def _get_pipeline(model_name: str):
         )
 
     with _CACHE_LOCK:
-        if normalized_name in _PIPELINE_CACHE:
-            return _PIPELINE_CACHE[normalized_name]
+        # Build a cache key that includes the target device (-1=CPU, 0=CUDA:0)
+        cache_device_key = device_override if device_override is not None else (
+            0 if (torch is not None and getattr(torch.cuda, "is_available", lambda: False)()) else -1
+        )
+        cache_key = f"{normalized_name}|{cache_device_key}"
+        if cache_key in _PIPELINE_CACHE:
+            return _PIPELINE_CACHE[cache_key]
 
         logger.info("Loading MusicGen model: %s", normalized_name)
         try:
             # Prefer GPU when available; otherwise fall back to CPU.
             device = -1
             torch_dtype = None
-            if (torch is not None) and getattr(torch.cuda, "is_available", lambda: False)():
+            cuda_ok = (torch is not None) and getattr(torch.cuda, "is_available", lambda: False)()
+            if device_override is not None:
+                cuda_ok = (device_override == 0)
+            if cuda_ok:
                 device = 0  # first CUDA device
-                torch_dtype = getattr(torch, "float16", None)
-                logger.info("Using device: cuda:0 for MusicGen")
+                # Default to full precision on CUDA to avoid Windows fp16 indexing issues.
+                # Opt-in to fp16 with env MUSICGEN_FP16=1
+                use_fp16 = os.environ.get("MUSICGEN_FP16") == "1"
+                torch_dtype = getattr(torch, "float16", None) if use_fp16 else getattr(torch, "float32", None)
+                logger.info(
+                    "Using device: cuda:0 for MusicGen (%s)",
+                    "fp16" if use_fp16 else "fp32",
+                )
             else:
                 logger.info("Using device: cpu for MusicGen")
 
@@ -135,10 +153,28 @@ def _get_pipeline(model_name: str):
                     pipe = _build_pipe(use_safetensors=False)
                 else:
                     raise
+            # Patch ambiguous text config in newer Transformers MusicGen variants
+            try:
+                model = getattr(pipe, "model", None)
+                cfg = getattr(model, "config", None)
+                if cfg is not None and hasattr(cfg, "get_text_config"):
+                    # Prefer decoder sub-config for generation; fallback to text_encoder
+                    dec = getattr(cfg, "decoder", None)
+                    te = getattr(cfg, "text_encoder", None)
+                    chosen = dec or te
+                    if chosen is not None:
+                        setattr(cfg, "text_config", chosen)
+                        logger.debug(
+                            "Set MusicGen config.text_config = %s",
+                            "decoder" if dec is not None else "text_encoder",
+                        )
+            except Exception:
+                # Non-fatal; generation may still succeed
+                pass
         except Exception as exc:  # pragma: no cover - depends on HF hub
             logger.exception("Failed to load MusicGen model %s: %s", normalized_name, exc)
             raise
-        _PIPELINE_CACHE[normalized_name] = pipe
+        _PIPELINE_CACHE[cache_key] = pipe
         return pipe
 
 
@@ -192,6 +228,10 @@ def generate_music(
         temperature,
     )
 
+    # Track device/fallback status for the last call
+    initial_device = "gpu" if (torch is not None and getattr(torch.cuda, "is_available", lambda: False)()) else "cpu"
+    _LAST_STATUS.update({"device": initial_device, "fallback": False, "reason": None})
+
     try:
         try:
             # Newer Transformers expect generation params under "generate_kwargs".
@@ -238,8 +278,42 @@ def generate_music(
                 "Unexpected result type from MusicGen pipeline: " f"{type(result).__name__}"
             )
     except Exception as exc:  # pragma: no cover - depends on HF pipeline
-        logger.exception("Music generation failed: %s", exc)
-        raise
+        # GPU-specific failures: retry on CPU once
+        msg = str(exc)
+        if (
+            "Indexing.cu" in msg
+            or "CUDA out of memory" in msg
+            or "CUBLAS" in msg
+            or "device-side assert" in msg
+        ):
+            logger.warning("GPU generation failed; retrying on CPU: %s", msg)
+            _LAST_STATUS.update({"device": "cpu", "fallback": True, "reason": msg})
+            pipe_cpu = _get_pipeline(model_name, device_override=-1)
+            try:
+                result = pipe_cpu(
+                    prompt,
+                    generate_kwargs={
+                        "max_new_tokens": max_new_tokens,
+                        "do_sample": True,
+                        "temperature": temperature,
+                    },
+                )
+                if isinstance(result, list):
+                    audio = result[0]["audio"]
+                    sample_rate = result[0]["sampling_rate"]
+                elif isinstance(result, dict):
+                    audio = result["audio"]
+                    sample_rate = result["sampling_rate"]
+                else:
+                    raise TypeError(
+                        "Unexpected result type from MusicGen pipeline: " f"{type(result).__name__}"
+                    )
+            except Exception:
+                logger.exception("CPU retry failed as well")
+                raise
+        else:
+            logger.exception("Music generation failed: %s", exc)
+            raise
 
     out_dir = Path(output_dir) / "musicgen"
     out_dir.mkdir(parents=True, exist_ok=True)

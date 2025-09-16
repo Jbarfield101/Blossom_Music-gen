@@ -26,7 +26,7 @@ export default function AlbumMaker() {
 
   const pickOutputDir = async () => {
     const dir = await openDialog({ directory: true, multiple: false });
-    if (dir) setOutputDir(dir);
+    if (typeof dir === 'string') setOutputDir(dir);
   };
 
   const move = (idx, delta) => {
