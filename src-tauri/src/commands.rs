@@ -1,4 +1,6 @@
 use std::process::Command;
+use std::io::Write;
+use tempfile::NamedTempFile;
 use std::fs;
 
 use tauri::{async_runtime, AppHandle, Manager};
@@ -185,4 +187,82 @@ print(json.dumps(info))
 #[tauri::command]
 pub async fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
     std::fs::read(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn album_concat(
+    files: Vec<String>,
+    output_dir: String,
+    output_name: Option<String>,
+) -> Result<String, String> {
+    if files.is_empty() {
+        return Err("No input files provided".into());
+    }
+    // Ensure output directory exists
+    let out_dir = std::path::PathBuf::from(&output_dir);
+    std::fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
+
+    // Build output file path
+    let mut final_name = output_name.unwrap_or_else(|| {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        format!("album_{}.mp3", ts)
+    });
+    if !final_name.to_lowercase().ends_with(".mp3") {
+        final_name.push_str(".mp3");
+    }
+    let out_path = out_dir.join(final_name);
+
+    // Create concat list file
+    let mut list_file = NamedTempFile::new().map_err(|e| e.to_string())?;
+    for f in &files {
+        let p = std::path::Path::new(f);
+        if !p.exists() {
+            return Err(format!("Input does not exist: {}", f));
+        }
+        // FFmpeg concat demuxer expects lines like: file 'path'
+        // Use single quotes; this file is parsed by FFmpeg, not the OS shell.
+        let line = format!("file '{}'\n", f.replace("'", "'\\''"));
+        list_file.write_all(line.as_bytes()).map_err(|e| e.to_string())?;
+    }
+    let list_path = list_file.path().to_path_buf();
+
+    // Run ffmpeg. Prefer re-encoding to MP3 for robustness across mixed inputs.
+    let out_path_for_ffmpeg = out_path.clone();
+    let output = tauri::async_runtime::spawn_blocking(move || {
+        Command::new("ffmpeg")
+            .args([
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+            ])
+            .arg(list_path.as_os_str())
+            .args([
+                "-vn",
+                "-acodec",
+                "libmp3lame",
+                "-b:a",
+                "320k",
+            ])
+            .arg(out_path_for_ffmpeg.as_os_str())
+            .output()
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("not recognized") || stderr.contains("No such file or directory") {
+            return Err("ffmpeg not found. Please install FFmpeg and ensure it is on your PATH.".into());
+        }
+        return Err(format!("ffmpeg failed: {}", stderr));
+    }
+
+    Ok(out_path.to_string_lossy().to_string())
 }
