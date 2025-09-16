@@ -44,6 +44,7 @@ export default function Settings() {
   const [accent, setAccentState] = useState("#ff4d6d");
   const [baseFontSize, setBaseFontSizeState] = useState("16px");
   const [versions, setVersions] = useState({ app: "", python: "" });
+  const [vaultError, setVaultError] = useState("");
 
   useEffect(() => {
     getTheme().then((savedTheme) => setThemeState(savedTheme || "dark"));
@@ -121,22 +122,30 @@ export default function Settings() {
   }, []);
 
   const chooseVault = async () => {
-    const res = await openDialog({ directory: true });
-    if (!res) return;
-    const path =
-      Array.isArray(res)
-        ? typeof res[0] === "string"
-          ? res[0]
-          : res[0]?.path
-        : typeof res === "string"
-        ? res
-        : res?.path;
-    if (path) {
-      await invoke("select_vault", { path });
-      await setConfig(VAULT_KEY, path);
-      setVault(path);
-    } else {
-      console.error("Failed to determine vault path from selection", res);
+    try {
+      const res = await openDialog({ directory: true });
+      if (!res) return;
+      const path =
+        Array.isArray(res)
+          ? typeof res[0] === "string"
+            ? res[0]
+            : res[0]?.path
+          : typeof res === "string"
+          ? res
+          : res?.path;
+      if (path) {
+        await invoke("select_vault", { path });
+        await setConfig(VAULT_KEY, path);
+        setVault(path);
+        setVaultError("");
+      } else {
+        const message = "Failed to determine vault path from selection";
+        console.error(message, res);
+        setVaultError("Could not determine the vault folder. Please try again.");
+      }
+    } catch (err) {
+      console.error('Folder selection failed', err);
+      setVaultError("Failed to open the vault picker. Please try again.");
     }
   };
 
@@ -183,6 +192,7 @@ export default function Settings() {
       <h1>Settings</h1>
       <section className="settings-section">
         <p>Vault path: {vault || "(none)"}</p>
+        {vaultError && <p className="error">{vaultError}</p>}
         <div className="button-row">
           <button type="button" onClick={chooseVault}>
             Choose Vault

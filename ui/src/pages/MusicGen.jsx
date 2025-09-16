@@ -27,6 +27,7 @@ export default function MusicGen() {
   const [forceCpu, setForceCpu] = useState(false);
   const [envInfo, setEnvInfo] = useState(null);
   const [outputDir, setOutputDir] = useState("");
+  const [outputDirError, setOutputDirError] = useState("");
   const [count, setCount] = useState(1);
   const [fallbackMsg, setFallbackMsg] = useState("");
   const storeRef = useRef(null);
@@ -280,7 +281,10 @@ export default function MusicGen() {
             <input
               type="text"
               value={outputDir}
-              onChange={(e) => setOutputDir(e.target.value)}
+              onChange={(e) => {
+                setOutputDir(e.target.value);
+                if (outputDirError) setOutputDirError("");
+              }}
               className="p-sm"
               placeholder="Default (App Data directory)"
               style={{ flex: 1 }}
@@ -290,6 +294,7 @@ export default function MusicGen() {
               className="p-sm"
               onClick={async () => {
                 try {
+                  setOutputDirError("");
                   const res = await open({ directory: true, multiple: false, defaultPath: outputDir || undefined });
                   if (!res) return;
                   const path =
@@ -303,10 +308,13 @@ export default function MusicGen() {
                   if (path) {
                     setOutputDir(path);
                   } else {
-                    console.error("Failed to determine output directory from selection", res);
+                    const message = "Failed to determine output directory from selection";
+                    console.error(message, res);
+                    setOutputDirError("Could not determine the selected folder. Please try again.");
                   }
                 } catch (err) {
-                  console.error("Failed to open directory picker", err);
+                  console.error('Folder selection failed', err);
+                  setOutputDirError("Failed to open the folder picker. Please try again.");
                 }
               }}
               style={{ background: "var(--button-bg)", color: "var(--text)" }}
@@ -324,6 +332,11 @@ export default function MusicGen() {
               </button>
             )}
           </div>
+          {outputDirError && (
+            <div className="error" style={{ marginTop: "0.5rem" }}>
+              {outputDirError}
+            </div>
+          )}
         </div>
         <label className="mb-md" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <input

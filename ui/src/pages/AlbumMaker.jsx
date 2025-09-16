@@ -25,22 +25,28 @@ export default function AlbumMaker() {
   };
 
   const pickOutputDir = async () => {
-    const res = await openDialog({ directory: true, multiple: false });
-    if (!res) return;
-    const path =
-      Array.isArray(res)
-        ? typeof res[0] === 'string'
-          ? res[0]
-          : res[0]?.path
-        : typeof res === 'string'
-        ? res
-        : res?.path;
-    if (path) {
-      setOutputDir(path);
-    } else {
-      const message = 'Could not determine output folder from selection.';
-      console.error(message, res);
-      setError(message);
+    try {
+      const res = await openDialog({ directory: true, multiple: false });
+      if (!res) return;
+      const path =
+        Array.isArray(res)
+          ? typeof res[0] === 'string'
+            ? res[0]
+            : res[0]?.path
+          : typeof res === 'string'
+          ? res
+          : res?.path;
+      if (path) {
+        setOutputDir(path);
+        setError('');
+      } else {
+        const message = 'Could not determine output folder from selection.';
+        console.error(message, res);
+        setError(message);
+      }
+    } catch (err) {
+      console.error('Folder selection failed', err);
+      setError('Failed to choose an output folder. Please try again.');
     }
   };
 
