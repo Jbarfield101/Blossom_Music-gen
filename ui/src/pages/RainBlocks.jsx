@@ -7,6 +7,9 @@ export const BOARD_COLUMNS = 10;
 export const BOARD_ROWS = 20;
 export const CANVAS_WIDTH = BOARD_COLUMNS * CELL_SIZE;
 export const CANVAS_HEIGHT = BOARD_ROWS * CELL_SIZE;
+const PREVIEW_GRID_SIZE = 4;
+const PREVIEW_CELL_SIZE = 20;
+const PREVIEW_CANVAS_SIZE = PREVIEW_GRID_SIZE * PREVIEW_CELL_SIZE;
 const LOCK_DELAY_MS = 300;
 
 const SHAPES = [
@@ -61,10 +64,20 @@ const SHAPES = [
 const createEmptyBoard = () =>
   Array.from({ length: BOARD_ROWS }, () => Array(BOARD_COLUMNS).fill(0));
 
+const getRandomShape = () => {
+  const shape = SHAPES[Math.floor(Math.random() * SHAPES.length)];
+  return {
+    color: shape.color,
+    matrix: shape.matrix,
+  };
+};
+
 export default function RainBlocks() {
   const canvasRef = useRef(null);
+  const previewCanvasRef = useRef(null);
   const [board, setBoard] = useState(() => createEmptyBoard());
   const [activePiece, setActivePiece] = useState(null);
+  const [nextPiece, setNextPiece] = useState(() => getRandomShape());
   const [gameOverMessage, setGameOverMessage] = useState(null);
   const [score, setScore] = useState(0);
   const [highScore, setHighScore] = useState(() => {
@@ -78,6 +91,7 @@ export default function RainBlocks() {
 
   const boardRef = useRef(board);
   const activePieceRef = useRef(activePiece);
+  const nextPieceRef = useRef(nextPiece);
   const lockDelayRef = useRef(null);
   const levelRef = useRef(level);
   useEffect(() => {
@@ -86,6 +100,9 @@ export default function RainBlocks() {
   useEffect(() => {
     activePieceRef.current = activePiece;
   }, [activePiece]);
+  useEffect(() => {
+    nextPieceRef.current = nextPiece;
+  }, [nextPiece]);
   useEffect(() => {
     levelRef.current = level;
   }, [level]);
@@ -128,26 +145,30 @@ export default function RainBlocks() {
 
   const spawnNewPiece = useCallback(() => {
     clearLockDelay();
-    const randomShape = SHAPES[Math.floor(Math.random() * SHAPES.length)];
+    const incoming = nextPieceRef.current ?? getRandomShape();
     const startCol = Math.floor(
-      (BOARD_COLUMNS - randomShape.matrix[0].length) / 2,
+      (BOARD_COLUMNS - incoming.matrix[0].length) / 2,
     );
 
-    if (!isValidPosition(randomShape.matrix, 0, startCol)) {
+    if (!isValidPosition(incoming.matrix, 0, startCol)) {
       setGameOverMessage('Game Over');
       activePieceRef.current = null;
       setActivePiece(null);
       return false;
     }
 
-    const nextPiece = {
+    const piece = {
       row: 0,
       col: startCol,
-      shape: randomShape.matrix,
-      color: randomShape.color,
+      shape: incoming.matrix,
+      color: incoming.color,
     };
-    activePieceRef.current = nextPiece;
-    setActivePiece(nextPiece);
+    activePieceRef.current = piece;
+    setActivePiece(piece);
+
+    const replacement = getRandomShape();
+    nextPieceRef.current = replacement;
+    setNextPiece(replacement);
     return true;
   }, [clearLockDelay, isValidPosition]);
 
@@ -162,6 +183,9 @@ export default function RainBlocks() {
     setScore(0);
     setLinesCleared(0);
     setLevel(1);
+    const initialNext = getRandomShape();
+    nextPieceRef.current = initialNext;
+    setNextPiece(initialNext);
     spawnNewPiece();
   }, [clearLockDelay, spawnNewPiece]);
 
@@ -389,6 +413,39 @@ export default function RainBlocks() {
   }, [activePiece, board, isValidPosition]);
 
   useEffect(() => {
+    const previewCanvas = previewCanvasRef.current;
+    if (!previewCanvas) return;
+    const context = previewCanvas.getContext('2d');
+    context.clearRect(0, 0, PREVIEW_CANVAS_SIZE, PREVIEW_CANVAS_SIZE);
+    context.fillStyle = '#111827';
+    context.fillRect(0, 0, PREVIEW_CANVAS_SIZE, PREVIEW_CANVAS_SIZE);
+
+    if (!nextPiece) {
+      return;
+    }
+
+    const { matrix, color } = nextPiece;
+    const rows = matrix.length;
+    const cols = matrix[0].length;
+    const offsetRow = Math.floor((PREVIEW_GRID_SIZE - rows) / 2);
+    const offsetCol = Math.floor((PREVIEW_GRID_SIZE - cols) / 2);
+
+    context.fillStyle = color;
+    matrix.forEach((rowArr, r) => {
+      rowArr.forEach((cell, c) => {
+        if (cell) {
+          context.fillRect(
+            (offsetCol + c) * PREVIEW_CELL_SIZE,
+            (offsetRow + r) * PREVIEW_CELL_SIZE,
+            PREVIEW_CELL_SIZE,
+            PREVIEW_CELL_SIZE,
+          );
+        }
+      });
+    });
+  }, [nextPiece]);
+
+  useEffect(() => {
     if (!gameOverMessage) return undefined;
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
@@ -403,41 +460,54 @@ export default function RainBlocks() {
       <BackButton />
       <div className="game-container">
         <h1>Rain Blocks</h1>
-        <div className="scoreboard">
-          <span>Score: {score}</span>
-          <span>High Score: {highScore}</span>
-          <span>Lines: {linesCleared}</span>
-          <span>Level: {level}</span>
-        </div>
-        <div className="game-board">
-          <canvas
-            ref={canvasRef}
-            width={CANVAS_WIDTH}
-            height={CANVAS_HEIGHT}
-            className="game-canvas"
-          ></canvas>
-          {gameOverMessage && (
-            <div className="game-overlay">
-              <div className="game-overlay-content">
-                <p className="game-overlay-title">{gameOverMessage}</p>
-                <p className="game-overlay-text">Score: {score}</p>
-                <p className="game-overlay-text">Lines: {linesCleared}</p>
-                <p className="game-overlay-text">Level: {level}</p>
-                <p className="game-overlay-text">High Score: {highScore}</p>
-                <p className="game-overlay-text">Try again?</p>
-                <button
-                  type="button"
-                  className="game-overlay-button"
-                  onClick={resetGame}
-                >
-                  Restart
-                </button>
-                <p className="game-overlay-hint">
-                  Use A/D or ←/→ to move, W or ↑ to rotate
-                </p>
+        <div className="game-layout">
+          <div className="game-board">
+            <canvas
+              ref={canvasRef}
+              width={CANVAS_WIDTH}
+              height={CANVAS_HEIGHT}
+              className="game-canvas"
+            ></canvas>
+            {gameOverMessage && (
+              <div className="game-overlay">
+                <div className="game-overlay-content">
+                  <p className="game-overlay-title">{gameOverMessage}</p>
+                  <p className="game-overlay-text">Score: {score}</p>
+                  <p className="game-overlay-text">Lines: {linesCleared}</p>
+                  <p className="game-overlay-text">Level: {level}</p>
+                  <p className="game-overlay-text">High Score: {highScore}</p>
+                  <p className="game-overlay-text">Try again?</p>
+                  <button
+                    type="button"
+                    className="game-overlay-button"
+                    onClick={resetGame}
+                  >
+                    Restart
+                  </button>
+                  <p className="game-overlay-hint">
+                    Use A/D or ←/→ to move, W or ↑ to rotate
+                  </p>
+                </div>
               </div>
+            )}
+          </div>
+          <div className="game-sidebar">
+            <div className="scoreboard sidebar-card">
+              <span>Score: {score}</span>
+              <span>High Score: {highScore}</span>
+              <span>Lines: {linesCleared}</span>
+              <span>Level: {level}</span>
             </div>
-          )}
+            <div className="preview-container sidebar-card">
+              <p className="preview-title">Next</p>
+              <canvas
+                ref={previewCanvasRef}
+                width={PREVIEW_CANVAS_SIZE}
+                height={PREVIEW_CANVAS_SIZE}
+                className="preview-canvas"
+              ></canvas>
+            </div>
+          </div>
         </div>
       </div>
     </>
