@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
 import './RainBlocks.css';
 
-export const CELL_SIZE = 24;
+export const CELL_SIZE = 32;
 export const BOARD_COLUMNS = 10;
 export const BOARD_ROWS = 20;
 export const CANVAS_WIDTH = BOARD_COLUMNS * CELL_SIZE;
