@@ -108,6 +108,13 @@ struct Npc {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct LoreItem {
+    path: String,
+    title: String,
+    summary: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 struct PiperProfile {
     name: String,
     voice_id: String,
@@ -181,6 +188,65 @@ fn npc_list() -> Result<Vec<Npc>, String> {
         }
     }
     Ok(npcs)
+}
+
+#[tauri::command]
+fn lore_list() -> Result<Vec<LoreItem>, String> {
+    let mut cmd = python_command();
+    let output = cmd
+        .args([
+            "-c",
+            "import json, service_api; print(json.dumps(service_api.list_lore()))",
+        ])
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+
+    let notes = serde_json::from_slice::<Vec<Value>>(&output.stdout).map_err(|e| e.to_string())?;
+
+    let mut lore_items = Vec::new();
+    for note in notes {
+        let path = note
+            .get("path")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let title = note
+            .get("title")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .or_else(|| {
+                note.get("aliases")
+                    .and_then(|v| v.as_array())
+                    .and_then(|arr| arr.get(0))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_else(|| {
+                Path::new(&path)
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(&path)
+                    .to_string()
+            });
+        let summary = note
+            .get("summary")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+
+        lore_items.push(LoreItem {
+            path,
+            title,
+            summary,
+        });
+    }
+
+    Ok(lore_items)
 }
 
 #[tauri::command]
@@ -1151,6 +1217,7 @@ fn main() {
             album_concat,
             list_llm,
             set_llm,
+            lore_list,
             npc_list,
             npc_save,
             npc_delete,
