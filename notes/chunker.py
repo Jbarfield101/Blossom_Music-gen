@@ -32,6 +32,15 @@ class NoteChunk:
 
 _HEADING_RE = re.compile(r"^(#+)\s+(.*)$")
 
+_CREATE_CHUNKS_TABLE_SQL = (
+    "CREATE TABLE IF NOT EXISTS chunks("
+    "id TEXT PRIMARY KEY, path TEXT, heading TEXT, content TEXT)"
+)
+_CREATE_TAGS_TABLE_SQL = (
+    "CREATE TABLE IF NOT EXISTS tags("
+    "chunk_id TEXT, tag TEXT)"
+)
+
 
 def _make_id(path: str, heading: str) -> str:
     """Return a deterministic identifier for ``path`` and ``heading``."""
@@ -92,6 +101,13 @@ def chunk_note(parsed: ParsedNote, path: str | Path = "") -> List[NoteChunk]:
     return chunks
 
 
+def ensure_chunk_tables(conn: sqlite3.Connection) -> None:
+    """Ensure the ``chunks`` and ``tags`` tables exist in ``conn``."""
+
+    conn.execute(_CREATE_CHUNKS_TABLE_SQL)
+    conn.execute(_CREATE_TAGS_TABLE_SQL)
+
+
 def store_chunks(chunks: Iterable[NoteChunk], db_path: str | Path) -> None:
     """Persist ``chunks`` and their tags into ``db_path``.
 
@@ -105,12 +121,7 @@ def store_chunks(chunks: Iterable[NoteChunk], db_path: str | Path) -> None:
 
     conn = sqlite3.connect(db_path)
     try:
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS chunks(" "id TEXT PRIMARY KEY, path TEXT, heading TEXT, content TEXT)"
-        )
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS tags(" "chunk_id TEXT, tag TEXT)"
-        )
+        ensure_chunk_tables(conn)
 
         conn.executemany(
             "REPLACE INTO chunks(id, path, heading, content) VALUES(?, ?, ?, ?)",

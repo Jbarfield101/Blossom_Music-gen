@@ -17,6 +17,7 @@ from config.obsidian import get_vault
 from notes.embedding import DEFAULT_INDEX_PATH
 from notes.watchdog import DEFAULT_DB_PATH
 from notes.search import search_chunks
+from notes.chunker import ensure_chunk_tables
 from notes.parser import parse_note, NoteParseError
 
 
@@ -65,6 +66,7 @@ def search(query: str, tags: List[str] | None = None) -> List[Dict[str, Any]]:
     placeholders = ",".join("?" * len(chunk_ids))
     conn = sqlite3.connect(db_path)
     try:
+        ensure_chunk_tables(conn)
         rows = conn.execute(
             f"SELECT id, path, heading, content FROM chunks WHERE id IN ({placeholders})",
             chunk_ids,
@@ -164,6 +166,7 @@ def list_npcs() -> List[Dict[str, Any]]:
     vault, db_path, _ = _paths()
     conn = sqlite3.connect(db_path)
     try:
+        ensure_chunk_tables(conn)
         rows = conn.execute(
             """
             SELECT DISTINCT c.path FROM chunks c
@@ -204,6 +207,7 @@ def list_lore() -> List[Dict[str, Any]]:
     vault, db_path, _ = _paths()
     conn = sqlite3.connect(db_path)
     try:
+        ensure_chunk_tables(conn)
         rows = conn.execute(
             """
             SELECT DISTINCT c.path FROM chunks c
