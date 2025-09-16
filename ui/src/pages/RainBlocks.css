@@ -43,6 +43,86 @@
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.35);
 }
 
+.playfield {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: var(--space-lg);
+  width: 100%;
+}
+
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  min-width: 140px;
+  background: var(--panel-bg);
+  border: 2px solid var(--accent);
+  border-radius: var(--space-sm);
+  box-shadow: var(--card-shadow);
+}
+
+.panel-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.piece-preview {
+  --preview-cell-size: 22px;
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(4, var(--preview-cell-size));
+  grid-template-rows: repeat(4, var(--preview-cell-size));
+  gap: 4px;
+  padding: var(--space-sm);
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--space-xs);
+  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.35);
+}
+
+.piece-preview-cell {
+  width: var(--preview-cell-size);
+  height: var(--preview-cell-size);
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+
+.piece-preview-cell.filled {
+  border-color: rgba(0, 0, 0, 0.2);
+  box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.25);
+}
+
+.piece-preview-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+  pointer-events: none;
+}
+
+.panel-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text);
+  opacity: 0.75;
+  text-align: center;
+}
+
 .game-over-message {
   margin: 0;
   font-weight: 600;
@@ -115,6 +195,16 @@
 @media (max-width: 600px) {
   .game-container {
     padding: var(--space-md);
+  }
+
+  .playfield {
+    flex-direction: column;
+    gap: var(--space-md);
+  }
+
+  .side-panel {
+    width: 100%;
+    max-width: 240px;
   }
 
   .game-overlay {

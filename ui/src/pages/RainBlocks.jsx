@@ -8,6 +8,7 @@ export const BOARD_ROWS = 20;
 export const CANVAS_WIDTH = BOARD_COLUMNS * CELL_SIZE;
 export const CANVAS_HEIGHT = BOARD_ROWS * CELL_SIZE;
 const LOCK_DELAY_MS = 300;
+const PREVIEW_GRID_SIZE = 4;
 
 const SHAPES = [
   {
@@ -61,6 +62,42 @@ const SHAPES = [
 const createEmptyBoard = () =>
   Array.from({ length: BOARD_ROWS }, () => Array(BOARD_COLUMNS).fill(0));
 
+const cloneShape = (shape) => shape.map((row) => row.slice());
+
+const createPreviewMatrix = (piece) => {
+  const grid = Array.from({ length: PREVIEW_GRID_SIZE }, () =>
+    Array(PREVIEW_GRID_SIZE).fill(null),
+  );
+  if (!piece) {
+    return grid;
+  }
+
+  const pieceRows = piece.shape.length;
+  const pieceCols = piece.shape[0].length;
+  const rowOffset = Math.max(0, Math.floor((PREVIEW_GRID_SIZE - pieceRows) / 2));
+  const colOffset = Math.max(0, Math.floor((PREVIEW_GRID_SIZE - pieceCols) / 2));
+
+  piece.shape.forEach((rowArr, r) => {
+    rowArr.forEach((cell, c) => {
+      if (!cell) {
+        return;
+      }
+      const targetRow = rowOffset + r;
+      const targetCol = colOffset + c;
+      if (
+        targetRow >= 0 &&
+        targetRow < PREVIEW_GRID_SIZE &&
+        targetCol >= 0 &&
+        targetCol < PREVIEW_GRID_SIZE
+      ) {
+        grid[targetRow][targetCol] = piece.color;
+      }
+    });
+  });
+
+  return grid;
+};
+
 export default function RainBlocks() {
   const canvasRef = useRef(null);
   const [board, setBoard] = useState(() => createEmptyBoard());
@@ -73,11 +110,15 @@ export default function RainBlocks() {
   });
   const [linesCleared, setLinesCleared] = useState(0);
   const [level, setLevel] = useState(1);
+  const [heldPiece, setHeldPiece] = useState(null);
+  const [hasHeldThisDrop, setHasHeldThisDrop] = useState(false);
 
   const LINES_PER_LEVEL = 10;
 
   const boardRef = useRef(board);
   const activePieceRef = useRef(activePiece);
+  const heldPieceRef = useRef(heldPiece);
+  const hasHeldThisDropRef = useRef(hasHeldThisDrop);
   const lockDelayRef = useRef(null);
   const levelRef = useRef(level);
   useEffect(() => {
@@ -86,6 +127,12 @@ export default function RainBlocks() {
   useEffect(() => {
     activePieceRef.current = activePiece;
   }, [activePiece]);
+  useEffect(() => {
+    heldPieceRef.current = heldPiece;
+  }, [heldPiece]);
+  useEffect(() => {
+    hasHeldThisDropRef.current = hasHeldThisDrop;
+  }, [hasHeldThisDrop]);
   useEffect(() => {
     levelRef.current = level;
   }, [level]);
@@ -126,30 +173,37 @@ export default function RainBlocks() {
     return true;
   }, []);
 
-  const spawnNewPiece = useCallback(() => {
-    clearLockDelay();
-    const randomShape = SHAPES[Math.floor(Math.random() * SHAPES.length)];
-    const startCol = Math.floor(
-      (BOARD_COLUMNS - randomShape.matrix[0].length) / 2,
-    );
+  const spawnNewPiece = useCallback(
+    (resetHold = true) => {
+      clearLockDelay();
+      const randomShape = SHAPES[Math.floor(Math.random() * SHAPES.length)];
+      const startCol = Math.floor(
+        (BOARD_COLUMNS - randomShape.matrix[0].length) / 2,
+      );
 
-    if (!isValidPosition(randomShape.matrix, 0, startCol)) {
-      setGameOverMessage('Game Over');
-      activePieceRef.current = null;
-      setActivePiece(null);
-      return false;
-    }
+      if (!isValidPosition(randomShape.matrix, 0, startCol)) {
+        setGameOverMessage('Game Over');
+        activePieceRef.current = null;
+        setActivePiece(null);
+        return false;
+      }
 
-    const nextPiece = {
-      row: 0,
-      col: startCol,
-      shape: randomShape.matrix,
-      color: randomShape.color,
-    };
-    activePieceRef.current = nextPiece;
-    setActivePiece(nextPiece);
-    return true;
-  }, [clearLockDelay, isValidPosition]);
+      const nextPiece = {
+        row: 0,
+        col: startCol,
+        shape: randomShape.matrix,
+        color: randomShape.color,
+      };
+      activePieceRef.current = nextPiece;
+      setActivePiece(nextPiece);
+      if (resetHold) {
+        setHasHeldThisDrop(false);
+        hasHeldThisDropRef.current = false;
+      }
+      return true;
+    },
+    [clearLockDelay, hasHeldThisDropRef, isValidPosition],
+  );
 
   const resetGame = useCallback(() => {
     clearLockDelay();
@@ -158,6 +212,10 @@ export default function RainBlocks() {
     setBoard(freshBoard);
     activePieceRef.current = null;
     setActivePiece(null);
+    heldPieceRef.current = null;
+    setHeldPiece(null);
+    hasHeldThisDropRef.current = false;
+    setHasHeldThisDrop(false);
     setGameOverMessage(null);
     setScore(0);
     setLinesCleared(0);
@@ -264,6 +322,58 @@ export default function RainBlocks() {
     });
   }, [clearLockDelay, isValidPosition]);
 
+  const holdCurrentPiece = useCallback(() => {
+    const piece = activePieceRef.current;
+    if (!piece || hasHeldThisDropRef.current) {
+      return;
+    }
+    clearLockDelay();
+    const holdData = {
+      shape: cloneShape(piece.shape),
+      color: piece.color,
+    };
+
+    if (!heldPieceRef.current) {
+      setHeldPiece(holdData);
+      setHasHeldThisDrop(true);
+      hasHeldThisDropRef.current = true;
+      activePieceRef.current = null;
+      setActivePiece(null);
+      spawnNewPiece(false);
+      return;
+    }
+
+    const held = heldPieceRef.current;
+    const spawnRow = 0;
+    const spawnCol = Math.floor(
+      (BOARD_COLUMNS - held.shape[0].length) / 2,
+    );
+
+    if (!isValidPosition(held.shape, spawnRow, spawnCol)) {
+      return;
+    }
+
+    const swappedPiece = {
+      row: spawnRow,
+      col: spawnCol,
+      shape: cloneShape(held.shape),
+      color: held.color,
+    };
+
+    setHeldPiece(holdData);
+    setHasHeldThisDrop(true);
+    hasHeldThisDropRef.current = true;
+    activePieceRef.current = swappedPiece;
+    setActivePiece(swappedPiece);
+  }, [
+    activePieceRef,
+    clearLockDelay,
+    hasHeldThisDropRef,
+    heldPieceRef,
+    isValidPosition,
+    spawnNewPiece,
+  ]);
+
   useEffect(() => {
     if (!gameOverMessage && !activePiece) {
       spawnNewPiece();
@@ -319,6 +429,14 @@ export default function RainBlocks() {
           scheduleLock();
           return piece;
         });
+      } else if (
+        event.key === 'Shift' ||
+        event.key === 'ShiftLeft' ||
+        event.key === 'ShiftRight' ||
+        event.key.toLowerCase() === 'c'
+      ) {
+        event.preventDefault();
+        holdCurrentPiece();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -328,6 +446,7 @@ export default function RainBlocks() {
     gameOverMessage,
     isValidPosition,
     movePieceHorizontally,
+    holdCurrentPiece,
     rotatePiece,
     scheduleLock,
   ]);
@@ -398,6 +517,8 @@ export default function RainBlocks() {
     return undefined;
   }, [gameOverMessage]);
 
+  const holdPreviewMatrix = createPreviewMatrix(heldPiece);
+
   return (
     <>
       <BackButton />
@@ -409,35 +530,59 @@ export default function RainBlocks() {
           <span>Lines: {linesCleared}</span>
           <span>Level: {level}</span>
         </div>
-        <div className="game-board">
-          <canvas
-            ref={canvasRef}
-            width={CANVAS_WIDTH}
-            height={CANVAS_HEIGHT}
-            className="game-canvas"
-          ></canvas>
-          {gameOverMessage && (
-            <div className="game-overlay">
-              <div className="game-overlay-content">
-                <p className="game-overlay-title">{gameOverMessage}</p>
-                <p className="game-overlay-text">Score: {score}</p>
-                <p className="game-overlay-text">Lines: {linesCleared}</p>
-                <p className="game-overlay-text">Level: {level}</p>
-                <p className="game-overlay-text">High Score: {highScore}</p>
-                <p className="game-overlay-text">Try again?</p>
-                <button
-                  type="button"
-                  className="game-overlay-button"
-                  onClick={resetGame}
-                >
-                  Restart
-                </button>
-                <p className="game-overlay-hint">
-                  Use A/D or ←/→ to move, W or ↑ to rotate
-                </p>
-              </div>
+        <div className="playfield">
+          <div className="side-panel hold-panel">
+            <h2 className="panel-title">Hold</h2>
+            <div className="piece-preview">
+              {holdPreviewMatrix.map((row, rowIndex) =>
+                row.map((cell, cellIndex) => (
+                  <div
+                    key={`hold-${rowIndex}-${cellIndex}`}
+                    className={`piece-preview-cell${cell ? ' filled' : ''}`}
+                    style={cell ? { backgroundColor: cell } : undefined}
+                  ></div>
+                ))
+              )}
+              {!heldPiece && (
+                <span className="piece-preview-empty">Empty</span>
+              )}
             </div>
-          )}
+            <p className="panel-hint">
+              {hasHeldThisDrop
+                ? 'Hold used - lock a piece to reset'
+                : 'Shift or C to hold'}
+            </p>
+          </div>
+          <div className="game-board">
+            <canvas
+              ref={canvasRef}
+              width={CANVAS_WIDTH}
+              height={CANVAS_HEIGHT}
+              className="game-canvas"
+            ></canvas>
+            {gameOverMessage && (
+              <div className="game-overlay">
+                <div className="game-overlay-content">
+                  <p className="game-overlay-title">{gameOverMessage}</p>
+                  <p className="game-overlay-text">Score: {score}</p>
+                  <p className="game-overlay-text">Lines: {linesCleared}</p>
+                  <p className="game-overlay-text">Level: {level}</p>
+                  <p className="game-overlay-text">High Score: {highScore}</p>
+                  <p className="game-overlay-text">Try again?</p>
+                  <button
+                    type="button"
+                    className="game-overlay-button"
+                    onClick={resetGame}
+                  >
+                    Restart
+                  </button>
+                  <p className="game-overlay-hint">
+                    Use A/D or ←/→ to move, W or ↑ to rotate, Shift or C to hold
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </>
