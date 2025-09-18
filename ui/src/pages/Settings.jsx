@@ -95,10 +95,11 @@ export default function Settings() {
       setWhisper(await listWhisper());
       const voices = await listPiperVoices();
       setPiper((prev) => {
-        const options = voices.map((v) => v.id);
-        const selected = options.includes(prev.selected)
+        const options = (voices || []).map((v) => ({ id: v.id, label: v.label || v.id }));
+        const ids = options.map((o) => o.id);
+        const selected = ids.includes(prev.selected)
           ? prev.selected
-          : options[0] || "";
+          : (ids[0] || "");
         return { options, selected };
       });
       setLlm(await listLlm());
@@ -250,6 +251,24 @@ export default function Settings() {
           </div>
           <div>
             <label htmlFor="piper-select">Piper voice</label>
+            <button
+              type="button"
+              className="ml-sm"
+              onClick={async () => {
+                const voices = await listPiperVoices();
+                setPiper((prev) => {
+                  const options = (voices || []).map((v) => ({ id: v.id, label: v.label || v.id }));
+                  const ids = options.map((o) => o.id);
+                  const selected = ids.includes(prev.selected)
+                    ? prev.selected
+                    : (ids[0] || "");
+                  return { options, selected };
+                });
+              }}
+              style={{ marginLeft: "0.5rem" }}
+            >
+              Refresh
+            </button>
             <select
               id="piper-select"
               value={piper.selected || ""}
@@ -260,8 +279,8 @@ export default function Settings() {
               }}
             >
               {piper.options.map((o) => (
-                <option key={o} value={o}>
-                  {o}
+                <option key={o.id} value={o.id}>
+                  {o.label || o.id}
                 </option>
               ))}
             </select>

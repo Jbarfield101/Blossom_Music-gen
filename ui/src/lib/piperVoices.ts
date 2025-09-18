@@ -1,4 +1,5 @@
 import { join } from "@tauri-apps/api/path";
+import { invoke } from "@tauri-apps/api/core";
 import { BaseDirectory, readDir, readTextFile } from "@tauri-apps/plugin-fs";
 
 export interface PiperVoice {
@@ -7,9 +8,27 @@ export interface PiperVoice {
   configPath: string;
   lang?: string;
   speaker?: number | string;
+  label?: string;
 }
 
 export async function listPiperVoices(): Promise<PiperVoice[]> {
+  // Prefer backend enumeration which works in dev and prod
+  try {
+    const items = (await invoke("list_bundled_voices")) as any[];
+    if (Array.isArray(items) && items.length) {
+      return items.map((it) => ({
+        id: String(it.id),
+        modelPath: String(it.modelPath),
+        configPath: String(it.configPath),
+        lang: typeof it.lang === "string" ? it.lang : undefined,
+        speaker: typeof it.speaker === "number" || typeof it.speaker === "string" ? it.speaker : undefined,
+        label: typeof it.label === "string" ? it.label : undefined,
+      }));
+    }
+  } catch {
+    // fall back to FS-based discovery below
+  }
+
   const root = "assets/voice_models";
   let entries;
   try {
@@ -23,8 +42,29 @@ export async function listPiperVoices(): Promise<PiperVoice[]> {
   for (const entry of entries) {
     if (!entry.isDirectory || !entry.name) continue;
     const id = entry.name;
-    const configPath = await join(root, id, `${id}.onnx.json`);
-    const modelPath = await join(root, id, `${id}.onnx`);
+
+    // Discover actual filenames inside the directory instead of assuming `${id}.onnx*`.
+    let modelFile = "";
+    let configFile = "";
+    try {
+      const files = await readDir(`${root}/${id}`, { baseDir: BaseDirectory.Resource });
+      for (const f of files) {
+        const name = f.name || "";
+        if (!f.isFile || !name) continue;
+        if (!modelFile && name.toLowerCase().endsWith(".onnx")) modelFile = name;
+        if (!configFile && name.toLowerCase().endsWith(".onnx.json")) configFile = name;
+      }
+    } catch {
+      // skip this voice if we cannot read its contents
+      continue;
+    }
+    if (!modelFile || !configFile) {
+      // Incomplete voice folder
+      continue;
+    }
+
+    const modelPath = await join(root, id, modelFile);
+    const configPath = await join(root, id, configFile);
 
     let lang: string | undefined;
     let speaker: number | string | undefined;

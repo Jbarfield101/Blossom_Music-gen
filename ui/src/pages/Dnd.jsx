@@ -77,17 +77,24 @@ export default function Dnd() {
   useEffect(() => {
     refresh();
     listPiperVoices().then((list) => {
-      const opts = list.map((v) => v.id);
-      if (opts.length === 0) {
+      if (!Array.isArray(list) || list.length === 0) {
         // Fallback: hardcode a local model path when no packaged voices are found.
         // This enables testing without requiring the discovery flow.
-        const fallback = "en-us-amy-medium";
+        const fallback = {
+          id: "en-us-amy-medium",
+          label: "Amy (Medium) [en_US]",
+          modelPath: "assets/voice_models/en-us-amy-medium/en_US-amy-medium.onnx",
+          configPath: "assets/voice_models/en-us-amy-medium/en_US-amy-medium.onnx.json",
+        };
         setVoices([fallback]);
-        setPiperVoice(fallback);
+        setPiperVoice(fallback.id);
         setPiperError("");
       } else {
-        setVoices(opts);
-        setPiperVoice((prev) => (prev && opts.includes(prev) ? prev : opts[0] || ""));
+        setVoices(list);
+        setPiperVoice((prev) => {
+          const ids = list.map((v) => v.id);
+          return prev && ids.includes(prev) ? prev : (list[0]?.id || "");
+        });
         setPiperError("");
       }
     });
@@ -141,9 +148,8 @@ export default function Dnd() {
       await updatePiperProfile(p.original, p.name, p.tags);
       await fetchProfiles();
       listPiperVoices().then((list) => {
-        const opts = list.map((v) => v.id);
-        setVoices(opts);
-        if (opts.length === 0) {
+        setVoices(Array.isArray(list) ? list : []);
+        if (!Array.isArray(list) || list.length === 0) {
           setPiperError(
             "No Piper voices installed. Run `piper --download <voice_id>` to fetch a model."
           );
@@ -161,9 +167,8 @@ export default function Dnd() {
       await removePiperProfile(name);
       await fetchProfiles();
       listPiperVoices().then((list) => {
-        const opts = list.map((v) => v.id);
-        setVoices(opts);
-        if (opts.length === 0) {
+        setVoices(Array.isArray(list) ? list : []);
+        if (!Array.isArray(list) || list.length === 0) {
           setPiperError(
             "No Piper voices installed. Run `piper --download <voice_id>` to fetch a model."
           );
@@ -314,8 +319,8 @@ export default function Dnd() {
               >
                 <option value="">Select voice</option>
                 {voices.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
+                  <option key={v.id} value={v.id}>
+                    {v.label || v.id}
                   </option>
                 ))}
               </select>
@@ -367,6 +372,24 @@ export default function Dnd() {
             <div
               style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}
             >
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const list = await listPiperVoices();
+                      setVoices(Array.isArray(list) ? list : []);
+                      const ids = (Array.isArray(list) ? list : []).map((v) => v.id);
+                      setPiperVoice((prev) => (prev && ids.includes(prev) ? prev : (ids[0] || "")));
+                      setPiperError("");
+                    } catch {
+                      // ignore
+                    }
+                  }}
+                >
+                  Refresh Voices
+                </button>
+              </div>
               <select
                 value={piperVoice}
                 onChange={(e) => {
@@ -376,8 +399,8 @@ export default function Dnd() {
               >
                 <option value="">Select voice</option>
                 {voices.map((v) => (
-                  <option key={v} value={v}>
-                    {v}
+                  <option key={v.id} value={v.id}>
+                    {v.label || v.id}
                   </option>
                 ))}
               </select>
@@ -398,15 +421,24 @@ export default function Dnd() {
                     return;
                   }
                   try {
-                    // If we are using the fallback entry, point to the absolute model/config paths.
-                    const isFallback = voices.length === 0 || piperVoice === "en-us-amy-medium";
-                    const model = isFallback
-                      ? "D:\\Blossom\\Blossom_Music\\assets\\voice_models\\en-us-amy-medium\\en_US-amy-medium.onnx"
-                      : `assets/voice_models/${piperVoice}/${piperVoice}.onnx`;
-                    const config = isFallback
-                      ? "D:\\Blossom\\Blossom_Music\\assets\\voice_models\\en-us-amy-medium\\en_US-amy-medium.onnx.json"
-                      : `assets/voice_models/${piperVoice}/${piperVoice}.onnx.json`;
-                    const path = await synthWithPiper(piperText, model, config);
+                  // Resolve selected voice model/config via the discovered voice list.
+                  const selected = voices.find((v) => v.id === piperVoice);
+                  let model = "";
+                  let config = "";
+                  if (selected) {
+                    try {
+                      model = await invoke("resolve_resource", { path: selected.modelPath });
+                      config = await invoke("resolve_resource", { path: selected.configPath });
+                    } catch {
+                      // fall through to fallback
+                    }
+                  }
+                  if (!model || !config) {
+                    // Fallback to bundled Amy model if resolution failed or voice not found
+                    model = await invoke("resolve_resource", { path: "assets/voice_models/en-us-amy-medium/en_US-amy-medium.onnx" });
+                    config = await invoke("resolve_resource", { path: "assets/voice_models/en-us-amy-medium/en_US-amy-medium.onnx.json" });
+                  }
+                  const path = await synthWithPiper(piperText, model, config);
                     setPiperPath(path);
 
                     // Prefer a Blob URL to avoid asset:// resolution issues in dev.

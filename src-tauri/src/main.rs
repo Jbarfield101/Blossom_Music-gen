@@ -99,6 +99,211 @@ fn python_command() -> Command {
     cmd
 }
 
+#[tauri::command]
+fn resolve_resource(app: AppHandle, path: String) -> Result<String, String> {
+    use std::path::PathBuf;
+
+    fn normalize_path_string(p: &Path) -> Result<String, String> {
+        let mut s = p.to_string_lossy().to_string();
+        if s.starts_with(r"\\?\") {
+            s = s.trim_start_matches(r"\\?\").to_string();
+        }
+        Ok(s)
+    }
+
+    let input = PathBuf::from(&path);
+    if input.is_absolute() && input.exists() {
+        return normalize_path_string(&input);
+    }
+
+    // Prefer project-root relative paths in dev
+    let root = project_root();
+    let candidates = [
+        root.join(&path),
+        root.join("src-tauri").join(&path),
+    ];
+    for c in &candidates {
+        if c.exists() {
+            return normalize_path_string(c);
+        }
+    }
+
+    // Fallback to resource resolution (prod bundles)
+    if let Ok(resolved) = app.path().resolve(&path, BaseDirectory::Resource) {
+        if resolved.exists() {
+            return normalize_path_string(&resolved);
+        }
+        // Return the resolved string even if it doesn't exist, as a last resort
+        return normalize_path_string(&resolved);
+    }
+
+    Err(format!("Unable to resolve resource path: {}", path))
+}
+
+#[tauri::command]
+fn list_bundled_voices(app: AppHandle) -> Result<Value, String> {
+    // Candidate roots for voices in dev/prod
+    let mut roots: Vec<PathBuf> = Vec::new();
+    if let Ok(res) = app.path().resolve("assets/voice_models", BaseDirectory::Resource) {
+        roots.push(res);
+    }
+    let proj = project_root();
+    roots.push(proj.join("assets/voice_models"));
+    roots.push(proj.join("src-tauri").join("assets/voice_models"));
+    // Also support alternate capitalizations or separate folder names
+    roots.push(proj.join("assets/Voice_Models"));
+    roots.push(proj.join("src-tauri").join("assets/Voice_Models"));
+    roots.push(proj.join("Voice_Models"));
+
+    // Deduplicate and keep only existing dirs
+    let mut seen = std::collections::HashSet::new();
+    roots.retain(|p| p.exists() && seen.insert(p.canonicalize().unwrap_or(p.clone())));
+
+    let mut items = Vec::new();
+    let mut seen_keys = std::collections::HashSet::new();
+    for base in roots {
+        for entry in fs::read_dir(&base).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+        let id = match path.file_name().and_then(|s| s.to_str()) {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
+        // Find model/config filenames
+        let mut model_file = None::<String>;
+        let mut config_file = None::<String>;
+        for f in fs::read_dir(&path).map_err(|e| e.to_string())? {
+            let f = f.map_err(|e| e.to_string())?;
+            if !f.file_type().map_err(|e| e.to_string())?.is_file() {
+                continue;
+            }
+            if let Some(name) = f.file_name().to_str() {
+                let lower = name.to_lowercase();
+                if model_file.is_none() && lower.ends_with(".onnx") {
+                    model_file = Some(name.to_string());
+                }
+                if config_file.is_none() && lower.ends_with(".onnx.json") {
+                    config_file = Some(name.to_string());
+                }
+            }
+        }
+        let (model_file, config_file) = match (model_file, config_file) {
+            (Some(m), Some(c)) => (m, c),
+            _ => continue,
+        };
+        // Build a relative resource path when possible, otherwise absolute path
+        let rel_prefix = "assets/voice_models";
+        let model_path = if path.starts_with(rel_prefix) {
+            format!("{}/{}/{}", rel_prefix, id, model_file)
+        } else if let Some(pos) = path.to_string_lossy().find(rel_prefix) {
+            let suffix = &path.to_string_lossy()[pos + rel_prefix.len() + 1..];
+            format!("{}/{}/{}", rel_prefix, suffix, model_file)
+        } else {
+            path.join(&model_file).to_string_lossy().to_string()
+        };
+        let config_path = if path.starts_with(rel_prefix) {
+            format!("{}/{}/{}", rel_prefix, id, config_file)
+        } else if let Some(pos) = path.to_string_lossy().find(rel_prefix) {
+            let suffix = &path.to_string_lossy()[pos + rel_prefix.len() + 1..];
+            format!("{}/{}/{}", rel_prefix, suffix, config_file)
+        } else {
+            path.join(&config_file).to_string_lossy().to_string()
+        };
+
+        // Attempt to read language/speaker from the config
+        let mut lang: Option<String> = None;
+        let mut speaker: Option<Value> = None;
+        // Read config using absolute path if relative resolution fails
+        let text = if let Ok(cfg_abs) = app.path().resolve(&config_path, BaseDirectory::Resource) {
+            fs::read_to_string(cfg_abs)
+        } else {
+            fs::read_to_string(path.join(&config_file))
+        };
+        if let Ok(text) = text {
+            if let Ok(val) = serde_json::from_str::<Value>(&text) {
+                if let Some(espeak) = val.get("espeak") {
+                    if let Some(v) = espeak.get("voice").and_then(|v| v.as_str()) {
+                        lang = Some(v.to_string());
+                    }
+                }
+                if lang.is_none() {
+                    if let Some(l) = val.get("language").and_then(|v| v.as_str()) {
+                        lang = Some(l.to_string());
+                    }
+                }
+                if let Some(s) = val.get("default_speaker") {
+                    speaker = Some(s.clone());
+                }
+            }
+        }
+
+        // Build a friendly label and a dedup key based on model metadata
+        let mut label: Option<String> = None;
+        let mut dedup_key: Option<String> = None;
+        if let Ok(text) = fs::read_to_string(&path.join(&config_file)) {
+            if let Ok(val) = serde_json::from_str::<Value>(&text) {
+                let dataset = val.get("dataset").and_then(|v| v.as_str()).map(|s| s.to_string());
+                let quality = val
+                    .get("audio")
+                    .and_then(|a| a.get("quality"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let lang_code = val
+                    .get("language")
+                    .and_then(|l| l.get("code"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .or_else(|| val.get("language").and_then(|v| v.as_str()).map(|s| s.to_string()));
+                if let Some(ds) = dataset.clone() {
+                    let mut name = ds[..1].to_uppercase();
+                    name.push_str(&ds[1..]);
+                    if let Some(q) = quality.clone() {
+                        let q_title = {
+                            let mut qq = q.clone();
+                            if !qq.is_empty() { qq.replace_range(0..1, &qq[0..1].to_uppercase()); }
+                            qq
+                        };
+                        name = format!("{} ({})", name, q_title);
+                    }
+                    if let Some(lc) = lang_code.clone() {
+                        name = format!("{} [{}]", name, lc);
+                    }
+                    label = Some(name);
+                }
+                // Create a metadata-based dedup key if possible
+                if let Some(ds) = dataset {
+                    let q = quality.unwrap_or_else(|| "".into());
+                    let lc = lang_code.unwrap_or_else(|| "".into());
+                    dedup_key = Some(format!("{}|{}|{}", ds.to_lowercase(), q.to_lowercase(), lc.to_lowercase()));
+                }
+            }
+        }
+
+        // Deduplicate across different folder IDs by using metadata-based key when available,
+        // falling back to a normalized id (underscores/hyphens treated the same).
+        let norm_id = id.to_lowercase().replace('-', "_");
+
+        let mut obj = serde_json::Map::new();
+        obj.insert("id".into(), Value::String(id.clone()));
+        obj.insert("modelPath".into(), Value::String(model_path));
+        obj.insert("configPath".into(), Value::String(config_path));
+        if let Some(l) = lang { obj.insert("lang".into(), Value::String(l)); }
+        if let Some(s) = speaker { obj.insert("speaker".into(), s); }
+        if let Some(lbl) = label { obj.insert("label".into(), Value::String(lbl)); }
+        let key = dedup_key.clone().unwrap_or(norm_id);
+        if seen_keys.insert(key) {
+            items.push(Value::Object(obj));
+        }
+        }
+    }
+    // Sort by id for stable UI
+    items.sort_by(|a, b| a["id"].as_str().unwrap_or("").cmp(b["id"].as_str().unwrap_or("")));
+    Ok(Value::Array(items))
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 struct Npc {
     name: String,
@@ -1213,6 +1418,8 @@ fn main() {
             musicgen_test,
             generate_musicgen,
             musicgen_env,
+            resolve_resource,
+            list_bundled_voices,
             commands::read_file_bytes,
             album_concat,
             list_llm,
