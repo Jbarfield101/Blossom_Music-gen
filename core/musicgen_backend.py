@@ -400,36 +400,17 @@ def generate_music(
         }
 
     def _gen_once(p, t):
-        try:
-            logger.debug("Calling MusicGen pipeline (tokens=%s) with generate_kwargs", t)
-            return p(
-                prompt,
-                generate_kwargs={
-                    "max_new_tokens": t,
-                    "do_sample": True,
-                    "temperature": temperature,
-                },
-                **audio_kwargs,
-            )
-        except TypeError:
-            try:
-                logger.info("Pipeline rejected generate_kwargs; retrying with direct max_new_tokens (tokens=%s)", t)
-                return p(
-                    prompt,
-                    max_new_tokens=t,
-                    do_sample=True,
-                    temperature=temperature,
-                    **audio_kwargs,
-                )
-            except TypeError:
-                logger.info("Pipeline rejected max_new_tokens; retrying with max_length (tokens=%s)", t)
-                return p(
-                    prompt,
-                    max_length=t,
-                    do_sample=True,
-                    temperature=temperature,
-                    **audio_kwargs,
-                )
+        logger.debug("Calling MusicGen pipeline (tokens=%s) with generate_kwargs", t)
+        forward_params = dict(audio_kwargs) if audio_kwargs else {}
+        return p(
+            prompt,
+            forward_params=forward_params,
+            generate_kwargs={
+                "max_new_tokens": t,
+                "do_sample": True,
+                "temperature": temperature,
+            },
+        )
 
     def _is_memory_error(exc: Exception) -> bool:
         msg = str(exc)
