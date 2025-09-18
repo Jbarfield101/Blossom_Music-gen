@@ -43,9 +43,18 @@ export default function MusicGen() {
 
   // Load persisted outputDir on mount
   useEffect(() => {
+    let disposed = false;
     (async () => {
       try {
-        const store = new Store("ui-settings.json");
+        const store = await Store.load("ui-settings.json");
+        if (disposed) {
+          try {
+            await store.close();
+          } catch {
+            // ignore
+          }
+          return;
+        }
         storeRef.current = store;
         const saved = await store.get("musicgen.outputDir");
         if (typeof saved === "string" && saved) setOutputDir(saved);
@@ -57,6 +66,21 @@ export default function MusicGen() {
         // ignore
       }
     })();
+
+    return () => {
+      disposed = true;
+      if (storeRef.current) {
+        const toClose = storeRef.current;
+        storeRef.current = null;
+        (async () => {
+          try {
+            await toClose.close();
+          } catch {
+            // ignore
+          }
+        })();
+      }
+    };
   }, []);
 
   // Persist outputDir whenever it changes
