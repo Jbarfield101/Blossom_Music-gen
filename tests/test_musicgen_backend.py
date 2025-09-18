@@ -16,19 +16,21 @@ class DummyPipeline:
         self.fail_first = fail_first
         self.calls = []
         self.kwargs = []
+        self.extra_kwargs = []
+        self.generate_kwargs = []
         self.model = SimpleNamespace(
             config=SimpleNamespace(max_position_embeddings=limit)
         )
 
-    def __call__(self, prompt, generate_kwargs=None, **kwargs):
+    def __call__(self, prompt, forward_params=None, generate_kwargs=None, **kwargs):
+        tokens = None
         if generate_kwargs is not None:
             tokens = generate_kwargs.get("max_new_tokens")
-        else:
-            tokens = kwargs.get("max_new_tokens")
-            if tokens is None:
-                tokens = kwargs.get("max_length")
         self.calls.append(tokens)
-        self.kwargs.append(kwargs)
+        params = dict(forward_params or {})
+        self.kwargs.append(params)
+        self.extra_kwargs.append(dict(kwargs))
+        self.generate_kwargs.append(dict(generate_kwargs or {}))
 
         if tokens is None:
             raise AssertionError("max_new_tokens was not provided to the pipeline")
@@ -130,6 +132,7 @@ def test_non_melody_model_ignores_reference(monkeypatch, tmp_path):
 
     assert output_path
     assert dummy_pipe.kwargs[0].get("audio") is None
+    assert dummy_pipe.extra_kwargs[0] == {}
     assert "rate" in written
 
 
@@ -178,6 +181,8 @@ def test_melody_audio_forwarded(monkeypatch, tmp_path):
     assert first_kwargs["audio"].dtype == musicgen_backend.np.float32
     assert musicgen_backend.np.isclose(first_kwargs["audio"][1], 32767.0 / 32768.0)
     assert musicgen_backend.np.isclose(first_kwargs["audio"][2], -1.0)
+    assert dummy_pipe.extra_kwargs[0] == {}
+    assert dummy_pipe.generate_kwargs[0]["temperature"] == 1.0
 def test_get_pipeline_retries_without_safetensors(monkeypatch):
     calls = []
 
