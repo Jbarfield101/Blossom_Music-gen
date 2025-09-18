@@ -44,6 +44,8 @@ export default function Snake() {
   const [gameOver, setGameOver] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [score, setScore] = useState(0);
+  const [highScore, setHighScore] = useState(0);
+  const [hasLoadedHighScore, setHasLoadedHighScore] = useState(false);
   const canvasRef = useRef(null);
 
   const resetGameState = useCallback(() => {
@@ -98,6 +100,29 @@ export default function Snake() {
   }, [isRunning, startGame]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const storedHighScore = window.localStorage.getItem('snakeHighScore');
+    if (storedHighScore !== null) {
+      const parsedHighScore = Number(storedHighScore);
+      if (!Number.isNaN(parsedHighScore)) {
+        setHighScore(parsedHighScore);
+      }
+    }
+    setHasLoadedHighScore(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !hasLoadedHighScore) {
+      return;
+    }
+
+    window.localStorage.setItem('snakeHighScore', String(highScore));
+  }, [highScore, hasLoadedHighScore]);
+
+  useEffect(() => {
     if (gameOver || !isRunning) {
       return undefined;
     }
@@ -129,7 +154,13 @@ export default function Snake() {
 
         if (ateFood) {
           const grownSnake = [newHead, ...prevSnake];
-          setScore((prev) => prev + 1);
+          setScore((prevScore) => {
+            const newScore = prevScore + 1;
+            setHighScore((prevHighScore) =>
+              newScore > prevHighScore ? newScore : prevHighScore
+            );
+            return newScore;
+          });
           setFood(randomFood(grownSnake));
           return grownSnake;
         }
@@ -205,7 +236,10 @@ export default function Snake() {
       <div className="game-container">
         <h1>Snake</h1>
         <div className="game-board">
-          <p className="game-score">Score: {score}</p>
+          <div className="game-scoreboard">
+            <p className="game-score-label">Score: {score}</p>
+            <p className="game-score-label">High Score: {highScore}</p>
+          </div>
           <canvas
             ref={canvasRef}
             width={WIDTH}
