@@ -212,14 +212,12 @@ def test_get_pipeline_retries_without_safetensors(monkeypatch):
 
     assert pipe is not None
     assert len(calls) == 2
-    assert "use_safetensors" not in calls[0]
-    assert "dtype" not in calls[0]
-    assert "torch_dtype" not in calls[0]
-    assert calls[0]["model_kwargs"]["use_safetensors"] is True
-    assert "use_safetensors" not in calls[1]
-    assert "dtype" not in calls[1]
-    assert "torch_dtype" not in calls[1]
-    assert calls[1]["model_kwargs"]["use_safetensors"] is False
+
+    disallowed = {"use_safetensors", "dtype", "torch_dtype"}
+    for call, expected in zip(calls, [True, False]):
+        assert disallowed.isdisjoint(call)
+        assert "model_kwargs" in call
+        assert call["model_kwargs"]["use_safetensors"] is expected
 
 
 def test_bin_only_models_skip_safetensors(monkeypatch):
@@ -248,10 +246,12 @@ def test_bin_only_models_skip_safetensors(monkeypatch):
 
     assert pipe is not None
     assert len(calls) == 1
-    assert "use_safetensors" not in calls[0]
-    assert "dtype" not in calls[0]
-    assert "torch_dtype" not in calls[0]
-    assert calls[0]["model_kwargs"]["use_safetensors"] is False
+
+    disallowed = {"use_safetensors", "dtype", "torch_dtype"}
+    call = calls[0]
+    assert disallowed.isdisjoint(call)
+    assert "model_kwargs" in call
+    assert call["model_kwargs"]["use_safetensors"] is False
 
 
 def test_get_pipeline_gpu_dtype_passed_via_model_kwargs(monkeypatch):
@@ -285,9 +285,9 @@ def test_get_pipeline_gpu_dtype_passed_via_model_kwargs(monkeypatch):
     assert pipe is not None
     assert len(calls) == 1
     call = calls[0]
-    assert "use_safetensors" not in call
-    assert "dtype" not in call
-    assert "torch_dtype" not in call
+    disallowed = {"use_safetensors", "dtype", "torch_dtype"}
+    assert disallowed.isdisjoint(call)
+    assert "model_kwargs" in call
     assert call["model_kwargs"]["use_safetensors"] is True
     assert call["model_kwargs"]["torch_dtype"] is torch_float32
 

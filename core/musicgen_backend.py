@@ -158,21 +158,23 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
 
             def _build_pipe(use_safetensors: bool):
                 model_kwargs = {
+                    # The pipeline now expects safetensor preferences within model_kwargs.
                     "use_safetensors": use_safetensors,
                     # Avoid FlashAttention-related CUDA issues on some builds
                     "attn_implementation": "eager",
-                    **({"local_files_only": True} if offline else {}),
                 }
+                if offline:
+                    model_kwargs["local_files_only"] = True
                 if torch_dtype is not None and device == 0:
                     model_kwargs["torch_dtype"] = torch_dtype
 
-                base_kwargs = {
+                pipeline_kwargs = {
                     "model": normalized_name,
                     "device": device,
                     "trust_remote_code": True,
                     "model_kwargs": model_kwargs,
                 }
-                return pipeline("text-to-audio", **base_kwargs)
+                return pipeline("text-to-audio", **pipeline_kwargs)
 
             if normalized_name in BIN_ONLY_MODELS:
                 pipe = _build_pipe(use_safetensors=False)
