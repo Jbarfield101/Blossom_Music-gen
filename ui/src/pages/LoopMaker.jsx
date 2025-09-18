@@ -1,4 +1,7 @@
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useCallback } from 'react';
+import { save } from '@tauri-apps/plugin-dialog';
+import { writeFile as writeBinaryFile } from '@tauri-apps/plugin-fs';
+import { isTauri } from '@tauri-apps/api/core';
 import BackButton from '../components/BackButton.jsx';
 
 export default function LoopMaker() {
@@ -28,12 +31,35 @@ export default function LoopMaker() {
   const [loopsCompleted, setLoopsCompleted] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [useConcatenated, setUseConcatenated] = useState(false);
+  const [processedBlob, setProcessedBlob] = useState(null);
+  const [processedURL, setProcessedURL] = useState('');
+  const [statusMessage, setStatusMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
+  const [isRenderingDownload, setIsRenderingDownload] = useState(false);
+  const [runningInTauri] = useState(() => {
+    try {
+      return isTauri();
+    } catch (err) {
+      console.warn('Unable to detect Tauri environment', err);
+      return false;
+    }
+  });
+  const processingTokenRef = useRef(0);
 
   const progressPercent = targetSeconds
     ? Math.min((elapsed / targetSeconds) * 100, 100)
     : 0;
 
   const styles = {
+    page: {
+      maxWidth: '960px',
+      margin: '0 auto 4rem',
+    },
+    description: {
+      color: '#374151',
+      maxWidth: '720px',
+      lineHeight: 1.6,
+    },
     layout: {
       display: 'flex',
       flexDirection: 'column',
@@ -136,6 +162,45 @@ export default function LoopMaker() {
       fontWeight: 600,
       textAlign: 'center',
     },
+    downloadBar: {
+      display: 'flex',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      alignItems: 'center',
+      gap: '1rem',
+      padding: '1rem 1.5rem',
+      background: '#f9fafb',
+      borderRadius: '0.85rem',
+      boxShadow: '0 10px 20px rgba(17, 24, 39, 0.15)',
+      width: '100%',
+      maxWidth: '480px',
+    },
+    saveButton: {
+      padding: '0.65rem 1.5rem',
+      borderRadius: '0.75rem',
+      border: 'none',
+      background: 'linear-gradient(90deg, #6366f1, #22d3ee)',
+      color: '#0f172a',
+      fontWeight: 700,
+      fontSize: '1rem',
+      cursor: 'pointer',
+      boxShadow: '0 8px 18px rgba(15, 23, 42, 0.25)',
+    },
+    saveButtonDisabled: {
+      opacity: 0.6,
+      cursor: 'not-allowed',
+      boxShadow: 'none',
+    },
+    statusMessage: {
+      color: '#2563eb',
+      fontWeight: 600,
+      textAlign: 'center',
+    },
+    errorMessage: {
+      color: '#dc2626',
+      fontWeight: 600,
+      textAlign: 'center',
+    },
   };
 
   useEffect(() => {
@@ -143,6 +208,10 @@ export default function LoopMaker() {
       if (videoURL) URL.revokeObjectURL(videoURL);
     };
   }, [videoURL]);
+
+  useEffect(() => () => {
+    if (processedURL) URL.revokeObjectURL(processedURL);
+  }, [processedURL]);
 
   useEffect(() => {
     if (!duration || !targetSeconds || targetSeconds <= 0) {
@@ -160,12 +229,25 @@ export default function LoopMaker() {
     setElapsed((prev) => Math.min(prev, targetSeconds));
   }, [targetSeconds]);
 
-  const resetToBaseVideo = () => {
+  const cleanupProcessed = useCallback(() => {
+    processingTokenRef.current += 1;
+    setProcessedBlob(null);
+    setProcessedURL((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return '';
+    });
+    setStatusMessage('');
+    setErrorMessage('');
+    setIsRenderingDownload(false);
+  }, []);
+
+  const resetToBaseVideo = useCallback(() => {
     if (!file) return;
     const url = URL.createObjectURL(file);
     setUseConcatenated(false);
     setVideoURL(url);
-  };
+    cleanupProcessed();
+  }, [cleanupProcessed, file]);
 
   const handleFileChange = (e) => {
     const f = e.target.files?.[0];
@@ -178,6 +260,7 @@ export default function LoopMaker() {
     setVideoURL(url);
     setTargetInput(String(targetSeconds));
     setTargetError('');
+    cleanupProcessed();
   };
 
   const buildConcatenatedSource = (file, loops) =>
@@ -215,6 +298,184 @@ export default function LoopMaker() {
       });
       mediaSource.addEventListener('error', () => resolve(null));
     });
+
+  const selectRecorderMimeType = () => {
+    if (typeof MediaRecorder === 'undefined') return '';
+    if (typeof MediaRecorder.isTypeSupported !== 'function') return '';
+    const candidates = [
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm;codecs=vp8',
+      'video/webm',
+      'video/mp4;codecs=h264,aac',
+    ];
+    return candidates.find((candidate) => {
+      try {
+        return MediaRecorder.isTypeSupported(candidate);
+      } catch (err) {
+        console.warn('MediaRecorder support check failed', err);
+        return false;
+      }
+    });
+  };
+
+  const startProcessingDownload = useCallback(
+    async (sourceUrl) => {
+      if (!sourceUrl) return;
+      if (typeof window === 'undefined' || typeof document === 'undefined') {
+        return;
+      }
+
+      const token = processingTokenRef.current + 1;
+      processingTokenRef.current = token;
+
+      setProcessedBlob(null);
+      setProcessedURL((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return '';
+      });
+      setStatusMessage('');
+      setErrorMessage('');
+      setIsRenderingDownload(false);
+
+      if (typeof MediaRecorder === 'undefined') {
+        setErrorMessage(
+          'This browser cannot prepare downloadable video loops. Try the desktop app.'
+        );
+        return;
+      }
+
+      setStatusMessage('Rendering downloadable loop… This runs in real time.');
+      setIsRenderingDownload(true);
+
+      let hiddenVideo = null;
+
+      try {
+        hiddenVideo = document.createElement('video');
+        hiddenVideo.src = sourceUrl;
+        hiddenVideo.muted = true;
+        hiddenVideo.playsInline = true;
+        hiddenVideo.preload = 'auto';
+        hiddenVideo.crossOrigin = 'anonymous';
+        hiddenVideo.style.position = 'fixed';
+        hiddenVideo.style.opacity = '0';
+        hiddenVideo.style.pointerEvents = 'none';
+        hiddenVideo.style.width = '1px';
+        hiddenVideo.style.height = '1px';
+        document.body.appendChild(hiddenVideo);
+
+        await new Promise((resolve, reject) => {
+          const handleLoaded = () => {
+            hiddenVideo.removeEventListener('error', handleError);
+            resolve();
+          };
+          const handleError = (event) => {
+            hiddenVideo.removeEventListener('loadedmetadata', handleLoaded);
+            reject(
+              event?.error ||
+                new Error('Unable to load the looped video for rendering.')
+            );
+          };
+          hiddenVideo.addEventListener('loadedmetadata', handleLoaded, {
+            once: true,
+          });
+          hiddenVideo.addEventListener('error', handleError, { once: true });
+        });
+
+        if (processingTokenRef.current !== token) {
+          return;
+        }
+
+        const captureStream =
+          hiddenVideo.captureStream?.() || hiddenVideo.mozCaptureStream?.();
+        if (!captureStream) {
+          throw new Error(
+            'Video captureStream is not supported in this browser. Download disabled.'
+          );
+        }
+
+        const mimeType = selectRecorderMimeType();
+        const recorderOptions = mimeType ? { mimeType } : undefined;
+        const recorder = new MediaRecorder(captureStream, recorderOptions);
+        const chunks = [];
+
+        recorder.addEventListener('dataavailable', (event) => {
+          if (event.data && event.data.size > 0) {
+            chunks.push(event.data);
+          }
+        });
+
+        const recorderStopped = new Promise((resolve) => {
+          recorder.addEventListener('stop', resolve, { once: true });
+        });
+
+        recorder.start();
+        hiddenVideo.currentTime = 0;
+        await hiddenVideo.play();
+
+        await new Promise((resolve) => {
+          hiddenVideo.addEventListener('ended', resolve, { once: true });
+        });
+
+        if (processingTokenRef.current !== token) {
+          recorder.stop();
+          await recorderStopped;
+          return;
+        }
+
+        recorder.stop();
+        await recorderStopped;
+
+        if (processingTokenRef.current !== token) {
+          return;
+        }
+
+        const blob = new Blob(chunks, {
+          type: recorder.mimeType || mimeType || 'video/webm',
+        });
+        const url = URL.createObjectURL(blob);
+
+        setProcessedBlob(blob);
+        setProcessedURL(url);
+        setStatusMessage('Loop ready to save. Choose a destination below.');
+      } catch (err) {
+        console.error('Loop rendering error', err);
+        if (processingTokenRef.current !== token) {
+          return;
+        }
+        setStatusMessage('');
+        const message =
+          err instanceof Error ? err.message : 'Unable to prepare the loop.';
+        setErrorMessage(message);
+      } finally {
+        if (hiddenVideo) {
+          hiddenVideo.pause();
+          hiddenVideo.src = '';
+          hiddenVideo.remove();
+        }
+        if (processingTokenRef.current === token) {
+          setIsRenderingDownload(false);
+        }
+      }
+    },
+    []
+  );
+
+  const extensionFromMime = (mime) => {
+    if (!mime) return 'webm';
+    if (mime.includes('mp4')) return 'mp4';
+    if (mime.includes('webm')) return 'webm';
+    if (mime.includes('ogg')) return 'ogv';
+    return 'webm';
+  };
+
+  useEffect(() => {
+    if (useConcatenated && videoURL) {
+      startProcessingDownload(videoURL);
+    } else if (!useConcatenated) {
+      cleanupProcessed();
+    }
+  }, [cleanupProcessed, startProcessingDownload, useConcatenated, videoURL]);
 
   const handleLoadedMetadata = async (e) => {
     const dur = e.target.duration;
@@ -332,6 +593,11 @@ export default function LoopMaker() {
       if (useConcatenated) {
         resetToBaseVideo();
       }
+      cleanupProcessed();
+      setStatusMessage(
+        'Downloads become available once the target is an exact multiple of the clip length.'
+      );
+      setErrorMessage('');
       return;
     }
 
@@ -341,13 +607,87 @@ export default function LoopMaker() {
       setVideoURL(concatUrl);
     } else if (useConcatenated) {
       resetToBaseVideo();
+      cleanupProcessed();
+    }
+  };
+
+  const handleSaveLoop = async () => {
+    if (!processedBlob) {
+      setErrorMessage('The loop is still preparing. Please wait for it to finish.');
+      return;
+    }
+
+    const baseName = file
+      ? `${file.name.replace(/\.[^/.]+$/, '') || 'looped-video'}`
+      : 'looped-video';
+    const mime = processedBlob.type;
+    const extension = extensionFromMime(mime);
+    const defaultFileName = `${baseName}-loop.${extension}`;
+
+    setErrorMessage('');
+
+    if (runningInTauri) {
+      setStatusMessage('Preparing save dialog…');
+      try {
+        const savePath = await save({ defaultPath: defaultFileName });
+
+        if (!savePath) {
+          setStatusMessage('Save cancelled.');
+          return;
+        }
+
+        setStatusMessage(`Saving to ${savePath}…`);
+        const arrayBuffer = await processedBlob.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        await writeBinaryFile(savePath, bytes);
+        setStatusMessage(`Saved successfully to ${savePath}`);
+      } catch (err) {
+        console.error('Save failed', err);
+        const message = err instanceof Error ? err.message : String(err);
+        setStatusMessage('');
+        setErrorMessage(`Save failed: ${message}`);
+      }
+
+      return;
+    }
+
+    setStatusMessage('Preparing download…');
+    let tempURL = '';
+
+    try {
+      const href = processedURL || URL.createObjectURL(processedBlob);
+      if (!processedURL) {
+        tempURL = href;
+      }
+
+      const link = document.createElement('a');
+      link.href = href;
+      link.download = defaultFileName;
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setStatusMessage('Download started.');
+    } catch (err) {
+      console.error('Download failed', err);
+      const message = err instanceof Error ? err.message : String(err);
+      setStatusMessage('');
+      setErrorMessage(`Download failed: ${message}`);
+    } finally {
+      if (tempURL) {
+        URL.revokeObjectURL(tempURL);
+      }
     }
   };
 
   return (
-    <>
+    <div style={styles.page}>
       <BackButton />
       <h1>Loop Maker</h1>
+      <p style={styles.description}>
+        Upload a video clip, preview how it loops to reach a target duration, and
+        save the rendered result once it&apos;s ready.
+      </p>
       <input type="file" accept="video/*" onChange={handleFileChange} />
       <form style={styles.targetControls} onSubmit={handleTargetSubmit}>
         <label style={styles.targetLabel}>
@@ -393,8 +733,39 @@ export default function LoopMaker() {
           <div style={styles.progressTrack}>
             <div style={styles.progressFill} />
           </div>
+          {useConcatenated && (
+            <div style={styles.downloadBar}>
+              <button
+                type="button"
+                onClick={handleSaveLoop}
+                style={{
+                  ...styles.saveButton,
+                  ...(!processedBlob || isRenderingDownload
+                    ? styles.saveButtonDisabled
+                    : {}),
+                }}
+                disabled={!processedBlob || isRenderingDownload}
+              >
+                {isRenderingDownload
+                  ? 'Preparing Download…'
+                  : runningInTauri
+                  ? 'Save Loop'
+                  : 'Download Loop'}
+              </button>
+            </div>
+          )}
+          {statusMessage && (
+            <div style={styles.statusMessage} role="status" aria-live="polite">
+              {statusMessage}
+            </div>
+          )}
+          {errorMessage && (
+            <div style={styles.errorMessage} role="alert">
+              {errorMessage}
+            </div>
+          )}
         </div>
       )}
-    </>
+    </div>
   );
 }
