@@ -156,11 +156,29 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
                 or os.environ.get("TRANSFORMERS_OFFLINE") == "1"
             )
 
-            def _build_pipe():
-                base_kwargs = {
+            def _build_pipe(use_safetensors: bool):
+                model_kwargs = {
+                    # The pipeline now expects safetensor preferences within model_kwargs.
+                    "use_safetensors": use_safetensors,
+                    # Avoid FlashAttention-related CUDA issues on some builds
+                    "attn_implementation": "eager",
+                }
+                if offline:
+                    model_kwargs["local_files_only"] = True
+                if torch_dtype is not None and device == 0:
+                    model_kwargs["torch_dtype"] = torch_dtype
+
+                pipeline_kwargs = {
                     "model": normalized_name,
                     "device": device,
                     "trust_remote_code": True,
+                    "use_safetensors": use_safetensors,
+                    "model_kwargs": {
+                        "use_safetensors": use_safetensors,
+                        # Avoid FlashAttention-related CUDA issues on some builds
+                        "attn_implementation": "eager",
+                        **({"local_files_only": True} if offline else {}),
+                    },
                 }
                 # Try dtype under different parameter names across versions
                 if torch_dtype is not None and device == 0:
@@ -390,36 +408,17 @@ def generate_music(
         }
 
     def _gen_once(p, t):
-        try:
-            logger.debug("Calling MusicGen pipeline (tokens=%s) with generate_kwargs", t)
-            return p(
-                prompt,
-                generate_kwargs={
-                    "max_new_tokens": t,
-                    "do_sample": True,
-                    "temperature": temperature,
-                },
-                **audio_kwargs,
-            )
-        except TypeError:
-            try:
-                logger.info("Pipeline rejected generate_kwargs; retrying with direct max_new_tokens (tokens=%s)", t)
-                return p(
-                    prompt,
-                    max_new_tokens=t,
-                    do_sample=True,
-                    temperature=temperature,
-                    **audio_kwargs,
-                )
-            except TypeError:
-                logger.info("Pipeline rejected max_new_tokens; retrying with max_length (tokens=%s)", t)
-                return p(
-                    prompt,
-                    max_length=t,
-                    do_sample=True,
-                    temperature=temperature,
-                    **audio_kwargs,
-                )
+        logger.debug("Calling MusicGen pipeline (tokens=%s) with generate_kwargs", t)
+        forward_params = dict(audio_kwargs) if audio_kwargs else {}
+        return p(
+            prompt,
+            forward_params=forward_params,
+            generate_kwargs={
+                "max_new_tokens": t,
+                "do_sample": True,
+                "temperature": temperature,
+            },
+        )
 
     def _is_memory_error(exc: Exception) -> bool:
         msg = str(exc)
