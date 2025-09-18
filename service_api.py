@@ -21,6 +21,14 @@ from notes.chunker import ensure_chunk_tables
 from notes.parser import parse_note, NoteParseError
 
 
+CHUNK_DB_NOT_READY_MESSAGE = (
+    "Obsidian chunks database is not initialized. "
+    "Run the Obsidian indexer/watchdog to build the note index."
+)
+
+_REQUIRED_CHUNK_TABLES = {"chunks", "tags"}
+
+
 def _paths() -> tuple[Path, Path, Path]:
     """Return ``(vault, db_path, index_path)`` for the selected vault.
 
@@ -37,6 +45,29 @@ def _paths() -> tuple[Path, Path, Path]:
     db_path = vault / DEFAULT_DB_PATH
     index_path = vault / DEFAULT_INDEX_PATH
     return vault, db_path, index_path
+
+
+def _ensure_chunks_db_ready(db_path: Path) -> None:
+    """Raise a helpful error if the chunks database is unavailable."""
+
+    if not db_path.exists() or not db_path.is_file():
+        raise RuntimeError(CHUNK_DB_NOT_READY_MESSAGE)
+
+    try:
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    except sqlite3.Error as exc:  # pragma: no cover - defensive
+        raise RuntimeError(CHUNK_DB_NOT_READY_MESSAGE) from exc
+
+    try:
+        rows = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    tables = {row[0] for row in rows}
+    if not _REQUIRED_CHUNK_TABLES.issubset(tables):
+        raise RuntimeError(CHUNK_DB_NOT_READY_MESSAGE)
 
 
 def search(query: str, tags: List[str] | None = None) -> List[Dict[str, Any]]:
@@ -58,6 +89,7 @@ def search(query: str, tags: List[str] | None = None) -> List[Dict[str, Any]]:
     """
 
     _, db_path, index_path = _paths()
+    _ensure_chunks_db_ready(db_path)
     results = search_chunks(query, db_path, index_path, tags=tags, top_k=5)
     if not results:
         return []
@@ -164,6 +196,7 @@ def list_npcs() -> List[Dict[str, Any]]:
     """
 
     vault, db_path, _ = _paths()
+    _ensure_chunks_db_ready(db_path)
     conn = sqlite3.connect(db_path)
     try:
         ensure_chunk_tables(conn)
@@ -205,6 +238,7 @@ def list_lore() -> List[Dict[str, Any]]:
     """
 
     vault, db_path, _ = _paths()
+    _ensure_chunks_db_ready(db_path)
     conn = sqlite3.connect(db_path)
     try:
         ensure_chunk_tables(conn)
