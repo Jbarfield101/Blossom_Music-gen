@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -45,6 +45,11 @@ export default function Settings() {
   const [baseFontSize, setBaseFontSizeState] = useState("16px");
   const [versions, setVersions] = useState({ app: "", python: "" });
   const [vaultError, setVaultError] = useState("");
+  const vaultRef = useRef("");
+
+  useEffect(() => {
+    vaultRef.current = vault;
+  }, [vault]);
 
   useEffect(() => {
     getTheme().then((savedTheme) => setThemeState(savedTheme || "dark"));
@@ -108,7 +113,28 @@ export default function Settings() {
       const hw = await listHotwords();
       setHotwords(hw);
       const path = await getConfig(VAULT_KEY);
-      setVault(path || "");
+      const normalizedPath = path || "";
+      const shouldInvoke = Boolean(path) && path !== vaultRef.current;
+
+      setVault(normalizedPath);
+
+      if (path) {
+        if (shouldInvoke) {
+          try {
+            await invoke("select_vault", { path });
+            setVaultError("");
+          } catch (err) {
+            console.error("Failed to start vault watcher", err);
+            setVaultError(
+              "Failed to start the vault watcher automatically. Please choose the vault again.",
+            );
+          }
+        } else {
+          setVaultError("");
+        }
+      } else {
+        setVaultError("");
+      }
     };
     const reload = () =>
       load().catch((err) => {
