@@ -14,6 +14,7 @@ import numpy as np
 
 import service_api
 from notes import search as note_search
+from notes import watchdog as note_watchdog
 from notes.chunker import ensure_chunk_tables
 
 
@@ -75,3 +76,43 @@ def test_missing_database_raises_helpful_error(tmp_path: Path, monkeypatch) -> N
     with pytest.raises(RuntimeError) as excinfo:
         service_api.search("anything")
     assert str(excinfo.value) == expected
+
+
+def test_watchdog_bootstrap_populates_existing_vault(tmp_path: Path, monkeypatch) -> None:
+    """Starting the watchdog on a populated vault should prime the database."""
+
+    note_path = tmp_path / "existing.md"
+    note_path.write_text("# Title\nBody text\n", encoding="utf-8")
+
+    bootstrap_complete = False
+
+    def fake_rebuild(db_path, index_path, model_name=note_search.DEFAULT_MODEL):
+        nonlocal bootstrap_complete
+        bootstrap_complete = True
+
+    def fake_watch(path, recursive=True):
+        assert bootstrap_complete
+        return iter([])
+
+    monkeypatch.setattr(note_watchdog, "rebuild_index", fake_rebuild)
+    monkeypatch.setattr(note_watchdog, "watch", fake_watch)
+
+    try:
+        note_watchdog.start_watchdog(tmp_path)
+        assert bootstrap_complete is True
+
+        db_path = tmp_path / note_watchdog.DEFAULT_DB_PATH
+        assert db_path.exists()
+        conn = sqlite3.connect(db_path)
+        try:
+            ensure_chunk_tables(conn)
+            count = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+        finally:
+            conn.close()
+        assert count >= 1
+
+        monkeypatch.setattr(service_api, "get_vault", lambda: tmp_path)
+        assert service_api.list_npcs() == []
+        assert service_api.list_lore() == []
+    finally:
+        note_watchdog.stop_watchdog()
