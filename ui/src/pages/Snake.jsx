@@ -67,6 +67,36 @@ export default function Snake() {
     }
   }, []);
 
+  useEffect(() => {
+    if (score <= highScore) {
+      return;
+    }
+
+    setHighScore(score);
+  }, [score, highScore]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    if (!Number.isFinite(highScore) || highScore <= 0) {
+      return;
+    }
+
+    try {
+      const serializedHighScore = String(highScore);
+      const storedHighScore = window.localStorage.getItem('snakeHighScore');
+      if (storedHighScore === serializedHighScore) {
+        return;
+      }
+
+      window.localStorage.setItem('snakeHighScore', serializedHighScore);
+    } catch {
+      // Ignore storage access failures and fall back to the default high score.
+    }
+  }, [highScore]);
+
   const resetGameState = useCallback(() => {
     const startingSnake = INITIAL_SNAKE.map((segment) => ({ ...segment }));
     setSnake(startingSnake);
