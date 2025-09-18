@@ -204,8 +204,10 @@ export default function Snake() {
       <BackButton />
       <div className="game-container">
         <h1>Snake</h1>
-        <div className="game-board">
+        <header className="game-hud">
           <p className="game-score">Score: {score}</p>
+        </header>
+        <div className="game-board">
           <canvas
             ref={canvasRef}
             width={WIDTH}
@@ -231,6 +233,7 @@ export default function Snake() {
             </div>
           )}
         </div>
+        <footer className="game-hud game-hud--footer" aria-hidden="true" />
       </div>
     </>
   );
