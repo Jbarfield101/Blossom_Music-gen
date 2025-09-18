@@ -256,8 +256,10 @@ export default function Snake() {
       <div className="game-container">
         <h1>Snake</h1>
         <header className="game-hud">
-          <p className="game-score">Score: {score}</p>
-          <p className="game-score">High Score: {highScore}</p>
+          <div className="game-scoreboard">
+            <p className="game-scoreboard-line">Score: {score}</p>
+            <p className="game-scoreboard-line">High Score: {highScore}</p>
+          </div>
         </header>
         <div className="game-board">
           <canvas
