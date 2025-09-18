@@ -168,13 +168,13 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
                 if torch_dtype is not None and device == 0:
                     model_kwargs["torch_dtype"] = torch_dtype
 
-                base_kwargs = {
+                pipeline_kwargs = {
                     "model": normalized_name,
                     "device": device,
                     "trust_remote_code": True,
                     "model_kwargs": model_kwargs,
                 }
-                return pipeline("text-to-audio", **base_kwargs)
+                return pipeline("text-to-audio", **pipeline_kwargs)
 
             def _should_retry_without_safetensors(exc: Exception) -> bool:
                 text = f"{exc.__class__.__name__}: {exc}".lower()
