@@ -44,7 +44,28 @@ export default function Snake() {
   const [gameOver, setGameOver] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [score, setScore] = useState(0);
+  const [highScore, setHighScore] = useState(0);
   const canvasRef = useRef(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    try {
+      const storedHighScore = window.localStorage.getItem('snakeHighScore');
+      if (!storedHighScore) {
+        return;
+      }
+
+      const parsedHighScore = Number.parseInt(storedHighScore, 10);
+      if (!Number.isNaN(parsedHighScore)) {
+        setHighScore(parsedHighScore);
+      }
+    } catch {
+      // Ignore storage access failures and fall back to the default high score.
+    }
+  }, []);
 
   const resetGameState = useCallback(() => {
     const startingSnake = INITIAL_SNAKE.map((segment) => ({ ...segment }));
@@ -206,6 +227,7 @@ export default function Snake() {
         <h1>Snake</h1>
         <header className="game-hud">
           <p className="game-score">Score: {score}</p>
+          <p className="game-score">High Score: {highScore}</p>
         </header>
         <div className="game-board">
           <canvas
