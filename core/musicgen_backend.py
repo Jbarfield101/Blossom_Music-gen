@@ -156,7 +156,7 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
                 or os.environ.get("TRANSFORMERS_OFFLINE") == "1"
             )
 
-            def _build_pipe(use_safetensors: bool):
+            def _build_pipe(use_safetensors: bool = True):
                 model_kwargs = {
                     # The pipeline now expects safetensor preferences within model_kwargs.
                     "use_safetensors": use_safetensors,
@@ -168,38 +168,34 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
                 if torch_dtype is not None and device == 0:
                     model_kwargs["torch_dtype"] = torch_dtype
 
-                pipeline_kwargs = {
+                base_kwargs = {
                     "model": normalized_name,
                     "device": device,
                     "trust_remote_code": True,
-                    "use_safetensors": use_safetensors,
-                    "model_kwargs": {
-                        "use_safetensors": use_safetensors,
-                        # Avoid FlashAttention-related CUDA issues on some builds
-                        "attn_implementation": "eager",
-                        **({"local_files_only": True} if offline else {}),
-                    },
+                    "model_kwargs": model_kwargs,
                 }
-                # Try dtype under different parameter names across versions
-                if torch_dtype is not None and device == 0:
-                    try:
-                        return pipeline(
-                            "text-to-audio",
-                            dtype=torch_dtype,
-                            **base_kwargs,
-                        )
-                    except TypeError:
-                        # Older transformers expect torch_dtype at top-level
-                        return pipeline(
-                            "text-to-audio",
-                            torch_dtype=torch_dtype,
-                            **base_kwargs,
-                        )
-                else:
-                    return pipeline("text-to-audio", **base_kwargs)
+                return pipeline("text-to-audio", **base_kwargs)
 
-            # Single attempt; let Transformers decide weights format
-            pipe = _build_pipe()
+            def _should_retry_without_safetensors(exc: Exception) -> bool:
+                text = f"{exc.__class__.__name__}: {exc}".lower()
+                return "safetensor" in text
+
+            pipe = None
+            safetensors_allowed = normalized_name not in BIN_ONLY_MODELS
+
+            if safetensors_allowed:
+                try:
+                    pipe = _build_pipe(True)
+                except Exception as exc:
+                    if not _should_retry_without_safetensors(exc):
+                        raise
+                    logger.warning(
+                        "Safetensor weights unavailable for %s; retrying with legacy format.",
+                        normalized_name,
+                    )
+
+            if pipe is None:
+                pipe = _build_pipe(False)
             # Patch ambiguous text config in newer Transformers MusicGen variants
             try:
                 model = getattr(pipe, "model", None)
