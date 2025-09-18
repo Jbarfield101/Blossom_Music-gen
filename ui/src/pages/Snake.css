@@ -19,6 +19,18 @@
   text-align: center;
 }
 
+.game-hud {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  width: 100%;
+}
+
+.game-hud--footer:empty {
+  display: none;
+}
+
 .game-canvas {
   border-radius: var(--space-sm);
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.35);
@@ -30,9 +42,6 @@
 }
 
 .game-score {
-  position: absolute;
-  top: var(--space-sm);
-  left: var(--space-sm);
   margin: 0;
   padding: 0.25rem 0.5rem;
   border-radius: var(--space-xs);
