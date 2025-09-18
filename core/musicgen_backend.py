@@ -156,18 +156,11 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
                 or os.environ.get("TRANSFORMERS_OFFLINE") == "1"
             )
 
-            def _build_pipe(use_safetensors: bool):
+            def _build_pipe():
                 base_kwargs = {
                     "model": normalized_name,
                     "device": device,
                     "trust_remote_code": True,
-                    "use_safetensors": use_safetensors,
-                    "model_kwargs": {
-                        "use_safetensors": use_safetensors,
-                        # Avoid FlashAttention-related CUDA issues on some builds
-                        "attn_implementation": "eager",
-                        **({"local_files_only": True} if offline else {}),
-                    },
                 }
                 # Try dtype under different parameter names across versions
                 if torch_dtype is not None and device == 0:
@@ -187,24 +180,8 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
                 else:
                     return pipeline("text-to-audio", **base_kwargs)
 
-            if normalized_name in BIN_ONLY_MODELS:
-                pipe = _build_pipe(use_safetensors=False)
-            else:
-                # 1) Try safetensors first; on any failure, attempt a .bin fallback
-                try:
-                    pipe = _build_pipe(use_safetensors=True)
-                except Exception as e1:  # pragma: no cover - hub dependent
-                    logger.info(
-                        "MusicGen load with safetensors failed (%s); retrying with .bin weights",
-                        type(e1).__name__,
-                    )
-                    try:
-                        pipe = _build_pipe(use_safetensors=False)
-                    except Exception as e2:
-                        # Surface both errors for clearer diagnosis
-                        raise RuntimeError(
-                            f"MusicGen load failed. Safetensors error: {e1}\nBin weights error: {e2}"
-                        )
+            # Single attempt; let Transformers decide weights format
+            pipe = _build_pipe()
             # Patch ambiguous text config in newer Transformers MusicGen variants
             try:
                 model = getattr(pipe, "model", None)
