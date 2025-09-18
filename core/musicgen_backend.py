@@ -400,25 +400,26 @@ def generate_music(
     initial_device = "gpu" if (torch is not None and getattr(torch.cuda, "is_available", lambda: False)()) else "cpu"
     _LAST_STATUS.update({"device": initial_device, "fallback": False, "reason": None})
 
-    audio_kwargs = {}
+    preprocess_params = {}
     if melody_audio is not None and melody_sample_rate is not None:
-        audio_kwargs = {
+        preprocess_params = {
             "audio": melody_audio,
             "sampling_rate": melody_sample_rate,
         }
 
     def _gen_once(p, t):
         logger.debug("Calling MusicGen pipeline (tokens=%s) with generate_kwargs", t)
-        forward_params = dict(audio_kwargs) if audio_kwargs else {}
-        return p(
-            prompt,
-            forward_params=forward_params,
-            generate_kwargs={
+        call_kwargs = {
+            "forward_params": {},
+            "generate_kwargs": {
                 "max_new_tokens": t,
                 "do_sample": True,
                 "temperature": temperature,
             },
-        )
+        }
+        if preprocess_params:
+            call_kwargs["preprocess_params"] = dict(preprocess_params)
+        return p(prompt, **call_kwargs)
 
     def _is_memory_error(exc: Exception) -> bool:
         msg = str(exc)

@@ -15,6 +15,7 @@ class DummyPipeline:
         self.limit = limit
         self.fail_first = fail_first
         self.calls = []
+        self.preprocess_kwargs = []
         self.kwargs = []
         self.extra_kwargs = []
         self.generate_kwargs = []
@@ -22,11 +23,19 @@ class DummyPipeline:
             config=SimpleNamespace(max_position_embeddings=limit)
         )
 
-    def __call__(self, prompt, forward_params=None, generate_kwargs=None, **kwargs):
+    def __call__(
+        self,
+        prompt,
+        preprocess_params=None,
+        forward_params=None,
+        generate_kwargs=None,
+        **kwargs,
+    ):
         tokens = None
         if generate_kwargs is not None:
             tokens = generate_kwargs.get("max_new_tokens")
         self.calls.append(tokens)
+        self.preprocess_kwargs.append(dict(preprocess_params or {}))
         params = dict(forward_params or {})
         self.kwargs.append(params)
         self.extra_kwargs.append(dict(kwargs))
@@ -131,7 +140,8 @@ def test_non_melody_model_ignores_reference(monkeypatch, tmp_path):
     )
 
     assert output_path
-    assert dummy_pipe.kwargs[0].get("audio") is None
+    assert dummy_pipe.preprocess_kwargs[0] == {}
+    assert dummy_pipe.kwargs[0] == {}
     assert dummy_pipe.extra_kwargs[0] == {}
     assert "rate" in written
 
@@ -173,14 +183,15 @@ def test_melody_audio_forwarded(monkeypatch, tmp_path):
     )
 
     assert output_path
-    first_kwargs = dummy_pipe.kwargs[0]
-    assert "audio" in first_kwargs
-    assert "sampling_rate" in first_kwargs
-    assert first_kwargs["sampling_rate"] == 16000
-    assert isinstance(first_kwargs["audio"], musicgen_backend.np.ndarray)
-    assert first_kwargs["audio"].dtype == musicgen_backend.np.float32
-    assert musicgen_backend.np.isclose(first_kwargs["audio"][1], 32767.0 / 32768.0)
-    assert musicgen_backend.np.isclose(first_kwargs["audio"][2], -1.0)
+    preprocess_kwargs = dummy_pipe.preprocess_kwargs[0]
+    assert "audio" in preprocess_kwargs
+    assert "sampling_rate" in preprocess_kwargs
+    assert preprocess_kwargs["sampling_rate"] == 16000
+    assert isinstance(preprocess_kwargs["audio"], musicgen_backend.np.ndarray)
+    assert preprocess_kwargs["audio"].dtype == musicgen_backend.np.float32
+    assert musicgen_backend.np.isclose(preprocess_kwargs["audio"][1], 32767.0 / 32768.0)
+    assert musicgen_backend.np.isclose(preprocess_kwargs["audio"][2], -1.0)
+    assert dummy_pipe.kwargs[0] == {}
     assert dummy_pipe.extra_kwargs[0] == {}
     assert dummy_pipe.generate_kwargs[0]["temperature"] == 1.0
 def test_get_pipeline_retries_without_safetensors(monkeypatch):
