@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { save } from '@tauri-apps/plugin-dialog';
+import { writeFile as writeBinaryFile } from '@tauri-apps/plugin-fs';
+import { isTauri } from '@tauri-apps/api/core';
 import BackButton from '../components/BackButton.jsx';
 
 const styles = {
@@ -139,6 +142,8 @@ const styles = {
     fontWeight: 700,
     textDecoration: 'none',
     boxShadow: '0 12px 28px rgba(14, 165, 233, 0.35)',
+    border: 'none',
+    cursor: 'pointer',
   },
 };
 
@@ -238,6 +243,7 @@ export default function BeatMaker() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [resultURL, setResultURL] = useState('');
   const [resultDuration, setResultDuration] = useState(0);
+  const [resultBlob, setResultBlob] = useState(null);
 
   const parsedLoops = useMemo(() => {
     const value = Number.parseInt(loopInput, 10);
@@ -263,6 +269,7 @@ export default function BeatMaker() {
       setResultURL('');
       setResultDuration(0);
     }
+    setResultBlob(null);
   };
 
   const handleChooseFile = () => {
@@ -332,6 +339,7 @@ export default function BeatMaker() {
   const handleGenerate = async () => {
     setLoopError('');
     setError('');
+    setStatus('');
 
     if (!audioBuffer) {
       setError('Upload an audio clip before generating loops.');
@@ -357,6 +365,7 @@ export default function BeatMaker() {
       }
 
       const url = URL.createObjectURL(blob);
+      setResultBlob(blob);
       setResultURL(url);
       setResultDuration(loopedBuffer.duration);
       setStatus('Looped audio ready!');
@@ -364,9 +373,63 @@ export default function BeatMaker() {
       console.error(generationError);
       setStatus('');
       setError('Something went wrong while building the loop.');
+      setResultBlob(null);
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const handleDownload = async () => {
+    if (!resultBlob || !resultURL) {
+      setStatus('');
+      setError('Generate a looped clip before downloading.');
+      return;
+    }
+
+    const downloadName =
+      file
+        ? `${file.name.replace(/\.[^/.]+$/, '') || 'looped'}-x${parsedLoops || 1}.wav`
+        : 'looped-output.wav';
+
+    setError('');
+
+    if (isTauri()) {
+      setStatus('Preparing download…');
+
+      try {
+        const savePath = await save({ defaultPath: downloadName });
+
+        if (!savePath) {
+          setStatus('Save cancelled.');
+          return;
+        }
+
+        setStatus(`Saving to ${savePath}…`);
+
+        const arrayBuffer = await resultBlob.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        await writeBinaryFile(savePath, bytes);
+
+        setStatus(`Saved successfully to ${savePath}`);
+      } catch (saveError) {
+        console.error(saveError);
+        const message =
+          saveError instanceof Error ? saveError.message : String(saveError);
+        setStatus(`Save failed: ${message}`);
+      }
+
+      return;
+    }
+
+    setStatus('Preparing download…');
+    const link = document.createElement('a');
+    link.href = resultURL;
+    link.download = downloadName;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setStatus('Download started.');
   };
 
   return (
@@ -481,13 +544,9 @@ export default function BeatMaker() {
                 style={styles.audioPreview}
                 aria-label="Preview looped audio"
               />
-              <a
-                href={resultURL}
-                download={file ? `${file.name.replace(/\.[^/.]+$/, '') || 'looped'}-x${parsedLoops || 1}.wav` : 'looped-output.wav'}
-                style={styles.downloadLink}
-              >
+              <button type="button" onClick={handleDownload} style={styles.downloadLink}>
                 Download WAV
-              </a>
+              </button>
             </div>
           </section>
         )}
