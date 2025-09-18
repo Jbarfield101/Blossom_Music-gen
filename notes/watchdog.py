@@ -14,7 +14,7 @@ import sqlite3
 from watchfiles import Change, watch
 
 from .parser import parse_note, NoteParseError
-from .chunker import chunk_note, store_chunks
+from .chunker import chunk_note, store_chunks, ensure_chunk_tables
 from .embedding import rebuild_index, DEFAULT_INDEX_PATH
 
 # Default location of the chunks database relative to the vault
@@ -122,6 +122,37 @@ def start_watchdog(
     vault = Path(vault)
     db_path = Path(db_path) if db_path else vault / DEFAULT_DB_PATH
     index_path = Path(index_path) if index_path else vault / DEFAULT_INDEX_PATH
+
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(db_path)
+    try:
+        ensure_chunk_tables(conn)
+        conn.execute("DELETE FROM tags")
+        conn.execute("DELETE FROM chunks")
+        conn.commit()
+    finally:
+        conn.close()
+
+    for note_path in sorted(vault.rglob("*.md")):
+        if not note_path.is_file():
+            continue
+        try:
+            rel_path = note_path.relative_to(vault).as_posix()
+        except ValueError:
+            continue
+        try:
+            parsed = parse_note(note_path)
+        except NoteParseError:
+            continue
+        chunks = chunk_note(parsed, rel_path)
+        store_chunks(chunks, db_path)
+
+    try:
+        rebuild_index(db_path, index_path)
+    except Exception:
+        # Rebuilding the index is best effort; failures shouldn't prevent the
+        # watcher from running.
+        pass
 
     stop = threading.Event()
     thread = threading.Thread(
