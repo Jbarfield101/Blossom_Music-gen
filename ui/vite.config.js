@@ -9,8 +9,8 @@ export default defineConfig({
   // Ensure the dev server matches Tauri's devUrl (http://localhost:5173)
   // so the Tauri window can load the UI during `tauri dev`.
   server: {
-    host: 'localhost',
-    port: 5199,
+    host: '127.0.0.1',
+    port: 5225,
     strictPort: true,
   },
   resolve: {
@@ -22,6 +22,8 @@ export default defineConfig({
       '@tauri-apps/api/shell': '@tauri-apps/plugin-shell',
       '@tauri-apps/api/store': '@tauri-apps/plugin-store',
     },
+    // Ensure a single React instance (fixes invalid hook call with linked deps)
+    dedupe: ['react', 'react-dom'],
   },
   optimizeDeps: {
     // Prevent esbuild pre-bundling glitches with tauri packages
