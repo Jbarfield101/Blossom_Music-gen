@@ -5,6 +5,8 @@ import Settings from './pages/Settings.jsx';
 import Train from './pages/Train.jsx';
 import Profiles from './pages/Profiles.jsx';
 import MusicGen from './pages/MusicGen.jsx';
+import AlgorithmicGenerator from './pages/Generate.jsx';
+import SoundLab from './pages/SoundLab.jsx';
 import Queue from './pages/Queue.jsx';
 import Tools from './pages/Tools.jsx';
 import Fusion from './pages/Fusion.jsx';
@@ -21,7 +23,10 @@ export default function App() {
     <>
       <Routes>
         <Route path="/" element={<Dashboard />} />
-        <Route path="/musicgen" element={<MusicGen />} />
+        <Route path="/musicgen" element={<SoundLab />}>
+          <Route path="musicgen" element={<MusicGen />} />
+          <Route path="algorithmic" element={<AlgorithmicGenerator />} />
+        </Route>
         <Route path="/dnd" element={<Dnd />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/profiles" element={<Profiles />} />
