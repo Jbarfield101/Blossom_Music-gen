@@ -4,6 +4,9 @@ import { writeFile as writeBinaryFile } from '@tauri-apps/plugin-fs';
 import { isTauri } from '@tauri-apps/api/core';
 import BackButton from '../components/BackButton.jsx';
 
+const MAX_CONCAT_DURATION_SECONDS = 60 * 60 * 3; // 3 hours of video
+const MAX_CONCAT_FALLBACK_LOOPS = 2048;
+
 export default function LoopMaker() {
   const REMAINDER_EPSILON = 0.0001;
 
@@ -18,6 +21,14 @@ export default function LoopMaker() {
     const remainder = rawRemainder > REMAINDER_EPSILON ? rawRemainder : 0;
 
     return { fullLoops, remainder };
+  };
+
+  const computeConcatLoopLimit = (clipSeconds) => {
+    const seconds = Number(clipSeconds);
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+      return MAX_CONCAT_FALLBACK_LOOPS;
+    }
+    return Math.floor(MAX_CONCAT_DURATION_SECONDS / seconds);
   };
 
   const videoRef = useRef(null);
@@ -263,40 +274,91 @@ export default function LoopMaker() {
     cleanupProcessed();
   };
 
-  const buildConcatenatedSource = (file, loops) =>
+  const buildConcatenatedSource = (file, loops, clipDurationSeconds) =>
     new Promise((resolve) => {
-      if (!('MediaSource' in window)) return resolve(null);
+      if (typeof window === 'undefined' || !('MediaSource' in window)) {
+        resolve(null);
+        return;
+      }
+
+      const loopCount = Math.max(0, Math.floor(Number(loops)));
+      if (loopCount <= 0) {
+        resolve(null);
+        return;
+      }
+
+      const clipSeconds = Number(clipDurationSeconds);
+      const maxLoopsByDuration = computeConcatLoopLimit(clipSeconds);
+
+      if (maxLoopsByDuration > 0 && loopCount > maxLoopsByDuration) {
+        console.warn(
+          'Requested concatenation exceeds the safety limit. Falling back to looped playback.',
+          {
+            requestedLoops: loopCount,
+            clipSeconds,
+            maxLoops: maxLoopsByDuration,
+          }
+        );
+        resolve(null);
+        return;
+      }
+
       const mediaSource = new MediaSource();
       const url = URL.createObjectURL(mediaSource);
-      mediaSource.addEventListener('sourceopen', async () => {
-        try {
-          if (!MediaSource.isTypeSupported(file.type)) {
-            alert(
-              'This video format is not supported for seamless looping; using basic repeat.'
-            );
-            resolve(null);
+
+      const cleanupAndResolveNull = () => {
+        URL.revokeObjectURL(url);
+        resolve(null);
+      };
+
+      const waitForUpdate = (sourceBuffer) =>
+        new Promise((res) => {
+          if (!sourceBuffer.updating) {
+            res();
             return;
           }
-          const sourceBuffer = mediaSource.addSourceBuffer(file.type);
-          const data = await file.arrayBuffer();
-          let i = 0;
-          const append = () => {
-            if (i >= loops) {
-              mediaSource.endOfStream();
-              resolve(url);
+          sourceBuffer.addEventListener('updateend', res, { once: true });
+        });
+
+      mediaSource.addEventListener(
+        'sourceopen',
+        async () => {
+          try {
+            if (!MediaSource.isTypeSupported(file.type)) {
+              alert(
+                'This video format is not supported for seamless looping; using basic repeat.'
+              );
+              cleanupAndResolveNull();
               return;
             }
-            sourceBuffer.addEventListener('updateend', append, { once: true });
-            sourceBuffer.appendBuffer(data.slice(0));
-            i++;
-          };
-          append();
-        } catch (err) {
-          console.error('MediaSource error', err);
-          resolve(null);
-        }
-      });
-      mediaSource.addEventListener('error', () => resolve(null));
+
+            const sourceBuffer = mediaSource.addSourceBuffer(file.type);
+            sourceBuffer.mode = 'sequence';
+            let fileBuffer = await file.arrayBuffer();
+            // SourceBuffer copies data on append, so we can safely reuse the same view
+            // without allocating fresh ArrayBuffers for every loop.
+            const reusableSegment = new Uint8Array(fileBuffer);
+            fileBuffer = null;
+
+            for (let appended = 0; appended < loopCount; appended += 1) {
+              await waitForUpdate(sourceBuffer);
+              sourceBuffer.appendBuffer(reusableSegment);
+            }
+
+            await waitForUpdate(sourceBuffer);
+            mediaSource.endOfStream();
+            mediaSource.removeEventListener('error', cleanupAndResolveNull);
+            resolve(url);
+            return;
+          } catch (err) {
+            console.error('MediaSource error', err);
+            cleanupAndResolveNull();
+          }
+        },
+        { once: true }
+      );
+
+      mediaSource.addEventListener('error', cleanupAndResolveNull, { once: true });
     });
 
   const selectRecorderMimeType = () => {
@@ -498,11 +560,22 @@ export default function LoopMaker() {
         fullLoops > 1 && remainder <= REMAINDER_EPSILON;
 
       if (shouldConcatenate) {
-        const concatUrl = await buildConcatenatedSource(file, fullLoops);
-        if (concatUrl) {
-          setUseConcatenated(true);
-          setVideoURL(concatUrl);
-          return; // wait for concatenated video metadata
+        const limit = computeConcatLoopLimit(dur);
+        if (limit > 0 && fullLoops > limit) {
+          setStatusMessage(
+            'Requested duration is too long to pre-concatenate. Using seamless looping playback instead.'
+          );
+        } else {
+          const concatUrl = await buildConcatenatedSource(file, fullLoops, dur);
+          if (concatUrl) {
+            setUseConcatenated(true);
+            setVideoURL(concatUrl);
+            setStatusMessage('');
+            return; // wait for concatenated video metadata
+          }
+          setStatusMessage(
+            'Unable to prebuild a concatenated video for this target. Falling back to seamless looping playback.'
+          );
         }
       }
 
@@ -601,13 +674,35 @@ export default function LoopMaker() {
       return;
     }
 
-    const concatUrl = await buildConcatenatedSource(file, loops);
+    const maxLoops = computeConcatLoopLimit(duration);
+    if (maxLoops > 0 && loops > maxLoops) {
+      if (useConcatenated) {
+        resetToBaseVideo();
+      } else {
+        cleanupProcessed();
+      }
+      setStatusMessage(
+        'Requested duration is too long to pre-concatenate. Using seamless looping playback instead.'
+      );
+      setErrorMessage('');
+      return;
+    }
+
+    const concatUrl = await buildConcatenatedSource(file, loops, duration);
     if (concatUrl) {
       setUseConcatenated(true);
       setVideoURL(concatUrl);
-    } else if (useConcatenated) {
-      resetToBaseVideo();
-      cleanupProcessed();
+      setStatusMessage('');
+    } else {
+      if (useConcatenated) {
+        resetToBaseVideo();
+      } else {
+        cleanupProcessed();
+      }
+      setStatusMessage(
+        'Unable to prebuild a concatenated video for this target. Falling back to seamless looping playback.'
+      );
+      setErrorMessage('');
     }
   };
 
