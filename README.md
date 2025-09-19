@@ -19,6 +19,13 @@ falling back to `localStorage` when the plugin is not available.
    pip install -r requirements.txt
    ```
 
+   Install [`tqdm`](https://pypi.org/project/tqdm/) as well if you plan to use
+   the legacy MusicGen smoke-test helper:
+
+   ```bash
+   pip install tqdm
+   ```
+
 2. Install Node dependencies (including the `ui/` front-end) and launch the desktop app in development mode:
 
    ```bash
@@ -51,9 +58,11 @@ This writes the output WAV file under `out/musicgen/`. The first run downloads
 the `facebook/musicgen-small` weights (about 3 GB).
 
 The legacy `scripts/test_musicgen.py` helper remains available for a minimal
-smoke test. Expect roughly 3 GB of GPU memory or 6 GB of system RAM for
-inference. Producing a four‑second clip typically finishes in under 10 seconds
-on a recent GPU and in roughly one to two minutes on a modern CPU.
+smoke test. It depends on `tqdm`, which is not bundled with the default
+requirements; install it manually with `pip install tqdm` before running the
+helper. Expect roughly 3 GB of GPU memory or 6 GB of system RAM for inference.
+Producing a four‑second clip typically finishes in under 10 seconds on a recent
+GPU and in roughly one to two minutes on a modern CPU.
 
 ## Prerequisites
 
