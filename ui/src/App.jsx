@@ -22,6 +22,7 @@ import RainBlocks from './pages/RainBlocks.jsx';
 import Snake from './pages/Snake.jsx';
 import BrickBreaker from './pages/BrickBreaker.jsx';
 import AlbumMaker from './pages/AlbumMaker.jsx';
+import Calendar from './pages/Calendar.jsx';
 
 export default function App() {
   return (
@@ -42,6 +43,7 @@ export default function App() {
         <Route path="/profiles" element={<Profiles />} />
         <Route path="/train" element={<Train />} />
         <Route path="/tools" element={<Tools />} />
+        <Route path="/calendar" element={<Calendar />} />
         <Route path="/queue" element={<Queue />} />
         <Route path="/fusion" element={<Fusion />} />
         <Route path="/loopmaker" element={<LoopMaker />} />
