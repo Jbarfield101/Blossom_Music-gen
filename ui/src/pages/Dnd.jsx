@@ -18,7 +18,7 @@ const sections = [
   {
     to: '/dnd/piper',
     icon: 'Mic2',
-    title: 'Piper',
+    title: 'AI Voices',
     description: 'Discover voices and synthesize dialogue for your stories.',
   },
   {
