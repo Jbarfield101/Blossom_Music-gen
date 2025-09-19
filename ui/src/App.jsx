@@ -12,6 +12,7 @@ import BeatMaker from './pages/BeatMaker.jsx';
 import Games from './pages/Games.jsx';
 import RainBlocks from './pages/RainBlocks.jsx';
 import Snake from './pages/Snake.jsx';
+import BrickBreaker from './pages/BrickBreaker.jsx';
 import AlbumMaker from './pages/AlbumMaker.jsx';
 
 export default function App() {
@@ -31,6 +32,7 @@ export default function App() {
         <Route path="/album" element={<AlbumMaker />} />
         <Route path="/games" element={<Games />} />
         <Route path="/games/rain-blocks" element={<RainBlocks />} />
+        <Route path="/games/brick-breaker" element={<BrickBreaker />} />
         <Route path="/games/snake" element={<Snake />} />
       </Routes>
     </>

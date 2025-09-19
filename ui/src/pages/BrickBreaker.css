@@ -1,0 +1,161 @@
+.brick-breaker-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-md);
+  padding: clamp(var(--space-md), 4vw, var(--space-xl));
+  margin: 0 auto;
+  width: min(100%, 760px);
+  background: var(--card-bg);
+  border: 2px solid var(--accent);
+  border-radius: var(--space-md);
+  box-shadow: var(--card-shadow);
+}
+
+.brick-breaker-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+}
+
+.brick-breaker-header h1 {
+  margin: 0;
+  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  text-align: center;
+}
+
+.brick-breaker-scoreboard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-sm);
+  width: 100%;
+}
+
+.brick-breaker-scoreboard span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--space-xs);
+  background: rgba(15, 23, 42, 0.85);
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-size: 0.9rem;
+}
+
+.brick-breaker-stage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.brick-breaker-canvas {
+  display: block;
+  width: clamp(320px, 82vw, 640px);
+  height: auto;
+  border: 2px solid var(--accent);
+  border-radius: var(--space-sm);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.45);
+  background: radial-gradient(circle at 20% 20%, rgba(148, 163, 184, 0.15), transparent),
+    rgba(15, 23, 42, 0.9);
+}
+
+.brick-breaker-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(var(--space-md), 6vw, var(--space-xl));
+  background: var(--overlay-bg);
+  border-radius: var(--space-sm);
+  text-align: center;
+  backdrop-filter: blur(4px);
+  z-index: 2;
+}
+
+.brick-breaker-overlay-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+  color: var(--text);
+}
+
+.brick-breaker-overlay-content h2 {
+  margin: 0;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: 700;
+}
+
+.brick-breaker-overlay-content p {
+  margin: 0;
+}
+
+.brick-breaker-overlay-score {
+  font-weight: 700;
+  color: var(--accent);
+  font-size: 1.1rem;
+}
+
+.brick-breaker-overlay-button {
+  padding: var(--space-sm) var(--space-lg);
+  border: 2px solid var(--accent);
+  border-radius: var(--space-xs);
+  background: var(--button-bg);
+  color: var(--text);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.1s ease, background 0.2s ease;
+}
+
+.brick-breaker-overlay-button:hover {
+  background: var(--button-hover-bg);
+}
+
+.brick-breaker-overlay-button:active {
+  transform: translateY(1px);
+}
+
+.brick-breaker-overlay-hint {
+  font-size: 0.9rem;
+  opacity: 0.85;
+}
+
+.brick-breaker-footer {
+  width: 100%;
+  text-align: center;
+}
+
+.brick-breaker-footer p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: rgba(226, 232, 240, 0.75);
+}
+
+@media (max-width: 640px) {
+  .brick-breaker-container {
+    padding: clamp(var(--space-sm), 5vw, var(--space-lg));
+  }
+
+  .brick-breaker-scoreboard {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 440px) {
+  .brick-breaker-scoreboard {
+    grid-template-columns: 1fr;
+  }
+
+  .brick-breaker-canvas {
+    width: 100%;
+  }
+}
