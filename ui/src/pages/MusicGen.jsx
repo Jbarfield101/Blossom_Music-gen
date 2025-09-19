@@ -34,7 +34,9 @@ export default function MusicGen() {
   const [count, setCount] = useState(DEFAULT_MUSICGEN_FORM.count);
   const [fallbackMsg, setFallbackMsg] = useState("");
   const [formError, setFormError] = useState("");
+  const [storeReady, setStoreReady] = useState(false);
   const storeRef = useRef(null);
+  const outputDirDirtyRef = useRef(false);
   const { ready: sharedReady, state: sharedState, updateSection } = useSharedState();
   const restoredRef = useRef(false);
   const jobIdRef = useRef(null);
@@ -184,33 +186,63 @@ export default function MusicGen() {
   useEffect(() => {
     let disposed = false;
     (async () => {
+      let store;
       try {
-        const store = await Store.load("ui-settings.json");
-        if (disposed) {
-          try {
-            await store.close();
-          } catch {
-            // ignore
-          }
-          return;
-        }
-        storeRef.current = store;
-        const saved = await store.get("musicgen.outputDir");
-        if (typeof saved === "string" && saved) setOutputDir(saved);
-        const savedModel = await store.get("musicgen.modelName");
-        if (typeof savedModel === "string" && savedModel) setModelName(savedModel);
-        const savedCount = await store.get("musicgen.count");
-        if (typeof savedCount === "number" && !Number.isNaN(savedCount)) setCount(savedCount);
+        store = await Store.load("ui-settings.json");
       } catch {
-        // ignore
+        if (!disposed) {
+          setStoreReady(true);
+        }
+        return;
       }
+
+      if (disposed) {
+        try {
+          await store.close();
+        } catch {
+          // ignore
+        }
+        return;
+      }
+
+      storeRef.current = store;
+
+      let savedOutputDir;
+      let savedModel;
+      let savedCount;
+      try {
+        [savedOutputDir, savedModel, savedCount] = await Promise.all([
+          store.get("musicgen.outputDir"),
+          store.get("musicgen.modelName"),
+          store.get("musicgen.count"),
+        ]);
+      } catch {
+        savedOutputDir = undefined;
+        savedModel = undefined;
+        savedCount = undefined;
+      }
+
+      if (disposed) {
+        return;
+      }
+
+      if (
+        !outputDirDirtyRef.current &&
+        typeof savedOutputDir === "string" &&
+        savedOutputDir
+      ) {
+        setOutputDir(savedOutputDir);
+      }
+      if (typeof savedModel === "string" && savedModel) setModelName(savedModel);
+      if (typeof savedCount === "number" && !Number.isNaN(savedCount)) setCount(savedCount);
+      setStoreReady(true);
     })();
 
     return () => {
       disposed = true;
-      if (storeRef.current) {
-        const toClose = storeRef.current;
-        storeRef.current = null;
+      const toClose = storeRef.current;
+      storeRef.current = null;
+      if (toClose) {
         (async () => {
           try {
             await toClose.close();
@@ -224,9 +256,9 @@ export default function MusicGen() {
 
   // Persist outputDir whenever it changes
   useEffect(() => {
+    if (!storeReady || !storeRef.current) return;
     (async () => {
       try {
-        if (!storeRef.current) return;
         if (outputDir) {
           await storeRef.current.set("musicgen.outputDir", outputDir);
         } else {
@@ -237,7 +269,7 @@ export default function MusicGen() {
         // ignore
       }
     })();
-  }, [outputDir]);
+  }, [outputDir, storeReady]);
 
   // Persist modelName whenever it changes
   useEffect(() => {
@@ -699,6 +731,7 @@ export default function MusicGen() {
               type="text"
               value={outputDir}
               onChange={(e) => {
+                outputDirDirtyRef.current = true;
                 setOutputDir(e.target.value);
                 if (outputDirError) setOutputDirError("");
               }}
@@ -723,6 +756,7 @@ export default function MusicGen() {
                       ? res
                       : res?.path;
                   if (path) {
+                    outputDirDirtyRef.current = true;
                     setOutputDir(path);
                   } else {
                     const message = "Failed to determine output directory from selection";
@@ -742,7 +776,10 @@ export default function MusicGen() {
               <button
                 type="button"
                 className="p-sm"
-                onClick={() => setOutputDir("")}
+                onClick={() => {
+                  outputDirDirtyRef.current = true;
+                  setOutputDir("");
+                }}
                 style={{ background: "var(--button-bg)", color: "var(--text)" }}
               >
                 Use Default
