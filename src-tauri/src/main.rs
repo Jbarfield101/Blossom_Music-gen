@@ -1414,6 +1414,7 @@ fn spawn_job_with_context(
     Ok(id)
 }
 
+#[tauri::command]
 fn start_job(
     app: AppHandle,
     registry: State<JobRegistry>,
@@ -1506,8 +1507,8 @@ fn job_state_from_registry(registry: &JobRegistry, job_id: u64) -> JobState {
     };
 
     {
-        let jobs = registry.jobs.lock().unwrap();
-        if let Some(job) = jobs.get(&job_id) {
+        let mut jobs = registry.jobs.lock().unwrap();
+        if let Some(job) = jobs.get_mut(&job_id) {
             state.args = job.args.clone();
             state.created_at = Some(format_timestamp(job.created_at));
             state.kind = job.kind.clone();
@@ -1546,7 +1547,7 @@ fn job_state_from_registry(registry: &JobRegistry, job_id: u64) -> JobState {
                         }
                     });
                 }
-            } else if let Some(child) = job.child.as_ref() {
+            } else if let Some(child) = job.child.as_mut() {
                 match child.try_wait() {
                     Ok(Some(status)) => {
                         finalize_request = Some((status.success(), status.code()));

@@ -1,5 +1,3 @@
-import { useEffect, useRef } from 'react';
-
 export default function Screen({ title = 'Blossom', children, sources }) {
   const videoRef = useRef(null);
   // Default video sources (tries in order until one works)
@@ -10,7 +8,6 @@ export default function Screen({ title = 'Blossom', children, sources }) {
     '/video/Happy_Blossom.mp4',
   ];
   const videoSources = Array.isArray(sources) && sources.length ? sources : defaultSources;
-
   useEffect(() => {
     const el = videoRef.current;
     if (!el) return;
@@ -28,11 +25,12 @@ export default function Screen({ title = 'Blossom', children, sources }) {
       el.removeEventListener('canplay', onLoaded);
     };
   }, []);
-
   return (
-    <div className="screen-ambient-wrap">
+    <div className="screen" role="region" aria-label={title}>
       <video
-        className="screen-ambient-video"
+import { useEffect, useRef } from 'react';
+        ref={videoRef}
+        className="screen-video"
         autoPlay
         loop
         muted
@@ -43,24 +41,9 @@ export default function Screen({ title = 'Blossom', children, sources }) {
           <source key={src} src={src} type={src.endsWith('.mp4') ? 'video/mp4' : undefined} />
         ))}
       </video>
-      <div className="screen" role="region" aria-label={title}>
-        <div className="screen-frame" aria-hidden="true" />
-        <video
-          ref={videoRef}
-          className="screen-video"
-          autoPlay
-          loop
-          muted
-          playsInline
-          preload="auto"
-        >
-          {videoSources.map((src) => (
-            <source key={src} src={src} type={src.endsWith('.mp4') ? 'video/mp4' : undefined} />
-          ))}
-        </video>
-        <div className="screen-crt" aria-hidden="true" />
-        <div className="screen-glass" />
-        <div className="screen-content">{children}</div>
+      <div className="screen-glass" />
+      <div className="screen-content">
+        {children ?? <h2 className="screen-title">{title}</h2>}
       </div>
     </div>
   );

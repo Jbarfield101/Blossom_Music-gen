@@ -52,6 +52,19 @@
   text-align: center;
   padding: var(--space-xl) var(--space-md) 0;
 }
+
+.dashboard-title {
+  font-size: clamp(2.5rem, 6vw, 4.5rem);
+  line-height: 1.05;
+  margin: 0;
+}
+
+.dashboard-version {
+  margin-top: 0.25rem;
+  font-size: clamp(0.9rem, 1.8vw, 1.1rem);
+  letter-spacing: 0.08em;
+  opacity: 0.7;
+}
 .dashboard-main {
   display: grid;
   grid-template-columns: minmax(240px, 320px) minmax(520px, 1fr) minmax(240px, 320px);
@@ -69,18 +82,43 @@
   align-items: center;
   justify-content: center;
   min-height: 76vh;
+  position: relative;
+}
+
+.screen-ambient-wrap {
+  position: relative;
+  display: block;
+  width: 100%;
+}
+
+.screen-ambient-video {
+  position: absolute;
+  inset: 0;
+  width: 104%;
+  height: 104%;
+  left: -2%;
+  top: -2%;
+  object-fit: cover;
+  filter: blur(16px) brightness(1.18) saturate(1.35);
+  opacity: 0.32;
+  mix-blend-mode: screen;
+  pointer-events: none;
+  z-index: 0;
+  /* centered thicker edge halo */
+  mask-image: radial-gradient(90% 90% at 50% 50%, transparent 56%, rgba(255,255,255,0.9) 64%, transparent 78%);
 }
 
 .screen {
   position: relative;
-  width: clamp(560px, 72%, 1300px);
-  max-width: 1300px;
+  width: clamp(720px, 90%, 1500px);
+  max-width: 1500px;
   aspect-ratio: 16 / 9;
   border-radius: 22px;
   background: linear-gradient(180deg, var(--card-bg), var(--card-hover-bg));
   border: 2px solid color-mix(in srgb, var(--accent), transparent 70%);
   box-shadow: var(--card-shadow), inset 0 1px 0 rgba(255,255,255,0.05), inset 0 0 24px rgba(0,0,0,0.35);
   overflow: hidden;
+  z-index: 1;
 }
 
 .screen-glass {
@@ -88,6 +126,7 @@
   inset: 0;
   background: radial-gradient(120% 100% at 10% 0%, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 35%, transparent 60%);
   pointer-events: none;
+  z-index: 4;
 }
 
 .screen-content {
@@ -98,7 +137,7 @@
   justify-content: center;
   padding: var(--space-lg);
   text-align: center;
-  z-index: 2;
+  z-index: 5;
 }
 
 .screen-title {
@@ -115,6 +154,39 @@
   object-fit: cover;
   z-index: 1;
   filter: contrast(1.02) saturate(1.05);
+}
+
+/* retro TV frame and CRT overlay */
+.screen-frame {
+  position: absolute;
+  inset: 0;
+  border-radius: 22px;
+  pointer-events: none;
+  z-index: 2; /* above video, below CRT */
+  box-shadow:
+    inset 0 0 0 14px color-mix(in srgb, var(--card-bg), black 25%),
+    inset 0 12px 24px rgba(0,0,0,0.55),
+    inset 0 -12px 24px rgba(0,0,0,0.45),
+    0 2px 8px rgba(0,0,0,0.35);
+  background:
+    radial-gradient(120% 100% at 50% 0%, rgba(255,255,255,0.06), transparent 60%) border-box;
+}
+
+.screen-crt {
+  position: absolute;
+  inset: 6px;
+  border-radius: 18px;
+  pointer-events: none;
+  z-index: 3; /* above frame, below glass */
+  background:
+    radial-gradient(120% 140% at 50% 50%, rgba(0,0,0,0) 60%, rgba(0,0,0,0.25) 100%),
+    repeating-linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.045) 0 1px,
+      rgba(0,0,0,0) 1px 3px
+    );
+  mix-blend-mode: soft-light;
+  opacity: 0.35;
 }
 
 /* layout adjustments: larger centered screen */
@@ -138,7 +210,4 @@
   min-height: 80vh;
 }
 
-.screen {
-  width: 100%;
-  max-width: 1500px;
-}
+/* remove overriding width to keep clamp sizing above */
