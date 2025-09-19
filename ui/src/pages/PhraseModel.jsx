@@ -1,8 +1,27 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import BackButton from "../components/BackButton.jsx";
+import JobQueuePanel from "../components/JobQueuePanel.jsx";
+import { useJobQueue } from "../lib/useJobQueue.js";
 
 export default function PhraseModel() {
+  const formatSeconds = (value) => {
+    if (typeof value !== "number" || Number.isNaN(value)) return "—";
+    const total = Math.max(0, Math.round(value));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const seconds = total % 60;
+    if (hours > 0) {
+      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(
+        2,
+        "0"
+      )}:${String(seconds).padStart(2, "0")}`;
+    }
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(
+      2,
+      "0"
+    )}`;
+  };
   const [preset, setPreset] = useState("");
   const [presets, setPresets] = useState([]);
   const [style, setStyle] = useState("");
@@ -47,6 +66,9 @@ export default function PhraseModel() {
   const [metrics, setMetrics] = useState("");
   const [showResults, setShowResults] = useState(false);
   const [completedJobs, setCompletedJobs] = useState([]);
+  const { queue, refresh: refreshQueue } = useJobQueue();
+  const [queuePosition, setQueuePosition] = useState(null);
+  const [queueEtaSeconds, setQueueEtaSeconds] = useState(null);
 
   const formatTimestamp = useCallback((value) => {
     if (!value) return "—";
@@ -83,10 +105,11 @@ export default function PhraseModel() {
       if (Array.isArray(jobs)) {
         setCompletedJobs(jobs);
       }
+      refreshQueue();
     } catch (err) {
       console.error("failed to load jobs", err);
     }
-  }, []);
+  }, [refreshQueue]);
 
   useEffect(() => {
     refreshJobs();
@@ -145,6 +168,9 @@ export default function PhraseModel() {
     setSummary([]);
     setMetrics("");
     setLinks([]);
+    setQueuePosition(null);
+    setQueueEtaSeconds(null);
+    refreshQueue();
     try {
       const id = await invoke("queue_render_job", { options });
       setJobId(id);
@@ -156,13 +182,28 @@ export default function PhraseModel() {
     }
   };
 
+  const cancelJobById = useCallback(
+    async (id) => {
+      if (!id) return;
+      try {
+        await invoke("cancel_job", { jobId: id });
+        if (id === jobId) {
+          setRunning(false);
+          setQueuePosition(null);
+          setQueueEtaSeconds(null);
+        }
+        refreshQueue();
+        refreshJobs();
+      } catch (err) {
+        console.error("failed to cancel job", err);
+      }
+    },
+    [jobId, refreshJobs, refreshQueue]
+  );
+
   const cancel = async () => {
     if (!jobId) return;
-    try {
-      await invoke("cancel_render", { jobId });
-    } catch (err) {
-      console.error("failed to cancel job", err);
-    }
+    await cancelJobById(jobId);
   };
 
   const poll = async (id) => {
@@ -173,15 +214,30 @@ export default function PhraseModel() {
       setProgress(progressInfo.percent || 0);
       setEta(progressInfo.eta || "");
       setStage(progressInfo.stage || "");
+      setQueuePosition(
+        typeof progressInfo.queue_position === "number"
+          ? progressInfo.queue_position
+          : null
+      );
+      setQueueEtaSeconds(
+        typeof progressInfo.queue_eta_seconds === "number"
+          ? progressInfo.queue_eta_seconds
+          : null
+      );
       const stdoutLines = Array.isArray(data.stdout) ? data.stdout : [];
       const stderrLines = Array.isArray(data.stderr) ? data.stderr : [];
       const combined = [...stdoutLines, ...stderrLines];
       setLog(combined.join("\n"));
-      if (data.status === "running") {
+      const status = data?.status;
+      const isCancelled = Boolean(data?.cancelled) || status === "cancelled";
+      if (status === "running" || status === "queued") {
+        setRunning(true);
         setTimeout(() => poll(id), 1000);
       } else {
         setRunning(false);
-        if (data.status === "completed") {
+        setQueuePosition(null);
+        setQueueEtaSeconds(null);
+        if (status === "completed") {
           const artifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
           setLinks(
             artifacts.map((artifact) => {
@@ -202,7 +258,16 @@ export default function PhraseModel() {
           setSummary([]);
           setMetrics("");
           setShowResults(true);
-        } else if (data.status === "error") {
+        } else if (isCancelled) {
+          setStage("cancelled");
+          setShowResults(false);
+          setLinks([]);
+          setSummary([]);
+          setMetrics("");
+          setLog((prev) =>
+            prev ? `${prev}\nJob cancelled by user.` : "Job cancelled by user."
+          );
+        } else if (status === "error") {
           setSummary([]);
           setMetrics("");
           if (data.message) {
@@ -212,6 +277,7 @@ export default function PhraseModel() {
           }
         }
         refreshJobs();
+        refreshQueue();
       }
     } catch (err) {
       console.error("failed to fetch job status", err);
@@ -221,6 +287,11 @@ export default function PhraseModel() {
   return (
     <div>
       <BackButton />
+      <JobQueuePanel
+        queue={queue}
+        onCancel={cancelJobById}
+        activeId={jobId || undefined}
+      />
       <h1>Phrase Model</h1>
       <div>
         <label>
@@ -444,6 +515,14 @@ export default function PhraseModel() {
           Cancel
         </button>
         <progress value={progress} max="100" />
+        {queuePosition !== null && (
+          <div className="queue-status">
+            {`In queue: position ${queuePosition + 1}`}
+            {queueEtaSeconds != null
+              ? ` • ETA ${formatSeconds(queueEtaSeconds)}`
+              : ""}
+          </div>
+        )}
         <span>{stage}</span>
         <span>{eta ? `ETA: ${eta}` : ""}</span>
         {jobId && (

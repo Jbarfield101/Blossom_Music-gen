@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { save } from '@tauri-apps/plugin-dialog';
-import { writeFile as writeBinaryFile } from '@tauri-apps/plugin-fs';
+import { writeFile as writeBinaryFile, readFile as readBinaryFile } from '@tauri-apps/plugin-fs';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import BackButton from '../components/BackButton.jsx';
+import { useSharedState, DEFAULT_BEATMAKER_FORM } from '../lib/sharedState.jsx';
 
 const styles = {
   layout: {
@@ -238,7 +239,7 @@ export default function BeatMaker() {
   const [audioBuffer, setAudioBuffer] = useState(null);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
-  const [loopInput, setLoopInput] = useState('4');
+  const [loopInput, setLoopInput] = useState(DEFAULT_BEATMAKER_FORM.loopInput);
   const [loopError, setLoopError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [resultURL, setResultURL] = useState('');
@@ -246,6 +247,16 @@ export default function BeatMaker() {
   const [resultBlob, setResultBlob] = useState(null);
   const [lastJobId, setLastJobId] = useState(null);
   const [completedJobs, setCompletedJobs] = useState([]);
+  const { ready: sharedReady, state: sharedState, updateSection } = useSharedState();
+  const restoredRef = useRef(false);
+  const jobIdRef = useRef(null);
+  const isTauriEnv = useMemo(() => {
+    try {
+      return isTauri();
+    } catch (err) {
+      return false;
+    }
+  }, []);
 
   const formatTimestamp = useCallback((value) => {
     if (!value) return '—';
@@ -272,6 +283,95 @@ export default function BeatMaker() {
     const timer = setInterval(refreshJobs, 10000);
     return () => clearInterval(timer);
   }, [refreshJobs]);
+
+  useEffect(() => {
+    if (!sharedReady || restoredRef.current) return undefined;
+
+    const saved = sharedState?.beatMaker || {};
+    const form = saved.form || {};
+    if (typeof form.loopInput === 'string' && form.loopInput) {
+      setLoopInput(form.loopInput);
+    } else if (
+      typeof form.loopInput === 'number' && Number.isFinite(form.loopInput)
+    ) {
+      setLoopInput(String(form.loopInput));
+    }
+
+    setStatus(typeof saved.status === 'string' ? saved.status : '');
+    setError(typeof saved.error === 'string' ? saved.error : '');
+    setLastJobId(saved.lastJobId ?? null);
+
+    const job = saved.job || null;
+    const lastSummary = saved.lastSummary || null;
+    if (job?.id) {
+      jobIdRef.current = job.id;
+    } else if (saved.activeJobId) {
+      jobIdRef.current = saved.activeJobId;
+    } else {
+      jobIdRef.current = null;
+    }
+
+    if (lastSummary) {
+      if (typeof lastSummary.resultDuration === 'number') {
+        setResultDuration(lastSummary.resultDuration);
+      }
+      if (typeof lastSummary.status === 'string' && !saved.status) {
+        setStatus(lastSummary.status);
+      }
+    }
+
+    let cancelled = false;
+    if (isTauriEnv && lastSummary?.savedPath) {
+      (async () => {
+        try {
+          const data = await readBinaryFile(lastSummary.savedPath);
+          const blob = new Blob([data], {
+            type: lastSummary.mimeType || 'audio/wav',
+          });
+          const url = URL.createObjectURL(blob);
+          if (!cancelled) {
+            setResultBlob(blob);
+            setResultURL(url);
+          } else {
+            URL.revokeObjectURL(url);
+          }
+        } catch (err) {
+          console.warn('Failed to restore beat maker output', err);
+        }
+      })();
+    }
+
+    restoredRef.current = true;
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sharedReady, sharedState, isTauriEnv]);
+
+  useEffect(() => {
+    if (!sharedReady || !restoredRef.current) return;
+    updateSection('beatMaker', (prev) => ({
+      form: {
+        ...prev.form,
+        loopInput,
+      },
+    }));
+  }, [sharedReady, updateSection, loopInput]);
+
+  useEffect(() => {
+    if (!sharedReady || !restoredRef.current) return;
+    updateSection('beatMaker', { status });
+  }, [sharedReady, updateSection, status]);
+
+  useEffect(() => {
+    if (!sharedReady || !restoredRef.current) return;
+    updateSection('beatMaker', { error });
+  }, [sharedReady, updateSection, error]);
+
+  useEffect(() => {
+    if (!sharedReady || !restoredRef.current) return;
+    updateSection('beatMaker', { lastJobId });
+  }, [sharedReady, updateSection, lastJobId]);
 
   const parsedLoops = useMemo(() => {
     const value = Number.parseInt(loopInput, 10);
@@ -380,6 +480,30 @@ export default function BeatMaker() {
       return;
     }
 
+    const localJobId = jobIdRef.current || `beatmaker-${Date.now()}`;
+    jobIdRef.current = localJobId;
+    const startedAt = new Date().toISOString();
+
+    if (sharedReady) {
+      updateSection('beatMaker', () => ({
+        activeJobId: localJobId,
+        job: {
+          id: localJobId,
+          status: 'running',
+          startedAt,
+          finishedAt: null,
+          summary: {
+            loops,
+            sourceName: file?.name || '',
+            resultDuration: 0,
+            status: 'Building looped audio…',
+            success: false,
+            error: null,
+          },
+        },
+      }));
+    }
+
     setIsProcessing(true);
     setStatus('Building looped audio…');
 
@@ -397,11 +521,62 @@ export default function BeatMaker() {
       setResultURL(url);
       setResultDuration(loopedBuffer.duration);
       setStatus('Looped audio ready!');
+      if (sharedReady) {
+        updateSection('beatMaker', (prev) => {
+          const prevJob = prev.job || {};
+          const summary = {
+            ...(prevJob.summary || {}),
+            loops,
+            sourceName: file?.name || '',
+            resultDuration: loopedBuffer.duration,
+            status: 'Looped audio ready!',
+            success: true,
+            error: null,
+          };
+          return {
+            job: {
+              id: localJobId,
+              status: 'ready',
+              startedAt: prevJob.id === localJobId ? prevJob.startedAt : startedAt,
+              finishedAt: null,
+              summary,
+            },
+            activeJobId: localJobId,
+          };
+        });
+      }
     } catch (generationError) {
       console.error(generationError);
       setStatus('');
       setError('Something went wrong while building the loop.');
       setResultBlob(null);
+      if (sharedReady) {
+        const completedAt = new Date().toISOString();
+        updateSection('beatMaker', (prev) => {
+          const prevJob = prev.job || {};
+          const summary = {
+            ...(prevJob.summary || {}),
+            loops,
+            sourceName: file?.name || '',
+            resultDuration: 0,
+            status: '',
+            success: false,
+            error: 'Something went wrong while building the loop.',
+            completedAt,
+          };
+          return {
+            activeJobId: null,
+            job: {
+              id: localJobId,
+              status: 'error',
+              startedAt: prevJob.id === localJobId ? prevJob.startedAt : startedAt,
+              finishedAt: completedAt,
+              summary,
+            },
+            lastSummary: summary,
+          };
+        });
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -421,7 +596,34 @@ export default function BeatMaker() {
 
     setError('');
 
-    if (isTauri()) {
+    const localJobId = jobIdRef.current || `beatmaker-${Date.now()}`;
+    jobIdRef.current = localJobId;
+    const startedAt = new Date().toISOString();
+
+    if (sharedReady) {
+      updateSection('beatMaker', () => ({
+        activeJobId: localJobId,
+        job: {
+          id: localJobId,
+          status: 'running',
+          startedAt,
+          finishedAt: null,
+          summary: {
+            loops: parsedLoops || 1,
+            sourceName: file?.name || '',
+            downloadName,
+            savedPath: '',
+            savedToDisk: false,
+            resultDuration,
+            status: 'Preparing download…',
+            success: false,
+            error: null,
+          },
+        },
+      }));
+    }
+
+    if (isTauriEnv) {
       setStatus('Preparing download…');
 
       try {
@@ -429,6 +631,33 @@ export default function BeatMaker() {
 
         if (!savePath) {
           setStatus('Save cancelled.');
+          if (sharedReady) {
+            updateSection('beatMaker', (prev) => {
+              const prevJob = prev.job || {};
+              const summary = {
+                ...(prevJob.summary || {}),
+                loops: parsedLoops || 1,
+                sourceName: file?.name || '',
+                downloadName,
+                savedPath: '',
+                savedToDisk: false,
+                resultDuration,
+                status: 'Save cancelled.',
+                success: false,
+                error: null,
+              };
+              return {
+                activeJobId: null,
+                job: {
+                  id: localJobId,
+                  status: 'cancelled',
+                  startedAt: prevJob.id === localJobId ? prevJob.startedAt : startedAt,
+                  finishedAt: new Date().toISOString(),
+                  summary,
+                },
+              };
+            });
+          }
           return;
         }
 
@@ -450,6 +679,36 @@ export default function BeatMaker() {
           });
           setLastJobId(jobIdValue);
           refreshJobs();
+          if (sharedReady) {
+            const completedAt = new Date().toISOString();
+            updateSection('beatMaker', (prev) => {
+              const summary = {
+                loops: parsedLoops || 1,
+                sourceName: file?.name || '',
+                downloadName,
+                savedPath,
+                savedToDisk: true,
+                resultDuration,
+                status: `Saved successfully to ${savePath}`,
+                success: true,
+                error: null,
+                completedAt,
+                jobRecordId: jobIdValue,
+              };
+              return {
+                activeJobId: null,
+                job: {
+                  id: jobIdValue,
+                  status: 'completed',
+                  startedAt: prev.job?.id === localJobId ? prev.job.startedAt : startedAt,
+                  finishedAt: completedAt,
+                  summary,
+                },
+                lastSummary: summary,
+                lastJobId: jobIdValue,
+              };
+            });
+          }
         } catch (recordErr) {
           console.error('failed to record beat job', recordErr);
         }
@@ -458,6 +717,36 @@ export default function BeatMaker() {
         const message =
           saveError instanceof Error ? saveError.message : String(saveError);
         setStatus(`Save failed: ${message}`);
+        if (sharedReady) {
+          const completedAt = new Date().toISOString();
+          updateSection('beatMaker', (prev) => {
+            const prevJob = prev.job || {};
+            const summary = {
+              ...(prevJob.summary || {}),
+              loops: parsedLoops || 1,
+              sourceName: file?.name || '',
+              downloadName,
+              savedPath: '',
+              savedToDisk: false,
+              resultDuration,
+              status: '',
+              success: false,
+              error: message,
+              completedAt,
+            };
+            return {
+              activeJobId: null,
+              job: {
+                id: localJobId,
+                status: 'error',
+                startedAt: prevJob.id === localJobId ? prevJob.startedAt : startedAt,
+                finishedAt: completedAt,
+                summary,
+              },
+              lastSummary: summary,
+            };
+          });
+        }
       }
 
       return;
@@ -482,6 +771,36 @@ export default function BeatMaker() {
       });
       setLastJobId(jobIdValue);
       refreshJobs();
+      if (sharedReady) {
+        const completedAt = new Date().toISOString();
+        updateSection('beatMaker', (prev) => {
+          const summary = {
+            loops: parsedLoops || 1,
+            sourceName: file?.name || '',
+            downloadName,
+            savedPath: '',
+            savedToDisk: false,
+            resultDuration,
+            status: 'Download started.',
+            success: true,
+            error: null,
+            completedAt,
+            jobRecordId: jobIdValue,
+          };
+          return {
+            activeJobId: null,
+            job: {
+              id: jobIdValue,
+              status: 'completed',
+              startedAt: prev.job?.id === localJobId ? prev.job.startedAt : startedAt,
+              finishedAt: completedAt,
+              summary,
+            },
+            lastSummary: summary,
+            lastJobId: jobIdValue,
+          };
+        });
+      }
     } catch (recordErr) {
       console.error('failed to record beat job', recordErr);
     }

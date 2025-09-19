@@ -7,12 +7,13 @@ use std::{
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
         Arc, Mutex, OnceLock,
     },
+    time::Duration,
 };
 
-use chrono::{DateTime, SecondsFormat, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -26,6 +27,7 @@ use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_shell::init as shell_init;
 use tauri_plugin_store::{Builder, Store, StoreBuilder};
 use tempfile::NamedTempFile;
+use tokio::time::sleep;
 use url::Url;
 mod commands;
 mod config;
@@ -508,6 +510,8 @@ pub struct ProgressEvent {
     eta: Option<String>,
     step: Option<u64>,
     total: Option<u64>,
+    queue_position: Option<usize>,
+    queue_eta_seconds: Option<u64>,
 }
 
 fn extract_error_message(stderr: &str) -> Option<String> {
@@ -532,6 +536,8 @@ struct JobProgressSnapshot {
     eta: Option<String>,
     step: Option<u64>,
     total: Option<u64>,
+    queue_position: Option<usize>,
+    queue_eta_seconds: Option<u64>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -553,6 +559,8 @@ struct JobRecord {
     label: Option<String>,
     args: Vec<String>,
     created_at: DateTime<Utc>,
+    #[serde(default)]
+    started_at: Option<DateTime<Utc>>,
     finished_at: Option<DateTime<Utc>>,
     success: Option<bool>,
     exit_code: Option<i32>,
@@ -560,16 +568,33 @@ struct JobRecord {
     stderr_excerpt: Vec<String>,
     artifacts: Vec<JobArtifact>,
     progress: Option<JobProgressSnapshot>,
+    #[serde(default)]
+    cancelled: bool,
 }
 
 impl JobRecord {
     fn status_text(&self) -> String {
-        match self.success {
-            Some(true) => "completed".to_string(),
-            Some(false) => "error".to_string(),
-            None => "running".to_string(),
+        if self.cancelled {
+            "cancelled".to_string()
+        } else {
+            match self.success {
+                Some(true) => "completed".to_string(),
+                Some(false) => "error".to_string(),
+                None => "running".to_string(),
+            }
         }
     }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct QueueRecord {
+    id: u64,
+    args: Vec<String>,
+    kind: Option<String>,
+    label: Option<String>,
+    artifact_candidates: Vec<JobArtifact>,
+    created_at: DateTime<Utc>,
+    queued_at: DateTime<Utc>,
 }
 
 #[derive(Clone, Default)]
@@ -610,7 +635,9 @@ struct RenderJobRequest {
 }
 
 struct JobInfo {
-    child: Option<Child>,
+    child: Arc<Mutex<Option<Child>>>,
+    pending: bool,
+    cancelled: bool,
     status: Option<bool>,
     stderr_full: Arc<Mutex<String>>,
     stdout_excerpt: Arc<Mutex<VecDeque<String>>>,
@@ -618,6 +645,8 @@ struct JobInfo {
     artifacts: Arc<Mutex<Vec<JobArtifact>>>,
     artifact_candidates: Vec<JobArtifactCandidate>,
     created_at: DateTime<Utc>,
+    queued_at: DateTime<Utc>,
+    started_at: Option<DateTime<Utc>>,
     finished_at: Option<DateTime<Utc>>,
     args: Vec<String>,
     exit_code: Option<i32>,
@@ -627,6 +656,30 @@ struct JobInfo {
 }
 
 impl JobInfo {
+    fn new_pending(args: Vec<String>, context: &JobContext) -> Self {
+        let now = Utc::now();
+        JobInfo {
+            child: Arc::new(Mutex::new(None)),
+            pending: true,
+            cancelled: false,
+            status: None,
+            stderr_full: Arc::new(Mutex::new(String::new())),
+            stdout_excerpt: Arc::new(Mutex::new(VecDeque::new())),
+            stderr_excerpt: Arc::new(Mutex::new(VecDeque::new())),
+            artifacts: Arc::new(Mutex::new(Vec::new())),
+            artifact_candidates: context.artifact_candidates.clone(),
+            created_at: now,
+            queued_at: now,
+            started_at: None,
+            finished_at: None,
+            args,
+            exit_code: None,
+            progress: Arc::new(Mutex::new(None)),
+            kind: context.kind.clone(),
+            label: context.label.clone(),
+        }
+    }
+
     fn to_record(&self, id: u64) -> JobRecord {
         let stdout = self
             .stdout_excerpt
@@ -654,6 +707,7 @@ impl JobInfo {
             label: self.label.clone(),
             args: self.args.clone(),
             created_at: self.created_at,
+            started_at: self.started_at,
             finished_at: self.finished_at,
             success: self.status,
             exit_code: self.exit_code,
@@ -661,6 +715,7 @@ impl JobInfo {
             stderr_excerpt: stderr_lines,
             artifacts,
             progress,
+            cancelled: self.cancelled,
         }
     }
 }
@@ -668,17 +723,27 @@ impl JobInfo {
 struct JobRegistry {
     jobs: Mutex<HashMap<u64, JobInfo>>,
     history: Mutex<VecDeque<JobRecord>>,
+    queue: Mutex<VecDeque<u64>>,
     counter: AtomicU64,
     history_path: OnceLock<PathBuf>,
+    queue_path: OnceLock<PathBuf>,
+    concurrency_limit: AtomicUsize,
 }
 
 impl JobRegistry {
     fn new() -> Self {
+        let concurrency = env::var("BLOSSOM_JOB_CONCURRENCY")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(1);
         Self {
             jobs: Mutex::new(HashMap::new()),
             history: Mutex::new(VecDeque::new()),
+            queue: Mutex::new(VecDeque::new()),
             counter: AtomicU64::new(1),
             history_path: OnceLock::new(),
+            queue_path: OnceLock::new(),
+            concurrency_limit: AtomicUsize::new(concurrency),
         }
     }
 
@@ -686,34 +751,91 @@ impl JobRegistry {
         self.counter.fetch_add(1, Ordering::SeqCst)
     }
 
-    fn insert(&self, id: u64, job: JobInfo) {
-        self.jobs.lock().unwrap().insert(id, job);
-    }
-
-    fn init_persistence(&self, path: PathBuf) -> Result<(), String> {
-        if self.history_path.set(path.clone()).is_err() {
-            return Ok(());
-        }
-        if let Some(parent) = path.parent() {
+    fn init_persistence(&self, history_path: PathBuf, queue_path: PathBuf) -> Result<(), String> {
+        if let Some(parent) = history_path.parent() {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        if !path.exists() {
-            return Ok(());
+        if let Some(parent) = queue_path.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        let data = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-        if data.trim().is_empty() {
-            return Ok(());
+
+        if self.history_path.set(history_path.clone()).is_ok() {
+            if history_path.exists() {
+                let data = fs::read_to_string(&history_path).map_err(|e| e.to_string())?;
+                if !data.trim().is_empty() {
+                    let parsed: Vec<JobRecord> =
+                        serde_json::from_str(&data).map_err(|e| e.to_string())?;
+                    let mut history = self.history.lock().unwrap();
+                    history.extend(parsed.into_iter());
+                }
+            }
         }
-        let parsed: Vec<JobRecord> = serde_json::from_str(&data).map_err(|e| e.to_string())?;
-        let mut history = self.history.lock().unwrap();
-        history.extend(parsed.into_iter());
-        if let Some(max_id) = history.iter().map(|r| r.id).max() {
+
+        if self.queue_path.set(queue_path.clone()).is_ok() {
+            if queue_path.exists() {
+                let data = fs::read_to_string(&queue_path).map_err(|e| e.to_string())?;
+                if !data.trim().is_empty() {
+                    let parsed: Vec<QueueRecord> =
+                        serde_json::from_str(&data).map_err(|e| e.to_string())?;
+                    let mut jobs = self.jobs.lock().unwrap();
+                    let mut queue = self.queue.lock().unwrap();
+                    for record in parsed {
+                        let artifact_candidates = record
+                            .artifact_candidates
+                            .iter()
+                            .map(|candidate| JobArtifactCandidate {
+                                name: candidate.name.clone(),
+                                path: PathBuf::from(&candidate.path),
+                            })
+                            .collect();
+                        let job = JobInfo {
+                            child: Arc::new(Mutex::new(None)),
+                            pending: true,
+                            cancelled: false,
+                            status: None,
+                            stderr_full: Arc::new(Mutex::new(String::new())),
+                            stdout_excerpt: Arc::new(Mutex::new(VecDeque::new())),
+                            stderr_excerpt: Arc::new(Mutex::new(VecDeque::new())),
+                            artifacts: Arc::new(Mutex::new(Vec::new())),
+                            artifact_candidates,
+                            created_at: record.created_at,
+                            queued_at: record.queued_at,
+                            started_at: None,
+                            finished_at: None,
+                            args: record.args.clone(),
+                            exit_code: None,
+                            progress: Arc::new(Mutex::new(None)),
+                            kind: record.kind.clone(),
+                            label: record.label.clone(),
+                        };
+                        jobs.insert(record.id, job);
+                        queue.push_back(record.id);
+                    }
+                }
+            }
+        }
+
+        let mut max_id = None;
+        {
+            let history = self.history.lock().unwrap();
+            if let Some(history_max) = history.iter().map(|r| r.id).max() {
+                max_id = Some(history_max);
+            }
+        }
+        {
+            let queue = self.queue.lock().unwrap();
+            if let Some(queue_max) = queue.iter().copied().max() {
+                max_id = Some(max_id.map_or(queue_max, |m| m.max(queue_max)));
+            }
+        }
+        if let Some(max_id) = max_id {
             let next = max_id.saturating_add(1);
             let current = self.counter.load(Ordering::SeqCst);
             if next > current {
                 self.counter.store(next, Ordering::SeqCst);
             }
         }
+
         Ok(())
     }
 
@@ -728,32 +850,424 @@ impl JobRegistry {
         fs::write(path, data).map_err(|e| e.to_string())
     }
 
-    fn push_history(&self, record: JobRecord) {
-        {
-            let mut history = self.history.lock().unwrap();
-            history.push_back(record);
-            while history.len() > MAX_HISTORY {
-                history.pop_front();
-            }
-        }
-        if let Err(err) = self.persist_history() {
-            eprintln!("failed to persist job history: {}", err);
+    fn persist_queue(&self) -> Result<(), String> {
+        let path = match self.queue_path.get() {
+            Some(p) => p.clone(),
+            None => return Ok(()),
+        };
+        let queue_ids: Vec<u64> = self.queue.lock().unwrap().iter().copied().collect();
+        let jobs = self.jobs.lock().unwrap();
+        let records: Vec<QueueRecord> = queue_ids
+            .into_iter()
+            .filter_map(|id| {
+                jobs.get(&id).and_then(|job| {
+                    if job.pending && !job.cancelled && job.status.is_none() {
+                        Some(QueueRecord {
+                            id,
+                            args: job.args.clone(),
+                            kind: job.kind.clone(),
+                            label: job.label.clone(),
+                            artifact_candidates: job
+                                .artifact_candidates
+                                .iter()
+                                .map(|candidate| JobArtifact {
+                                    name: candidate.name.clone(),
+                                    path: candidate.path.to_string_lossy().to_string(),
+                                })
+                                .collect(),
+                            created_at: job.created_at,
+                            queued_at: job.queued_at,
+                        })
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect();
+        let data = serde_json::to_string_pretty(&records).map_err(|e| e.to_string())?;
+        fs::write(path, data).map_err(|e| e.to_string())
+    }
+
+    fn remove_from_queue(&self, id: u64) -> bool {
+        let mut queue = self.queue.lock().unwrap();
+        if let Some(pos) = queue.iter().position(|candidate| *candidate == id) {
+            queue.remove(pos);
+            true
+        } else {
+            false
         }
     }
 
-    fn finalize_job(&self, id: u64, success: bool, exit_code: Option<i32>) {
+    fn concurrency_limit_value(&self) -> usize {
+        self.concurrency_limit.load(Ordering::SeqCst)
+    }
+
+    fn count_active_jobs(&self) -> usize {
+        let jobs = self.jobs.lock().unwrap();
+        jobs.values()
+            .filter(|job| !job.pending && !job.cancelled && job.status.is_none())
+            .count()
+    }
+
+    fn is_job_done(&self, id: u64) -> bool {
+        self.jobs
+            .lock()
+            .unwrap()
+            .get(&id)
+            .map(|job| job.cancelled || job.status.is_some())
+            .unwrap_or(true)
+    }
+
+    fn average_job_duration_seconds(&self) -> Option<u64> {
+        let history = self.history.lock().unwrap();
+        let mut durations = Vec::new();
+        for record in history.iter().rev() {
+            if record.success == Some(true) {
+                if let Some(finished) = record.finished_at {
+                    let start = record.started_at.unwrap_or(record.created_at);
+                    let delta = finished.signed_duration_since(start);
+                    let seconds = delta.num_seconds();
+                    if seconds > 0 {
+                        durations.push(seconds as u64);
+                    }
+                }
+            }
+            if durations.len() >= 20 {
+                break;
+            }
+        }
+        if durations.is_empty() {
+            None
+        } else {
+            let total: u64 = durations.iter().copied().sum();
+            Some(total / durations.len() as u64)
+        }
+    }
+
+    fn estimate_queue_eta_seconds(&self, queue_index: usize, running_count: usize) -> Option<u64> {
+        let average = self.average_job_duration_seconds()?;
+        let limit = self.concurrency_limit_value();
+        if limit == 0 {
+            return Some(0);
+        }
+        let slots = limit.max(1);
+        let jobs_before = running_count + queue_index;
+        let rounds = jobs_before / slots;
+        Some(average.saturating_mul(rounds as u64))
+    }
+
+    fn update_queue_positions(&self, app: &AppHandle) {
+        let queue_ids: Vec<u64> = self.queue.lock().unwrap().iter().copied().collect();
+        if queue_ids.is_empty() {
+            return;
+        }
+        let running = self.count_active_jobs();
+        let mut updates = Vec::new();
+        {
+            let jobs = self.jobs.lock().unwrap();
+            for (idx, id) in queue_ids.iter().enumerate() {
+                if let Some(job) = jobs.get(id) {
+                    if !job.pending || job.cancelled || job.status.is_some() {
+                        continue;
+                    }
+                    let eta_seconds = self.estimate_queue_eta_seconds(idx, running);
+                    let ahead = running + idx;
+                    let mut snapshot = JobProgressSnapshot {
+                        stage: Some("queued".into()),
+                        percent: Some(0),
+                        message: Some(if ahead > 0 {
+                            format!("Queued ({} ahead)", ahead)
+                        } else {
+                            "Queued".to_string()
+                        }),
+                        eta: eta_seconds.map(format_eta_string),
+                        step: None,
+                        total: None,
+                        queue_position: Some(idx),
+                        queue_eta_seconds: eta_seconds,
+                    };
+                    {
+                        let mut stored = job.progress.lock().unwrap();
+                        *stored = Some(snapshot.clone());
+                    }
+                    updates.push((*id, snapshot));
+                }
+            }
+        }
+        for (id, snapshot) in updates {
+            let event = ProgressEvent {
+                stage: snapshot.stage.clone(),
+                percent: snapshot.percent,
+                message: snapshot.message.clone(),
+                eta: snapshot.eta.clone(),
+                step: snapshot.step,
+                total: snapshot.total,
+                queue_position: snapshot.queue_position,
+                queue_eta_seconds: snapshot.queue_eta_seconds,
+            };
+            let _ = app.emit(&format!("progress::{}", id), event);
+        }
+    }
+
+    fn enqueue_job(&self, id: u64, job: JobInfo) -> Result<(), String> {
+        {
+            let mut jobs = self.jobs.lock().unwrap();
+            jobs.insert(id, job);
+        }
+        {
+            let mut queue = self.queue.lock().unwrap();
+            queue.push_back(id);
+        }
+        if let Err(err) = self.persist_queue() {
+            eprintln!("failed to persist job queue: {}", err);
+            return Err(err);
+        }
+        Ok(())
+    }
+
+    fn spawn_completion_watcher(
+        &self,
+        app: &AppHandle,
+        id: u64,
+        child_arc: Arc<Mutex<Option<Child>>>,
+    ) {
+        let app_handle = app.clone();
+        async_runtime::spawn(async move {
+            loop {
+                let result = {
+                    let mut guard = child_arc.lock().unwrap();
+                    if let Some(child) = guard.as_mut() {
+                        match child.try_wait() {
+                            Ok(Some(status)) => {
+                                let success = status.success();
+                                let code = status.code();
+                                *guard = None;
+                                Some((success, code))
+                            }
+                            Ok(None) => None,
+                            Err(err) => {
+                                eprintln!("failed to check job {} status: {}", id, err);
+                                Some((false, None))
+                            }
+                        }
+                    } else {
+                        None
+                    }
+                };
+                if let Some((success, code)) = result {
+                    let registry = app_handle.state::<JobRegistry>();
+                    registry.complete_job(&app_handle, id, success, code, false);
+                    registry.maybe_start_jobs(&app_handle);
+                    break;
+                }
+                let registry = app_handle.state::<JobRegistry>();
+                if registry.is_job_done(id) {
+                    break;
+                }
+                sleep(Duration::from_secs(1)).await;
+            }
+        });
+    }
+
+    fn start_job_process(&self, app: &AppHandle, id: u64) -> Result<(), String> {
+        let (args, stderr_full, stdout_excerpt, stderr_excerpt, progress_arc, child_arc) = {
+            let mut jobs = self.jobs.lock().unwrap();
+            let job = jobs
+                .get_mut(&id)
+                .ok_or_else(|| format!("Unknown job {}", id))?;
+            if job.cancelled || job.status.is_some() {
+                return Err("Job already completed".into());
+            }
+            job.pending = false;
+            job.started_at = Some(Utc::now());
+            let progress_arc = job.progress.clone();
+            {
+                let mut progress = progress_arc.lock().unwrap();
+                let snapshot = JobProgressSnapshot {
+                    stage: Some("starting".into()),
+                    percent: Some(0),
+                    message: Some("Starting job...".into()),
+                    eta: None,
+                    step: None,
+                    total: None,
+                    queue_position: None,
+                    queue_eta_seconds: None,
+                };
+                *progress = Some(snapshot);
+            }
+            (
+                job.args.clone(),
+                job.stderr_full.clone(),
+                job.stdout_excerpt.clone(),
+                job.stderr_excerpt.clone(),
+                progress_arc,
+                job.child.clone(),
+            )
+        };
+
+        let mut cmd = python_command();
+        cmd.args(&args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+        let stdout_pipe = child.stdout.take();
+        let stderr_pipe = child.stderr.take();
+        {
+            let mut guard = child_arc.lock().unwrap();
+            *guard = Some(child);
+        }
+
+        if let Some(stderr) = stderr_pipe {
+            let stderr_buf_clone = stderr_full.clone();
+            let stderr_excerpt_clone = stderr_excerpt.clone();
+            let app_handle = app.clone();
+            async_runtime::spawn(async move {
+                let reader = BufReader::new(stderr);
+                for line in reader.lines().flatten() {
+                    {
+                        let mut buf = stderr_buf_clone.lock().unwrap();
+                        buf.push_str(&line);
+                        buf.push('\n');
+                    }
+                    {
+                        let mut lines = stderr_excerpt_clone.lock().unwrap();
+                        if lines.len() >= MAX_LOG_LINES {
+                            lines.pop_front();
+                        }
+                        lines.push_back(line.clone());
+                    }
+                    let _ = app_handle.emit("logs::line", line.clone());
+                }
+            });
+        }
+
+        if let Some(stdout) = stdout_pipe {
+            let app_handle = app.clone();
+            let stdout_excerpt_clone = stdout_excerpt.clone();
+            let progress_clone = progress_arc.clone();
+            async_runtime::spawn(async move {
+                let stage_re = Regex::new(r"^\s*([\w-]+):").unwrap();
+                let percent_re = Regex::new(r"(\d+)%").unwrap();
+                let eta_re = Regex::new(r"ETA[:\s]+([0-9:]+)").unwrap();
+                let reader = BufReader::new(stdout);
+                for line in reader.lines().flatten() {
+                    {
+                        let mut lines = stdout_excerpt_clone.lock().unwrap();
+                        if lines.len() >= MAX_LOG_LINES {
+                            lines.pop_front();
+                        }
+                        lines.push_back(line.clone());
+                    }
+                    let stage = stage_re.captures(&line).map(|c| c[1].to_string());
+                    let percent = percent_re
+                        .captures(&line)
+                        .and_then(|c| c[1].parse::<u8>().ok());
+                    let eta = eta_re.captures(&line).map(|c| c[1].to_string());
+                    let event = ProgressEvent {
+                        stage: stage.clone(),
+                        percent,
+                        message: Some(line.clone()),
+                        eta: eta.clone(),
+                        step: None,
+                        total: None,
+                        queue_position: None,
+                        queue_eta_seconds: None,
+                    };
+                    {
+                        let mut snapshot = progress_clone.lock().unwrap();
+                        *snapshot = Some(JobProgressSnapshot {
+                            stage,
+                            percent,
+                            message: event.message.clone(),
+                            eta,
+                            step: event.step,
+                            total: event.total,
+                            queue_position: None,
+                            queue_eta_seconds: None,
+                        });
+                    }
+                    let _ = app_handle.emit("logs::line", line.clone());
+                    let _ = app_handle.emit(&format!("progress::{}", id), event);
+                }
+            });
+        }
+
+        self.spawn_completion_watcher(app, id, child_arc.clone());
+
+        if let Some(snapshot) = progress_arc.lock().unwrap().clone() {
+            let event = ProgressEvent {
+                stage: snapshot.stage.clone(),
+                percent: snapshot.percent,
+                message: snapshot.message.clone(),
+                eta: snapshot.eta.clone(),
+                step: snapshot.step,
+                total: snapshot.total,
+                queue_position: snapshot.queue_position,
+                queue_eta_seconds: snapshot.queue_eta_seconds,
+            };
+            let _ = app.emit(&format!("progress::{}", id), event);
+        }
+
+        Ok(())
+    }
+
+    fn maybe_start_jobs(&self, app: &AppHandle) {
+        loop {
+            let limit = self.concurrency_limit_value();
+            let slots = if limit == 0 { usize::MAX } else { limit.max(1) };
+            if slots != usize::MAX && self.count_active_jobs() >= slots {
+                break;
+            }
+            let next_id = {
+                let mut queue = self.queue.lock().unwrap();
+                queue.pop_front()
+            };
+            let Some(id) = next_id else {
+                break;
+            };
+            if let Err(err) = self.persist_queue() {
+                eprintln!("failed to persist job queue after dequeue: {}", err);
+            }
+            if let Err(err) = self.start_job_process(app, id) {
+                eprintln!("failed to start job {}: {}", id, err);
+                self.complete_job(app, id, false, None, false);
+            }
+        }
+        self.update_queue_positions(app);
+    }
+
+    fn complete_job(
+        &self,
+        app: &AppHandle,
+        id: u64,
+        success: bool,
+        exit_code: Option<i32>,
+        cancelled: bool,
+    ) {
+        if self.remove_from_queue(id) {
+            if let Err(err) = self.persist_queue() {
+                eprintln!("failed to persist job queue after removal: {}", err);
+            }
+        }
         let mut maybe_record = None;
+        let mut progress_update = None;
         {
             let mut jobs = self.jobs.lock().unwrap();
             if let Some(job) = jobs.get_mut(&id) {
                 if job.finished_at.is_some() {
                     return;
                 }
+                job.pending = false;
                 job.status = Some(success);
+                job.cancelled = cancelled;
                 job.exit_code = exit_code;
                 job.finished_at.get_or_insert_with(Utc::now);
-                if job.child.is_some() {
-                    job.child = None;
+                if job.started_at.is_none() {
+                    job.started_at = Some(job.created_at);
+                }
+                {
+                    let mut child_guard = job.child.lock().unwrap();
+                    *child_guard = None;
                 }
                 if job.artifacts.lock().map(|a| a.is_empty()).unwrap_or(true) {
                     let mut artifacts = job.artifacts.lock().unwrap();
@@ -766,11 +1280,106 @@ impl JobRegistry {
                         }
                     }
                 }
+                let mut progress = job.progress.lock().unwrap();
+                let mut snapshot = progress.clone().unwrap_or_default();
+                snapshot.queue_position = None;
+                snapshot.queue_eta_seconds = None;
+                snapshot.eta = None;
+                snapshot.step = None;
+                snapshot.total = None;
+                snapshot.percent = Some(100);
+                snapshot.stage = Some(if cancelled {
+                    "cancelled".into()
+                } else if success {
+                    "completed".into()
+                } else {
+                    "error".into()
+                });
+                if cancelled {
+                    snapshot.message = Some("Job cancelled by user".into());
+                    let mut stderr = job.stderr_full.lock().unwrap();
+                    if !stderr.contains("Job cancelled by user") {
+                        if !stderr.is_empty() && !stderr.ends_with('\n') {
+                            stderr.push('\n');
+                        }
+                        stderr.push_str("Job cancelled by user\n");
+                    }
+                }
+                *progress = Some(snapshot.clone());
+                progress_update = Some(snapshot);
                 maybe_record = Some(job.to_record(id));
             }
         }
         if let Some(record) = maybe_record {
             self.push_history(record);
+        }
+        if let Some(snapshot) = progress_update {
+            let event = ProgressEvent {
+                stage: snapshot.stage.clone(),
+                percent: snapshot.percent,
+                message: snapshot.message.clone(),
+                eta: snapshot.eta.clone(),
+                step: snapshot.step,
+                total: snapshot.total,
+                queue_position: snapshot.queue_position,
+                queue_eta_seconds: snapshot.queue_eta_seconds,
+            };
+            let _ = app.emit(&format!("progress::{}", id), event);
+        }
+        self.update_queue_positions(app);
+    }
+
+    fn cancel_job(&self, app: &AppHandle, job_id: u64) -> Result<(), String> {
+        let mut child_to_kill: Option<Child> = None;
+        let mut was_pending = false;
+        {
+            let mut jobs = self.jobs.lock().unwrap();
+            let job = jobs
+                .get_mut(&job_id)
+                .ok_or_else(|| "Unknown job_id".to_string())?;
+            if job.status.is_some() || job.cancelled {
+                return Err("Job already completed".into());
+            }
+            was_pending = job.pending;
+            job.pending = false;
+            job.cancelled = true;
+            job.finished_at.get_or_insert_with(Utc::now);
+            if !was_pending {
+                let mut child_guard = job.child.lock().unwrap();
+                if let Some(child) = child_guard.take() {
+                    child_to_kill = Some(child);
+                }
+            }
+        }
+        if was_pending && self.remove_from_queue(job_id) {
+            if let Err(err) = self.persist_queue() {
+                eprintln!("failed to persist job queue after cancellation: {}", err);
+            }
+        }
+        if let Some(mut child) = child_to_kill {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        self.complete_job(app, job_id, false, None, true);
+        self.maybe_start_jobs(app);
+        Ok(())
+    }
+
+    fn resume_pending(&self, app: &AppHandle) {
+        self.update_queue_positions(app);
+        self.maybe_start_jobs(app);
+    }
+
+    fn push_history(&self, record: JobRecord) {
+        {
+            let mut history = self.history.lock().unwrap();
+            history.push_back(record);
+            while history.len() > MAX_HISTORY {
+                history.pop_front();
+            }
+        }
+        if let Err(err) = self.persist_history() {
+            eprintln!("failed to persist job history: {}", err);
         }
     }
 
@@ -1310,107 +1919,10 @@ fn spawn_job_with_context(
     context: JobContext,
 ) -> Result<u64, String> {
     let id = registry.next_id();
-    let mut cmd = python_command();
-    cmd.args(&args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
-    let stdout_pipe = child.stdout.take();
-    let stderr_pipe = child.stderr.take();
-    let stderr_full = Arc::new(Mutex::new(String::new()));
-    let stdout_excerpt = Arc::new(Mutex::new(VecDeque::new()));
-    let stderr_excerpt = Arc::new(Mutex::new(VecDeque::new()));
-    let artifacts = Arc::new(Mutex::new(Vec::new()));
-    let progress = Arc::new(Mutex::new(None));
-    let job = JobInfo {
-        child: Some(child),
-        status: None,
-        stderr_full: stderr_full.clone(),
-        stdout_excerpt: stdout_excerpt.clone(),
-        stderr_excerpt: stderr_excerpt.clone(),
-        artifacts: artifacts.clone(),
-        artifact_candidates: context.artifact_candidates.clone(),
-        created_at: Utc::now(),
-        finished_at: None,
-        args: args.clone(),
-        exit_code: None,
-        progress: progress.clone(),
-        kind: context.kind.clone(),
-        label: context.label.clone(),
-    };
-    registry.insert(id, job);
-
-    if let Some(stderr) = stderr_pipe {
-        let stderr_buf_clone = stderr_full.clone();
-        let stderr_excerpt_clone = stderr_excerpt.clone();
-        let app_handle = app.clone();
-        async_runtime::spawn(async move {
-            let reader = BufReader::new(stderr);
-            for line in reader.lines().flatten() {
-                {
-                    let mut buf = stderr_buf_clone.lock().unwrap();
-                    buf.push_str(&line);
-                    buf.push('\n');
-                }
-                {
-                    let mut lines = stderr_excerpt_clone.lock().unwrap();
-                    if lines.len() >= MAX_LOG_LINES {
-                        lines.pop_front();
-                    }
-                    lines.push_back(line.clone());
-                }
-                let _ = app_handle.emit("logs::line", line.clone());
-            }
-        });
-    }
-
-    if let Some(stdout) = stdout_pipe {
-        let app_handle = app.clone();
-        let stdout_excerpt_clone = stdout_excerpt.clone();
-        let progress_clone = progress.clone();
-        async_runtime::spawn(async move {
-            let stage_re = Regex::new(r"^\s*([\w-]+):").unwrap();
-            let percent_re = Regex::new(r"(\d+)%").unwrap();
-            let eta_re = Regex::new(r"ETA[:\s]+([0-9:]+)").unwrap();
-            let reader = BufReader::new(stdout);
-            for line in reader.lines().flatten() {
-                {
-                    let mut lines = stdout_excerpt_clone.lock().unwrap();
-                    if lines.len() >= MAX_LOG_LINES {
-                        lines.pop_front();
-                    }
-                    lines.push_back(line.clone());
-                }
-                let stage = stage_re.captures(&line).map(|c| c[1].to_string());
-                let percent = percent_re
-                    .captures(&line)
-                    .and_then(|c| c[1].parse::<u8>().ok());
-                let eta = eta_re.captures(&line).map(|c| c[1].to_string());
-                let event = ProgressEvent {
-                    stage: stage.clone(),
-                    percent,
-                    message: Some(line.clone()),
-                    eta: eta.clone(),
-                    step: None,
-                    total: None,
-                };
-                {
-                    let mut snapshot = progress_clone.lock().unwrap();
-                    *snapshot = Some(JobProgressSnapshot {
-                        stage,
-                        percent,
-                        message: event.message.clone(),
-                        eta,
-                        step: event.step,
-                        total: event.total,
-                    });
-                }
-                let _ = app_handle.emit("logs::line", line.clone());
-                let _ = app_handle.emit(&format!("progress::{}", id), event);
-            }
-        });
-    }
-
+    let job = JobInfo::new_pending(args.clone(), &context);
+    registry.enqueue_job(id, job)?;
+    registry.update_queue_positions(&app);
+    registry.maybe_start_jobs(&app);
     Ok(id)
 }
 
@@ -1446,28 +1958,13 @@ fn train_model(
 }
 
 #[tauri::command]
-fn cancel_render(registry: State<JobRegistry>, job_id: u64) -> Result<(), String> {
-    let mut child_opt = None;
-    {
-        let mut jobs = registry.jobs.lock().map_err(|e| e.to_string())?;
-        match jobs.get_mut(&job_id) {
-            Some(job) => {
-                if job.status.is_some() || job.child.is_none() {
-                    return Err("Job already completed".into());
-                }
-                child_opt = job.child.take();
-            }
-            None => return Err("Unknown job_id".into()),
-        }
-    }
-    if let Some(mut child) = child_opt {
-        child.kill().map_err(|e| e.to_string())?;
-        let status = child.wait().map_err(|e| e.to_string())?;
-        registry.finalize_job(job_id, status.success(), status.code());
-        Ok(())
-    } else {
-        Err("Job already completed".into())
-    }
+fn cancel_render(app: AppHandle, registry: State<JobRegistry>, job_id: u64) -> Result<(), String> {
+    registry.cancel_job(&app, job_id)
+}
+
+#[tauri::command]
+fn cancel_job(app: AppHandle, registry: State<JobRegistry>, job_id: u64) -> Result<(), String> {
+    registry.cancel_job(&app, job_id)
 }
 
 #[derive(Serialize, Clone)]
@@ -1483,14 +1980,26 @@ struct JobState {
     progress: Option<JobProgressSnapshot>,
     kind: Option<String>,
     label: Option<String>,
+    cancelled: bool,
 }
 
 fn format_timestamp(dt: DateTime<Utc>) -> String {
     dt.to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
+fn format_eta_string(seconds: u64) -> String {
+    let hours = seconds / 3600;
+    let minutes = (seconds % 3600) / 60;
+    let secs = seconds % 60;
+    if hours > 0 {
+        format!("{:02}:{:02}:{:02}", hours, minutes, secs)
+    } else {
+        format!("{:02}:{:02}", minutes, secs)
+    }
+}
+
 #[tauri::command]
-fn job_state_from_registry(registry: &JobRegistry, job_id: u64) -> JobState {
+fn job_state_from_registry(app: &AppHandle, registry: &JobRegistry, job_id: u64) -> JobState {
     let mut finalize_request: Option<(bool, Option<i32>)> = None;
     let mut state = JobState {
         status: "not-found".into(),
@@ -1504,6 +2013,7 @@ fn job_state_from_registry(registry: &JobRegistry, job_id: u64) -> JobState {
         progress: None,
         kind: None,
         label: None,
+        cancelled: false,
     };
 
     {
@@ -1513,6 +2023,7 @@ fn job_state_from_registry(registry: &JobRegistry, job_id: u64) -> JobState {
             state.created_at = Some(format_timestamp(job.created_at));
             state.kind = job.kind.clone();
             state.label = job.label.clone();
+            state.cancelled = job.cancelled;
             state.stdout = job
                 .stdout_excerpt
                 .lock()
@@ -1533,7 +2044,10 @@ fn job_state_from_registry(registry: &JobRegistry, job_id: u64) -> JobState {
                 .lock()
                 .map(|p| (*p).clone())
                 .unwrap_or_default();
-            if let Some(success) = job.status {
+            if job.cancelled {
+                state.status = "cancelled".into();
+                state.finished_at = job.finished_at.map(format_timestamp);
+            } else if let Some(success) = job.status {
                 state.status = if success { "completed" } else { "error" }.into();
                 state.finished_at = job.finished_at.map(format_timestamp);
                 if !success {
@@ -1547,27 +2061,33 @@ fn job_state_from_registry(registry: &JobRegistry, job_id: u64) -> JobState {
                         }
                     });
                 }
-            } else if let Some(child) = job.child.as_mut() {
-                match child.try_wait() {
-                    Ok(Some(status)) => {
-                        finalize_request = Some((status.success(), status.code()));
-                    }
-                    Ok(None) => {
-                        state.status = "running".into();
-                    }
-                    Err(_) => {
-                        finalize_request = Some((false, None));
-                    }
-                }
+            } else if job.pending {
+                state.status = "queued".into();
             } else {
-                state.status = "running".into();
+                let mut child_guard = job.child.lock().unwrap();
+                if let Some(child) = child_guard.as_mut() {
+                    match child.try_wait() {
+                        Ok(Some(status)) => {
+                            finalize_request = Some((status.success(), status.code()));
+                        }
+                        Ok(None) => {
+                            state.status = "running".into();
+                        }
+                        Err(_) => {
+                            finalize_request = Some((false, None));
+                        }
+                    }
+                } else {
+                    state.status = "running".into();
+                }
             }
         }
     }
 
     if let Some((success, code)) = finalize_request {
-        registry.finalize_job(job_id, success, code);
-        return job_state_from_registry(registry, job_id);
+        registry.complete_job(app, job_id, success, code, false);
+        registry.maybe_start_jobs(app);
+        return job_state_from_registry(app, registry, job_id);
     }
 
     if state.status == "not-found" {
@@ -1582,6 +2102,7 @@ fn job_state_from_registry(registry: &JobRegistry, job_id: u64) -> JobState {
             state.progress = record.progress.clone();
             state.created_at = Some(format_timestamp(record.created_at));
             state.finished_at = record.finished_at.map(format_timestamp);
+            state.cancelled = record.cancelled;
             if record.success == Some(false) {
                 if let Some(msg) = state
                     .stderr
@@ -1599,13 +2120,75 @@ fn job_state_from_registry(registry: &JobRegistry, job_id: u64) -> JobState {
 }
 
 #[tauri::command]
-fn job_status(registry: State<JobRegistry>, job_id: u64) -> JobState {
-    job_state_from_registry(&registry, job_id)
+fn job_status(app: AppHandle, registry: State<JobRegistry>, job_id: u64) -> JobState {
+    job_state_from_registry(&app, &registry, job_id)
 }
 
 #[tauri::command]
-fn job_details(registry: State<JobRegistry>, job_id: u64) -> JobState {
-    job_state_from_registry(&registry, job_id)
+fn job_details(app: AppHandle, registry: State<JobRegistry>, job_id: u64) -> JobState {
+    job_state_from_registry(&app, &registry, job_id)
+}
+
+#[tauri::command]
+fn list_job_queue(registry: State<JobRegistry>) -> Vec<QueueEntry> {
+    let queue_ids: Vec<u64> = registry.queue.lock().unwrap().iter().copied().collect();
+    let mut running_entries = Vec::new();
+    let mut pending_info: HashMap<
+        u64,
+        (DateTime<Utc>, Option<String>, Option<String>, Vec<String>),
+    > = HashMap::new();
+    {
+        let jobs = registry.jobs.lock().unwrap();
+        for (&id, job) in jobs.iter() {
+            if job.cancelled || job.status.is_some() {
+                continue;
+            }
+            if job.pending {
+                pending_info.insert(
+                    id,
+                    (
+                        job.queued_at,
+                        job.label.clone(),
+                        job.kind.clone(),
+                        job.args.clone(),
+                    ),
+                );
+            } else {
+                running_entries.push(QueueEntry {
+                    id,
+                    status: "running".into(),
+                    position: None,
+                    queued_at: Some(format_timestamp(job.queued_at)),
+                    started_at: job.started_at.map(format_timestamp),
+                    label: job.label.clone(),
+                    kind: job.kind.clone(),
+                    args: job.args.clone(),
+                    eta_seconds: None,
+                });
+            }
+        }
+    }
+    running_entries.sort_by(|a, b| a.started_at.cmp(&b.started_at));
+    let running_count = running_entries.len();
+    let mut queued_entries = Vec::new();
+    for (idx, id) in queue_ids.iter().enumerate() {
+        if let Some((queued_at, label, kind, args)) = pending_info.get(id) {
+            let eta_seconds = registry.estimate_queue_eta_seconds(idx, running_count);
+            queued_entries.push(QueueEntry {
+                id: *id,
+                status: "queued".into(),
+                position: Some(idx),
+                queued_at: Some(format_timestamp(*queued_at)),
+                started_at: None,
+                label: label.clone(),
+                kind: kind.clone(),
+                args: args.clone(),
+                eta_seconds,
+            });
+        }
+    }
+    running_entries.extend(queued_entries);
+    running_entries
 }
 
 #[derive(Serialize)]
@@ -1617,6 +2200,19 @@ struct JobSummary {
     kind: Option<String>,
     label: Option<String>,
     args: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct QueueEntry {
+    id: u64,
+    status: String,
+    position: Option<usize>,
+    queued_at: Option<String>,
+    started_at: Option<String>,
+    label: Option<String>,
+    kind: Option<String>,
+    args: Vec<String>,
+    eta_seconds: Option<u64>,
 }
 
 #[tauri::command]
@@ -1882,19 +2478,22 @@ fn record_manual_job(
     success: Option<bool>,
 ) -> u64 {
     let id = registry.next_id();
+    let now = Utc::now();
     let record = JobRecord {
         id,
         kind,
         label,
         args: args.unwrap_or_default(),
-        created_at: Utc::now(),
-        finished_at: Some(Utc::now()),
+        created_at: now,
+        started_at: Some(now),
+        finished_at: Some(now),
         success: success.or(Some(true)),
         exit_code: None,
         stdout_excerpt: stdout.unwrap_or_default(),
         stderr_excerpt: stderr.unwrap_or_default(),
         artifacts: artifacts.unwrap_or_default(),
         progress: None,
+        cancelled: false,
     };
     registry.push_history(record);
     id
@@ -1999,10 +2598,13 @@ fn main() {
         .setup(|app| -> Result<(), Box<dyn std::error::Error>> {
             if let Ok(dir) = app.path().app_data_dir() {
                 let history_path = dir.join("jobs_history.json");
+                let queue_path = dir.join("jobs_queue.json");
                 let registry = app.state::<JobRegistry>();
-                if let Err(err) = registry.init_persistence(history_path) {
+                if let Err(err) = registry.init_persistence(history_path, queue_path) {
                     eprintln!("failed to initialize job history: {}", err);
                 }
+                let app_handle = app.handle();
+                registry.resume_pending(&app_handle);
             }
             // Prefer a repo-root virtualenv (../.venv) when running from src-tauri
             let venv_base = if Path::new(".venv").exists() {
@@ -2127,8 +2729,10 @@ fn main() {
             start_job,
             train_model,
             cancel_render,
+            cancel_job,
             job_status,
             job_details,
+            list_job_queue,
             list_completed_jobs,
             register_job_artifacts,
             prune_job_history,
@@ -2147,15 +2751,39 @@ fn main() {
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
-                let registry = window.app_handle().state::<JobRegistry>();
-                let mut jobs = registry.jobs.lock().unwrap();
-                for job in jobs.values_mut() {
-                    if let Some(child) = job.child.as_mut() {
-                        let _ = child.kill();
-                        let _ = child.wait();
+                let app_handle = window.app_handle();
+                let registry = app_handle.state::<JobRegistry>();
+                let mut to_requeue = Vec::new();
+                {
+                    let mut jobs = registry.jobs.lock().unwrap();
+                    for (id, job) in jobs.iter_mut() {
+                        if job.cancelled || job.status.is_some() {
+                            continue;
+                        }
+                        {
+                            let mut child_guard = job.child.lock().unwrap();
+                            if let Some(mut child) = child_guard.take() {
+                                let _ = child.kill();
+                                let _ = child.wait();
+                            }
+                        }
+                        job.pending = true;
+                        job.started_at = None;
+                        job.finished_at = None;
+                        to_requeue.push(*id);
                     }
                 }
-                jobs.clear();
+                if !to_requeue.is_empty() {
+                    let mut queue = registry.queue.lock().unwrap();
+                    for id in to_requeue.into_iter().rev() {
+                        if !queue.contains(&id) {
+                            queue.push_front(id);
+                        }
+                    }
+                }
+                if let Err(err) = registry.persist_queue() {
+                    eprintln!("failed to persist job queue on shutdown: {}", err);
+                }
             }
         })
         .run(tauri::generate_context!())

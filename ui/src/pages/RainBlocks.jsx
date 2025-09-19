@@ -301,26 +301,20 @@ export default function RainBlocks() {
 
         const runFlashCycle = () => {
           flashTimerRef.current = setTimeout(() => {
-            flashToggleCountRef.current += 1;
-            setFlashPhase((prevPhase) => !prevPhase);
-            if (flashToggleCountRef.current >= 2) {
-              const rows = clearingRowsRef.current;
-              const rowsSet = new Set(rows);
-              clearFlashTimer();
-              setBoard((prevBoard) => {
-                const remaining = prevBoard.filter((_, idx) => !rowsSet.has(idx));
-                while (remaining.length < BOARD_ROWS) {
-                  remaining.unshift(Array(BOARD_COLUMNS).fill(0));
-                }
-                return remaining;
-              });
-              clearingRowsRef.current = [];
-              setClearingRows([]);
-              setFlashPhase(false);
-              flashToggleCountRef.current = 0;
-              return;
-            }
-            runFlashCycle();
+            const rows = clearingRowsRef.current;
+            const rowsSet = new Set(rows);
+            flashTimerRef.current = null;
+            setBoard((prevBoard) => {
+              const remaining = prevBoard.filter((_, idx) => !rowsSet.has(idx));
+              while (remaining.length < BOARD_ROWS) {
+                remaining.unshift(Array(BOARD_COLUMNS).fill(0));
+              }
+              return remaining;
+            });
+            clearingRowsRef.current = [];
+            setClearingRows([]);
+            setFlashPhase(false);
+            flashToggleCountRef.current = 0;
           }, LINE_CLEAR_FLASH_DELAY);
         };
 
