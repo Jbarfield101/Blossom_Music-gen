@@ -605,6 +605,21 @@ struct JobContext {
 }
 
 #[derive(Debug, Deserialize)]
+struct MusicGenJobRequest {
+    prompt: String,
+    duration: f32,
+    model_name: String,
+    temperature: f32,
+    force_cpu: Option<bool>,
+    force_gpu: Option<bool>,
+    use_fp16: Option<bool>,
+    output_dir: Option<String>,
+    output_name: Option<String>,
+    count: Option<u32>,
+    melody_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct RenderJobRequest {
     preset: Option<String>,
     style: Option<String>,
@@ -2008,7 +2023,46 @@ fn sanitize_file_stem(name: &str) -> String {
         }
     }
     let out = out.trim().trim_matches('.').to_string();
-    if out.is_empty() { "loop".to_string() } else { out.chars().take(120).collect() }
+    if out.is_empty() {
+        "loop".to_string()
+    } else {
+        out.chars().take(120).collect()
+    }
+}
+
+fn sanitize_musicgen_base_name(name: Option<&str>, fallback: &str) -> String {
+    let raw = name.unwrap_or("").trim();
+    let mut sanitized = String::new();
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, ' ' | '-' | '_' | '.') {
+            sanitized.push(ch);
+        } else {
+            sanitized.push('_');
+        }
+    }
+    let mut cleaned = sanitized.trim().trim_matches('.').to_string();
+    if cleaned.len() > 120 {
+        cleaned = cleaned.chars().take(120).collect();
+    }
+    cleaned = cleaned.trim().trim_matches('.').to_string();
+    if cleaned.is_empty() {
+        return fallback.to_string();
+    }
+    let lower = cleaned.to_lowercase();
+    let without_ext = if lower.ends_with(".wav") {
+        cleaned[..cleaned.len() - 4]
+            .trim()
+            .trim_matches('.')
+            .to_string()
+    } else {
+        cleaned.clone()
+    };
+    let final_name = without_ext.trim().trim_matches('.').to_string();
+    if final_name.is_empty() {
+        fallback.to_string()
+    } else {
+        final_name
+    }
 }
 
 #[tauri::command]
@@ -2040,8 +2094,7 @@ fn export_loop_video(
         PathBuf::from(dir)
     } else {
         // Default to app data jobs/loops
-        app
-            .path()
+        app.path()
             .app_data_dir()
             .map_err(|e| e.to_string())?
             .join("jobs")
@@ -2074,13 +2127,7 @@ fn export_loop_video(
             }
         }
         let list_path = list_file.path().to_path_buf();
-        cmd.args([
-            "-f",
-            "concat",
-            "-safe",
-            "0",
-            "-i",
-        ]);
+        cmd.args(["-f", "concat", "-safe", "0", "-i"]);
         cmd.arg(list_path.as_os_str());
         cmd.args(["-c", "copy"]);
         cmd.arg(out_path.as_os_str());
@@ -2094,23 +2141,15 @@ fn export_loop_video(
         cmd.arg(&in_path);
         cmd.args(["-t", &format!("{:.3}", target_seconds.max(0.0))]);
         cmd.args([
-            "-c:v",
-            "libx264",
-            "-pix_fmt",
-            "yuv420p",
-            "-preset",
-            "veryfast",
-            "-crf",
-            "18",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "18", "-c:a",
+            "aac", "-b:a", "192k",
         ]);
         cmd.arg(&out_path);
     }
 
-    let output = cmd.output().map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
+    let output = cmd
+        .output()
+        .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -2411,6 +2450,164 @@ fn register_job_artifacts(
 #[tauri::command]
 fn prune_job_history(registry: State<JobRegistry>, retain: usize) {
     registry.prune_history(retain);
+}
+
+#[tauri::command]
+fn queue_musicgen_job(
+    app: AppHandle,
+    registry: State<JobRegistry>,
+    options: MusicGenJobRequest,
+) -> Result<u64, String> {
+    if options.prompt.trim().is_empty() {
+        return Err("Prompt cannot be empty".into());
+    }
+    if options.duration <= 0.0 {
+        return Err("Duration must be greater than zero".into());
+    }
+
+    let script = if Path::new("main_musicgen.py").exists() {
+        "main_musicgen.py".to_string()
+    } else {
+        "../main_musicgen.py".to_string()
+    };
+
+    let timestamp = Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    let default_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("jobs")
+        .join("musicgen")
+        .join(format!("musicgen-{}", timestamp));
+
+    let output_dir = options
+        .output_dir
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or(default_dir);
+    fs::create_dir_all(&output_dir).map_err(|e| e.to_string())?;
+
+    let fallback_name = format!("musicgen-{}", timestamp);
+    let base_name = sanitize_musicgen_base_name(options.output_name.as_deref(), &fallback_name);
+
+    let mut count = options.count.unwrap_or(1);
+    if count == 0 {
+        count = 1;
+    } else if count > 10 {
+        count = 10;
+    }
+
+    let width = if count > 1 {
+        ((count as f32).log10().floor() as usize) + 1
+    } else {
+        0
+    };
+
+    let mut filenames = Vec::with_capacity(count as usize);
+    for idx in 0..count {
+        let mut name = if count > 1 {
+            format!("{}_{:0width$}", base_name, idx + 1, width = width)
+        } else {
+            base_name.clone()
+        };
+        if !name.to_lowercase().ends_with(".wav") {
+            name.push_str(".wav");
+        }
+        filenames.push(name);
+    }
+
+    let summary_path = output_dir.join(format!("musicgen-summary-{}.json", timestamp));
+
+    let mut artifact_candidates = Vec::new();
+    for fname in &filenames {
+        let path = output_dir.join(fname);
+        let display = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(fname)
+            .to_string();
+        artifact_candidates.push(JobArtifactCandidate {
+            name: display,
+            path,
+        });
+    }
+    artifact_candidates.push(JobArtifactCandidate {
+        name: "Summary JSON".into(),
+        path: summary_path.clone(),
+    });
+    artifact_candidates.push(JobArtifactCandidate {
+        name: "Output Directory".into(),
+        path: output_dir.clone(),
+    });
+
+    let mut args = vec![script];
+    args.push("--prompt".into());
+    args.push(options.prompt.clone());
+    args.push("--duration".into());
+    args.push(format!("{}", options.duration));
+    args.push("--model".into());
+    args.push(options.model_name.clone());
+    args.push("--temperature".into());
+    args.push(format!("{}", options.temperature));
+    args.push("--output-dir".into());
+    args.push(output_dir.to_string_lossy().to_string());
+    args.push("--count".into());
+    args.push(count.to_string());
+    args.push("--base-name".into());
+    args.push(base_name.clone());
+    args.push("--summary-path".into());
+    args.push(summary_path.to_string_lossy().to_string());
+
+    if let Some(melody) = options
+        .melody_path
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
+        args.push("--melody-path".into());
+        args.push(melody.to_string());
+    }
+
+    if options.force_cpu.unwrap_or(false) {
+        args.push("--force-cpu".into());
+    } else {
+        if options.force_gpu.unwrap_or(false) {
+            args.push("--force-gpu".into());
+        }
+        if options.use_fp16.unwrap_or(false) {
+            args.push("--use-fp16".into());
+        }
+    }
+
+    let label_source = options
+        .output_name
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| {
+            let prompt_trim = options.prompt.trim();
+            if prompt_trim.is_empty() {
+                format!("MusicGen {}", timestamp)
+            } else {
+                let mut preview: String = prompt_trim.chars().take(80).collect();
+                if prompt_trim.chars().count() > 80 {
+                    preview.push('…');
+                }
+                preview
+            }
+        });
+    let label: String = label_source.chars().take(120).collect();
+
+    let context = JobContext {
+        kind: Some("musicgen".into()),
+        label: Some(label),
+        artifact_candidates,
+    };
+
+    spawn_job_with_context(app, registry, args, context)
 }
 
 #[tauri::command]
@@ -2870,6 +3067,7 @@ fn main() {
             list_completed_jobs,
             register_job_artifacts,
             prune_job_history,
+            queue_musicgen_job,
             queue_render_job,
             record_manual_job,
             discord_profile_get,
@@ -2882,7 +3080,7 @@ fn main() {
             config::export_settings,
             config::import_settings,
             musiclang::list_musiclang_models,
-    musiclang::download_model
+            musiclang::download_model
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

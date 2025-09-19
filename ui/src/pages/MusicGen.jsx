@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { readFile, BaseDirectory } from "@tauri-apps/plugin-fs";
-import { appDataDir } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Store } from "@tauri-apps/plugin-store";
 import BackButton from "../components/BackButton.jsx";
+import JobQueuePanel from "../components/JobQueuePanel.jsx";
+import { useJobQueue } from "../lib/useJobQueue.js";
 import { useSharedState, DEFAULT_MUSICGEN_FORM } from "../lib/sharedState.jsx";
 
 const MODEL_OPTIONS = [
@@ -19,8 +20,13 @@ export default function MusicGen() {
   const [temperature, setTemperature] = useState(DEFAULT_MUSICGEN_FORM.temperature);
   const [modelName, setModelName] = useState(DEFAULT_MUSICGEN_FORM.modelName);
   const [name, setName] = useState(DEFAULT_MUSICGEN_FORM.name);
-  const [audioSrc, setAudioSrc] = useState(null);
   const [audios, setAudios] = useState([]); // [{ url, path }]
+  const [jobId, setJobId] = useState(null);
+  const [progress, setProgress] = useState(0);
+  const [stage, setStage] = useState("");
+  const [statusMessage, setStatusMessage] = useState("");
+  const [queuePosition, setQueuePosition] = useState(null);
+  const [queueEtaSeconds, setQueueEtaSeconds] = useState(null);
   const [melodyPath, setMelodyPath] = useState(DEFAULT_MUSICGEN_FORM.melodyPath);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState(null);
@@ -35,11 +41,306 @@ export default function MusicGen() {
   const [fallbackMsg, setFallbackMsg] = useState("");
   const [formError, setFormError] = useState("");
   const [storeReady, setStoreReady] = useState(false);
+  const { queue, refresh: refreshQueue } = useJobQueue();
   const storeRef = useRef(null);
   const outputDirDirtyRef = useRef(false);
   const { ready: sharedReady, state: sharedState, updateSection } = useSharedState();
   const restoredRef = useRef(false);
   const jobIdRef = useRef(null);
+  const pollTimeoutRef = useRef(null);
+  const jobRequestRef = useRef(null);
+
+  const formatSeconds = useCallback((value) => {
+    if (typeof value !== "number" || Number.isNaN(value)) return "—";
+    const total = Math.max(0, Math.round(value));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const seconds = total % 60;
+    if (hours > 0) {
+      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    }
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }, []);
+
+  const clearPollTimeout = useCallback(() => {
+    if (pollTimeoutRef.current) {
+      clearTimeout(pollTimeoutRef.current);
+      pollTimeoutRef.current = null;
+    }
+  }, []);
+
+  const poll = useCallback(
+    async (id) => {
+      if (!id || jobIdRef.current !== id) return;
+      try {
+        const data = await invoke("job_status", { jobId: id });
+        if (jobIdRef.current !== id) {
+          return;
+        }
+
+        const status = typeof data?.status === "string" ? data.status : "";
+        const progressInfo = data?.progress || {};
+        const percent =
+          typeof progressInfo.percent === "number"
+            ? progressInfo.percent
+            : status === "completed"
+            ? 100
+            : 0;
+        setProgress(percent);
+        const stageText = progressInfo.stage || status || "";
+        setStage(stageText);
+        setStatusMessage(progressInfo.message || "");
+        setQueuePosition(
+          typeof progressInfo.queue_position === "number"
+            ? progressInfo.queue_position
+            : null
+        );
+        setQueueEtaSeconds(
+          typeof progressInfo.queue_eta_seconds === "number"
+            ? progressInfo.queue_eta_seconds
+            : null
+        );
+        refreshQueue();
+
+        if (status === "queued" || status === "running") {
+          setGenerating(true);
+          clearPollTimeout();
+          pollTimeoutRef.current = setTimeout(() => {
+            poll(id);
+          }, 1000);
+          return;
+        }
+
+        clearPollTimeout();
+        setGenerating(false);
+        setQueuePosition(null);
+        setQueueEtaSeconds(null);
+
+        const stdoutLines = Array.isArray(data?.stdout) ? data.stdout : [];
+        let parsedSummary = null;
+        for (let i = stdoutLines.length - 1; i >= 0; i -= 1) {
+          const line = stdoutLines[i];
+          if (typeof line !== "string") continue;
+          const trimmed = line.trim();
+          if (trimmed.startsWith("SUMMARY:")) {
+            const jsonText = trimmed.slice("SUMMARY:".length).trim();
+            if (jsonText) {
+              try {
+                parsedSummary = JSON.parse(jsonText);
+              } catch (err) {
+                console.warn("Failed to parse MusicGen summary", err, jsonText);
+              }
+            }
+            break;
+          }
+        }
+
+        const artifacts = Array.isArray(data?.artifacts) ? data.artifacts : [];
+        const request = jobRequestRef.current || {};
+        const completedAt = new Date().toISOString();
+
+        const baseSummary = {
+          prompt: request.prompt || "",
+          duration: request.duration ?? DEFAULT_MUSICGEN_FORM.duration,
+          temperature: request.temperature ?? DEFAULT_MUSICGEN_FORM.temperature,
+          modelName: request.modelName || DEFAULT_MUSICGEN_FORM.modelName,
+          name: request.name || "",
+          melodyPath: request.melodyPath || "",
+          count: request.count ?? DEFAULT_MUSICGEN_FORM.count,
+          outputDir: request.outputDir || "",
+          forceCpu: Boolean(request.forceCpu),
+          forceGpu: Boolean(request.forceGpu),
+          useFp16: Boolean(request.useFp16),
+          stage: stageText,
+          progress: percent,
+        };
+
+        const finishJob = (summaryRecord) => {
+          jobRequestRef.current = null;
+          jobIdRef.current = null;
+          setJobId(null);
+          if (sharedReady) {
+            updateSection("musicgen", (prev) => ({
+              activeJobId: null,
+              job: {
+                id,
+                status: summaryRecord.success ? "completed" : summaryRecord.cancelled ? "cancelled" : "error",
+                summary: summaryRecord,
+                request,
+              },
+              lastSummary: summaryRecord,
+            }));
+          }
+        };
+
+        if (status === "completed") {
+          const audioArtifacts = artifacts.filter((artifact) => {
+            const path = artifact?.path;
+            return typeof path === "string" && path.toLowerCase().endsWith(".wav");
+          });
+          const newAudios = [];
+          for (const artifact of audioArtifacts) {
+            const path = artifact.path;
+            const url = await createBlobUrlForPath(path);
+            if (url && jobIdRef.current === id) {
+              const label =
+                typeof artifact.name === "string" && artifact.name
+                  ? artifact.name
+                  : path;
+              newAudios.push({ url, path, name: label });
+            }
+          }
+          if (jobIdRef.current !== id) {
+            newAudios.forEach((entry) => URL.revokeObjectURL(entry.url));
+            return;
+          }
+          setAudios((prev) => {
+            if (Array.isArray(prev)) {
+              prev.forEach((entry) => URL.revokeObjectURL(entry.url));
+            }
+            return newAudios;
+          });
+
+          const deviceInfo =
+            (typeof parsedSummary?.device === "string" && parsedSummary.device) ||
+            (typeof data?.device === "string" && data.device) ||
+            (request.forceCpu ? "cpu" : "");
+          setDevice(deviceInfo || "");
+          const fallbackReasonRaw =
+            parsedSummary?.fallback_reason || parsedSummary?.fallbackReason || "";
+          const fallbackReason = fallbackReasonRaw ? String(fallbackReasonRaw) : "";
+          const fallbackFlag = Boolean(parsedSummary?.fallback);
+          const fallbackText = fallbackFlag
+            ? `Fell back to CPU${fallbackReason ? `: ${fallbackReason.slice(0, 180)}` : ""}`
+            : "";
+          setFallbackMsg(fallbackText);
+          setError(null);
+          setStage("completed");
+          const messageText =
+            (typeof parsedSummary?.status_message === "string" && parsedSummary.status_message) ||
+            (typeof parsedSummary?.statusMessage === "string" && parsedSummary.statusMessage) ||
+            progressInfo.message ||
+            "Completed";
+          setStatusMessage(messageText);
+          setProgress(100);
+
+          const summaryRecord = {
+            ...baseSummary,
+            device: deviceInfo || "",
+            fallback: fallbackFlag,
+            fallbackReason,
+            fallbackMsg: fallbackText,
+            paths: newAudios.map((entry) => entry.path),
+            success: true,
+            error: null,
+            completedAt,
+            statusMessage: messageText,
+          };
+          finishJob(summaryRecord);
+          refreshQueue();
+          return;
+        }
+
+        const stderrLines = Array.isArray(data?.stderr) ? data.stderr : [];
+        let stderrMsg = "";
+        for (let i = stderrLines.length - 1; i >= 0; i -= 1) {
+          const candidate = stderrLines[i];
+          if (typeof candidate === "string" && candidate.trim()) {
+            stderrMsg = candidate.trim();
+            break;
+          }
+        }
+        const summaryError =
+          (typeof parsedSummary?.error === "string" && parsedSummary.error.trim()) ||
+          "";
+
+        if (status === "cancelled" || data?.cancelled) {
+          const cancelDevice =
+            (typeof parsedSummary?.device === "string" && parsedSummary.device) ||
+            (request.forceCpu ? "cpu" : "");
+          setDevice(cancelDevice || "");
+          setStage("cancelled");
+          setStatusMessage("Job cancelled by user.");
+          setFallbackMsg(parsedSummary?.fallbackMsg || "");
+          setError(null);
+          setAudios((prev) => {
+            if (Array.isArray(prev)) {
+              prev.forEach((entry) => URL.revokeObjectURL(entry.url));
+            }
+            return [];
+          });
+          const summaryRecord = {
+            ...baseSummary,
+            device: parsedSummary?.device || (request.forceCpu ? "cpu" : ""),
+            fallback: Boolean(parsedSummary?.fallback),
+            fallbackReason: parsedSummary?.fallback_reason || parsedSummary?.fallbackReason || "",
+            fallbackMsg: parsedSummary?.fallbackMsg || "",
+            paths: Array.isArray(parsedSummary?.paths) ? parsedSummary.paths : [],
+            success: false,
+            cancelled: true,
+            error: "Job cancelled by user.",
+            completedAt,
+            statusMessage: "Job cancelled by user.",
+          };
+          finishJob(summaryRecord);
+          refreshQueue();
+          return;
+        }
+
+        const errorDevice =
+          (typeof parsedSummary?.device === "string" && parsedSummary.device) ||
+          (request.forceCpu ? "cpu" : "");
+        setDevice(errorDevice || "");
+        const errorFallbackReason =
+          parsedSummary?.fallback_reason || parsedSummary?.fallbackReason || "";
+        let errorFallbackMsg = "";
+        if (typeof parsedSummary?.fallbackMsg === "string" && parsedSummary.fallbackMsg) {
+          errorFallbackMsg = parsedSummary.fallbackMsg;
+        } else if (parsedSummary?.fallback) {
+          const reasonText = errorFallbackReason ? String(errorFallbackReason).slice(0, 180) : "";
+          errorFallbackMsg = `Fell back to CPU${reasonText ? `: ${reasonText}` : ""}`;
+        }
+        setFallbackMsg(errorFallbackMsg);
+        const errorMessage =
+          (typeof data?.message === "string" && data.message.trim()) ||
+          summaryError ||
+          stderrMsg ||
+          "Music generation failed.";
+        setStage("error");
+        setStatusMessage(errorMessage);
+        setError(errorMessage);
+        setAudios((prev) => {
+          if (Array.isArray(prev)) {
+            prev.forEach((entry) => URL.revokeObjectURL(entry.url));
+          }
+          return [];
+        });
+        const errorSummary = {
+          ...baseSummary,
+          device: parsedSummary?.device || (request.forceCpu ? "cpu" : ""),
+          fallback: Boolean(parsedSummary?.fallback),
+          fallbackReason: parsedSummary?.fallback_reason || parsedSummary?.fallbackReason || "",
+          fallbackMsg: errorFallbackMsg,
+          paths: Array.isArray(parsedSummary?.paths) ? parsedSummary.paths : [],
+          success: false,
+          error: errorMessage,
+          completedAt,
+          statusMessage: errorMessage,
+        };
+        finishJob(errorSummary);
+        refreshQueue();
+      } catch (err) {
+        console.error("failed to fetch job status", err);
+        if (jobIdRef.current === id) {
+          clearPollTimeout();
+          pollTimeoutRef.current = setTimeout(() => {
+            poll(id);
+          }, 2000);
+        }
+      }
+    },
+    [clearPollTimeout, createBlobUrlForPath, refreshQueue, sharedReady, updateSection]
+  );
 
   const melodyFileName = melodyPath
     ? melodyPath.split(/[\\/]/).filter(Boolean).pop() || melodyPath
@@ -123,29 +424,52 @@ export default function MusicGen() {
 
     const job = saved.job || null;
     const lastSummary = saved.lastSummary || null;
-    if (job?.id) {
-      jobIdRef.current = job.id;
-    } else if (saved.activeJobId) {
-      jobIdRef.current = saved.activeJobId;
+
+    let resolvedJobId = null;
+    if (typeof job?.id === "number") {
+      resolvedJobId = job.id;
+    } else if (typeof saved.activeJobId === "number") {
+      resolvedJobId = saved.activeJobId;
+    }
+
+    if (resolvedJobId != null) {
+      jobIdRef.current = resolvedJobId;
+      setJobId(resolvedJobId);
     } else {
       jobIdRef.current = null;
+      setJobId(null);
     }
 
-    if (job?.status === "running" && saved.activeJobId) {
-      setGenerating(true);
-    } else {
-      setGenerating(false);
+    const jobStatus = typeof job?.status === "string" ? job.status : null;
+    const isActive =
+      resolvedJobId != null && ["running", "queued"].includes(jobStatus || "");
+    setGenerating(isActive);
+    if (!isActive) {
+      setStage(jobStatus === "completed" ? "completed" : "");
+      setStatusMessage("");
+      setProgress(jobStatus === "completed" ? 100 : 0);
+      setQueuePosition(null);
+      setQueueEtaSeconds(null);
     }
 
-    const summary =
-      job?.status === "running"
-        ? lastSummary
-        : job?.summary || lastSummary;
+    jobRequestRef.current = job?.request || null;
 
+    const summary = job?.summary || lastSummary || null;
     if (summary) {
       setDevice(summary.device || "");
       setFallbackMsg(summary.fallbackMsg || "");
       setError(summary.error ?? null);
+      if (typeof summary.progress === "number") {
+        setProgress(summary.progress);
+      } else if (summary.success) {
+        setProgress(100);
+      }
+      if (typeof summary.stage === "string") {
+        setStage(summary.stage);
+      }
+      if (typeof summary.statusMessage === "string") {
+        setStatusMessage(summary.statusMessage);
+      }
     } else {
       setDevice("");
       setFallbackMsg("");
@@ -153,7 +477,9 @@ export default function MusicGen() {
     }
 
     let cancelled = false;
-    const savedPaths = Array.isArray(summary?.paths) ? summary.paths : [];
+    const savedPaths = Array.isArray(summary?.paths)
+      ? summary.paths.filter((p) => typeof p === "string" && p)
+      : [];
     if (savedPaths.length) {
       (async () => {
         const entries = [];
@@ -165,14 +491,12 @@ export default function MusicGen() {
         }
         if (!cancelled) {
           setAudios(entries);
-          setAudioSrc(entries[0]?.url || null);
         } else {
           entries.forEach((entry) => URL.revokeObjectURL(entry.url));
         }
       })();
     } else {
       setAudios([]);
-      setAudioSrc(null);
     }
 
     restoredRef.current = true;
@@ -181,6 +505,19 @@ export default function MusicGen() {
       cancelled = true;
     };
   }, [sharedReady, sharedState, createBlobUrlForPath]);
+
+  useEffect(() => {
+    if (!jobId) {
+      clearPollTimeout();
+      return undefined;
+    }
+    poll(jobId);
+    return () => {
+      clearPollTimeout();
+    };
+  }, [jobId, poll, clearPollTimeout]);
+
+  useEffect(() => () => clearPollTimeout(), [clearPollTimeout]);
 
   // Load persisted outputDir on mount
   useEffect(() => {
@@ -365,188 +702,122 @@ export default function MusicGen() {
     const safeTemperature = Number.isFinite(temperature)
       ? temperature
       : DEFAULT_MUSICGEN_FORM.temperature;
-    const safeCount =
-      Number.isFinite(count) && count > 0 ? count : DEFAULT_MUSICGEN_FORM.count;
+    const safeCountRaw = Number.isFinite(count) && count > 0 ? count : DEFAULT_MUSICGEN_FORM.count;
+    const safeCount = Math.min(Math.max(1, safeCountRaw), 10);
 
-    const jobId = `musicgen-${Date.now()}`;
-    const startedAt = new Date().toISOString();
-    jobIdRef.current = jobId;
-
-    setGenerating(true);
+    clearPollTimeout();
     if (audios?.length) {
       audios.forEach((a) => URL.revokeObjectURL(a.url));
-      setAudios([]);
     }
-    setAudioSrc(null);
-    const initialDevice = forceCpu ? "cpu" : "";
-    setDevice(initialDevice);
+    setAudios([]);
+    setGenerating(true);
+    setProgress(0);
+    setStage("queued");
+    setStatusMessage("Queued...");
+    setQueuePosition(null);
+    setQueueEtaSeconds(null);
+    setDevice(forceCpu ? "cpu" : "");
     setFallbackMsg("");
 
-    if (sharedReady) {
-      updateSection("musicgen", () => ({
-        activeJobId: jobId,
-        job: {
-          id: jobId,
-          status: "running",
-          startedAt,
-          finishedAt: null,
-          summary: {
-            prompt,
-            duration: safeDuration,
-            temperature: safeTemperature,
-            modelName,
-            name,
-            melodyPath: modelName === "melody" ? melodyPath || "" : "",
-            count: safeCount,
-            outputDir: outputDir || "",
-            device: initialDevice,
-            fallback: false,
-            fallbackReason: "",
-            fallbackMsg: "",
-            paths: [],
-            success: false,
-            error: null,
-          },
-        },
-      }));
-    }
+    jobRequestRef.current = {
+      prompt,
+      duration: safeDuration,
+      temperature: safeTemperature,
+      modelName,
+      name,
+      melodyPath: modelName === "melody" ? melodyPath || "" : "",
+      count: safeCount,
+      outputDir: outputDir || "",
+      forceCpu: !!forceCpu,
+      forceGpu: !!forceGpu && !forceCpu,
+      useFp16: !!useFp16 && !forceCpu,
+    };
+
+    const options = {
+      prompt,
+      duration: safeDuration,
+      modelName,
+      temperature: safeTemperature,
+      forceCpu: !!forceCpu,
+      forceGpu: !!forceGpu && !forceCpu,
+      useFp16: !!useFp16 && !forceCpu,
+      outputDir: outputDir || undefined,
+      outputName: name || undefined,
+      count: safeCount,
+      melodyPath: modelName === "melody" ? melodyPath || undefined : undefined,
+    };
 
     try {
-      const result = await invoke("generate_musicgen", {
-        prompt,
-        duration: safeDuration,
-        modelName,
-        temperature: safeTemperature,
-        forceCpu: !!forceCpu,
-        forceGpu: !!forceGpu && !forceCpu,
-        useFp16: !!useFp16,
-        outputDir: outputDir || undefined,
-        outputName: name || undefined,
-        count: safeCount,
-        melodyPath: modelName === "melody" ? melodyPath || undefined : undefined,
-      });
-
-      const path = typeof result === "string" ? result : result?.path;
-      const rawPaths = Array.isArray(result?.paths)
-        ? result.paths
-        : path
-        ? [path]
-        : [];
-      const normalizedPaths = rawPaths.filter((p) => typeof p === "string" && p);
-      try {
-        const base = await appDataDir();
-        // eslint-disable-next-line no-console
-        console.log("MusicGen result.path:", path);
-        // eslint-disable-next-line no-console
-        console.log("appDataDir():", base);
-      } catch {}
-      const dev = typeof result === "object" && result?.device ? result.device : "";
-      if (dev) {
-        setDevice(dev);
-      }
-      const fb = Boolean(result?.fallback);
-      const fr =
-        typeof result === "object" && result?.fallback_reason
-          ? String(result.fallback_reason)
-          : "";
-      const fallbackText = fb ? `Fell back to CPU: ${fr.slice(0, 180)}` : "";
-      setFallbackMsg(fallbackText);
-
-      const blobUrls = [];
-      for (const p of normalizedPaths) {
-        const blobUrl = await createBlobUrlForPath(p);
-        if (blobUrl) {
-          blobUrls.push({ url: blobUrl, path: p });
-        }
-      }
-      setAudios(blobUrls);
-      setAudioSrc(blobUrls[0]?.url || null);
-
-      const completedAt = new Date().toISOString();
+      const id = await invoke("queue_musicgen_job", { options });
+      jobIdRef.current = id;
+      setJobId(id);
       if (sharedReady) {
-        updateSection("musicgen", (prev) => {
-          const prevJob = prev.job || {};
-          const summary = {
-            prompt,
-            duration: safeDuration,
-            temperature: safeTemperature,
-            modelName,
-            name,
-            melodyPath: modelName === "melody" ? melodyPath || "" : "",
-            count: safeCount,
-            outputDir: outputDir || "",
-            device: dev || initialDevice,
-            fallback: fb,
-            fallbackReason: fr,
-            fallbackMsg: fallbackText,
-            paths: normalizedPaths,
-            success: true,
-            error: null,
-            completedAt,
-          };
-          return {
-            activeJobId: null,
-            job: {
-              id: jobId,
-              status: "completed",
-              startedAt: prevJob.id === jobId ? prevJob.startedAt : startedAt,
-              finishedAt: completedAt,
-              summary,
-            },
-            lastSummary: summary,
-          };
-        });
+        updateSection("musicgen", () => ({
+          activeJobId: id,
+          job: {
+            id,
+            status: "queued",
+            request: { ...jobRequestRef.current },
+          },
+        }));
       }
+      refreshQueue();
     } catch (err) {
-      console.error("music generation failed", err);
-      const message = String(err);
-      setError(message);
-      const completedAt = new Date().toISOString();
-      if (sharedReady) {
-        updateSection("musicgen", (prev) => {
-          const prevJob = prev.job || {};
-          const prevSummary = prevJob.summary || {};
-          const summary = {
-            prompt,
-            duration: safeDuration,
-            temperature: safeTemperature,
-            modelName,
-            name,
-            melodyPath: modelName === "melody" ? melodyPath || "" : "",
-            count: safeCount,
-            outputDir: outputDir || "",
-            device: prevSummary.device || initialDevice,
-            fallback: prevSummary.fallback ?? false,
-            fallbackReason: prevSummary.fallbackReason || "",
-            fallbackMsg: prevSummary.fallbackMsg || "",
-            paths: Array.isArray(prevSummary.paths) ? prevSummary.paths : [],
-            success: false,
-            error: message,
-            completedAt,
-          };
-          return {
-            activeJobId: null,
-            job: {
-              id: jobId,
-              status: "error",
-              startedAt: prevJob.id === jobId ? prevJob.startedAt : startedAt,
-              finishedAt: completedAt,
-              summary,
-            },
-            lastSummary: summary,
-          };
-        });
-      }
-    } finally {
+      console.error("failed to enqueue musicgen job", err);
+      jobRequestRef.current = null;
+      jobIdRef.current = null;
+      setJobId(null);
       setGenerating(false);
+      setStage("");
+      setStatusMessage("");
+      setProgress(0);
+      setQueuePosition(null);
+      setQueueEtaSeconds(null);
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      if (sharedReady) {
+        updateSection("musicgen", () => ({ activeJobId: null }));
+      }
+      refreshQueue();
     }
   };
 
-  const download = (url, idx = 0) => {
-    if (!url) return;
+  const cancelJob = useCallback(async () => {
+    const id = jobIdRef.current;
+    if (!id) return;
+    try {
+      await invoke("cancel_job", { jobId: id });
+    } catch (err) {
+      console.error("failed to cancel musicgen job", err);
+    } finally {
+      refreshQueue();
+    }
+  }, [refreshQueue]);
+
+  const cancelFromQueue = useCallback(
+    async (id) => {
+      if (!id) return;
+      try {
+        await invoke("cancel_job", { jobId: id });
+      } catch (err) {
+        console.error("failed to cancel queued job", err);
+      } finally {
+        refreshQueue();
+      }
+    },
+    [refreshQueue]
+  );
+
+  const download = (entry, idx = 0) => {
+    if (!entry || !entry.url) return;
     const link = document.createElement("a");
-    link.href = url;
-    link.download = idx === 0 ? "musicgen.wav" : `musicgen_${idx + 1}.wav`;
+    link.href = entry.url;
+    const fallback = idx === 0 ? "musicgen.wav" : `musicgen_${idx + 1}.wav`;
+    const name =
+      typeof entry.name === "string" && entry.name
+        ? entry.name
+        : fallback;
+    link.download = name;
     link.click();
   };
 
@@ -562,6 +833,7 @@ export default function MusicGen() {
     <>
       <BackButton />
       <h1 className="mb-md">Sound Lab</h1>
+      <JobQueuePanel queue={queue} onCancel={cancelFromQueue} activeId={jobId || undefined} />
       <form
         onSubmit={generate}
         className="p-md"
@@ -830,24 +1102,55 @@ export default function MusicGen() {
         >
           Generate
         </button>
-        <div id="progress-placeholder" className="mt-md mb-md">
-          {generating && (
-            <>
-              <progress />
-              <span style={{ marginLeft: "0.5rem", opacity: 0.8 }}>
-                {device ? `Using ${device.toUpperCase()}` : "Detecting device..."}
-              </span>
-            </>
-          )}
-          {!generating && device && (
-            <span style={{ marginLeft: "0.5rem", opacity: 0.8 }}>
-              Using {device.toUpperCase()}
-            </span>
-          )}
-          {!generating && fallbackMsg && (
-            <div className="mt-sm" style={{ color: "var(--accent)", fontSize: "0.9rem" }}>
-              {fallbackMsg}
+        <div id="progress-placeholder" className="mt-md mb-md" style={{ display: "grid", gap: "0.5rem" }}>
+          {generating ? (
+            <div style={{ display: "grid", gap: "0.5rem" }}>
+              <progress value={Math.max(0, Math.min(100, progress || 0))} max="100" />
+              <div style={{ fontSize: "0.95rem" }}>
+                {stage ? stage.charAt(0).toUpperCase() + stage.slice(1) : "Queued"}
+                {statusMessage ? ` – ${statusMessage}` : ""}
+              </div>
+              {typeof queuePosition === "number" && (
+                <div style={{ fontSize: "0.9rem", opacity: 0.8 }}>
+                  Queue position: {queuePosition + 1}
+                </div>
+              )}
+              {typeof queueEtaSeconds === "number" && (
+                <div style={{ fontSize: "0.9rem", opacity: 0.8 }}>
+                  Estimated start: {formatSeconds(queueEtaSeconds)}
+                </div>
+              )}
+              <div style={{ fontSize: "0.9rem", opacity: 0.9 }}>
+                {device ? `Device: ${device.toUpperCase()}` : "Detecting device..."}
+              </div>
+              {fallbackMsg && (
+                <div style={{ color: "var(--accent)", fontSize: "0.9rem" }}>{fallbackMsg}</div>
+              )}
+              <div>
+                <button
+                  type="button"
+                  className="p-sm"
+                  onClick={cancelJob}
+                  style={{ background: "var(--button-bg)", color: "var(--text)" }}
+                >
+                  Cancel Job
+                </button>
+              </div>
             </div>
+          ) : (
+            <>
+              {statusMessage && (
+                <div style={{ fontSize: "0.95rem" }}>{statusMessage}</div>
+              )}
+              {device && (
+                <div style={{ fontSize: "0.9rem", opacity: 0.8 }}>
+                  Device: {device.toUpperCase()}
+                </div>
+              )}
+              {fallbackMsg && (
+                <div style={{ color: "var(--accent)", fontSize: "0.9rem" }}>{fallbackMsg}</div>
+              )}
+            </>
           )}
         </div>
       </form>
@@ -895,13 +1198,14 @@ export default function MusicGen() {
           {audios.map((a, idx) => (
             <div key={idx} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
               <audio src={a.url} controls />
+              <span style={{ fontSize: "0.9rem" }}>{a.name || `Track ${idx + 1}`}</span>
               <button
                 type="button"
                 className="p-sm"
-                onClick={() => download(a.url, idx)}
+                onClick={() => download(a, idx)}
                 style={{ background: "var(--button-bg)", color: "var(--text)" }}
               >
-                Download {idx + 1}
+                Download
               </button>
             </div>
           ))}
