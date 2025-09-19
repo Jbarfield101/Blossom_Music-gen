@@ -16,7 +16,7 @@ use std::{
 use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use tauri::path::BaseDirectory;
 use tauri::Emitter;
 use tauri::Manager;
@@ -347,6 +347,10 @@ struct LoreItem {
     path: String,
     title: String,
     summary: String,
+    content: String,
+    tags: Vec<String>,
+    aliases: Vec<String>,
+    fields: Map<String, Value>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -473,11 +477,43 @@ fn lore_list() -> Result<Vec<LoreItem>, String> {
             .and_then(|v| v.as_str())
             .unwrap_or_default()
             .to_string();
+        let content = note
+            .get("content")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let tags = note
+            .get("tags")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|value| value.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<String>>()
+            })
+            .unwrap_or_default();
+        let aliases = note
+            .get("aliases")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|value| value.as_str().map(|s| s.to_string()))
+                    .collect::<Vec<String>>()
+            })
+            .unwrap_or_default();
+        let fields = note
+            .get("fields")
+            .and_then(|v| v.as_object())
+            .cloned()
+            .unwrap_or_else(Map::new);
 
         lore_items.push(LoreItem {
             path,
             title,
             summary,
+            content,
+            tags,
+            aliases,
+            fields,
         });
     }
 

@@ -276,6 +276,7 @@ def list_lore() -> List[Dict[str, Any]]:
                 "path": rel_path,
                 "title": title,
                 "summary": summary,
+                "content": parsed.text,
                 "aliases": parsed.aliases,
                 "tags": parsed.tags,
                 "fields": parsed.fields,
