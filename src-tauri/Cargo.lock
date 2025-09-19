@@ -343,6 +343,7 @@ dependencies = [
  "tauri-plugin-shell",
  "tauri-plugin-store",
  "tempfile",
+ "tokio",
  "url",
 ]
 

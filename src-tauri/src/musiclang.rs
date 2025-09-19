@@ -95,6 +95,8 @@ pub fn download_model(
             eta: None,
             step: None,
             total: None,
+            queue_position: None,
+            queue_eta_seconds: None,
         };
         let _ = app.emit(&format!("download::progress::{}", name), event);
         return list_from_dir(path.parent().unwrap());
@@ -128,6 +130,8 @@ pub fn download_model(
             eta: None,
             step: None,
             total: None,
+            queue_position: None,
+            queue_eta_seconds: None,
         };
         let _ = app.emit(&format!("download::progress::{}", name), event);
     }

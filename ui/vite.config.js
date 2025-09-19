@@ -10,7 +10,7 @@ export default defineConfig({
   // so the Tauri window can load the UI during `tauri dev`.
   server: {
     host: 'localhost',
-    port: 5173,
+    port: 5199,
     strictPort: true,
   },
   resolve: {
