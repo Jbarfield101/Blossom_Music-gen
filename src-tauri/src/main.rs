@@ -641,6 +641,7 @@ struct JobContext {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct MusicGenJobRequest {
     prompt: String,
     duration: f32,
