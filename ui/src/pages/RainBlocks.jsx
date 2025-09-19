@@ -138,10 +138,16 @@ export default function RainBlocks() {
     }
   }, []);
 
-  const clearFlashTimer = useCallback(() => {
+  const clearFlashTimer = useCallback((resetState = true) => {
     if (flashTimerRef.current) {
       clearTimeout(flashTimerRef.current);
       flashTimerRef.current = null;
+    }
+    if (resetState) {
+      clearingRowsRef.current = [];
+      setClearingRows([]);
+      setFlashPhase(false);
+      flashToggleCountRef.current = 0;
     }
   }, []);
 
@@ -154,7 +160,7 @@ export default function RainBlocks() {
 
   useEffect(
     () => () => {
-      clearFlashTimer();
+      clearFlashTimer(false);
     },
     [clearFlashTimer],
   );
@@ -213,10 +219,6 @@ export default function RainBlocks() {
   const resetGame = useCallback(() => {
     clearLockDelay();
     clearFlashTimer();
-    setClearingRows([]);
-    clearingRowsRef.current = [];
-    setFlashPhase(false);
-    flashToggleCountRef.current = 0;
     const freshBoard = createEmptyBoard();
     boardRef.current = freshBoard;
     setBoard(freshBoard);
@@ -276,7 +278,15 @@ export default function RainBlocks() {
           }
         });
         rowsToClear = found;
-        return next;
+        if (found.length === 0) {
+          return next;
+        }
+        const rowsSet = new Set(found);
+        const remaining = next.filter((_, idx) => !rowsSet.has(idx));
+        while (remaining.length < BOARD_ROWS) {
+          remaining.unshift(Array(BOARD_COLUMNS).fill(0));
+        }
+        return remaining;
       });
 
       const cleared = rowsToClear.length;
@@ -293,38 +303,20 @@ export default function RainBlocks() {
           return total;
         });
 
-        clearFlashTimer();
+        clearFlashTimer(false);
         clearingRowsRef.current = rowsToClear;
         setClearingRows(rowsToClear);
         flashToggleCountRef.current = 0;
         setFlashPhase(true);
-
-        const runFlashCycle = () => {
-          flashTimerRef.current = setTimeout(() => {
-            const rows = clearingRowsRef.current;
-            const rowsSet = new Set(rows);
-            flashTimerRef.current = null;
-            setBoard((prevBoard) => {
-              const remaining = prevBoard.filter((_, idx) => !rowsSet.has(idx));
-              while (remaining.length < BOARD_ROWS) {
-                remaining.unshift(Array(BOARD_COLUMNS).fill(0));
-              }
-              return remaining;
-            });
-            clearingRowsRef.current = [];
-            setClearingRows([]);
-            setFlashPhase(false);
-            flashToggleCountRef.current = 0;
-          }, LINE_CLEAR_FLASH_DELAY);
-        };
-
-        runFlashCycle();
+        flashTimerRef.current = setTimeout(() => {
+          flashTimerRef.current = null;
+          clearingRowsRef.current = [];
+          setClearingRows([]);
+          setFlashPhase(false);
+          flashToggleCountRef.current = 0;
+        }, LINE_CLEAR_FLASH_DELAY);
       } else {
         clearFlashTimer();
-        clearingRowsRef.current = [];
-        setClearingRows([]);
-        setFlashPhase(false);
-        flashToggleCountRef.current = 0;
       }
 
       setHoldUsed(false);
@@ -546,17 +538,21 @@ export default function RainBlocks() {
     context.fillStyle = '#111827';
     context.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    const clearingSet = new Set(clearingRows);
-
     board.forEach((row, r) => {
-      const rowIsClearing = clearingSet.has(r);
       row.forEach((cell, c) => {
         if (cell) {
-          context.fillStyle = rowIsClearing && flashPhase ? '#ffffff' : cell;
+          context.fillStyle = cell;
           context.fillRect(c * CELL_SIZE, r * CELL_SIZE, CELL_SIZE, CELL_SIZE);
         }
       });
     });
+
+    if (flashPhase && clearingRows.length > 0) {
+      context.fillStyle = '#ffffff';
+      clearingRows.forEach((rowIndex) => {
+        context.fillRect(0, rowIndex * CELL_SIZE, CANVAS_WIDTH, CELL_SIZE);
+      });
+    }
 
     if (activePiece) {
       let ghostRow = activePiece.row;
