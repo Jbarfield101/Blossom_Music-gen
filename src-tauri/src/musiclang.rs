@@ -43,7 +43,10 @@ pub fn list_musiclang_models() -> Result<Vec<ModelInfo>, String> {
                                 sibs.iter().find_map(|sib| {
                                     let name = sib.get("rfilename").and_then(|v| v.as_str())?;
                                     if name.ends_with(".onnx") {
-                                        Some((name.to_string(), sib.get("size").and_then(|v| v.as_u64())))
+                                        Some((
+                                            name.to_string(),
+                                            sib.get("size").and_then(|v| v.as_u64()),
+                                        ))
                                     } else {
                                         None
                                     }
@@ -97,10 +100,7 @@ pub fn download_model(
         return list_from_dir(path.parent().unwrap());
     }
 
-    let url = format!(
-        "https://huggingface.co/{}/resolve/main/{}",
-        name, onnx_path
-    );
+    let url = format!("https://huggingface.co/{}/resolve/main/{}", name, onnx_path);
     let mut response = blocking::get(&url)
         .and_then(|res| res.error_for_status())
         .map_err(|e| {

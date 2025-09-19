@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import BackButton from "../components/BackButton.jsx";
 
 export default function AlgorithmicGenerator() {
@@ -45,6 +46,16 @@ export default function AlgorithmicGenerator() {
   const [summary, setSummary] = useState([]);
   const [metrics, setMetrics] = useState("");
   const [showResults, setShowResults] = useState(false);
+  const [completedJobs, setCompletedJobs] = useState([]);
+
+  const formatTimestamp = useCallback((value) => {
+    if (!value) return "—";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+    return date.toLocaleString();
+  }, []);
 
   useEffect(() => {
     async function loadOptions() {
@@ -66,6 +77,23 @@ export default function AlgorithmicGenerator() {
     loadOptions();
   }, []);
 
+  const refreshJobs = useCallback(async () => {
+    try {
+      const jobs = await invoke("list_completed_jobs");
+      if (Array.isArray(jobs)) {
+        setCompletedJobs(jobs);
+      }
+    } catch (err) {
+      console.error("failed to load jobs", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshJobs();
+    const timer = setInterval(refreshJobs, 5000);
+    return () => clearInterval(timer);
+  }, [refreshJobs]);
+
   const randomizeSeed = () => setSeed(Math.floor(Math.random() * 1e9));
   const chooseOutdir = () => {
     if (outdirPicker.current) outdirPicker.current.click();
@@ -81,79 +109,112 @@ export default function AlgorithmicGenerator() {
   };
 
   const start = async () => {
-    const fd = new FormData();
-    fd.append("preset", preset);
-    fd.append("style", style);
-    if (minutes) fd.append("minutes", minutes);
-    if (sections) fd.append("sections", sections);
-    fd.append("seed", seed);
-    if (samplerSeed) fd.append("sampler_seed", samplerSeed);
-    if (mixPreset) fd.append("mix_preset", mixPreset);
-    fd.append("name", name);
-    if (mixConfig) fd.append("mix_config", mixConfig);
-    if (arrangeConfig) fd.append("arrange_config", arrangeConfig);
-    if (bundleStems) fd.append("bundle_stems", "true");
-    if (evalOnly) fd.append("eval_only", "true");
-    if (dryRun) fd.append("dry_run", "true");
-    if (keysSfz) fd.append("keys_sfz", keysSfz);
-    if (padsSfz) fd.append("pads_sfz", padsSfz);
-    if (bassSfz) fd.append("bass_sfz", bassSfz);
-    if (drumsSfz) fd.append("drums_sfz", drumsSfz);
-    if (melodyMidi) fd.append("melody_midi", melodyMidi);
-    if (drumsModel) fd.append("drums_model", drumsModel);
-    if (bassModel) fd.append("bass_model", bassModel);
-    if (keysModel) fd.append("keys_model", keysModel);
-    if (arrange) fd.append("arrange", arrange);
-    if (outro) fd.append("outro", outro);
-    if (preview) fd.append("preview", preview);
-    if (outdir) fd.append("outdir", outdir);
+    const mixConfigText = mixConfig ? await mixConfig.text() : undefined;
+    const arrangeConfigText = arrangeConfig ? await arrangeConfig.text() : undefined;
+    const options = {
+      preset: preset || undefined,
+      style: style || undefined,
+      minutes: minutes ? Number(minutes) : undefined,
+      sections: sections ? Number(sections) : undefined,
+      seed: Number(seed),
+      samplerSeed: samplerSeed ? Number(samplerSeed) : undefined,
+      mixPreset: mixPreset || undefined,
+      name: name || undefined,
+      mixConfig: mixConfigText,
+      arrangeConfig: arrangeConfigText,
+      bundleStems,
+      evalOnly,
+      dryRun,
+      keysSfz: keysSfz?.path || undefined,
+      padsSfz: padsSfz?.path || undefined,
+      bassSfz: bassSfz?.path || undefined,
+      drumsSfz: drumsSfz?.path || undefined,
+      melodyMidi: melodyMidi?.path || undefined,
+      drumsModel: drumsModel || undefined,
+      bassModel: bassModel || undefined,
+      keysModel: keysModel || undefined,
+      arrange: arrange || undefined,
+      outro: outro || undefined,
+      preview: preview ? Number(preview) : undefined,
+      outdir: outdir || undefined,
+    };
 
     setRunning(true);
     setLog("");
     setShowResults(false);
-    const resp = await fetch("/render", { method: "POST", body: fd });
-    const data = await resp.json();
-    setJobId(data.job_id);
-    poll(data.job_id);
+    setSummary([]);
+    setMetrics("");
+    setLinks([]);
+    try {
+      const id = await invoke("queue_render_job", { options });
+      setJobId(id);
+      poll(id);
+    } catch (err) {
+      console.error("failed to start job", err);
+      setRunning(false);
+      setLog(err instanceof Error ? err.message : String(err));
+    }
   };
 
   const cancel = async () => {
     if (!jobId) return;
-    await fetch(`/jobs/${jobId}/cancel`, { method: "POST" });
+    try {
+      await invoke("cancel_render", { jobId });
+    } catch (err) {
+      console.error("failed to cancel job", err);
+    }
   };
 
   const poll = async (id) => {
     if (!id) return;
-    const resp = await fetch(`/jobs/${id}`);
-    if (!resp.ok) return;
-    const data = await resp.json();
-    setProgress(data.progress || 0);
-    setEta(data.eta || "");
-    setStage(data.stage || "");
-    setLog(data.log.join(""));
-    if (data.status === "running") {
-      setTimeout(() => poll(id), 1000);
-    } else {
-      setRunning(false);
-      if (data.status === "completed") {
-        const names = ["mix.wav", "stems.mid", "bundle.zip"];
-        setLinks(names.map((n) => ({ name: n, href: `/jobs/${id}/artifact/${n}` })));
-        const m = data.metrics || {};
-        const sum = [];
-        if (m.hash) sum.push(`Hash: ${m.hash}`);
-        if (typeof m.duration === "number")
-          sum.push(`Duration: ${m.duration.toFixed(2)}s`);
-        if (m.section_counts)
-          sum.push(
-            "Sections: " +
-              Object.entries(m.section_counts)
-                .map(([k, v]) => `${k}: ${v}`)
-                .join(", ")
+    try {
+      const data = await invoke("job_status", { jobId: id });
+      const progressInfo = data?.progress || {};
+      setProgress(progressInfo.percent || 0);
+      setEta(progressInfo.eta || "");
+      setStage(progressInfo.stage || "");
+      const stdoutLines = Array.isArray(data.stdout) ? data.stdout : [];
+      const stderrLines = Array.isArray(data.stderr) ? data.stderr : [];
+      const combined = [...stdoutLines, ...stderrLines];
+      setLog(combined.join("\n"));
+      if (data.status === "running") {
+        setTimeout(() => poll(id), 1000);
+      } else {
+        setRunning(false);
+        if (data.status === "completed") {
+          const artifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
+          setLinks(
+            artifacts.map((artifact) => {
+              const path = artifact.path || "";
+              let href = "";
+              try {
+                href = path ? convertFileSrc(path) : "";
+              } catch (err) {
+                console.warn("Unable to convert artifact path", err);
+              }
+              return {
+                name: artifact.name || path || "artifact",
+                href,
+                path,
+              };
+            })
           );
-        setSummary(sum);
-        setMetrics(JSON.stringify(m, null, 2));
-        setShowResults(true);
+          setSummary([]);
+          setMetrics("");
+          setShowResults(true);
+        } else if (data.status === "error") {
+          setSummary([]);
+          setMetrics("");
+          if (data.message) {
+            setLog((prev) =>
+              prev ? `${prev}\n${data.message}` : data.message
+            );
+          }
+        }
+        refreshJobs();
       }
+    } catch (err) {
+      console.error("failed to fetch job status", err);
     }
   };
 
@@ -388,6 +449,11 @@ export default function AlgorithmicGenerator() {
         <progress value={progress} max="100" />
         <span>{stage}</span>
         <span>{eta ? `ETA: ${eta}` : ""}</span>
+        {jobId && (
+          <div style={{ marginTop: "0.5rem" }}>
+            Current job ID: <strong>{jobId}</strong>
+          </div>
+        )}
       </div>
 
       <pre
@@ -407,8 +473,19 @@ export default function AlgorithmicGenerator() {
           <h3>Results</h3>
           <ul>
             {links.map((l) => (
-              <li key={l.name}>
-                <a href={l.href}>{l.name}</a>
+              <li key={`${l.name}-${l.path || l.href}`}> 
+                {l.href ? (
+                  <a href={l.href} target="_blank" rel="noreferrer">
+                    {l.name}
+                  </a>
+                ) : (
+                  <span>{l.name}</span>
+                )}
+                {l.path && (
+                  <small style={{ marginLeft: "0.5rem", color: "#6b7280" }}>
+                    {l.path}
+                  </small>
+                )}
               </li>
             ))}
           </ul>
@@ -420,6 +497,38 @@ export default function AlgorithmicGenerator() {
           <pre>{metrics}</pre>
         </div>
       )}
+
+      <section style={{ marginTop: "2rem" }}>
+        <h2>Completed Jobs</h2>
+        {completedJobs.length ? (
+          <div style={{ overflowX: "auto" }}>
+            <table className="job-table">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Status</th>
+                  <th>Label</th>
+                  <th>Created</th>
+                  <th>Finished</th>
+                </tr>
+              </thead>
+              <tbody>
+                {completedJobs.map((job) => (
+                  <tr key={job.id}>
+                    <td>{job.id}</td>
+                    <td>{job.status}</td>
+                    <td>{job.label || job.args?.[0] || ""}</td>
+                    <td>{formatTimestamp(job.created_at || job.createdAt)}</td>
+                    <td>{formatTimestamp(job.finished_at || job.finishedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p>No completed jobs yet.</p>
+        )}
+      </section>
     </div>
   );
 }

@@ -1,10 +1,10 @@
-use std::process::Command;
-use std::io::Write;
-use tempfile::NamedTempFile;
 use std::fs;
+use std::io::Write;
+use std::process::Command;
+use tempfile::NamedTempFile;
 
+use serde::{Deserialize, Serialize};
 use tauri::{async_runtime, AppHandle, Manager};
-use serde::{Serialize, Deserialize};
 
 #[derive(Serialize, Deserialize)]
 pub struct GenResult {
@@ -91,7 +91,11 @@ except Exception as exc:
         model_name = model_name,
         temperature = temperature,
         out_dir = out_dir_str,
-        forced_cpu = if force_cpu.unwrap_or(false) { "True" } else { "False" },
+        forced_cpu = if force_cpu.unwrap_or(false) {
+            "True"
+        } else {
+            "False"
+        },
         times = times,
         melody = melody_literal,
     );
@@ -108,8 +112,7 @@ except Exception as exc:
         if use_fp16.unwrap_or(false) {
             cmd.env("MUSICGEN_FP16", "1");
         }
-        cmd
-            .current_dir("..")
+        cmd.current_dir("..")
             .env("PYTHONPATH", "..")
             .args(["-c", &code])
             .output()
@@ -132,16 +135,23 @@ except Exception as exc:
         let sanitize = |s: &str| {
             let mut out = String::new();
             for ch in s.chars() {
-                let ok = ch.is_ascii_alphanumeric() || ch == ' ' || ch == '_' || ch == '-' || ch == '.';
+                let ok =
+                    ch.is_ascii_alphanumeric() || ch == ' ' || ch == '_' || ch == '-' || ch == '.';
                 out.push(if ok { ch } else { '_' });
             }
             let trimmed = out.trim().trim_matches('.').to_string();
-            let cleaned = if trimmed.is_empty() { "track".to_string() } else { trimmed };
+            let cleaned = if trimmed.is_empty() {
+                "track".to_string()
+            } else {
+                trimmed
+            };
             cleaned.chars().take(120).collect::<String>()
         };
         let base_name = sanitize(&name_raw);
         let ensure_ext = |mut s: String| {
-            if !s.to_lowercase().ends_with(".wav") { s.push_str(".wav"); }
+            if !s.to_lowercase().ends_with(".wav") {
+                s.push_str(".wav");
+            }
             s
         };
 
@@ -165,7 +175,9 @@ except Exception as exc:
                         break;
                     }
                     n += 1;
-                    if n > 9999 { break; }
+                    if n > 9999 {
+                        break;
+                    }
                 }
             }
             fs::rename(src, &target).map_err(|e| e.to_string())?;
@@ -189,7 +201,10 @@ except Exception as exc:
                         Err(_) => new_paths.push(p.clone()),
                     }
                 }
-                parsed.path = new_paths.get(0).cloned().unwrap_or_else(|| parsed.path.clone());
+                parsed.path = new_paths
+                    .get(0)
+                    .cloned()
+                    .unwrap_or_else(|| parsed.path.clone());
                 parsed.paths = Some(new_paths);
             }
         } else if !parsed.path.is_empty() {
@@ -217,7 +232,7 @@ pub struct EnvInfo {
     pub python_exe: Option<String>,
     pub python_version: Option<String>,
     pub device_count: Option<u32>,
-    pub devices: Option<Vec<String>>,    
+    pub devices: Option<Vec<String>>,
     pub visible_devices: Option<String>,
 }
 
@@ -360,7 +375,9 @@ pub async fn album_concat(
         // FFmpeg concat demuxer expects lines like: file 'path'
         // Use single quotes; this file is parsed by FFmpeg, not the OS shell.
         let line = format!("file '{}'\n", f.replace("'", "'\\''"));
-        list_file.write_all(line.as_bytes()).map_err(|e| e.to_string())?;
+        list_file
+            .write_all(line.as_bytes())
+            .map_err(|e| e.to_string())?;
     }
     let list_path = list_file.path().to_path_buf();
 
@@ -368,22 +385,9 @@ pub async fn album_concat(
     let out_path_for_ffmpeg = out_path.clone();
     let output = tauri::async_runtime::spawn_blocking(move || {
         Command::new("ffmpeg")
-            .args([
-                "-y",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
-                "-i",
-            ])
+            .args(["-y", "-f", "concat", "-safe", "0", "-i"])
             .arg(list_path.as_os_str())
-            .args([
-                "-vn",
-                "-acodec",
-                "libmp3lame",
-                "-b:a",
-                "320k",
-            ])
+            .args(["-vn", "-acodec", "libmp3lame", "-b:a", "320k"])
             .arg(out_path_for_ffmpeg.as_os_str())
             .output()
     })
@@ -394,7 +398,9 @@ pub async fn album_concat(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         if stderr.contains("not recognized") || stderr.contains("No such file or directory") {
-            return Err("ffmpeg not found. Please install FFmpeg and ensure it is on your PATH.".into());
+            return Err(
+                "ffmpeg not found. Please install FFmpeg and ensure it is on your PATH.".into(),
+            );
         }
         return Err(format!("ffmpeg failed: {}", stderr));
     }
