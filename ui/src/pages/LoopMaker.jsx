@@ -5,6 +5,60 @@ import { isTauri, invoke } from '@tauri-apps/api/core';
 import BackButton from '../components/BackButton.jsx';
 import { useSharedState, DEFAULT_LOOPMAKER_FORM } from '../lib/sharedState.jsx';
 
+const OUTPUT_FORMAT_OPTIONS = [
+  {
+    mimeType: 'video/webm;codecs=vp9,opus',
+    label: 'WebM (VP9 + Opus)',
+    extension: 'webm',
+  },
+  {
+    mimeType: 'video/webm;codecs=vp8,opus',
+    label: 'WebM (VP8 + Opus)',
+    extension: 'webm',
+  },
+  {
+    mimeType: 'video/webm;codecs=vp8',
+    label: 'WebM (VP8)',
+    extension: 'webm',
+  },
+  {
+    mimeType: 'video/webm',
+    label: 'WebM (Browser default codecs)',
+    extension: 'webm',
+  },
+  {
+    mimeType: 'video/mp4;codecs=h264,aac',
+    label: 'MP4 (H.264 + AAC)',
+    extension: 'mp4',
+  },
+];
+
+const normalizeMime = (mime) =>
+  typeof mime === 'string' ? mime.replace(/\s+/g, '').toLowerCase() : '';
+
+const findFormatOption = (mimeType) => {
+  const normalized = normalizeMime(mimeType);
+  if (!normalized) return undefined;
+  return OUTPUT_FORMAT_OPTIONS.find(
+    (option) => normalizeMime(option.mimeType) === normalized
+  );
+};
+
+const extensionFromMime = (mimeType, fallbackMimeType) => {
+  const match = findFormatOption(mimeType) || findFormatOption(fallbackMimeType);
+  if (match) {
+    return match.extension;
+  }
+  const normalized = normalizeMime(mimeType) || normalizeMime(fallbackMimeType);
+  if (!normalized) {
+    return 'webm';
+  }
+  if (normalized.includes('mp4')) return 'mp4';
+  if (normalized.includes('webm')) return 'webm';
+  if (normalized.includes('ogg')) return 'ogv';
+  return 'webm';
+};
+
 const MAX_CONCAT_DURATION_SECONDS = 60 * 60 * 3; // 3 hours of video
 const MAX_CONCAT_FALLBACK_LOOPS = 2048;
 
@@ -32,7 +86,17 @@ export default function LoopMaker() {
     return Math.floor(MAX_CONCAT_DURATION_SECONDS / seconds);
   };
 
+  const defaultOutputFormat = DEFAULT_LOOPMAKER_FORM.outputFormat;
+  const defaultFormatOption =
+    findFormatOption(defaultOutputFormat) || OUTPUT_FORMAT_OPTIONS[0];
+  const defaultFormatMime =
+    defaultFormatOption?.mimeType || defaultOutputFormat || '';
+
   const videoRef = useRef(null);
+  const [selectedFormat, setSelectedFormat] = useState(defaultFormatMime);
+  const [formatOptions, setFormatOptions] = useState(() =>
+    defaultFormatOption ? [defaultFormatOption] : []
+  );
   const [targetSeconds, setTargetSeconds] = useState(DEFAULT_LOOPMAKER_FORM.targetSeconds);
   const [targetInput, setTargetInput] = useState(DEFAULT_LOOPMAKER_FORM.targetInput);
   const [targetError, setTargetError] = useState('');
@@ -62,6 +126,42 @@ export default function LoopMaker() {
   const { ready: sharedReady, state: sharedState, updateSection } = useSharedState();
   const restoredRef = useRef(false);
   const jobIdRef = useRef(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const hasSupportCheck =
+      typeof MediaRecorder !== 'undefined' &&
+      typeof MediaRecorder.isTypeSupported === 'function';
+
+    let supported = [];
+
+    if (hasSupportCheck) {
+      supported = OUTPUT_FORMAT_OPTIONS.filter((option) => {
+        try {
+          return MediaRecorder.isTypeSupported(option.mimeType);
+        } catch (err) {
+          console.warn('MediaRecorder support check failed', err);
+          return false;
+        }
+      });
+    }
+
+    if (!supported.length) {
+      const fallback = defaultFormatOption
+        ? [defaultFormatOption]
+        : OUTPUT_FORMAT_OPTIONS.slice(0, 1);
+      supported = fallback;
+    }
+
+    setFormatOptions(supported);
+    setSelectedFormat((prev) => {
+      if (supported.some((option) => option.mimeType === prev)) {
+        return prev;
+      }
+      return supported[0]?.mimeType || prev;
+    });
+  }, [defaultFormatOption]);
 
   const formatTimestamp = useCallback((value) => {
     if (!value) return '—';
@@ -102,9 +202,16 @@ export default function LoopMaker() {
       typeof form.targetInput === 'string' && form.targetInput
         ? form.targetInput
         : String(savedSeconds);
+    const savedFormatRaw =
+      typeof form.outputFormat === 'string' && form.outputFormat
+        ? form.outputFormat
+        : defaultFormatMime;
+    const matchedFormat =
+      findFormatOption(savedFormatRaw)?.mimeType || savedFormatRaw;
 
     setTargetSeconds(savedSeconds);
     setTargetInput(savedInput);
+    setSelectedFormat(matchedFormat || defaultFormatMime);
     setStatusMessage(
       typeof saved.statusMessage === 'string' ? saved.statusMessage : ''
     );
@@ -174,9 +281,10 @@ export default function LoopMaker() {
         ...prev.form,
         targetSeconds,
         targetInput,
+        outputFormat: selectedFormat,
       },
     }));
-  }, [sharedReady, updateSection, targetSeconds, targetInput]);
+  }, [sharedReady, updateSection, targetSeconds, targetInput, selectedFormat]);
 
   useEffect(() => {
     if (!sharedReady || !restoredRef.current) return;
@@ -322,6 +430,33 @@ export default function LoopMaker() {
       width: '100%',
       maxWidth: '480px',
     },
+    formatControls: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '0.35rem',
+      minWidth: '220px',
+    },
+    formatLabel: {
+      fontWeight: 700,
+      color: '#111827',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '0.25rem',
+    },
+    formatSelect: {
+      padding: '0.5rem 0.75rem',
+      borderRadius: '0.5rem',
+      border: '1px solid #d1d5db',
+      background: '#ffffff',
+      fontWeight: 600,
+      color: '#111827',
+      boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.06)',
+    },
+    formatHint: {
+      fontSize: '0.85rem',
+      color: '#4b5563',
+      fontWeight: 500,
+    },
     saveButton: {
       padding: '0.65rem 1.5rem',
       borderRadius: '0.75rem',
@@ -349,6 +484,26 @@ export default function LoopMaker() {
       textAlign: 'center',
     },
   };
+
+  const selectedFormatOptionDisplay =
+    formatOptions.find((option) => option.mimeType === selectedFormat) ||
+    findFormatOption(selectedFormat) ||
+    null;
+  const selectedMimeForDisplay =
+    selectedFormatOptionDisplay?.mimeType || selectedFormat || 'video/webm';
+  const selectedExtensionForDisplay =
+    selectedFormatOptionDisplay?.extension ||
+    extensionFromMime(selectedMimeForDisplay, selectedFormat);
+  const formatSelectDisabled = formatOptions.length <= 1;
+  const buttonSuffix = selectedExtensionForDisplay
+    ? ` (.${selectedExtensionForDisplay.toLowerCase()})`
+    : '';
+  const preparingDownloadLabel = selectedExtensionForDisplay
+    ? `Preparing ${selectedExtensionForDisplay.toUpperCase()} Download…`
+    : 'Preparing Download…';
+  const actionButtonLabel = runningInTauri
+    ? `Save Loop${buttonSuffix}`
+    : `Download Loop${buttonSuffix}`;
 
   useEffect(() => {
     return () => {
@@ -497,25 +652,41 @@ export default function LoopMaker() {
       mediaSource.addEventListener('error', cleanupAndResolveNull, { once: true });
     });
 
-  const selectRecorderMimeType = () => {
-    if (typeof MediaRecorder === 'undefined') return '';
-    if (typeof MediaRecorder.isTypeSupported !== 'function') return '';
-    const candidates = [
-      'video/webm;codecs=vp9,opus',
-      'video/webm;codecs=vp8,opus',
-      'video/webm;codecs=vp8',
-      'video/webm',
-      'video/mp4;codecs=h264,aac',
-    ];
-    return candidates.find((candidate) => {
+  const selectRecorderMimeType = useCallback(() => {
+    const preferred = selectedFormat;
+    const hasSupportCheck =
+      typeof MediaRecorder !== 'undefined' &&
+      typeof MediaRecorder.isTypeSupported === 'function';
+
+    if (!hasSupportCheck) {
+      return preferred || formatOptions[0]?.mimeType || '';
+    }
+
+    const tryCandidate = (candidate) => {
+      if (!candidate) return false;
       try {
         return MediaRecorder.isTypeSupported(candidate);
       } catch (err) {
         console.warn('MediaRecorder support check failed', err);
         return false;
       }
-    });
-  };
+    };
+
+    if (preferred && tryCandidate(preferred)) {
+      return preferred;
+    }
+
+    for (const option of formatOptions) {
+      const candidate = option?.mimeType;
+      if (!candidate) continue;
+      if (normalizeMime(candidate) === normalizeMime(preferred)) continue;
+      if (tryCandidate(candidate)) {
+        return candidate;
+      }
+    }
+
+    return preferred || formatOptions[0]?.mimeType || '';
+  }, [formatOptions, selectedFormat]);
 
   const startProcessingDownload = useCallback(
     async (sourceUrl) => {
@@ -543,7 +714,13 @@ export default function LoopMaker() {
         return;
       }
 
-      setStatusMessage('Rendering downloadable loop… This runs in real time.');
+      const mimeType = selectRecorderMimeType();
+      const extensionForStatus = extensionFromMime(mimeType, selectedFormat);
+      const extensionLabel = extensionForStatus
+        ? extensionForStatus.toUpperCase()
+        : 'VIDEO';
+
+      setStatusMessage(`Rendering ${extensionLabel} loop… This runs in real time.`);
       setIsRenderingDownload(true);
 
       let hiddenVideo = null;
@@ -592,7 +769,6 @@ export default function LoopMaker() {
           );
         }
 
-        const mimeType = selectRecorderMimeType();
         const recorderOptions = mimeType ? { mimeType } : undefined;
         const recorder = new MediaRecorder(captureStream, recorderOptions);
         const chunks = [];
@@ -628,14 +804,21 @@ export default function LoopMaker() {
           return;
         }
 
+        const resolvedMime =
+          recorder.mimeType || mimeType || selectedFormat || 'video/webm';
         const blob = new Blob(chunks, {
-          type: recorder.mimeType || mimeType || 'video/webm',
+          type: resolvedMime,
         });
         const url = URL.createObjectURL(blob);
 
+        const readyExtension = extensionFromMime(resolvedMime, selectedFormat);
+        const readyLabel = readyExtension ? readyExtension.toUpperCase() : 'VIDEO';
+
         setProcessedBlob(blob);
         setProcessedURL(url);
-        setStatusMessage('Loop ready to save. Choose a destination below.');
+        setStatusMessage(
+          `Loop ready to save as ${readyLabel}. Choose a format and destination below.`
+        );
       } catch (err) {
         console.error('Loop rendering error', err);
         if (processingTokenRef.current !== token) {
@@ -656,16 +839,8 @@ export default function LoopMaker() {
         }
       }
     },
-    []
+    [selectRecorderMimeType, selectedFormat]
   );
-
-  const extensionFromMime = (mime) => {
-    if (!mime) return 'webm';
-    if (mime.includes('mp4')) return 'mp4';
-    if (mime.includes('webm')) return 'webm';
-    if (mime.includes('ogg')) return 'ogv';
-    return 'webm';
-  };
 
   useEffect(() => {
     if (useConcatenated && videoURL) {
@@ -756,6 +931,13 @@ export default function LoopMaker() {
       e.target.currentTime = 0;
       e.target.play();
     }
+  };
+
+  const handleFormatChange = (e) => {
+    const value = e.target.value;
+    const matched = findFormatOption(value)?.mimeType || value;
+    setSelectedFormat(matched);
+    setErrorMessage('');
   };
 
   const handleTargetInputChange = (e) => {
@@ -851,9 +1033,12 @@ export default function LoopMaker() {
     const baseName = file
       ? `${file.name.replace(/\.[^/.]+$/, '') || 'looped-video'}`
       : 'looped-video';
-    const mime = processedBlob.type;
-    const extension = extensionFromMime(mime);
+    const blobMime = processedBlob.type;
+    const resolvedMime =
+      blobMime || selectedFormat || formatOptions[0]?.mimeType || 'video/webm';
+    const extension = extensionFromMime(resolvedMime, selectedFormat);
     const defaultFileName = `${baseName}-loop.${extension}`;
+    const extensionLabel = extension ? extension.toUpperCase() : 'VIDEO';
 
     setErrorMessage('');
 
@@ -875,7 +1060,7 @@ export default function LoopMaker() {
             downloadName: defaultFileName,
             savedPath: '',
             savedToDisk: false,
-            mimeType: mime || 'video/webm',
+            mimeType: resolvedMime,
             statusMessage: '',
             success: false,
             error: null,
@@ -901,7 +1086,7 @@ export default function LoopMaker() {
                 downloadName: defaultFileName,
                 savedPath: '',
                 savedToDisk: false,
-                mimeType: mime || 'video/webm',
+                mimeType: resolvedMime,
                 statusMessage: 'Save cancelled.',
                 success: false,
                 error: null,
@@ -930,6 +1115,7 @@ export default function LoopMaker() {
           const jobArgs = [
             `targetSeconds=${targetSeconds}`,
             `loops=${loopsNeeded || 0}`,
+            `mimeType=${resolvedMime}`,
           ];
           const jobIdValue = await invoke('record_manual_job', {
             kind: 'loop-maker',
@@ -949,7 +1135,7 @@ export default function LoopMaker() {
                 downloadName: defaultFileName,
                 savedPath,
                 savedToDisk: true,
-                mimeType: mime || 'video/webm',
+                mimeType: resolvedMime,
                 statusMessage: `Saved successfully to ${savePath}`,
                 success: true,
                 error: null,
@@ -989,7 +1175,7 @@ export default function LoopMaker() {
               downloadName: defaultFileName,
               savedPath: '',
               savedToDisk: false,
-              mimeType: mime || 'video/webm',
+              mimeType: resolvedMime,
               statusMessage: '',
               success: false,
               error: message,
@@ -1000,7 +1186,8 @@ export default function LoopMaker() {
               job: {
                 id: localJobId,
                 status: 'error',
-                startedAt: prevJob.id === localJobId ? prevJob.startedAt : startedAt,
+                startedAt:
+                  prevJob.id === localJobId ? prevJob.startedAt : startedAt,
                 finishedAt: completedAt,
                 summary,
               },
@@ -1013,7 +1200,7 @@ export default function LoopMaker() {
       return;
     }
 
-    setStatusMessage('Preparing download…');
+    setStatusMessage(`Preparing ${extensionLabel} Download…`);
     let tempURL = '';
 
     try {
@@ -1029,11 +1216,12 @@ export default function LoopMaker() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      setStatusMessage('Download started.');
+      setStatusMessage(`${extensionLabel} download started.`);
       try {
         const jobArgs = [
           `targetSeconds=${targetSeconds}`,
           `loops=${loopsNeeded || 0}`,
+          `mimeType=${resolvedMime}`,
         ];
         const jobIdValue = await invoke('record_manual_job', {
           kind: 'loop-maker',
@@ -1052,8 +1240,8 @@ export default function LoopMaker() {
               downloadName: defaultFileName,
               savedPath: '',
               savedToDisk: false,
-              mimeType: mime || 'video/webm',
-              statusMessage: 'Download started.',
+              mimeType: resolvedMime,
+              statusMessage: `${extensionLabel} download started.`,
               success: true,
               error: null,
               completedAt,
@@ -1064,7 +1252,8 @@ export default function LoopMaker() {
               job: {
                 id: jobIdValue,
                 status: 'completed',
-                startedAt: prev.job?.id === localJobId ? prev.job.startedAt : startedAt,
+                startedAt:
+                  prev.job?.id === localJobId ? prev.job.startedAt : startedAt,
                 finishedAt: completedAt,
                 summary,
               },
@@ -1092,7 +1281,7 @@ export default function LoopMaker() {
             downloadName: defaultFileName,
             savedPath: '',
             savedToDisk: false,
-            mimeType: mime || 'video/webm',
+            mimeType: resolvedMime,
             statusMessage: '',
             success: false,
             error: message,
@@ -1103,7 +1292,8 @@ export default function LoopMaker() {
             job: {
               id: localJobId,
               status: 'error',
-              startedAt: prevJob.id === localJobId ? prevJob.startedAt : startedAt,
+              startedAt:
+                prevJob.id === localJobId ? prevJob.startedAt : startedAt,
               finishedAt: completedAt,
               summary,
             },
@@ -1178,6 +1368,24 @@ export default function LoopMaker() {
           </div>
           {useConcatenated && (
             <div style={styles.downloadBar}>
+              <div style={styles.formatControls}>
+                <label style={styles.formatLabel}>
+                  Output Format
+                  <select
+                    value={selectedFormat}
+                    onChange={handleFormatChange}
+                    style={styles.formatSelect}
+                    disabled={formatSelectDisabled}
+                  >
+                    {formatOptions.map((option) => (
+                      <option key={option.mimeType} value={option.mimeType}>
+                        {`${option.label} (.${option.extension})`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <span style={styles.formatHint}>{selectedMimeForDisplay}</span>
+              </div>
               <button
                 type="button"
                 onClick={handleSaveLoop}
@@ -1190,10 +1398,8 @@ export default function LoopMaker() {
                 disabled={!processedBlob || isRenderingDownload}
               >
                 {isRenderingDownload
-                  ? 'Preparing Download…'
-                  : runningInTauri
-                  ? 'Save Loop'
-                  : 'Download Loop'}
+                  ? preparingDownloadLabel
+                  : actionButtonLabel}
               </button>
             </div>
           )}
