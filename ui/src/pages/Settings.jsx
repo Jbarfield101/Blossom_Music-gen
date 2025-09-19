@@ -96,59 +96,161 @@ export default function Settings() {
   }, []);
 
   useEffect(() => {
-    const load = async () => {
-      setWhisper(await listWhisper());
-      const voices = await listPiperVoices();
+    let active = true;
+    const cleanups = [];
+
+    const applyPiperVoices = (voices) => {
+      if (!active) {
+        return;
+      }
       setPiper((prev) => {
         const options = (voices || []).map((v) => ({ id: v.id, label: v.label || v.id }));
         const ids = options.map((o) => o.id);
-        const selected = ids.includes(prev.selected)
-          ? prev.selected
-          : (ids[0] || "");
+        const prevSelected = prev.selected || "";
+        const selected = ids.includes(prevSelected) ? prevSelected : ids[0] || "";
         return { options, selected };
       });
-      setLlm(await listLlm());
+    };
+
+    const refreshWhisper = async () => {
+      const data = await listWhisper();
+      if (!active) {
+        return;
+      }
+      setWhisper(data);
+    };
+
+    const refreshPiperVoices = async () => {
+      const voices = await listPiperVoices();
+      if (!active) {
+        return;
+      }
+      applyPiperVoices(voices);
+    };
+
+    const refreshLlm = async () => {
+      const data = await listLlm();
+      if (!active) {
+        return;
+      }
+      setLlm(data);
+    };
+
+    const refreshModels = async () => {
+      await refreshWhisper();
+      await refreshPiperVoices();
+      await refreshLlm();
+    };
+
+    const refreshDevices = async () => {
       const devices = await listDevices();
+      if (!active) {
+        return;
+      }
       setInput(devices.input);
       setOutput(devices.output);
+    };
+
+    const refreshHotwords = async () => {
       const hw = await listHotwords();
+      if (!active) {
+        return;
+      }
       setHotwords(hw);
+    };
+
+    const load = async () => {
+      await refreshModels();
+      await refreshDevices();
+      await refreshHotwords();
       const path = await getConfig(VAULT_KEY);
+      if (!active) {
+        return;
+      }
       const normalizedPath = path || "";
       const shouldInvoke = Boolean(path) && path !== vaultRef.current;
 
+      if (!active) {
+        return;
+      }
       setVault(normalizedPath);
+
+      if (!active) {
+        return;
+      }
 
       if (path) {
         if (shouldInvoke) {
           try {
             await invoke("select_vault", { path });
+            if (!active) {
+              return;
+            }
             setVaultError("");
           } catch (err) {
             console.error("Failed to start vault watcher", err);
+            if (!active) {
+              return;
+            }
             setVaultError(
               "Failed to start the vault watcher automatically. Please choose the vault again.",
             );
           }
-        } else {
+        } else if (active) {
           setVaultError("");
         }
-      } else {
+      } else if (active) {
         setVaultError("");
       }
     };
+
     const reload = () =>
       load().catch((err) => {
         console.error("Failed to refresh settings data", err);
       });
 
-    reload();
-    let active = true;
-    const cleanups = [];
+    const handleModelsEvent = (event) => {
+      if (!active) {
+        return;
+      }
+      const payload = event?.payload;
+      if (!payload || typeof payload !== "object") {
+        refreshModels().catch((err) => {
+          console.error("Failed to refresh models", err);
+        });
+        return;
+      }
 
-    const registerListener = async (eventName) => {
+      if (Object.prototype.hasOwnProperty.call(payload, "whisper")) {
+        const selected = typeof payload.whisper === "string" ? payload.whisper : "";
+        setWhisper((prev) => ({ ...prev, selected }));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, "llm")) {
+        const selected = typeof payload.llm === "string" ? payload.llm : "";
+        setLlm((prev) => ({ ...prev, selected }));
+      }
+      if (Object.prototype.hasOwnProperty.call(payload, "piper")) {
+        const selected = typeof payload.piper === "string" ? payload.piper : "";
+        let needsVoiceRefresh = false;
+        setPiper((prev) => {
+          const options = Array.isArray(prev.options) ? prev.options : [];
+          const hasVoice = options.some((opt) => opt.id === selected);
+          if (!hasVoice && selected) {
+            needsVoiceRefresh = true;
+          }
+          return { ...prev, selected };
+        });
+        if (needsVoiceRefresh) {
+          refreshPiperVoices().catch((err) => {
+            console.error("Failed to refresh piper voices", err);
+          });
+        }
+      }
+    };
+
+    const registerListener = async (eventName, handler) => {
       try {
-        const unlisten = await listen(eventName, reload);
+        const unlisten = await listen(eventName, handler);
         if (active) {
           cleanups.push(unlisten);
         } else {
@@ -159,9 +261,26 @@ export default function Settings() {
       }
     };
 
-    registerListener("settings::models");
-    registerListener("settings::devices");
-    registerListener("settings::hotwords");
+    reload();
+
+    registerListener("settings::models", handleModelsEvent);
+    registerListener("settings::devices", () => {
+      if (!active) {
+        return;
+      }
+      refreshDevices().catch((err) => {
+        console.error("Failed to refresh devices", err);
+      });
+    });
+    registerListener("settings::hotwords", () => {
+      if (!active) {
+        return;
+      }
+      refreshHotwords().catch((err) => {
+        console.error("Failed to refresh hotwords", err);
+      });
+    });
+
     return () => {
       active = false;
       cleanups.forEach((unlisten) => {
