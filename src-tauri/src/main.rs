@@ -2104,12 +2104,13 @@ fn sanitize_musicgen_base_name(name: Option<&str>, fallback: &str) -> String {
 #[tauri::command]
 fn export_loop_video(
     app: AppHandle,
+    registry: State<JobRegistry>,
     input_path: String,
     target_seconds: f64,
     clip_seconds: Option<f64>,
     outdir: Option<String>,
     output_name: Option<String>,
-) -> Result<String, String> {
+) -> Result<u64, String> {
     let in_path = PathBuf::from(&input_path);
     if !in_path.exists() {
         return Err("Input video does not exist".into());
@@ -2149,62 +2150,46 @@ fn export_loop_video(
             .unwrap_or_else(|| "loop".to_string())
     };
     let out_path = out_dir.join(format!("{}.mp4", stem));
+    let out_path_str = out_path.to_string_lossy().to_string();
 
-    // Build ffmpeg command per strategy
-    let mut cmd = Command::new("ffmpeg");
-    cmd.arg("-y");
-    if loops >= 1 && remainder.abs() <= eps {
-        // Exact multiple: concat demuxer with copy
-        let mut list_file = NamedTempFile::new().map_err(|e| e.to_string())?;
-        {
-            use std::io::Write;
-            for _ in 0..loops {
-                writeln!(list_file, "file '{}'", in_path.display()).map_err(|e| e.to_string())?;
-            }
-        }
-        let list_path = list_file.path().to_path_buf();
-        cmd.args(["-f", "concat", "-safe", "0", "-i"]);
-        cmd.arg(list_path.as_os_str());
-        cmd.args(["-c", "copy"]);
-        cmd.arg(out_path.as_os_str());
+    let script = if Path::new("scripts/export_loop_video.py").exists() {
+        "scripts/export_loop_video.py".to_string()
     } else {
-        // Has remainder: re-encode full to exact target using stream_loop
-        let loops_nonneg = loops.max(0);
-        if loops_nonneg > 0 {
-            cmd.args(["-stream_loop", &loops_nonneg.to_string()]);
-        }
-        cmd.args(["-i"]);
-        cmd.arg(&in_path);
-        cmd.args(["-t", &format!("{:.3}", target_seconds.max(0.0))]);
-        cmd.args([
-            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "18", "-c:a",
-            "aac", "-b:a", "192k",
-        ]);
-        cmd.arg(&out_path);
-    }
+        "../scripts/export_loop_video.py".to_string()
+    };
 
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut msg = format!("ffmpeg failed (code {:?})", output.status.code());
-        if !stderr.trim().is_empty() {
-            msg.push_str("\n");
-            msg.push_str(stderr.trim());
-        } else if !stdout.trim().is_empty() {
-            msg.push_str("\n");
-            msg.push_str(stdout.trim());
-        }
-        return Err(msg);
-    }
-
-    Ok(out_path
+    let input_arg = in_path
         .canonicalize()
-        .unwrap_or(out_path)
+        .unwrap_or_else(|_| in_path.clone())
         .to_string_lossy()
-        .to_string())
+        .to_string();
+
+    let mut args = vec![script];
+    args.push("--input".into());
+    args.push(input_arg);
+    args.push("--target-seconds".into());
+    args.push(format!("{:.6}", target_seconds));
+    args.push("--clip-seconds".into());
+    args.push(format!("{:.6}", clip));
+    args.push("--output".into());
+    args.push(out_path_str.clone());
+    args.push("--label".into());
+    args.push(stem.clone());
+    args.push("--remainder".into());
+    args.push(format!("{:.6}", remainder.max(0.0)));
+
+    let artifact_candidates = vec![JobArtifactCandidate {
+        name: format!("{} (MP4)", stem.clone()),
+        path: out_path.clone(),
+    }];
+
+    let context = JobContext {
+        kind: Some("loop-maker".into()),
+        label: Some(stem),
+        artifact_candidates,
+    };
+
+    spawn_job_with_context(app, registry, args, context)
 }
 
 #[tauri::command]
