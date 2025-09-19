@@ -1,6 +1,11 @@
 import { Routes, Route } from 'react-router-dom';
 import Dashboard from './pages/Dashboard.jsx';
 import Dnd from './pages/Dnd.jsx';
+import DndChat from './pages/DndChat.jsx';
+import DndDiscord from './pages/DndDiscord.jsx';
+import DndLore from './pages/DndLore.jsx';
+import DndNpcs from './pages/DndNpcs.jsx';
+import DndPiper from './pages/DndPiper.jsx';
 import Settings from './pages/Settings.jsx';
 import Train from './pages/Train.jsx';
 import Profiles from './pages/Profiles.jsx';
@@ -28,6 +33,11 @@ export default function App() {
           <Route path="algorithmic" element={<AlgorithmicGenerator />} />
         </Route>
         <Route path="/dnd" element={<Dnd />} />
+        <Route path="/dnd/lore" element={<DndLore />} />
+        <Route path="/dnd/npcs" element={<DndNpcs />} />
+        <Route path="/dnd/piper" element={<DndPiper />} />
+        <Route path="/dnd/discord" element={<DndDiscord />} />
+        <Route path="/dnd/chat" element={<DndChat />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/profiles" element={<Profiles />} />
         <Route path="/train" element={<Train />} />
