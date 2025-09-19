@@ -250,12 +250,6 @@ export default function Settings() {
           <button type="button" onClick={chooseVault}>
             Choose Vault
           </button>
-          <button type="button" onClick={exportSettings}>
-            Export Settings
-          </button>
-          <button type="button" onClick={importSettings}>
-            Import Settings
-          </button>
         </div>
       </section>
       <section className="settings-section">
@@ -453,6 +447,20 @@ export default function Settings() {
       </section>
       <section className="settings-section">
         <LogPanel />
+      </section>
+      <section className="settings-section">
+        <fieldset>
+          <legend>Settings Backup</legend>
+          <p>Export or import all Blossom preferences for safekeeping.</p>
+          <div className="button-row">
+            <button type="button" onClick={exportSettings}>
+              Export Settings
+            </button>
+            <button type="button" onClick={importSettings}>
+              Import Settings
+            </button>
+          </div>
+        </fieldset>
       </section>
       <section className="settings-section">
         <fieldset>
