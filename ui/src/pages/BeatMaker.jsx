@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeFile as writeBinaryFile } from '@tauri-apps/plugin-fs';
-import { isTauri } from '@tauri-apps/api/core';
+import { isTauri, invoke } from '@tauri-apps/api/core';
 import BackButton from '../components/BackButton.jsx';
 
 const styles = {
@@ -244,6 +244,34 @@ export default function BeatMaker() {
   const [resultURL, setResultURL] = useState('');
   const [resultDuration, setResultDuration] = useState(0);
   const [resultBlob, setResultBlob] = useState(null);
+  const [lastJobId, setLastJobId] = useState(null);
+  const [completedJobs, setCompletedJobs] = useState([]);
+
+  const formatTimestamp = useCallback((value) => {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+    return date.toLocaleString();
+  }, []);
+
+  const refreshJobs = useCallback(async () => {
+    try {
+      const jobs = await invoke('list_completed_jobs');
+      if (Array.isArray(jobs)) {
+        setCompletedJobs(jobs);
+      }
+    } catch (err) {
+      console.error('failed to load jobs', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshJobs();
+    const timer = setInterval(refreshJobs, 10000);
+    return () => clearInterval(timer);
+  }, [refreshJobs]);
 
   const parsedLoops = useMemo(() => {
     const value = Number.parseInt(loopInput, 10);
@@ -411,6 +439,20 @@ export default function BeatMaker() {
         await writeBinaryFile(savePath, bytes);
 
         setStatus(`Saved successfully to ${savePath}`);
+        try {
+          const jobArgs = [`loops=${parsedLoops || 1}`];
+          const jobIdValue = await invoke('record_manual_job', {
+            kind: 'beat-maker',
+            label: downloadName,
+            args: jobArgs,
+            artifacts: [{ name: downloadName, path: savePath }],
+            stdout: [`Saved to ${savePath}`],
+          });
+          setLastJobId(jobIdValue);
+          refreshJobs();
+        } catch (recordErr) {
+          console.error('failed to record beat job', recordErr);
+        }
       } catch (saveError) {
         console.error(saveError);
         const message =
@@ -430,16 +472,34 @@ export default function BeatMaker() {
     link.click();
     document.body.removeChild(link);
     setStatus('Download started.');
+    try {
+      const jobArgs = [`loops=${parsedLoops || 1}`];
+      const jobIdValue = await invoke('record_manual_job', {
+        kind: 'beat-maker',
+        label: downloadName,
+        args: jobArgs,
+        stdout: ['Download started'],
+      });
+      setLastJobId(jobIdValue);
+      refreshJobs();
+    } catch (recordErr) {
+      console.error('failed to record beat job', recordErr);
+    }
   };
 
   return (
-    <div style={{ maxWidth: '960px', margin: '0 auto' }}>
+    <div style={{ maxWidth: '960px', margin: '0 auto 4rem' }}>
       <BackButton />
       <h1>Beat Maker</h1>
       <p style={{ color: '#374151', maxWidth: '720px' }}>
         Stitch any audio clip into a longer groove. Upload a sound, choose how many
         times it should repeat, and download a perfectly looped WAV file.
       </p>
+      {lastJobId && (
+        <p style={{ color: '#2563eb', fontWeight: 600 }}>
+          Last saved job ID: <strong>{lastJobId}</strong>
+        </p>
+      )}
       <div style={styles.layout}>
         <section style={styles.panel}>
           <h2 style={styles.sectionTitle}>1. Upload an audio clip</h2>
@@ -551,6 +611,39 @@ export default function BeatMaker() {
           </section>
         )}
       </div>
+      <section style={{ width: '100%', marginTop: '2rem' }}>
+        <h2 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#111827' }}>
+          Completed Jobs
+        </h2>
+        {completedJobs.length ? (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Status</th>
+                  <th>Label</th>
+                  <th>Created</th>
+                  <th>Finished</th>
+                </tr>
+              </thead>
+              <tbody>
+                {completedJobs.map((job) => (
+                  <tr key={job.id}>
+                    <td>{job.id}</td>
+                    <td>{job.status}</td>
+                    <td>{job.label || job.args?.[0] || ''}</td>
+                    <td>{formatTimestamp(job.created_at || job.createdAt)}</td>
+                    <td>{formatTimestamp(job.finished_at || job.finishedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p>No completed jobs yet.</p>
+        )}
+      </section>
     </div>
   );
 }

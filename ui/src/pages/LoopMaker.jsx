@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeFile as writeBinaryFile } from '@tauri-apps/plugin-fs';
-import { isTauri } from '@tauri-apps/api/core';
+import { isTauri, invoke } from '@tauri-apps/api/core';
 import BackButton from '../components/BackButton.jsx';
 
 const MAX_CONCAT_DURATION_SECONDS = 60 * 60 * 3; // 3 hours of video
@@ -47,6 +47,8 @@ export default function LoopMaker() {
   const [statusMessage, setStatusMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [isRenderingDownload, setIsRenderingDownload] = useState(false);
+  const [lastJobId, setLastJobId] = useState(null);
+  const [completedJobs, setCompletedJobs] = useState([]);
   const [runningInTauri] = useState(() => {
     try {
       return isTauri();
@@ -56,6 +58,32 @@ export default function LoopMaker() {
     }
   });
   const processingTokenRef = useRef(0);
+
+  const formatTimestamp = useCallback((value) => {
+    if (!value) return '—';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+    return date.toLocaleString();
+  }, []);
+
+  const refreshJobs = useCallback(async () => {
+    try {
+      const jobs = await invoke('list_completed_jobs');
+      if (Array.isArray(jobs)) {
+        setCompletedJobs(jobs);
+      }
+    } catch (err) {
+      console.error('failed to load jobs', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshJobs();
+    const timer = setInterval(refreshJobs, 10000);
+    return () => clearInterval(timer);
+  }, [refreshJobs]);
 
   const progressPercent = targetSeconds
     ? Math.min((elapsed / targetSeconds) * 100, 100)
@@ -736,6 +764,23 @@ export default function LoopMaker() {
         const bytes = new Uint8Array(arrayBuffer);
         await writeBinaryFile(savePath, bytes);
         setStatusMessage(`Saved successfully to ${savePath}`);
+        try {
+          const jobArgs = [
+            `targetSeconds=${targetSeconds}`,
+            `loops=${loopsNeeded || 0}`,
+          ];
+          const jobIdValue = await invoke('record_manual_job', {
+            kind: 'loop-maker',
+            label: defaultFileName,
+            args: jobArgs,
+            artifacts: [{ name: defaultFileName, path: savePath }],
+            stdout: [`Saved to ${savePath}`],
+          });
+          setLastJobId(jobIdValue);
+          refreshJobs();
+        } catch (recordErr) {
+          console.error('failed to record loop job', recordErr);
+        }
       } catch (err) {
         console.error('Save failed', err);
         const message = err instanceof Error ? err.message : String(err);
@@ -763,6 +808,22 @@ export default function LoopMaker() {
       link.click();
       document.body.removeChild(link);
       setStatusMessage('Download started.');
+      try {
+        const jobArgs = [
+          `targetSeconds=${targetSeconds}`,
+          `loops=${loopsNeeded || 0}`,
+        ];
+        const jobIdValue = await invoke('record_manual_job', {
+          kind: 'loop-maker',
+          label: defaultFileName,
+          args: jobArgs,
+          stdout: ['Download started'],
+        });
+        setLastJobId(jobIdValue);
+        refreshJobs();
+      } catch (recordErr) {
+        console.error('failed to record loop job', recordErr);
+      }
     } catch (err) {
       console.error('Download failed', err);
       const message = err instanceof Error ? err.message : String(err);
@@ -783,6 +844,11 @@ export default function LoopMaker() {
         Upload a video clip, preview how it loops to reach a target duration, and
         save the rendered result once it&apos;s ready.
       </p>
+      {lastJobId && (
+        <p style={{ color: '#2563eb', fontWeight: 600 }}>
+          Last saved job ID: <strong>{lastJobId}</strong>
+        </p>
+      )}
       <input type="file" accept="video/*" onChange={handleFileChange} />
       <form style={styles.targetControls} onSubmit={handleTargetSubmit}>
         <label style={styles.targetLabel}>
@@ -854,13 +920,46 @@ export default function LoopMaker() {
               {statusMessage}
             </div>
           )}
-          {errorMessage && (
-            <div style={styles.errorMessage} role="alert">
-              {errorMessage}
-            </div>
-          )}
+      {errorMessage && (
+        <div style={styles.errorMessage} role="alert">
+          {errorMessage}
         </div>
       )}
+    </div>
+  )}
+      <section style={{ width: '100%', marginTop: '2rem' }}>
+        <h2 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#111827' }}>
+          Completed Jobs
+        </h2>
+        {completedJobs.length ? (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Status</th>
+                  <th>Label</th>
+                  <th>Created</th>
+                  <th>Finished</th>
+                </tr>
+              </thead>
+              <tbody>
+                {completedJobs.map((job) => (
+                  <tr key={job.id}>
+                    <td>{job.id}</td>
+                    <td>{job.status}</td>
+                    <td>{job.label || job.args?.[0] || ''}</td>
+                    <td>{formatTimestamp(job.created_at || job.createdAt)}</td>
+                    <td>{formatTimestamp(job.finished_at || job.finishedAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p>No completed jobs yet.</p>
+        )}
+      </section>
     </div>
   );
 }
