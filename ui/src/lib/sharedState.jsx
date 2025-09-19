@@ -22,6 +22,7 @@ export const DEFAULT_MUSICGEN_FORM = Object.freeze({
 export const DEFAULT_LOOPMAKER_FORM = Object.freeze({
   targetSeconds: 3600,
   targetInput: '3600',
+  outputFormat: 'video/webm;codecs=vp9,opus',
 });
 
 export const DEFAULT_BEATMAKER_FORM = Object.freeze({
