@@ -4,6 +4,7 @@ import { writeFile as writeBinaryFile, readFile as readBinaryFile } from '@tauri
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import BackButton from '../components/BackButton.jsx';
 import { useSharedState, DEFAULT_LOOPMAKER_FORM } from '../lib/sharedState.jsx';
+import { useJobQueue } from '../lib/useJobQueue.js';
 
 const OUTPUT_FORMAT_OPTIONS = [
   {
@@ -139,6 +140,17 @@ export default function LoopMaker() {
   const { ready: sharedReady, state: sharedState, updateSection } = useSharedState();
   const restoredRef = useRef(false);
   const jobIdRef = useRef(null);
+  const pollTimeoutRef = useRef(null);
+  const jobRequestRef = useRef(null);
+  const [jobId, setJobId] = useState(null);
+  const { refresh: refreshQueue } = useJobQueue(0);
+
+  const clearPollTimeout = useCallback(() => {
+    if (pollTimeoutRef.current) {
+      clearTimeout(pollTimeoutRef.current);
+      pollTimeoutRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -196,11 +208,227 @@ export default function LoopMaker() {
     }
   }, []);
 
+  const pollJob = useCallback(
+    async (id) => {
+      if (!id || jobIdRef.current !== id) return;
+      try {
+        const data = await invoke('job_status', { jobId: id });
+        if (jobIdRef.current !== id) {
+          return;
+        }
+
+        const status = typeof data?.status === 'string' ? data.status : '';
+        const progressInfo = data?.progress || {};
+        const queuePosition =
+          typeof progressInfo.queue_position === 'number'
+            ? progressInfo.queue_position
+            : null;
+        const rawMessage =
+          (typeof progressInfo.message === 'string' && progressInfo.message) ||
+          (typeof data?.message === 'string' && data.message) ||
+          '';
+
+        let message = rawMessage;
+        if (!message) {
+          if (status === 'queued') {
+            message =
+              queuePosition != null
+                ? `Job queued (position ${queuePosition + 1})`
+                : 'Job queued';
+          } else if (status === 'running') {
+            message = progressInfo.stage
+              ? `Exporting (${progressInfo.stage})…`
+              : 'Exporting loop…';
+          } else if (status === 'completed') {
+            message = 'Export completed.';
+          } else if (status === 'cancelled') {
+            message = 'Job cancelled.';
+          } else if (status === 'error') {
+            message = 'Export failed.';
+          }
+        }
+
+        if (status === 'queued' || status === 'running') {
+          setStatusMessage(message);
+          setErrorMessage('');
+          if (sharedReady) {
+            updateSection('loopMaker', (prev) => {
+              const prevJob = prev.job || {};
+              const sameJob = prevJob.id === id;
+              return {
+                activeJobId: id,
+                job: {
+                  id,
+                  status,
+                  request: sameJob
+                    ? prevJob.request || jobRequestRef.current
+                    : jobRequestRef.current,
+                  summary: sameJob ? prevJob.summary || null : null,
+                },
+              };
+            });
+          }
+          clearPollTimeout();
+          pollTimeoutRef.current = setTimeout(() => {
+            pollJob(id);
+          }, 1000);
+          return;
+        }
+
+        clearPollTimeout();
+        jobIdRef.current = null;
+        setJobId(null);
+        const request = jobRequestRef.current || {};
+        jobRequestRef.current = null;
+        const completedAt = new Date().toISOString();
+
+        if (status === 'completed') {
+          const artifacts = Array.isArray(data?.artifacts) ? data.artifacts : [];
+          let savedPath = '';
+          let artifactName = '';
+          for (const artifact of artifacts) {
+            const candidatePath = artifact?.path;
+            if (typeof candidatePath === 'string' && candidatePath) {
+              savedPath = candidatePath;
+              if (typeof artifact?.name === 'string' && artifact.name) {
+                artifactName = artifact.name;
+              }
+              break;
+            }
+          }
+
+          const clipSecondsValue = Number(request?.clipSeconds);
+          const loopsFromRequest =
+            typeof request?.loops === 'number'
+              ? request.loops
+              : Number.isFinite(clipSecondsValue) && clipSecondsValue > 0
+              ? Math.max(
+                  Math.floor(Number(request?.targetSeconds || 0) / clipSecondsValue),
+                  0
+                )
+              : 0;
+
+          const summary = {
+            ...request,
+            jobId: id,
+            loops: loopsFromRequest,
+            savedPath,
+            artifactName,
+            success: true,
+            statusMessage:
+              message || (savedPath ? `Saved to ${savedPath}` : 'Export completed.'),
+            completedAt,
+            mimeType: 'video/mp4',
+          };
+
+          const finalMessage =
+            summary.statusMessage ||
+            (savedPath ? `Saved to ${savedPath}` : 'Export completed.');
+          setStatusMessage(finalMessage);
+          setErrorMessage('');
+          setLastJobId(id);
+          if (sharedReady) {
+            updateSection('loopMaker', (prev) => ({
+              activeJobId: null,
+              job: {
+                id,
+                status: 'completed',
+                summary,
+                request,
+              },
+              lastSummary: summary,
+              lastJobId: id,
+            }));
+          }
+          refreshJobs();
+          refreshQueue();
+          return;
+        }
+
+        let stderrMessage = '';
+        if (Array.isArray(data?.stderr)) {
+          for (let i = data.stderr.length - 1; i >= 0; i -= 1) {
+            const line = data.stderr[i];
+            if (typeof line === 'string' && line.trim()) {
+              stderrMessage = line.trim();
+              break;
+            }
+          }
+        }
+
+        const errorText =
+          message ||
+          (typeof data?.message === 'string' && data.message.trim()) ||
+          stderrMessage ||
+          (status === 'cancelled' ? 'Job cancelled.' : 'Export failed.');
+
+        if (status === 'cancelled') {
+          setStatusMessage('Job cancelled.');
+          setErrorMessage('');
+        } else {
+          setStatusMessage('');
+          setErrorMessage(errorText);
+        }
+
+        const summary = {
+          ...request,
+          jobId: id,
+          success: false,
+          cancelled: status === 'cancelled',
+          error: errorText,
+          statusMessage: status === 'cancelled' ? 'Job cancelled.' : '',
+          completedAt,
+        };
+
+        if (sharedReady) {
+          updateSection('loopMaker', (prev) => ({
+            activeJobId: null,
+            job: {
+              id,
+              status: status || 'error',
+              summary,
+              request,
+            },
+            lastSummary: summary,
+            ...(status !== 'cancelled' ? { lastJobId: id } : {}),
+          }));
+        }
+        if (status !== 'cancelled') {
+          setLastJobId(id);
+        }
+        refreshJobs();
+        refreshQueue();
+      } catch (err) {
+        console.error('failed to fetch job status', err);
+        if (jobIdRef.current === id) {
+          clearPollTimeout();
+          pollTimeoutRef.current = setTimeout(() => {
+            pollJob(id);
+          }, 2000);
+        }
+      }
+    },
+    [clearPollTimeout, refreshJobs, refreshQueue, sharedReady, updateSection]
+  );
+
   useEffect(() => {
     refreshJobs();
     const timer = setInterval(refreshJobs, 10000);
     return () => clearInterval(timer);
   }, [refreshJobs]);
+
+  useEffect(() => {
+    if (!jobId) {
+      clearPollTimeout();
+      return undefined;
+    }
+    pollJob(jobId);
+    return () => {
+      clearPollTimeout();
+    };
+  }, [jobId, pollJob, clearPollTimeout]);
+
+  useEffect(() => () => clearPollTimeout(), [clearPollTimeout]);
 
   useEffect(() => {
     if (!sharedReady || restoredRef.current) return undefined;
@@ -235,13 +463,15 @@ export default function LoopMaker() {
 
     const job = saved.job || null;
     const lastSummary = saved.lastSummary || null;
-    if (job?.id) {
-      jobIdRef.current = job.id;
-    } else if (saved.activeJobId) {
-      jobIdRef.current = saved.activeJobId;
-    } else {
-      jobIdRef.current = null;
+    let restoredJobId = null;
+    if (typeof job?.id === 'number') {
+      restoredJobId = job.id;
+    } else if (typeof saved.activeJobId === 'number') {
+      restoredJobId = saved.activeJobId;
     }
+    jobIdRef.current = restoredJobId;
+    setJobId(restoredJobId);
+    jobRequestRef.current = job?.request || null;
 
     if (lastSummary) {
       if (typeof lastSummary.loops === 'number') {
@@ -1371,28 +1601,44 @@ export default function LoopMaker() {
         setErrorMessage('Set a valid target length first.');
         return;
       }
-      setStatusMessage('Exporting MP4…');
+      setStatusMessage('Queueing export…');
       setErrorMessage('');
+      const { fullLoops, remainder } = computeLoopPlan(targetSeconds, duration);
+      const jobRequest = {
+        inputPath: filePath,
+        targetSeconds: Number(targetSeconds),
+        clipSeconds: Number(duration),
+        outdir: outdir || '',
+        outputName: outputName || '',
+        sourceName: file ? file.name : '',
+        loops: fullLoops,
+        remainder,
+      };
       try {
-        const outPath = await invoke('export_loop_video', {
+        const jobIdValue = await invoke('export_loop_video', {
           inputPath: filePath,
           targetSeconds: Number(targetSeconds),
           clipSeconds: Number(duration),
           outdir: outdir || undefined,
           outputName: outputName || undefined,
         });
-        setStatusMessage(`Saved to ${outPath}`);
-        try {
-          const jobArgs = [`targetSeconds=${targetSeconds}`];
-          const jobIdValue = await invoke('record_manual_job', {
-            kind: 'loop-maker',
-            label: outputName || (file ? file.name.replace(/\.[^/.]+$/, '') : 'loop'),
-            args: jobArgs,
-            artifacts: [{ name: outputName || 'loop', path: outPath }],
-            stdout: [`Saved to ${outPath}`],
-          });
-          setLastJobId(jobIdValue);
-        } catch {}
+        jobIdRef.current = jobIdValue;
+        jobRequestRef.current = jobRequest;
+        setJobId(jobIdValue);
+        setStatusMessage('Export queued…');
+        if (sharedReady) {
+          updateSection('loopMaker', (prev) => ({
+            activeJobId: jobIdValue,
+            job: {
+              id: jobIdValue,
+              status: 'queued',
+              request: jobRequest,
+              summary: null,
+            },
+          }));
+        }
+        refreshQueue();
+        clearPollTimeout();
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         setErrorMessage(message);
