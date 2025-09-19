@@ -109,6 +109,7 @@ export default function RainBlocks() {
   const clearingRowsRef = useRef(clearingRows);
   const flashTimerRef = useRef(null);
   const flashToggleCountRef = useRef(0);
+  const justClearedCountRef = useRef(0);
   useEffect(() => {
     boardRef.current = board;
   }, [board]);
@@ -278,6 +279,8 @@ export default function RainBlocks() {
           }
         });
         rowsToClear = found;
+        // Record the count immediately to avoid StrictMode double-invoke issues
+        justClearedCountRef.current = found.length;
         if (found.length === 0) {
           return next;
         }
@@ -289,7 +292,7 @@ export default function RainBlocks() {
         return remaining;
       });
 
-      const cleared = rowsToClear.length;
+      const cleared = justClearedCountRef.current;
       const currentLevel = levelRef.current;
       const piecePoints = 10 * currentLevel;
       const linePoints = cleared * 100 * currentLevel;

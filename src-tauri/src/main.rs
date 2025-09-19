@@ -1998,6 +1998,140 @@ fn format_eta_string(seconds: u64) -> String {
     }
 }
 
+fn sanitize_file_stem(name: &str) -> String {
+    let mut out = String::new();
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, ' ' | '-' | '_') {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+    }
+    let out = out.trim().trim_matches('.').to_string();
+    if out.is_empty() { "loop".to_string() } else { out.chars().take(120).collect() }
+}
+
+#[tauri::command]
+fn export_loop_video(
+    app: AppHandle,
+    input_path: String,
+    target_seconds: f64,
+    clip_seconds: Option<f64>,
+    outdir: Option<String>,
+    output_name: Option<String>,
+) -> Result<String, String> {
+    let in_path = PathBuf::from(&input_path);
+    if !in_path.exists() {
+        return Err("Input video does not exist".into());
+    }
+    let clip = clip_seconds.unwrap_or(0.0);
+    if target_seconds <= 0.0 {
+        return Err("Target seconds must be > 0".into());
+    }
+    if clip <= 0.0 {
+        return Err("Clip duration unknown; cannot compute loops".into());
+    }
+    let loops = (target_seconds / clip).floor() as i64;
+    let remainder = target_seconds - (loops as f64) * clip;
+    let eps = 0.0005_f64;
+
+    // Determine output directory
+    let out_dir = if let Some(dir) = outdir {
+        PathBuf::from(dir)
+    } else {
+        // Default to app data jobs/loops
+        app
+            .path()
+            .app_data_dir()
+            .map_err(|e| e.to_string())?
+            .join("jobs")
+            .join("loops")
+    };
+    std::fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
+
+    // Determine output filename
+    let stem = if let Some(name) = output_name {
+        sanitize_file_stem(&name)
+    } else {
+        in_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(sanitize_file_stem)
+            .unwrap_or_else(|| "loop".to_string())
+    };
+    let out_path = out_dir.join(format!("{}.mp4", stem));
+
+    // Build ffmpeg command per strategy
+    let mut cmd = Command::new("ffmpeg");
+    cmd.arg("-y");
+    if loops >= 1 && remainder.abs() <= eps {
+        // Exact multiple: concat demuxer with copy
+        let mut list_file = NamedTempFile::new().map_err(|e| e.to_string())?;
+        {
+            use std::io::Write;
+            for _ in 0..loops {
+                writeln!(list_file, "file '{}'", in_path.display()).map_err(|e| e.to_string())?;
+            }
+        }
+        let list_path = list_file.path().to_path_buf();
+        cmd.args([
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+        ]);
+        cmd.arg(list_path.as_os_str());
+        cmd.args(["-c", "copy"]);
+        cmd.arg(out_path.as_os_str());
+    } else {
+        // Has remainder: re-encode full to exact target using stream_loop
+        let loops_nonneg = loops.max(0);
+        if loops_nonneg > 0 {
+            cmd.args(["-stream_loop", &loops_nonneg.to_string()]);
+        }
+        cmd.args(["-i"]);
+        cmd.arg(&in_path);
+        cmd.args(["-t", &format!("{:.3}", target_seconds.max(0.0))]);
+        cmd.args([
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "18",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+        ]);
+        cmd.arg(&out_path);
+    }
+
+    let output = cmd.output().map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut msg = format!("ffmpeg failed (code {:?})", output.status.code());
+        if !stderr.trim().is_empty() {
+            msg.push_str("\n");
+            msg.push_str(stderr.trim());
+        } else if !stdout.trim().is_empty() {
+            msg.push_str("\n");
+            msg.push_str(stdout.trim());
+        }
+        return Err(msg);
+    }
+
+    Ok(out_path
+        .canonicalize()
+        .unwrap_or(out_path)
+        .to_string_lossy()
+        .to_string())
+}
+
 #[tauri::command]
 fn job_state_from_registry(app: &AppHandle, registry: &JobRegistry, job_id: u64) -> JobState {
     let mut finalize_request: Option<(bool, Option<i32>)> = None;
@@ -2742,12 +2876,13 @@ fn main() {
             discord_profile_set,
             select_vault,
             open_path,
+            export_loop_video,
             config::get_config,
             config::set_config,
             config::export_settings,
             config::import_settings,
             musiclang::list_musiclang_models,
-            musiclang::download_model
+    musiclang::download_model
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

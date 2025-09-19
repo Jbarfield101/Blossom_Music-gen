@@ -5,6 +5,7 @@ import Settings from './pages/Settings.jsx';
 import Train from './pages/Train.jsx';
 import Profiles from './pages/Profiles.jsx';
 import MusicGen from './pages/MusicGen.jsx';
+import Queue from './pages/Queue.jsx';
 import Tools from './pages/Tools.jsx';
 import Fusion from './pages/Fusion.jsx';
 import LoopMaker from './pages/LoopMaker.jsx';
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/profiles" element={<Profiles />} />
         <Route path="/train" element={<Train />} />
         <Route path="/tools" element={<Tools />} />
+        <Route path="/queue" element={<Queue />} />
         <Route path="/fusion" element={<Fusion />} />
         <Route path="/loopmaker" element={<LoopMaker />} />
         <Route path="/beatmaker" element={<BeatMaker />} />

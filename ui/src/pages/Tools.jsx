@@ -10,8 +10,11 @@ export default function Tools() {
         <Card to="/fusion" icon="Atom" title="Fusion">
           Concept Combiner
         </Card>
+        <Card to="/queue" icon="ListTodo" title="Job Queue">
+          Queued + Running Jobs
+        </Card>
         <Card to="/loopmaker" icon="Repeat" title="Loop Maker">
-          Beat Loop Creator
+          Video Loop Creator
         </Card>
         <Card to="/beatmaker" icon="Waveform" title="Beat Maker">
           Audio Loop Builder

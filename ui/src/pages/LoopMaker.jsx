@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { save } from '@tauri-apps/plugin-dialog';
+import { save, open } from '@tauri-apps/plugin-dialog';
 import { writeFile as writeBinaryFile, readFile as readBinaryFile } from '@tauri-apps/plugin-fs';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import BackButton from '../components/BackButton.jsx';
@@ -101,7 +101,9 @@ export default function LoopMaker() {
   const [targetInput, setTargetInput] = useState(DEFAULT_LOOPMAKER_FORM.targetInput);
   const [targetError, setTargetError] = useState('');
   const [file, setFile] = useState(null);
+  const [filePath, setFilePath] = useState('');
   const [videoURL, setVideoURL] = useState(null);
+  const [outputName, setOutputName] = useState('');
   const [duration, setDuration] = useState(0);
   const [loopsNeeded, setLoopsNeeded] = useState(0);
   const [loopsCompleted, setLoopsCompleted] = useState(0);
@@ -112,6 +114,7 @@ export default function LoopMaker() {
   const [statusMessage, setStatusMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [isRenderingDownload, setIsRenderingDownload] = useState(false);
+  const [outdir, setOutdir] = useState('');
   const [lastJobId, setLastJobId] = useState(null);
   const [completedJobs, setCompletedJobs] = useState([]);
   const [runningInTauri] = useState(() => {
@@ -551,15 +554,35 @@ export default function LoopMaker() {
     cleanupProcessed();
   }, [cleanupProcessed, file]);
 
+  const chooseOutdir = useCallback(async () => {
+    if (!runningInTauri) return;
+    try {
+      const dir = await open({ directory: true, multiple: false });
+      if (typeof dir === 'string') {
+        setOutdir(dir);
+      }
+    } catch (err) {
+      console.warn('Failed to choose output folder', err);
+    }
+  }, [runningInTauri]);
+
+  const clearOutdir = useCallback(() => setOutdir(''), []);
+
   const handleFileChange = (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
     setFile(f);
+    // In Tauri, File object often carries an absolute path
+    setFilePath(typeof f?.path === 'string' ? f.path : '');
     setLoopsCompleted(0);
     setElapsed(0);
     setUseConcatenated(false);
     const url = URL.createObjectURL(f);
     setVideoURL(url);
+    // Prefer MP4 output if the input is MP4
+    if (String(f.type || '').toLowerCase().includes('mp4')) {
+      setSelectedFormat('video/mp4;codecs=h264,aac');
+    }
     setTargetInput(String(targetSeconds));
     setTargetError('');
     cleanupProcessed();
@@ -689,7 +712,7 @@ export default function LoopMaker() {
   }, [formatOptions, selectedFormat]);
 
   const startProcessingDownload = useCallback(
-    async (sourceUrl) => {
+    async (sourceUrl, opts = {}) => {
       if (!sourceUrl) return;
       if (typeof window === 'undefined' || typeof document === 'undefined') {
         return;
@@ -783,13 +806,24 @@ export default function LoopMaker() {
           recorder.addEventListener('stop', resolve, { once: true });
         });
 
+        const loopPlayback = Boolean(opts.loopPlayback);
+        const totalSeconds = Number(opts.totalSeconds) || 0;
+
         recorder.start();
         hiddenVideo.currentTime = 0;
+        hiddenVideo.loop = loopPlayback;
         await hiddenVideo.play();
 
-        await new Promise((resolve) => {
-          hiddenVideo.addEventListener('ended', resolve, { once: true });
-        });
+        let stopTimer;
+        if (loopPlayback && totalSeconds > 0) {
+          stopTimer = setTimeout(() => {
+            try { recorder.stop(); } catch {}
+          }, Math.max(0, Math.round(totalSeconds * 1000)));
+        } else {
+          await new Promise((resolve) => {
+            hiddenVideo.addEventListener('ended', resolve, { once: true });
+          });
+        }
 
         if (processingTokenRef.current !== token) {
           recorder.stop();
@@ -797,7 +831,9 @@ export default function LoopMaker() {
           return;
         }
 
-        recorder.stop();
+        if (recorder.state !== 'inactive') {
+          recorder.stop();
+        }
         await recorderStopped;
 
         if (processingTokenRef.current !== token) {
@@ -834,6 +870,9 @@ export default function LoopMaker() {
           hiddenVideo.src = '';
           hiddenVideo.remove();
         }
+        if (typeof stopTimer !== 'undefined') {
+          clearTimeout(stopTimer);
+        }
         if (processingTokenRef.current === token) {
           setIsRenderingDownload(false);
         }
@@ -842,13 +881,12 @@ export default function LoopMaker() {
     [selectRecorderMimeType, selectedFormat]
   );
 
+  // Do not auto-start rendering; wait for explicit user action.
   useEffect(() => {
-    if (useConcatenated && videoURL) {
-      startProcessingDownload(videoURL);
-    } else if (!useConcatenated) {
+    if (!useConcatenated) {
       cleanupProcessed();
     }
-  }, [cleanupProcessed, startProcessingDownload, useConcatenated, videoURL]);
+  }, [cleanupProcessed, useConcatenated]);
 
   const handleLoadedMetadata = async (e) => {
     const dur = e.target.duration;
@@ -985,9 +1023,7 @@ export default function LoopMaker() {
         resetToBaseVideo();
       }
       cleanupProcessed();
-      setStatusMessage(
-        'Downloads become available once the target is an exact multiple of the clip length.'
-      );
+      setStatusMessage("Use 'Render Loop' below to export at this length.");
       setErrorMessage('');
       return;
     }
@@ -1030,15 +1066,15 @@ export default function LoopMaker() {
       return;
     }
 
-    const baseName = file
-      ? `${file.name.replace(/\.[^/.]+$/, '') || 'looped-video'}`
-      : 'looped-video';
+    const userBase = outputName && outputName.trim() ? sanitizeName(outputName.trim()) : '';
+    const baseName = userBase
+      || (file ? `${file.name.replace(/\.[^/.]+$/, '') || 'loop'}` : 'loop');
     const blobMime = processedBlob.type;
     const resolvedMime =
       blobMime || selectedFormat || formatOptions[0]?.mimeType || 'video/webm';
-    const extension = extensionFromMime(resolvedMime, selectedFormat);
-    const defaultFileName = `${baseName}-loop.${extension}`;
-    const extensionLabel = extension ? extension.toUpperCase() : 'VIDEO';
+    const extension = 'mp4';
+    const defaultFileName = `${baseName}.${extension}`;
+    const extensionLabel = 'MP4';
 
     setErrorMessage('');
 
@@ -1072,7 +1108,14 @@ export default function LoopMaker() {
     if (runningInTauri) {
       setStatusMessage('Preparing save dialog…');
       try {
-        const savePath = await save({ defaultPath: defaultFileName });
+        // If user selected an output folder, prefill save dialog with that path
+        let defaultPath = defaultFileName;
+        if (outdir) {
+          const sep = outdir.includes('\\') ? '\\' : '/';
+          const base = outdir.replace(/[\\/]$/, '');
+          defaultPath = `${base}${sep}${defaultFileName}`;
+        }
+        const savePath = await save({ defaultPath });
 
         if (!savePath) {
           setStatusMessage('Save cancelled.');
@@ -1308,6 +1351,55 @@ export default function LoopMaker() {
     }
   };
 
+  const handleRenderOrSave = async () => {
+    if (runningInTauri) {
+      if (!filePath) {
+        setErrorMessage('Select a local video file to export.');
+        return;
+      }
+      if (!targetSeconds || targetSeconds <= 0 || !duration) {
+        setErrorMessage('Set a valid target length first.');
+        return;
+      }
+      setStatusMessage('Exporting MP4…');
+      setErrorMessage('');
+      try {
+        const outPath = await invoke('export_loop_video', {
+          inputPath: filePath,
+          targetSeconds: Number(targetSeconds),
+          clipSeconds: Number(duration),
+          outdir: outdir || undefined,
+          outputName: outputName || undefined,
+        });
+        setStatusMessage(`Saved to ${outPath}`);
+        try {
+          const jobArgs = [`targetSeconds=${targetSeconds}`];
+          const jobIdValue = await invoke('record_manual_job', {
+            kind: 'loop-maker',
+            label: outputName || (file ? file.name.replace(/\.[^/.]+$/, '') : 'loop'),
+            args: jobArgs,
+            artifacts: [{ name: outputName || 'loop', path: outPath }],
+            stdout: [`Saved to ${outPath}`],
+          });
+          setLastJobId(jobIdValue);
+        } catch {}
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        setErrorMessage(message);
+        setStatusMessage('');
+      }
+      return;
+    }
+    // Browser fallback: record playback to MP4-like output
+    if (!processedBlob) {
+      const loopPlayback = !useConcatenated;
+      const totalSeconds = Math.max(0, Number(targetSeconds || 0));
+      await startProcessingDownload(videoURL, { totalSeconds, loopPlayback });
+      return;
+    }
+    await handleSaveLoop();
+  };
+
   return (
     <div style={styles.page}>
       <BackButton />
@@ -1331,6 +1423,16 @@ export default function LoopMaker() {
             step="1"
             value={targetInput}
             onChange={handleTargetInputChange}
+            style={styles.targetInput}
+          />
+        </label>
+        <label style={styles.targetLabel}>
+          Title
+          <input
+            type="text"
+            placeholder={file ? file.name.replace(/\.[^/.]+$/, '') : 'loop'}
+            value={outputName}
+            onChange={(e) => setOutputName(e.target.value)}
             style={styles.targetInput}
           />
         </label>
@@ -1366,40 +1468,43 @@ export default function LoopMaker() {
           <div style={styles.progressTrack}>
             <div style={styles.progressFill} />
           </div>
-          {useConcatenated && (
+          {(useConcatenated || (file && targetSeconds > 0)) && (
             <div style={styles.downloadBar}>
-              <div style={styles.formatControls}>
-                <label style={styles.formatLabel}>
-                  Output Format
-                  <select
-                    value={selectedFormat}
-                    onChange={handleFormatChange}
-                    style={styles.formatSelect}
-                    disabled={formatSelectDisabled}
-                  >
-                    {formatOptions.map((option) => (
-                      <option key={option.mimeType} value={option.mimeType}>
-                        {`${option.label} (.${option.extension})`}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <span style={styles.formatHint}>{selectedMimeForDisplay}</span>
-              </div>
+              {runningInTauri && (
+                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <label style={{ fontWeight: 700, color: '#111827' }}>Output Folder</label>
+                  <button type="button" onClick={chooseOutdir} style={styles.saveButton}>
+                    Choose…
+                  </button>
+                  {outdir ? (
+                    <>
+                      <span title={outdir} style={{ color: '#374151', maxWidth: '40ch', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {outdir}
+                      </span>
+                      <button type="button" onClick={clearOutdir} style={{ ...styles.saveButton, background: '#e5e7eb' }}>
+                        Clear
+                      </button>
+                    </>
+                  ) : (
+                    <span style={{ color: '#6b7280' }}>not set</span>
+                  )}
+                </div>
+              )}
+              <span style={styles.formatHint}>Output: MP4 (.mp4)</span>
               <button
                 type="button"
-                onClick={handleSaveLoop}
+                onClick={handleRenderOrSave}
                 style={{
                   ...styles.saveButton,
-                  ...(!processedBlob || isRenderingDownload
-                    ? styles.saveButtonDisabled
-                    : {}),
+                  ...(isRenderingDownload ? styles.saveButtonDisabled : {}),
                 }}
-                disabled={!processedBlob || isRenderingDownload}
+                disabled={isRenderingDownload}
               >
                 {isRenderingDownload
                   ? preparingDownloadLabel
-                  : actionButtonLabel}
+                  : processedBlob
+                  ? actionButtonLabel
+                  : `Render Loop${buttonSuffix}`}
               </button>
             </div>
           )}
@@ -1451,3 +1556,12 @@ export default function LoopMaker() {
     </div>
   );
 }
+  const sanitizeName = useCallback((s) => {
+    if (typeof s !== 'string') return '';
+    let out = '';
+    for (const ch of s) {
+      if (/^[a-zA-Z0-9 _-]$/.test(ch)) out += ch;
+      else out += '_';
+    }
+    return out.trim().replace(/\.+$/g, '').substring(0, 120) || 'loop';
+  }, []);
