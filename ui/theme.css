@@ -1,6 +1,6 @@
 /* global tokens */
 :root {
-  --font: "Inter", "Roboto", "Helvetica Neue", sans-serif;
+  --font: "Urbanist", "Inter", "Roboto", "Helvetica Neue", sans-serif;
   --base-font-size: 16px;
   --space-xs: 0.25rem;
   --space-sm: 0.6rem;
@@ -15,6 +15,13 @@ html {
 
 body {
   font-family: var(--font);
+  font-weight: 600;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3 {
+  font-weight: 800;
 }
 
 [data-theme="dark"] {

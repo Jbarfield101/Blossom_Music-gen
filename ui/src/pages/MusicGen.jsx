@@ -266,7 +266,7 @@ export default function MusicGen() {
   return (
     <>
       <BackButton />
-      <h1 className="mb-md">MusicGen</h1>
+      <h1 className="mb-md">Sound Lab</h1>
       <form
         onSubmit={generate}
         className="p-md"
