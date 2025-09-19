@@ -22,6 +22,9 @@ export default function Tools() {
         <Card to="/album" icon="Disc3" title="Album Maker">
           Cover + Tracklist Generator
         </Card>
+        <Card to="/calendar" icon="CalendarDays" title="Calendar">
+          Visual Schedule Planner
+        </Card>
         <Card to="/train" icon="Sliders" title="Train Model">
           Custom Model Trainer
         </Card>
