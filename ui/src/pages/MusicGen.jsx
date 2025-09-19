@@ -13,8 +13,84 @@ const MODEL_OPTIONS = [
   { value: "melody", label: "MusicGen Melody" },
 ];
 
+const TEMPLATE_CUSTOM_VALUE = "custom";
+
+const PROMPT_TEMPLATES = [
+  {
+    value: "chill-vibes",
+    label: "Chill Vibes",
+    prompt:
+      "Dreamy lofi beat at 70 BPM, warm Rhodes chords, soft vinyl noise, relaxed bass groove, cozy lounge mood",
+  },
+  {
+    value: "late-night-drive",
+    label: "Late Night Drive",
+    prompt:
+      "Smooth synthwave groove, pulsing bass arpeggios, neon-soaked pads, gentle 90 BPM beat, cinematic midnight highway energy",
+  },
+  {
+    value: "sunrise-meditation",
+    label: "Sunrise Meditation",
+    prompt:
+      "Peaceful ambient soundscape with glassy drones, soft bells, distant birds, slow 60 BPM heartbeat kick, uplifting dawn atmosphere",
+  },
+  {
+    value: "summer-festival",
+    label: "Summer Festival",
+    prompt:
+      "Energetic pop dance track at 120 BPM, bright synth leads, crowd claps, tropical plucks, euphoric summer celebration",
+  },
+  {
+    value: "halloween-haunt",
+    label: "Halloween Haunt",
+    prompt:
+      "Dark orchestral tension with eerie strings, whispering choirs, detuned music box, thunder rolls, spooky haunted mansion vibe",
+  },
+  {
+    value: "winter-wonderland",
+    label: "Winter Wonderland",
+    prompt:
+      "Festive orchestral waltz at 100 BPM, glistening sleigh bells, gentle choirs, warm strings, cozy fireplace Christmas mood",
+  },
+  {
+    value: "retro-arcade",
+    label: "Retro Arcade",
+    prompt:
+      "Upbeat chiptune adventure, punchy 8-bit drums, playful square-wave melodies, crunchy bassline, nostalgic pixel energy",
+  },
+  {
+    value: "fantasy-quest",
+    label: "Fantasy Quest",
+    prompt:
+      "Epic orchestral journey, soaring brass fanfare, sweeping strings, bodhran drums, 95 BPM heroic adventure through ancient lands",
+  },
+  {
+    value: "futuristic-metropolis",
+    label: "Futuristic Metropolis",
+    prompt:
+      "Atmospheric cyberpunk score, glitchy percussion, deep sub bass, shimmering synth textures, rain-soaked city skyline at night",
+  },
+  {
+    value: "ocean-dreamscape",
+    label: "Ocean Dreamscape",
+    prompt:
+      "Lush downtempo chillout, flowing pads, resonant marimba, gentle waves, 85 BPM underwater dream journey",
+  },
+];
+
+const getTemplateValueForPrompt = (text) => {
+  if (typeof text !== "string") return "";
+  const normalized = text.trim();
+  if (!normalized) return "";
+  const match = PROMPT_TEMPLATES.find((template) => template.prompt === normalized);
+  return match ? match.value : TEMPLATE_CUSTOM_VALUE;
+};
+
 export default function MusicGen() {
   const [prompt, setPrompt] = useState(DEFAULT_MUSICGEN_FORM.prompt);
+  const [selectedTemplate, setSelectedTemplate] = useState(() =>
+    getTemplateValueForPrompt(DEFAULT_MUSICGEN_FORM.prompt)
+  );
   const [duration, setDuration] = useState(DEFAULT_MUSICGEN_FORM.duration);
   const [temperature, setTemperature] = useState(DEFAULT_MUSICGEN_FORM.temperature);
   const [modelName, setModelName] = useState(DEFAULT_MUSICGEN_FORM.modelName);
@@ -111,6 +187,7 @@ export default function MusicGen() {
         : DEFAULT_MUSICGEN_FORM.count;
 
     setPrompt(formPrompt);
+    setSelectedTemplate(getTemplateValueForPrompt(formPrompt));
     setDuration(formDuration);
     setTemperature(formTemperature);
     setModelName(formModel);
@@ -348,6 +425,27 @@ export default function MusicGen() {
     }
   }, [modelName, melodyPath]);
 
+  const handleTemplateChange = (event) => {
+    const { value } = event.target;
+    if (!value) {
+      setSelectedTemplate("");
+      return;
+    }
+
+    if (value === TEMPLATE_CUSTOM_VALUE) {
+      setSelectedTemplate(TEMPLATE_CUSTOM_VALUE);
+      return;
+    }
+
+    const template = PROMPT_TEMPLATES.find((entry) => entry.value === value);
+    if (template) {
+      setSelectedTemplate(value);
+      setPrompt(template.prompt);
+    } else {
+      setSelectedTemplate(TEMPLATE_CUSTOM_VALUE);
+    }
+  };
+
   const generate = async (e) => {
     e.preventDefault();
     if (modelName === "melody" && !melodyPath) {
@@ -580,12 +678,32 @@ export default function MusicGen() {
         </label>
         <label className="mb-md" style={{ display: "block" }}>
           Prompt
+          <select
+            className="mt-sm p-sm"
+            value={selectedTemplate}
+            onChange={handleTemplateChange}
+            style={{ width: "100%" }}
+          >
+            <option value="">Choose a template…</option>
+            {PROMPT_TEMPLATES.map((template) => (
+              <option key={template.value} value={template.value}>
+                {template.label}
+              </option>
+            ))}
+            <option value={TEMPLATE_CUSTOM_VALUE}>Custom</option>
+          </select>
           <textarea
             rows={5}
             className="mt-sm p-sm"
             placeholder="Slow lofi beat, 60 BPM, warm Rhodes, vinyl crackle, soft snare, cozy night mood"
             value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
+            onChange={(e) => {
+              const { value } = e.target;
+              setPrompt(value);
+              if (selectedTemplate !== TEMPLATE_CUSTOM_VALUE) {
+                setSelectedTemplate(TEMPLATE_CUSTOM_VALUE);
+              }
+            }}
             style={{ width: "100%", resize: "vertical" }}
           />
         </label>
