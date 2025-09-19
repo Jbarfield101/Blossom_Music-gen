@@ -84,7 +84,8 @@
           "identifier": "allow-store",
           "windows": ["*"],
           "permissions": [
-            "store:default"
+            "store:default",
+            "core:resources:allow-close"
           ]
         }
       ]
