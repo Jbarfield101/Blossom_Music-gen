@@ -2008,18 +2008,23 @@ fn sanitize_file_stem(name: &str) -> String {
         }
     }
     let out = out.trim().trim_matches('.').to_string();
-    if out.is_empty() { "loop".to_string() } else { out.chars().take(120).collect() }
+    if out.is_empty() {
+        "loop".to_string()
+    } else {
+        out.chars().take(120).collect()
+    }
 }
 
 #[tauri::command]
 fn export_loop_video(
     app: AppHandle,
+    registry: State<JobRegistry>,
     input_path: String,
     target_seconds: f64,
     clip_seconds: Option<f64>,
     outdir: Option<String>,
     output_name: Option<String>,
-) -> Result<String, String> {
+) -> Result<u64, String> {
     let in_path = PathBuf::from(&input_path);
     if !in_path.exists() {
         return Err("Input video does not exist".into());
@@ -2031,17 +2036,12 @@ fn export_loop_video(
     if clip <= 0.0 {
         return Err("Clip duration unknown; cannot compute loops".into());
     }
-    let loops = (target_seconds / clip).floor() as i64;
-    let remainder = target_seconds - (loops as f64) * clip;
-    let eps = 0.0005_f64;
-
     // Determine output directory
     let out_dir = if let Some(dir) = outdir {
         PathBuf::from(dir)
     } else {
         // Default to app data jobs/loops
-        app
-            .path()
+        app.path()
             .app_data_dir()
             .map_err(|e| e.to_string())?
             .join("jobs")
@@ -2060,76 +2060,35 @@ fn export_loop_video(
             .unwrap_or_else(|| "loop".to_string())
     };
     let out_path = out_dir.join(format!("{}.mp4", stem));
-
-    // Build ffmpeg command per strategy
-    let mut cmd = Command::new("ffmpeg");
-    cmd.arg("-y");
-    if loops >= 1 && remainder.abs() <= eps {
-        // Exact multiple: concat demuxer with copy
-        let mut list_file = NamedTempFile::new().map_err(|e| e.to_string())?;
-        {
-            use std::io::Write;
-            for _ in 0..loops {
-                writeln!(list_file, "file '{}'", in_path.display()).map_err(|e| e.to_string())?;
-            }
-        }
-        let list_path = list_file.path().to_path_buf();
-        cmd.args([
-            "-f",
-            "concat",
-            "-safe",
-            "0",
-            "-i",
-        ]);
-        cmd.arg(list_path.as_os_str());
-        cmd.args(["-c", "copy"]);
-        cmd.arg(out_path.as_os_str());
+    let script_path = if Path::new("scripts/export_loop_video.py").exists() {
+        "scripts/export_loop_video.py".to_string()
     } else {
-        // Has remainder: re-encode full to exact target using stream_loop
-        let loops_nonneg = loops.max(0);
-        if loops_nonneg > 0 {
-            cmd.args(["-stream_loop", &loops_nonneg.to_string()]);
-        }
-        cmd.args(["-i"]);
-        cmd.arg(&in_path);
-        cmd.args(["-t", &format!("{:.3}", target_seconds.max(0.0))]);
-        cmd.args([
-            "-c:v",
-            "libx264",
-            "-pix_fmt",
-            "yuv420p",
-            "-preset",
-            "veryfast",
-            "-crf",
-            "18",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-        ]);
-        cmd.arg(&out_path);
-    }
+        "../scripts/export_loop_video.py".to_string()
+    };
 
-    let output = cmd.output().map_err(|e| format!("Failed to run ffmpeg: {}", e))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut msg = format!("ffmpeg failed (code {:?})", output.status.code());
-        if !stderr.trim().is_empty() {
-            msg.push_str("\n");
-            msg.push_str(stderr.trim());
-        } else if !stdout.trim().is_empty() {
-            msg.push_str("\n");
-            msg.push_str(stdout.trim());
-        }
-        return Err(msg);
-    }
+    let mut args = vec![script_path];
+    args.push("--input".into());
+    args.push(in_path.to_string_lossy().to_string());
+    args.push("--output".into());
+    args.push(out_path.to_string_lossy().to_string());
+    args.push("--target-seconds".into());
+    args.push(format!("{:.6}", target_seconds));
+    args.push("--clip-seconds".into());
+    args.push(format!("{:.6}", clip));
 
-    Ok(out_path
-        .canonicalize()
-        .unwrap_or(out_path)
-        .to_string_lossy()
-        .to_string())
+    let artifact_candidates = vec![JobArtifactCandidate {
+        name: "Loop Video".into(),
+        path: out_path,
+    }];
+
+    let context = JobContext {
+        kind: Some("loop-export".into()),
+        label: Some(stem),
+        artifact_candidates,
+        ..Default::default()
+    };
+
+    spawn_job_with_context(app, registry, args, context)
 }
 
 #[tauri::command]
@@ -2882,7 +2841,7 @@ fn main() {
             config::export_settings,
             config::import_settings,
             musiclang::list_musiclang_models,
-    musiclang::download_model
+            musiclang::download_model
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

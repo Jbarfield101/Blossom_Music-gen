@@ -4,6 +4,7 @@ import { writeFile as writeBinaryFile, readFile as readBinaryFile } from '@tauri
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import BackButton from '../components/BackButton.jsx';
 import { useSharedState, DEFAULT_LOOPMAKER_FORM } from '../lib/sharedState.jsx';
+import { useJobQueue } from '../lib/useJobQueue.js';
 
 const OUTPUT_FORMAT_OPTIONS = [
   {
@@ -139,6 +140,16 @@ export default function LoopMaker() {
   const { ready: sharedReady, state: sharedState, updateSection } = useSharedState();
   const restoredRef = useRef(false);
   const jobIdRef = useRef(null);
+  const { refresh: refreshQueueRaw } = useJobQueue(0);
+  const refreshQueue = useCallback(() => {
+    if (!runningInTauri) return;
+    refreshQueueRaw().catch((err) => {
+      console.warn('Failed to refresh job queue', err);
+    });
+  }, [refreshQueueRaw, runningInTauri]);
+  const activeSharedJobId = sharedReady
+    ? sharedState?.loopMaker?.activeJobId || null
+    : null;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -196,11 +207,172 @@ export default function LoopMaker() {
     }
   }, []);
 
+  const handleJobStatusUpdate = useCallback(
+    (jobId, data) => {
+      if (!jobId) return;
+      const status = typeof data?.status === 'string' ? data.status : 'unknown';
+      const progressInfo = data?.progress || {};
+      const queuePosition =
+        typeof progressInfo.queue_position === 'number'
+          ? progressInfo.queue_position
+          : null;
+      const artifacts = Array.isArray(data?.artifacts) ? data.artifacts : [];
+      const artifactPath = artifacts[0]?.path || '';
+      const progressMessage =
+        typeof progressInfo.message === 'string' && progressInfo.message
+          ? progressInfo.message
+          : '';
+
+      let nextStatusMessage = '';
+      let nextErrorMessage = '';
+
+      if (status === 'queued') {
+        if (queuePosition !== null) {
+          nextStatusMessage = `Loop export queued (position ${queuePosition + 1}).`;
+        } else {
+          nextStatusMessage = 'Loop export queued.';
+        }
+      } else if (status === 'running') {
+        nextStatusMessage = progressMessage || 'Loop export in progress…';
+      } else if (status === 'completed') {
+        nextStatusMessage = artifactPath
+          ? `Loop saved to ${artifactPath}`
+          : 'Loop export completed.';
+      } else if (status === 'cancelled') {
+        nextErrorMessage = 'Loop export was cancelled.';
+      } else if (status === 'error') {
+        nextErrorMessage =
+          (typeof data?.message === 'string' && data.message) ||
+          progressMessage ||
+          'Loop export failed.';
+      } else if (status === 'not-found') {
+        nextErrorMessage = 'Loop export status could not be found.';
+      }
+
+      if (nextErrorMessage) {
+        setErrorMessage(nextErrorMessage);
+      } else if (['queued', 'running', 'completed'].includes(status)) {
+        setErrorMessage('');
+      }
+
+      if (nextStatusMessage) {
+        setStatusMessage(nextStatusMessage);
+      } else if (!['queued', 'running'].includes(status)) {
+        setStatusMessage('');
+      }
+
+      const doneStatuses = ['completed', 'error', 'cancelled', 'not-found'];
+      const isDone = doneStatuses.includes(status);
+      const finishedAt =
+        typeof data?.finished_at === 'string' && data.finished_at
+          ? data.finished_at
+          : isDone
+          ? new Date().toISOString()
+          : null;
+      const createdAt =
+        typeof data?.created_at === 'string' && data.created_at
+          ? data.created_at
+          : new Date().toISOString();
+
+      if (sharedReady) {
+        updateSection('loopMaker', (prev) => {
+          const prevJob = prev.job && prev.job.id === jobId ? prev.job : { id: jobId };
+          const prevSummary = prevJob.summary || {};
+          const summary = {
+            ...prevSummary,
+            statusMessage:
+              nextStatusMessage || prevSummary.statusMessage || nextErrorMessage || '',
+            savedPath: artifactPath || prevSummary.savedPath || '',
+            savedToDisk:
+              status === 'completed' ? Boolean(artifactPath) : prevSummary.savedToDisk,
+            success: status === 'completed',
+            error: nextErrorMessage || null,
+            completedAt: isDone ? finishedAt : prevSummary.completedAt || null,
+            jobRecordId: jobId,
+          };
+          const nextJob = {
+            ...prevJob,
+            id: jobId,
+            status,
+            startedAt: prevJob.startedAt || createdAt,
+            finishedAt: isDone ? finishedAt : null,
+            summary,
+          };
+          return {
+            job: nextJob,
+            lastSummary: summary,
+            activeJobId: isDone ? null : jobId,
+          };
+        });
+      }
+
+      if (isDone) {
+        jobIdRef.current = null;
+        setLastJobId(jobId);
+        refreshJobs();
+        if (runningInTauri) {
+          refreshQueue();
+        }
+      } else {
+        jobIdRef.current = jobId;
+      }
+    },
+    [
+      refreshJobs,
+      refreshQueue,
+      runningInTauri,
+      setErrorMessage,
+      setLastJobId,
+      setStatusMessage,
+      sharedReady,
+      updateSection,
+    ]
+  );
+
   useEffect(() => {
     refreshJobs();
     const timer = setInterval(refreshJobs, 10000);
     return () => clearInterval(timer);
   }, [refreshJobs]);
+
+  useEffect(() => {
+    if (!runningInTauri || !sharedReady) return undefined;
+    if (!activeSharedJobId) {
+      jobIdRef.current = null;
+      return undefined;
+    }
+
+    let cancelled = false;
+    let timeoutId = null;
+
+    const poll = async () => {
+      if (cancelled) return;
+      try {
+        const data = await invoke('job_status', { jobId: activeSharedJobId });
+        if (cancelled) return;
+        handleJobStatusUpdate(activeSharedJobId, data);
+        const status = typeof data?.status === 'string' ? data.status : 'unknown';
+        if (status === 'queued' || status === 'running') {
+          timeoutId = setTimeout(poll, 1500);
+        }
+      } catch (err) {
+        console.error('failed to fetch loop job status', err);
+        if (!cancelled) {
+          timeoutId = setTimeout(poll, 3000);
+        }
+      }
+    };
+
+    jobIdRef.current = activeSharedJobId;
+    void poll();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [activeSharedJobId, handleJobStatusUpdate, runningInTauri, sharedReady]);
 
   useEffect(() => {
     if (!sharedReady || restoredRef.current) return undefined;
@@ -1371,32 +1543,62 @@ export default function LoopMaker() {
         setErrorMessage('Set a valid target length first.');
         return;
       }
-      setStatusMessage('Exporting MP4…');
+      setStatusMessage('Queuing MP4 export…');
       setErrorMessage('');
+      const clipSeconds = Number(duration);
+      const baseName = outputName && outputName.trim()
+        ? sanitizeName(outputName.trim())
+        : file
+        ? sanitizeName(file.name.replace(/\.[^/.]+$/, '') || 'loop')
+        : 'loop';
+      const defaultFileName = `${baseName}.mp4`;
       try {
-        const outPath = await invoke('export_loop_video', {
+        const jobIdValue = await invoke('export_loop_video', {
           inputPath: filePath,
           targetSeconds: Number(targetSeconds),
-          clipSeconds: Number(duration),
+          clipSeconds,
           outdir: outdir || undefined,
           outputName: outputName || undefined,
         });
-        setStatusMessage(`Saved to ${outPath}`);
-        try {
-          const jobArgs = [`targetSeconds=${targetSeconds}`];
-          const jobIdValue = await invoke('record_manual_job', {
-            kind: 'loop-maker',
-            label: outputName || (file ? file.name.replace(/\.[^/.]+$/, '') : 'loop'),
-            args: jobArgs,
-            artifacts: [{ name: outputName || 'loop', path: outPath }],
-            stdout: [`Saved to ${outPath}`],
-          });
-          setLastJobId(jobIdValue);
-        } catch {}
+        jobIdRef.current = jobIdValue;
+        setLastJobId(jobIdValue);
+        const queuedMessage = `Loop export queued (job ${jobIdValue}).`;
+        setStatusMessage(queuedMessage);
+        if (sharedReady) {
+          const startedAt = new Date().toISOString();
+          const summary = {
+            targetSeconds,
+            loops: loopsNeeded || 0,
+            downloadName: defaultFileName,
+            savedPath: '',
+            savedToDisk: false,
+            mimeType: 'video/mp4;codecs=h264,aac',
+            statusMessage: queuedMessage,
+            success: false,
+            error: null,
+            jobRecordId: jobIdValue,
+          };
+          updateSection('loopMaker', () => ({
+            activeJobId: jobIdValue,
+            job: {
+              id: jobIdValue,
+              status: 'queued',
+              startedAt,
+              finishedAt: null,
+              summary,
+            },
+            lastSummary: summary,
+          }));
+        }
+        refreshQueue();
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         setErrorMessage(message);
         setStatusMessage('');
+        jobIdRef.current = null;
+        if (sharedReady) {
+          updateSection('loopMaker', { activeJobId: null });
+        }
       }
       return;
     }
