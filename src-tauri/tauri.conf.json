@@ -79,6 +79,13 @@
             "core:event:allow-listen",
             "core:event:default"
           ]
+        },
+        {
+          "identifier": "allow-store",
+          "windows": ["*"],
+          "permissions": [
+            "store:default"
+          ]
         }
       ]
     }
