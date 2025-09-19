@@ -1,8 +1,9 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { save } from '@tauri-apps/plugin-dialog';
-import { writeFile as writeBinaryFile } from '@tauri-apps/plugin-fs';
+import { writeFile as writeBinaryFile, readFile as readBinaryFile } from '@tauri-apps/plugin-fs';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import BackButton from '../components/BackButton.jsx';
+import { useSharedState, DEFAULT_LOOPMAKER_FORM } from '../lib/sharedState.jsx';
 
 const MAX_CONCAT_DURATION_SECONDS = 60 * 60 * 3; // 3 hours of video
 const MAX_CONCAT_FALLBACK_LOOPS = 2048;
@@ -32,8 +33,8 @@ export default function LoopMaker() {
   };
 
   const videoRef = useRef(null);
-  const [targetSeconds, setTargetSeconds] = useState(3600);
-  const [targetInput, setTargetInput] = useState('3600');
+  const [targetSeconds, setTargetSeconds] = useState(DEFAULT_LOOPMAKER_FORM.targetSeconds);
+  const [targetInput, setTargetInput] = useState(DEFAULT_LOOPMAKER_FORM.targetInput);
   const [targetError, setTargetError] = useState('');
   const [file, setFile] = useState(null);
   const [videoURL, setVideoURL] = useState(null);
@@ -58,6 +59,9 @@ export default function LoopMaker() {
     }
   });
   const processingTokenRef = useRef(0);
+  const { ready: sharedReady, state: sharedState, updateSection } = useSharedState();
+  const restoredRef = useRef(false);
+  const jobIdRef = useRef(null);
 
   const formatTimestamp = useCallback((value) => {
     if (!value) return '—';
@@ -84,6 +88,110 @@ export default function LoopMaker() {
     const timer = setInterval(refreshJobs, 10000);
     return () => clearInterval(timer);
   }, [refreshJobs]);
+
+  useEffect(() => {
+    if (!sharedReady || restoredRef.current) return undefined;
+
+    const saved = sharedState?.loopMaker || {};
+    const form = saved.form || {};
+    const savedSeconds =
+      typeof form.targetSeconds === 'number' && form.targetSeconds > 0
+        ? form.targetSeconds
+        : DEFAULT_LOOPMAKER_FORM.targetSeconds;
+    const savedInput =
+      typeof form.targetInput === 'string' && form.targetInput
+        ? form.targetInput
+        : String(savedSeconds);
+
+    setTargetSeconds(savedSeconds);
+    setTargetInput(savedInput);
+    setStatusMessage(
+      typeof saved.statusMessage === 'string' ? saved.statusMessage : ''
+    );
+    setErrorMessage(
+      typeof saved.errorMessage === 'string' ? saved.errorMessage : ''
+    );
+    setLastJobId(saved.lastJobId ?? null);
+
+    const job = saved.job || null;
+    const lastSummary = saved.lastSummary || null;
+    if (job?.id) {
+      jobIdRef.current = job.id;
+    } else if (saved.activeJobId) {
+      jobIdRef.current = saved.activeJobId;
+    } else {
+      jobIdRef.current = null;
+    }
+
+    if (lastSummary) {
+      if (typeof lastSummary.loops === 'number') {
+        setLoopsNeeded(lastSummary.loops);
+      }
+      if (
+        typeof lastSummary.statusMessage === 'string' &&
+        !saved.statusMessage
+      ) {
+        setStatusMessage(lastSummary.statusMessage);
+      }
+      if (typeof lastSummary.error === 'string' && !saved.errorMessage) {
+        setErrorMessage(lastSummary.error);
+      }
+    }
+
+    let cancelled = false;
+    if (runningInTauri && lastSummary?.savedPath) {
+      (async () => {
+        try {
+          const data = await readBinaryFile(lastSummary.savedPath);
+          const blob = new Blob([data], {
+            type: lastSummary.mimeType || 'video/webm',
+          });
+          const url = URL.createObjectURL(blob);
+          if (!cancelled) {
+            setProcessedBlob(blob);
+            setProcessedURL(url);
+            setUseConcatenated(true);
+          } else {
+            URL.revokeObjectURL(url);
+          }
+        } catch (err) {
+          console.warn('Failed to restore saved loop', err);
+        }
+      })();
+    }
+
+    restoredRef.current = true;
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sharedReady, sharedState, runningInTauri]);
+
+  useEffect(() => {
+    if (!sharedReady || !restoredRef.current) return;
+    updateSection('loopMaker', (prev) => ({
+      form: {
+        ...prev.form,
+        targetSeconds,
+        targetInput,
+      },
+    }));
+  }, [sharedReady, updateSection, targetSeconds, targetInput]);
+
+  useEffect(() => {
+    if (!sharedReady || !restoredRef.current) return;
+    updateSection('loopMaker', { statusMessage });
+  }, [sharedReady, updateSection, statusMessage]);
+
+  useEffect(() => {
+    if (!sharedReady || !restoredRef.current) return;
+    updateSection('loopMaker', { errorMessage });
+  }, [sharedReady, updateSection, errorMessage]);
+
+  useEffect(() => {
+    if (!sharedReady || !restoredRef.current) return;
+    updateSection('loopMaker', { lastJobId });
+  }, [sharedReady, updateSection, lastJobId]);
 
   const progressPercent = targetSeconds
     ? Math.min((elapsed / targetSeconds) * 100, 100)
@@ -749,6 +857,33 @@ export default function LoopMaker() {
 
     setErrorMessage('');
 
+    const localJobId = jobIdRef.current || `loopmaker-${Date.now()}`;
+    jobIdRef.current = localJobId;
+    const startedAt = new Date().toISOString();
+
+    if (sharedReady) {
+      updateSection('loopMaker', () => ({
+        activeJobId: localJobId,
+        job: {
+          id: localJobId,
+          status: 'running',
+          startedAt,
+          finishedAt: null,
+          summary: {
+            targetSeconds,
+            loops: loopsNeeded || 0,
+            downloadName: defaultFileName,
+            savedPath: '',
+            savedToDisk: false,
+            mimeType: mime || 'video/webm',
+            statusMessage: '',
+            success: false,
+            error: null,
+          },
+        },
+      }));
+    }
+
     if (runningInTauri) {
       setStatusMessage('Preparing save dialog…');
       try {
@@ -756,6 +891,33 @@ export default function LoopMaker() {
 
         if (!savePath) {
           setStatusMessage('Save cancelled.');
+          if (sharedReady) {
+            updateSection('loopMaker', (prev) => {
+              const prevJob = prev.job || {};
+              const summary = {
+                ...(prevJob.summary || {}),
+                targetSeconds,
+                loops: loopsNeeded || 0,
+                downloadName: defaultFileName,
+                savedPath: '',
+                savedToDisk: false,
+                mimeType: mime || 'video/webm',
+                statusMessage: 'Save cancelled.',
+                success: false,
+                error: null,
+              };
+              return {
+                activeJobId: null,
+                job: {
+                  id: localJobId,
+                  status: 'cancelled',
+                  startedAt: prevJob.id === localJobId ? prevJob.startedAt : startedAt,
+                  finishedAt: new Date().toISOString(),
+                  summary,
+                },
+              };
+            });
+          }
           return;
         }
 
@@ -778,6 +940,36 @@ export default function LoopMaker() {
           });
           setLastJobId(jobIdValue);
           refreshJobs();
+          if (sharedReady) {
+            const completedAt = new Date().toISOString();
+            updateSection('loopMaker', (prev) => {
+              const summary = {
+                targetSeconds,
+                loops: loopsNeeded || 0,
+                downloadName: defaultFileName,
+                savedPath,
+                savedToDisk: true,
+                mimeType: mime || 'video/webm',
+                statusMessage: `Saved successfully to ${savePath}`,
+                success: true,
+                error: null,
+                completedAt,
+                jobRecordId: jobIdValue,
+              };
+              return {
+                activeJobId: null,
+                job: {
+                  id: jobIdValue,
+                  status: 'completed',
+                  startedAt: prev.job?.id === localJobId ? prev.job.startedAt : startedAt,
+                  finishedAt: completedAt,
+                  summary,
+                },
+                lastSummary: summary,
+                lastJobId: jobIdValue,
+              };
+            });
+          }
         } catch (recordErr) {
           console.error('failed to record loop job', recordErr);
         }
@@ -786,6 +978,36 @@ export default function LoopMaker() {
         const message = err instanceof Error ? err.message : String(err);
         setStatusMessage('');
         setErrorMessage(`Save failed: ${message}`);
+        if (sharedReady) {
+          const completedAt = new Date().toISOString();
+          updateSection('loopMaker', (prev) => {
+            const prevJob = prev.job || {};
+            const summary = {
+              ...(prevJob.summary || {}),
+              targetSeconds,
+              loops: loopsNeeded || 0,
+              downloadName: defaultFileName,
+              savedPath: '',
+              savedToDisk: false,
+              mimeType: mime || 'video/webm',
+              statusMessage: '',
+              success: false,
+              error: message,
+              completedAt,
+            };
+            return {
+              activeJobId: null,
+              job: {
+                id: localJobId,
+                status: 'error',
+                startedAt: prevJob.id === localJobId ? prevJob.startedAt : startedAt,
+                finishedAt: completedAt,
+                summary,
+              },
+              lastSummary: summary,
+            };
+          });
+        }
       }
 
       return;
@@ -821,6 +1043,36 @@ export default function LoopMaker() {
         });
         setLastJobId(jobIdValue);
         refreshJobs();
+        if (sharedReady) {
+          const completedAt = new Date().toISOString();
+          updateSection('loopMaker', (prev) => {
+            const summary = {
+              targetSeconds,
+              loops: loopsNeeded || 0,
+              downloadName: defaultFileName,
+              savedPath: '',
+              savedToDisk: false,
+              mimeType: mime || 'video/webm',
+              statusMessage: 'Download started.',
+              success: true,
+              error: null,
+              completedAt,
+              jobRecordId: jobIdValue,
+            };
+            return {
+              activeJobId: null,
+              job: {
+                id: jobIdValue,
+                status: 'completed',
+                startedAt: prev.job?.id === localJobId ? prev.job.startedAt : startedAt,
+                finishedAt: completedAt,
+                summary,
+              },
+              lastSummary: summary,
+              lastJobId: jobIdValue,
+            };
+          });
+        }
       } catch (recordErr) {
         console.error('failed to record loop job', recordErr);
       }
@@ -829,6 +1081,36 @@ export default function LoopMaker() {
       const message = err instanceof Error ? err.message : String(err);
       setStatusMessage('');
       setErrorMessage(`Download failed: ${message}`);
+      if (sharedReady) {
+        const completedAt = new Date().toISOString();
+        updateSection('loopMaker', (prev) => {
+          const prevJob = prev.job || {};
+          const summary = {
+            ...(prevJob.summary || {}),
+            targetSeconds,
+            loops: loopsNeeded || 0,
+            downloadName: defaultFileName,
+            savedPath: '',
+            savedToDisk: false,
+            mimeType: mime || 'video/webm',
+            statusMessage: '',
+            success: false,
+            error: message,
+            completedAt,
+          };
+          return {
+            activeJobId: null,
+            job: {
+              id: localJobId,
+              status: 'error',
+              startedAt: prevJob.id === localJobId ? prevJob.startedAt : startedAt,
+              finishedAt: completedAt,
+              summary,
+            },
+            lastSummary: summary,
+          };
+        });
+      }
     } finally {
       if (tempURL) {
         URL.revokeObjectURL(tempURL);
