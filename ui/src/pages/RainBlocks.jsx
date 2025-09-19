@@ -16,6 +16,8 @@ const HOLD_CANVAS_SIZE = HOLD_GRID_SIZE * HOLD_CELL_SIZE;
 const LOCK_DELAY_MS = 300;
 const LINE_CLEAR_FLASH_DELAY = 150;
 const HARD_DROP_POINTS_PER_ROW = 2;
+const HORIZONTAL_REPEAT_INITIAL_DELAY = 150;
+const HORIZONTAL_REPEAT_INTERVAL = 50;
 
 const SHAPES = [
   {
@@ -110,6 +112,10 @@ export default function RainBlocks() {
   const flashTimerRef = useRef(null);
   const flashToggleCountRef = useRef(0);
   const justClearedCountRef = useRef(0);
+  const heldKeysRef = useRef({ left: false, right: false });
+  const horizontalRepeatTimeoutRef = useRef(null);
+  const horizontalRepeatIntervalRef = useRef(null);
+  const activeHorizontalRef = useRef(null);
   useEffect(() => {
     boardRef.current = board;
   }, [board]);
@@ -149,6 +155,17 @@ export default function RainBlocks() {
       setClearingRows([]);
       setFlashPhase(false);
       flashToggleCountRef.current = 0;
+    }
+  }, []);
+
+  const clearHorizontalRepeatTimers = useCallback(() => {
+    if (horizontalRepeatTimeoutRef.current) {
+      clearTimeout(horizontalRepeatTimeoutRef.current);
+      horizontalRepeatTimeoutRef.current = null;
+    }
+    if (horizontalRepeatIntervalRef.current) {
+      clearInterval(horizontalRepeatIntervalRef.current);
+      horizontalRepeatIntervalRef.current = null;
     }
   }, []);
 
@@ -486,14 +503,68 @@ export default function RainBlocks() {
 
   useEffect(() => {
     if (gameOverMessage) return undefined;
+
+    const startHorizontalRepeat = (direction, immediate = true) => {
+      if (!heldKeysRef.current[direction]) {
+        return;
+      }
+
+      activeHorizontalRef.current = direction;
+      clearHorizontalRepeatTimers();
+
+      const moveStep = () => {
+        if (!heldKeysRef.current[direction]) {
+          if (activeHorizontalRef.current === direction) {
+            activeHorizontalRef.current = null;
+            clearHorizontalRepeatTimers();
+          }
+          return;
+        }
+        if (activeHorizontalRef.current !== direction) {
+          return;
+        }
+        if (!activePieceRef.current) {
+          return;
+        }
+        movePieceHorizontally(direction === 'left' ? -1 : 1);
+      };
+
+      if (immediate) {
+        moveStep();
+      }
+
+      horizontalRepeatTimeoutRef.current = setTimeout(() => {
+        horizontalRepeatTimeoutRef.current = null;
+        if (!heldKeysRef.current[direction]) {
+          if (activeHorizontalRef.current === direction) {
+            activeHorizontalRef.current = null;
+            clearHorizontalRepeatTimers();
+          }
+          return;
+        }
+        if (activeHorizontalRef.current !== direction) {
+          return;
+        }
+        moveStep();
+        horizontalRepeatIntervalRef.current = setInterval(() => {
+          moveStep();
+        }, HORIZONTAL_REPEAT_INTERVAL);
+      }, HORIZONTAL_REPEAT_INITIAL_DELAY);
+    };
+
     const handleKeyDown = (event) => {
-      if (!activePieceRef.current) return;
       if (event.key === 'a' || event.key === 'ArrowLeft') {
         event.preventDefault();
-        movePieceHorizontally(-1);
+        if (!heldKeysRef.current.left) {
+          heldKeysRef.current.left = true;
+          startHorizontalRepeat('left');
+        }
       } else if (event.key === 'd' || event.key === 'ArrowRight') {
         event.preventDefault();
-        movePieceHorizontally(1);
+        if (!heldKeysRef.current.right) {
+          heldKeysRef.current.right = true;
+          startHorizontalRepeat('right');
+        }
       } else if (event.key === 'w' || event.key === 'ArrowUp') {
         event.preventDefault();
         rotatePiece();
@@ -521,17 +592,54 @@ export default function RainBlocks() {
         handleHoldPiece();
       }
     };
+
+    const handleKeyUp = (event) => {
+      if (event.key === 'a' || event.key === 'ArrowLeft') {
+        if (!heldKeysRef.current.left) return;
+        heldKeysRef.current.left = false;
+        if (activeHorizontalRef.current === 'left') {
+          clearHorizontalRepeatTimers();
+          if (heldKeysRef.current.right) {
+            startHorizontalRepeat('right');
+          } else {
+            activeHorizontalRef.current = null;
+          }
+        }
+      } else if (event.key === 'd' || event.key === 'ArrowRight') {
+        if (!heldKeysRef.current.right) return;
+        heldKeysRef.current.right = false;
+        if (activeHorizontalRef.current === 'right') {
+          clearHorizontalRepeatTimers();
+          if (heldKeysRef.current.left) {
+            startHorizontalRepeat('left');
+          } else {
+            activeHorizontalRef.current = null;
+          }
+        }
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      heldKeysRef.current.left = false;
+      heldKeysRef.current.right = false;
+      activeHorizontalRef.current = null;
+      clearHorizontalRepeatTimers();
+    };
   }, [
+    clearHorizontalRepeatTimers,
     clearLockDelay,
     gameOverMessage,
+    handleHardDrop,
+    handleHoldPiece,
     isValidPosition,
     movePieceHorizontally,
     rotatePiece,
     scheduleLock,
-    handleHoldPiece,
-    handleHardDrop,
   ]);
 
   useEffect(() => {
