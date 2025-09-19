@@ -145,6 +145,49 @@ export default function MusicGen() {
     }
   }, []);
 
+  const createBlobUrlForPath = useCallback(async (absPath) => {
+    if (typeof absPath !== "string" || !absPath) return "";
+    try {
+      const data = await readFile(absPath);
+      const blob = new Blob([data], { type: "audio/wav" });
+      return URL.createObjectURL(blob);
+    } catch {}
+
+    try {
+      const base = await appDataDir();
+      const norm = (s) => String(s || "").replace(/\\\\/g, "/").toLowerCase();
+      const nBase = norm(base);
+      const nPath = norm(absPath);
+      if (nPath.startsWith(nBase)) {
+        const rel = nPath.substring(nBase.length);
+        const data = await readFile(rel, { baseDir: BaseDirectory.AppData });
+        const blob = new Blob([data], { type: "audio/wav" });
+        return URL.createObjectURL(blob);
+      }
+    } catch {}
+
+    try {
+      const bytes = await invoke("read_file_bytes", { path: absPath });
+      if (bytes) {
+        const blob = new Blob([new Uint8Array(bytes)], { type: "audio/wav" });
+        return URL.createObjectURL(blob);
+      }
+    } catch {}
+
+    if (typeof fetch === "function") {
+      try {
+        const src = convertFileSrc(absPath);
+        const response = await fetch(src);
+        if (response.ok) {
+          const blob = await response.blob();
+          return URL.createObjectURL(blob);
+        }
+      } catch {}
+    }
+
+    return "";
+  }, []);
+
   const poll = useCallback(
     async (id) => {
       if (!id || jobIdRef.current !== id) return;
@@ -421,49 +464,6 @@ export default function MusicGen() {
   const melodyFileName = melodyPath
     ? melodyPath.split(/[\\/]/).filter(Boolean).pop() || melodyPath
     : "";
-
-  const createBlobUrlForPath = useCallback(async (absPath) => {
-    if (typeof absPath !== "string" || !absPath) return "";
-    try {
-      const data = await readFile(absPath);
-      const blob = new Blob([data], { type: "audio/wav" });
-      return URL.createObjectURL(blob);
-    } catch {}
-
-    try {
-      const base = await appDataDir();
-      const norm = (s) => String(s || "").replace(/\\\\/g, "/").toLowerCase();
-      const nBase = norm(base);
-      const nPath = norm(absPath);
-      if (nPath.startsWith(nBase)) {
-        const rel = nPath.substring(nBase.length);
-        const data = await readFile(rel, { baseDir: BaseDirectory.AppData });
-        const blob = new Blob([data], { type: "audio/wav" });
-        return URL.createObjectURL(blob);
-      }
-    } catch {}
-
-    try {
-      const bytes = await invoke("read_file_bytes", { path: absPath });
-      if (bytes) {
-        const blob = new Blob([new Uint8Array(bytes)], { type: "audio/wav" });
-        return URL.createObjectURL(blob);
-      }
-    } catch {}
-
-    if (typeof fetch === "function") {
-      try {
-        const src = convertFileSrc(absPath);
-        const response = await fetch(src);
-        if (response.ok) {
-          const blob = await response.blob();
-          return URL.createObjectURL(blob);
-        }
-      } catch {}
-    }
-
-    return "";
-  }, []);
 
   useEffect(() => {
     if (!sharedReady || restoredRef.current) return undefined;
