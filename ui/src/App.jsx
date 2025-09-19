@@ -23,6 +23,7 @@ import Snake from './pages/Snake.jsx';
 import BrickBreaker from './pages/BrickBreaker.jsx';
 import AlbumMaker from './pages/AlbumMaker.jsx';
 import Calendar from './pages/Calendar.jsx';
+import GeneralChat from './pages/GeneralChat.jsx';
 
 export default function App() {
   return (
@@ -44,6 +45,7 @@ export default function App() {
         <Route path="/train" element={<Train />} />
         <Route path="/tools" element={<Tools />} />
         <Route path="/calendar" element={<Calendar />} />
+        <Route path="/chat" element={<GeneralChat />} />
         <Route path="/queue" element={<Queue />} />
         <Route path="/fusion" element={<Fusion />} />
         <Route path="/loopmaker" element={<LoopMaker />} />
