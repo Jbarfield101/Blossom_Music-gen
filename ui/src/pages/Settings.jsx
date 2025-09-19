@@ -260,7 +260,11 @@ export default function Settings() {
             <select
               id="whisper-select"
               value={whisper.selected || ""}
-              onChange={(e) => apiSetWhisper(e.target.value)}
+              onChange={async (e) => {
+                const value = e.target.value;
+                setWhisper((prev) => ({ ...prev, selected: value }));
+                await apiSetWhisper(value);
+              }}
             >
               {whisper.options.map((o) => (
                 <option key={o} value={o}>
@@ -310,7 +314,11 @@ export default function Settings() {
             <select
               id="llm-select"
               value={llm.selected || ""}
-              onChange={(e) => apiSetLlm(e.target.value)}
+              onChange={async (e) => {
+                const value = e.target.value;
+                setLlm((prev) => ({ ...prev, selected: value }));
+                await apiSetLlm(value);
+              }}
             >
               {llm.options.map((o) => (
                 <option key={o} value={o}>
@@ -329,12 +337,18 @@ export default function Settings() {
               <select
                 id="input-device"
                 value={input.selected || ""}
-                onChange={(e) =>
-                  apiSetDevices({
-                    input: Number(e.target.value),
-                    output: output.selected,
-                  })
-                }
+                onChange={async (e) => {
+                  const value = Number(e.target.value);
+                  const currentOutput = output.selected;
+                  setInput((prev) => ({ ...prev, selected: value }));
+                  setOutput((prev) =>
+                    prev.selected === currentOutput ? prev : { ...prev, selected: currentOutput }
+                  );
+                  await apiSetDevices({
+                    input: value,
+                    output: currentOutput,
+                  });
+                }}
               >
                 {input.options.map((o) => (
                   <option key={o.id} value={o.id}>
@@ -348,12 +362,18 @@ export default function Settings() {
               <select
                 id="output-device"
                 value={output.selected || ""}
-                onChange={(e) =>
-                  apiSetDevices({
-                    input: input.selected,
-                    output: Number(e.target.value),
-                  })
-                }
+                onChange={async (e) => {
+                  const value = Number(e.target.value);
+                  const currentInput = input.selected;
+                  setOutput((prev) => ({ ...prev, selected: value }));
+                  setInput((prev) =>
+                    prev.selected === currentInput ? prev : { ...prev, selected: currentInput }
+                  );
+                  await apiSetDevices({
+                    input: currentInput,
+                    output: value,
+                  });
+                }}
               >
                 {output.options.map((o) => (
                   <option key={o.id} value={o.id}>
