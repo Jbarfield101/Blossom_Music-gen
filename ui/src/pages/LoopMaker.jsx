@@ -59,6 +59,16 @@ const extensionFromMime = (mimeType, fallbackMimeType) => {
   return 'webm';
 };
 
+function sanitizeName(s) {
+  if (typeof s !== 'string') return '';
+  let out = '';
+  for (const ch of s) {
+    if (/^[a-zA-Z0-9 _-]$/.test(ch)) out += ch;
+    else out += '_';
+  }
+  return out.trim().replace(/\.+$/g, '').substring(0, 120) || 'loop';
+}
+
 const MAX_CONCAT_DURATION_SECONDS = 60 * 60 * 3; // 3 hours of video
 const MAX_CONCAT_FALLBACK_LOOPS = 2048;
 
@@ -1556,12 +1566,3 @@ export default function LoopMaker() {
     </div>
   );
 }
-  const sanitizeName = useCallback((s) => {
-    if (typeof s !== 'string') return '';
-    let out = '';
-    for (const ch of s) {
-      if (/^[a-zA-Z0-9 _-]$/.test(ch)) out += ch;
-      else out += '_';
-    }
-    return out.trim().replace(/\.+$/g, '').substring(0, 120) || 'loop';
-  }, []);
