@@ -75,7 +75,7 @@ export default function Settings() {
   useEffect(() => {
     (async () => {
       try {
-        const store = new Store("users.json");
+        const store = await Store.load("users.json");
         const cur = await store.get("currentUser");
         if (typeof cur === "string") setCurrentUser(cur);
       } catch (e) {
@@ -385,10 +385,11 @@ export default function Settings() {
               type="button"
               onClick={async () => {
                 try {
-                  const store = new Store('users.json');
+                  const store = await Store.load('users.json');
                   await store.delete('currentUser');
                   await store.save();
                   setCurrentUser('');
+                  localStorage.removeItem('blossom.currentUser');
                   location.reload();
                 } catch (e) {
                   console.error('Failed to clear current user', e);

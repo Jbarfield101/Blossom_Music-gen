@@ -686,7 +686,7 @@ export default function BeatMaker() {
                 loops: parsedLoops || 1,
                 sourceName: file?.name || '',
                 downloadName,
-                savedPath,
+                savedPath: savePath,
                 savedToDisk: true,
                 resultDuration,
                 status: `Saved successfully to ${savePath}`,

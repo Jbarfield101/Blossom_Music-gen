@@ -34,7 +34,7 @@ function UserSelectorOverlay({ onClose }) {
   useEffect(() => {
     (async () => {
       try {
-        const store = new Store('users.json');
+        const store = await Store.load('users.json');
         const list = await store.get('users');
         setUsers(Array.isArray(list) ? list.filter((v) => typeof v === 'string' && v) : []);
       } catch (e) {
@@ -45,9 +45,10 @@ function UserSelectorOverlay({ onClose }) {
 
   const choose = async (who) => {
     try {
-      const store = new Store('users.json');
+      const store = await Store.load('users.json');
       await store.set('currentUser', who);
       await store.save();
+      localStorage.setItem('blossom.currentUser', who);
       onClose?.();
     } catch (e) {
       console.error('Failed to set current user', e);
@@ -59,13 +60,14 @@ function UserSelectorOverlay({ onClose }) {
     const trimmed = name.trim();
     if (!trimmed) return;
     try {
-      const store = new Store('users.json');
+      const store = await Store.load('users.json');
       const list = await store.get('users');
       const next = Array.isArray(list) ? list.slice() : [];
       if (!next.includes(trimmed)) next.push(trimmed);
       await store.set('users', next);
       await store.set('currentUser', trimmed);
       await store.save();
+      localStorage.setItem('blossom.currentUser', trimmed);
       onClose?.();
     } catch (e) {
       console.error('Failed to create user', e);
@@ -105,9 +107,18 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const store = new Store('users.json');
+        const cached = localStorage.getItem('blossom.currentUser');
+        if (cached && typeof cached === 'string') {
+          setNeedsUser(false);
+          return;
+        }
+        const store = await Store.load('users.json');
         const current = await store.get('currentUser');
-        setNeedsUser(!(typeof current === 'string' && current));
+        const has = typeof current === 'string' && current;
+        if (has) {
+          localStorage.setItem('blossom.currentUser', current);
+        }
+        setNeedsUser(!has);
       } catch (e) {
         console.warn('Failed to read current user', e);
       }

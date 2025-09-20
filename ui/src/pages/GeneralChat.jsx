@@ -41,11 +41,19 @@ export default function GeneralChat() {
     // Load persona from a simple user store (users.json)
     (async () => {
       try {
+        const cached = localStorage.getItem('blossom.currentUser');
+        if (cached && typeof cached === 'string') {
+          setPersona(cached);
+          return;
+        }
         const { Store } = await import("@tauri-apps/plugin-store");
-        const store = new Store("users.json");
+        const store = await Store.load("users.json");
         const current = await store.get("currentUser");
         const name = typeof current === "string" ? current : "";
-        if (name) setPersona(name);
+        if (name) {
+          localStorage.setItem('blossom.currentUser', name);
+          setPersona(name);
+        }
       } catch (e) {
         console.warn("Failed to load persona", e);
       }
@@ -70,7 +78,9 @@ export default function GeneralChat() {
     setMessages((prev) => prev.concat([{ role: "user", content: prompt }]));
     setInput("");
     try {
-      const system = persona ? `You are ${persona}, a helpful on-device AI assistant named ${persona}. Be concise, friendly, and proactive.` : null;
+      const system = persona
+        ? `You are Blossom, a helpful on-device AI assistant named Blossom. The user's name is ${persona}. Refer to yourself as "Blossom" and address the user by their name when appropriate. Be concise, friendly, and proactive.`
+        : `You are Blossom, a helpful on-device AI assistant named Blossom. Be concise, friendly, and proactive.`;
       const reply = await invoke("generate_llm", { prompt, system });
       const text = typeof reply === "string" ? reply : String(reply || "");
       setMessages((prev) => prev.concat([{ role: "assistant", content: text }]))
@@ -159,7 +169,7 @@ export default function GeneralChat() {
       >
         {persona && (
           <div style={{ marginBottom: "0.5rem", fontSize: "0.9rem", opacity: 0.8 }}>
-            Persona: <strong>{persona}</strong>
+            User: <strong>{persona}</strong> • Assistant: <strong>Blossom</strong>
           </div>
         )}
         {messages.length === 0 ? (
