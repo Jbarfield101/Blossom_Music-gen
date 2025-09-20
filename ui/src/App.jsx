@@ -24,10 +24,100 @@ import BrickBreaker from './pages/BrickBreaker.jsx';
 import AlbumMaker from './pages/AlbumMaker.jsx';
 import Calendar from './pages/Calendar.jsx';
 import GeneralChat from './pages/GeneralChat.jsx';
+import { Store } from '@tauri-apps/plugin-store';
+import { useEffect, useState } from 'react';
+
+function UserSelectorOverlay({ onClose }) {
+  const [users, setUsers] = useState([]);
+  const [name, setName] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const store = new Store('users.json');
+        const list = await store.get('users');
+        setUsers(Array.isArray(list) ? list.filter((v) => typeof v === 'string' && v) : []);
+      } catch (e) {
+        console.warn('Failed to load users', e);
+      }
+    })();
+  }, []);
+
+  const choose = async (who) => {
+    try {
+      const store = new Store('users.json');
+      await store.set('currentUser', who);
+      await store.save();
+      onClose?.();
+    } catch (e) {
+      console.error('Failed to set current user', e);
+    }
+  };
+
+  const create = async (e) => {
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    try {
+      const store = new Store('users.json');
+      const list = await store.get('users');
+      const next = Array.isArray(list) ? list.slice() : [];
+      if (!next.includes(trimmed)) next.push(trimmed);
+      await store.set('users', next);
+      await store.set('currentUser', trimmed);
+      await store.save();
+      onClose?.();
+    } catch (e) {
+      console.error('Failed to create user', e);
+    }
+  };
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+      display: 'grid', placeItems: 'center', zIndex: 9999
+    }}>
+      <div style={{ background: 'var(--card-bg)', color: 'var(--text)', padding: '1rem', borderRadius: 8, minWidth: 360 }}>
+        <h2>Select User</h2>
+        {users.length > 0 ? (
+          <div style={{ display: 'grid', gap: '0.5rem', marginBottom: '0.75rem' }}>
+            {users.map((u) => (
+              <button key={u} className="p-sm" onClick={() => choose(u)}>{u}</button>
+            ))}
+          </div>
+        ) : (
+          <div style={{ opacity: 0.8, marginBottom: '0.5rem' }}>No users found.</div>
+        )}
+        <form onSubmit={create} style={{ display: 'grid', gap: '0.5rem' }}>
+          <label>
+            Create new user
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" className="p-sm" style={{ width: '100%' }} />
+          </label>
+          <button type="submit" className="p-sm">Create & Use</button>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
+  const [needsUser, setNeedsUser] = useState(false);
+  useEffect(() => {
+    (async () => {
+      try {
+        const store = new Store('users.json');
+        const current = await store.get('currentUser');
+        setNeedsUser(!(typeof current === 'string' && current));
+      } catch (e) {
+        console.warn('Failed to read current user', e);
+      }
+    })();
+  }, []);
   return (
     <>
+      {needsUser && (
+        <UserSelectorOverlay onClose={() => setNeedsUser(false)} />
+      )}
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/musicgen" element={<SoundLab />}>

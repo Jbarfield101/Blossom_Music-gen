@@ -36,6 +36,47 @@ mod util;
 use crate::commands::{album_concat, generate_musicgen, musicgen_env};
 use crate::util::list_from_dir;
 
+fn persistence_enabled() -> bool {
+    env::var("BLOSSOM_DISABLE_PERSIST").ok().as_deref() != Some("1")
+}
+
+#[tauri::command]
+fn generate_llm(prompt: String, system: Option<String>) -> Result<String, String> {
+    // Use the Python helper which streams from Ollama and concatenates the result
+    let mut cmd = python_command();
+    // Safely embed the prompt as a Python string literal
+    let prompt_literal = serde_json::to_string(&prompt).unwrap_or_else(|_| format!("{:?}", prompt));
+    let system_literal = system
+        .as_ref()
+        .and_then(|s| serde_json::to_string(s).ok())
+        .unwrap_or_else(|| "null".to_string());
+    let py = format!(
+        r#"import os, json, requests, sys
+url = "http://localhost:11434/api/generate"
+model = os.getenv("LLM_MODEL", os.getenv("OLLAMA_MODEL", "mistral"))
+payload = {{"model": model, "prompt": {prompt}, "stream": False}}
+system = {system}
+if isinstance(system, str) and system.strip():
+    payload["system"] = system
+try:
+    resp = requests.post(url, json=payload, timeout=60)
+    resp.raise_for_status()
+    data = resp.json()
+    print(data.get("response", ""))
+except Exception as e:
+    sys.stderr.write(str(e))
+    sys.exit(1)
+"#,
+        prompt = prompt_literal,
+        system = system_literal,
+    );
+    let output = cmd.arg("-c").arg(py).output().map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
 fn looks_like_project_root(dir: &Path) -> bool {
     [
         "pyproject.toml",
@@ -83,6 +124,15 @@ fn project_root() -> PathBuf {
 fn configure_python_command(cmd: &mut Command) {
     let root = project_root();
     cmd.current_dir(&root);
+    // Ensure unbuffered I/O so logs stream promptly to the UI
+    cmd.env("PYTHONUNBUFFERED", "1");
+    // Optional debug: print Python working directory and PYTHONPATH
+    if env::var("BLOSSOM_DEBUG").ok().as_deref() == Some("1") {
+        eprintln!(
+            "[blossom] python cwd: {}",
+            root.to_string_lossy()
+        );
+    }
     let mut pythonpath = root.clone().into_os_string();
     if let Some(existing) = env::var_os("PYTHONPATH") {
         if !existing.is_empty() {
@@ -94,13 +144,65 @@ fn configure_python_command(cmd: &mut Command) {
             pythonpath.push(existing);
         }
     }
+    // Capture a debug copy before moving into env
+    let pythonpath_dbg = pythonpath.to_string_lossy().to_string();
     cmd.env("PYTHONPATH", pythonpath);
+    if env::var("BLOSSOM_DEBUG").ok().as_deref() == Some("1") {
+        eprintln!("[blossom] PYTHONPATH: {}", pythonpath_dbg);
+    }
 }
 
 fn python_command() -> Command {
-    let mut cmd = Command::new("python");
-    configure_python_command(&mut cmd);
-    cmd
+    // Resolution priority:
+    // 1) BLOSSOM_PY (explicit override)
+    // 2) VIRTUAL_ENV python (active venv)
+    // 3) Windows: py -3.10 -u (explicit 3.10)
+    // 4) Fallback: python -u
+    if let Ok(custom) = env::var("BLOSSOM_PY") {
+        let mut cmd = Command::new(custom);
+        cmd.arg("-u");
+        configure_python_command(&mut cmd);
+        if env::var("BLOSSOM_DEBUG").ok().as_deref() == Some("1") {
+            eprintln!("[blossom] using BLOSSOM_PY interpreter");
+        }
+        return cmd;
+    }
+
+    if let Ok(venv) = env::var("VIRTUAL_ENV") {
+        #[cfg(target_os = "windows")]
+        let python_path = PathBuf::from(&venv).join("Scripts").join("python.exe");
+        #[cfg(not(target_os = "windows"))]
+        let python_path = PathBuf::from(&venv).join("bin").join("python");
+        let mut cmd = Command::new(python_path);
+        cmd.arg("-u");
+        configure_python_command(&mut cmd);
+        if env::var("BLOSSOM_DEBUG").ok().as_deref() == Some("1") {
+            eprintln!("[blossom] using VIRTUAL_ENV interpreter");
+        }
+        return cmd;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut cmd = Command::new("py");
+        cmd.arg("-3.10").arg("-u");
+        configure_python_command(&mut cmd);
+        if env::var("BLOSSOM_DEBUG").ok().as_deref() == Some("1") {
+            eprintln!("[blossom] using Windows py launcher for Python 3.10");
+        }
+        return cmd;
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut cmd = Command::new("python");
+        cmd.arg("-u");
+        configure_python_command(&mut cmd);
+        if env::var("BLOSSOM_DEBUG").ok().as_deref() == Some("1") {
+            eprintln!("[blossom] using system 'python' interpreter");
+        }
+        return cmd;
+    }
 }
 
 #[tauri::command]
@@ -1070,9 +1172,13 @@ impl JobRegistry {
             let mut queue = self.queue.lock().unwrap();
             queue.push_back(id);
         }
-        if let Err(err) = self.persist_queue() {
-            eprintln!("failed to persist job queue: {}", err);
-            return Err(err);
+        if persistence_enabled() {
+            if let Err(err) = self.persist_queue() {
+                eprintln!("failed to persist job queue: {}", err);
+                return Err(err);
+            }
+        } else {
+            eprintln!("[blossom] persistence disabled; skipping persist_queue on enqueue");
         }
         Ok(())
     }
@@ -1107,6 +1213,7 @@ impl JobRegistry {
                     }
                 };
                 if let Some((success, code)) = result {
+                    eprintln!("[blossom] job {} exited (success={}, code={:?})", id, success, code);
                     let registry = app_handle.state::<JobRegistry>();
                     registry.complete_job(&app_handle, id, success, code, false);
                     registry.maybe_start_jobs(&app_handle);
@@ -1161,7 +1268,12 @@ impl JobRegistry {
         cmd.args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+        eprintln!("[blossom] starting job {} with args: {:?}", id, args);
+        let mut child = cmd.spawn().map_err(|e| {
+            let msg = format!("Failed to spawn python process for job {}: {}", id, e);
+            eprintln!("[blossom] {}", msg);
+            msg
+        })?;
         let stdout_pipe = child.stdout.take();
         let stderr_pipe = child.stderr.take();
         {
@@ -1188,6 +1300,8 @@ impl JobRegistry {
                         }
                         lines.push_back(line.clone());
                     }
+                    // Also mirror to terminal stderr for troubleshooting
+                    eprintln!("[job {} stderr] {}", id, line);
                     let _ = app_handle.emit("logs::line", line.clone());
                 }
             });
@@ -1238,6 +1352,8 @@ impl JobRegistry {
                             queue_eta_seconds: None,
                         });
                     }
+                    // Mirror to terminal stdout for troubleshooting
+                    eprintln!("[job {} stdout] {}", id, line);
                     let _ = app_handle.emit("logs::line", line.clone());
                     let _ = app_handle.emit(&format!("progress::{}", id), event);
                 }
@@ -1277,9 +1393,11 @@ impl JobRegistry {
             let Some(id) = next_id else {
                 break;
             };
+        if persistence_enabled() {
             if let Err(err) = self.persist_queue() {
                 eprintln!("failed to persist job queue after dequeue: {}", err);
             }
+        }
             if let Err(err) = self.start_job_process(app, id) {
                 eprintln!("failed to start job {}: {}", id, err);
                 self.complete_job(app, id, false, None, false);
@@ -1296,15 +1414,34 @@ impl JobRegistry {
         exit_code: Option<i32>,
         cancelled: bool,
     ) {
+        eprintln!(
+            "[blossom] complete_job(id={}, success={}, cancelled={}, code={:?})",
+            id, success, cancelled, exit_code
+        );
+        eprintln!("[blossom] complete_job: remove_from_queue start id={}", id);
         if self.remove_from_queue(id) {
-            if let Err(err) = self.persist_queue() {
-                eprintln!("failed to persist job queue after removal: {}", err);
+            if persistence_enabled() {
+                if let Err(err) = self.persist_queue() {
+                    eprintln!("failed to persist job queue after removal: {}", err);
+                }
+            } else {
+                eprintln!("[blossom] persistence disabled; skipping queue persist after removal");
             }
         }
-        let mut maybe_record = None;
+        eprintln!("[blossom] complete_job: removed from queue id={}", id);
+        let mut maybe_record: Option<JobRecord> = None;
         let mut progress_update = None;
+        eprintln!("[blossom] complete_job: acquiring jobs lock id={}", id);
+        let mut captured: Option<(
+            Arc<Mutex<VecDeque<String>>>,
+            Arc<Mutex<VecDeque<String>>>,
+            Arc<Mutex<Vec<JobArtifact>>>,
+            Arc<Mutex<Option<JobProgressSnapshot>>>,
+            (Option<String>, Option<String>, Vec<String>, DateTime<Utc>, Option<DateTime<Utc>>, Option<DateTime<Utc>>, Option<bool>, Option<i32>, bool),
+        )> = None;
         {
             let mut jobs = self.jobs.lock().unwrap();
+            eprintln!("[blossom] complete_job: jobs lock acquired id={}", id);
             if let Some(job) = jobs.get_mut(&id) {
                 if job.finished_at.is_some() {
                     return;
@@ -1321,6 +1458,7 @@ impl JobRegistry {
                     let mut child_guard = job.child.lock().unwrap();
                     *child_guard = None;
                 }
+                eprintln!("[blossom] complete_job: checking artifact candidates id={}", id);
                 if job.artifacts.lock().map(|a| a.is_empty()).unwrap_or(true) {
                     let mut artifacts = job.artifacts.lock().unwrap();
                     for candidate in &job.artifact_candidates {
@@ -1332,6 +1470,7 @@ impl JobRegistry {
                         }
                     }
                 }
+                eprintln!("[blossom] complete_job: building progress snapshot id={}", id);
                 let mut progress = job.progress.lock().unwrap();
                 let mut snapshot = progress.clone().unwrap_or_default();
                 snapshot.queue_position = None;
@@ -1359,11 +1498,77 @@ impl JobRegistry {
                 }
                 *progress = Some(snapshot.clone());
                 progress_update = Some(snapshot);
-                maybe_record = Some(job.to_record(id));
+                eprintln!("[blossom] complete_job: preparing record fields id={}", id);
+                // Capture data and Arc handles, then build record after releasing jobs lock
+                captured = Some((
+                    job.stdout_excerpt.clone(),
+                    job.stderr_excerpt.clone(),
+                    job.artifacts.clone(),
+                    job.progress.clone(),
+                    (
+                        job.kind.clone(),
+                        job.label.clone(),
+                        job.args.clone(),
+                        job.created_at,
+                        job.started_at,
+                        job.finished_at,
+                        job.status,
+                        job.exit_code,
+                        job.cancelled,
+                    ),
+                ));
             }
         }
+        // If we captured handles, build the record outside of the jobs lock to avoid deadlocks
+        if let Some((stdout_arc, stderr_arc, artifacts_arc, progress_arc2, (
+            kind,
+            label,
+            args_clone,
+            created_at,
+            started_at,
+            finished_at,
+            success_val,
+            exit_code_val,
+            cancelled_val,
+        ))) = captured
+        {
+            eprintln!("[blossom] complete_job: building record outside lock id={}", id);
+            let stdout = stdout_arc
+                .lock()
+                .map(|buf| buf.iter().cloned().collect::<Vec<_>>())
+                .unwrap_or_default();
+            let stderr_lines = stderr_arc
+                .lock()
+                .map(|buf| buf.iter().cloned().collect::<Vec<_>>())
+                .unwrap_or_default();
+            let artifacts = artifacts_arc.lock().map(|items| items.clone()).unwrap_or_default();
+            let progress = progress_arc2.lock().map(|p| (*p).clone()).unwrap_or_default();
+            maybe_record = Some(JobRecord {
+                id,
+                kind,
+                label,
+                args: args_clone,
+                created_at,
+                started_at,
+                finished_at,
+                success: success_val,
+                exit_code: exit_code_val,
+                stdout_excerpt: stdout,
+                stderr_excerpt: stderr_lines,
+                artifacts,
+                progress,
+                cancelled: cancelled_val,
+            });
+            eprintln!("[blossom] complete_job: record built id={}", id);
+        }
         if let Some(record) = maybe_record {
-            self.push_history(record);
+            if persistence_enabled() {
+                eprintln!("[blossom] complete_job: pushing history id={}", id);
+                self.push_history(record);
+                eprintln!("[blossom] complete_job: pushed history id={}", id);
+            } else {
+                eprintln!("[blossom] persistence disabled; skipping push_history");
+            }
         }
         if let Some(snapshot) = progress_update {
             let event = ProgressEvent {
@@ -1376,9 +1581,13 @@ impl JobRegistry {
                 queue_position: snapshot.queue_position,
                 queue_eta_seconds: snapshot.queue_eta_seconds,
             };
+            eprintln!("[blossom] complete_job: emitting final progress id={}", id);
             let _ = app.emit(&format!("progress::{}", id), event);
+            eprintln!("[blossom] complete_job: emitted final progress id={}", id);
         }
+        eprintln!("[blossom] complete_job: updating queue positions id={}", id);
         self.update_queue_positions(app);
+        eprintln!("[blossom] complete_job finished for id={}", id);
     }
 
     fn cancel_job(&self, app: &AppHandle, job_id: u64) -> Result<(), String> {
@@ -1404,8 +1613,10 @@ impl JobRegistry {
             }
         }
         if was_pending && self.remove_from_queue(job_id) {
-            if let Err(err) = self.persist_queue() {
-                eprintln!("failed to persist job queue after cancellation: {}", err);
+            if persistence_enabled() {
+                if let Err(err) = self.persist_queue() {
+                    eprintln!("failed to persist job queue after cancellation: {}", err);
+                }
             }
         }
         if let Some(mut child) = child_to_kill {
@@ -1430,8 +1641,10 @@ impl JobRegistry {
                 history.pop_front();
             }
         }
-        if let Err(err) = self.persist_history() {
-            eprintln!("failed to persist job history: {}", err);
+        if persistence_enabled() {
+            if let Err(err) = self.persist_history() {
+                eprintln!("failed to persist job history: {}", err);
+            }
         }
     }
 
@@ -1451,8 +1664,10 @@ impl JobRegistry {
                 }
             }
         }
-        if let Err(err) = self.persist_history() {
-            eprintln!("failed to persist job history after prune: {}", err);
+        if persistence_enabled() {
+            if let Err(err) = self.persist_history() {
+                eprintln!("failed to persist job history after prune: {}", err);
+            }
         }
     }
 }
@@ -1882,6 +2097,18 @@ fn set_llm(app: AppHandle, model: String) -> Result<(), String> {
     app.emit("settings::models", json!({"llm": model}))
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+fn pull_llm(model: String) -> Result<String, String> {
+    // Run `ollama pull <model>` and return stdout/stderr text on success/failure
+    let output = Command::new("ollama").arg("pull").arg(&model).output().map_err(|e| e.to_string())?;
+    if output.status.success() {
+        let text = String::from_utf8_lossy(&output.stdout).to_string();
+        Ok(text)
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
 }
 
 #[tauri::command]
@@ -2487,11 +2714,11 @@ fn queue_musicgen_job(
         return Err("Duration must be greater than zero".into());
     }
 
-    let script = if Path::new("main_musicgen.py").exists() {
-        "main_musicgen.py".to_string()
-    } else {
-        "../main_musicgen.py".to_string()
-    };
+    // Always invoke the script from the project root to avoid relative path confusion.
+    let script = project_root()
+        .join("main_musicgen.py")
+        .to_string_lossy()
+        .to_string();
 
     let timestamp = Utc::now().format("%Y%m%d-%H%M%S").to_string();
     let default_dir = app
@@ -3070,6 +3297,8 @@ fn main() {
             album_concat,
             list_llm,
             set_llm,
+            pull_llm,
+            generate_llm,
             lore_list,
             npc_list,
             npc_save,

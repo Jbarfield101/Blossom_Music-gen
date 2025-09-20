@@ -270,7 +270,12 @@ def generate_music(
         )
         melody_reference = None
 
+    # Provide user-visible progress cues via stdout for the Tauri log panel.
     try:
+        try:
+            print(f"loading-model: {normalized_model}")
+        except Exception:
+            pass
         pipe = _get_pipeline(model_name)
     except Exception:
         raise
@@ -449,19 +454,29 @@ def generate_music(
             raise last_exc
         raise RuntimeError("Generation failed after retries")
 
-    try:
-        result = _generate_with_backoff(pipe, max_new_tokens)
+    def _extract_audio_and_rate(obj):
+        # Normalize pipeline outputs:
+        # - legacy list[dict]
+        # - dict
+        # - object attributes (e.g., AudioPipelineOutput)
+        if isinstance(obj, list):
+            item = obj[0]
+            return item["audio"], item["sampling_rate"]
+        if isinstance(obj, dict):
+            return obj["audio"], obj["sampling_rate"]
+        if hasattr(obj, "audio") and hasattr(obj, "sampling_rate"):
+            return getattr(obj, "audio"), getattr(obj, "sampling_rate")
+        raise TypeError(
+            "Unexpected result type from MusicGen pipeline: " f"{type(obj).__name__}"
+        )
 
-        if isinstance(result, list):
-            audio = result[0]["audio"]
-            sample_rate = result[0]["sampling_rate"]
-        elif isinstance(result, dict):
-            audio = result["audio"]
-            sample_rate = result["sampling_rate"]
-        else:
-            raise TypeError(
-                "Unexpected result type from MusicGen pipeline: " f"{type(result).__name__}"
-            )
+    try:
+        try:
+            print(f"generating: duration={duration:.0f}s temperature={temperature:.2f}")
+        except Exception:
+            pass
+        result = _generate_with_backoff(pipe, max_new_tokens)
+        audio, sample_rate = _extract_audio_and_rate(result)
     except Exception as exc:  # pragma: no cover - depends on HF pipeline
         # GPU-specific failures: retry on CPU once
         msg = str(exc)
@@ -479,16 +494,7 @@ def generate_music(
             pipe_cpu = _get_pipeline(model_name, device_override=-1)
             try:
                 result = _generate_with_backoff(pipe_cpu, max_new_tokens)
-                if isinstance(result, list):
-                    audio = result[0]["audio"]
-                    sample_rate = result[0]["sampling_rate"]
-                elif isinstance(result, dict):
-                    audio = result["audio"]
-                    sample_rate = result["sampling_rate"]
-                else:
-                    raise TypeError(
-                        "Unexpected result type from MusicGen pipeline: " f"{type(result).__name__}"
-                    )
+                audio, sample_rate = _extract_audio_and_rate(result)
             except Exception:
                 logger.exception("CPU retry failed as well")
                 raise
@@ -501,10 +507,18 @@ def generate_music(
     out_path = out_dir / f"musicgen_{int(time.time())}.wav"
 
     try:
+        try:
+            print(f"saving: {out_path}")
+        except Exception:
+            pass
         write_wav(out_path, sample_rate, audio)
     except Exception as exc:  # pragma: no cover - file system issues
         logger.exception("Failed to write %s: %s", out_path, exc)
         raise
 
     logger.info("Saved generated audio to %s", out_path.resolve())
+    try:
+        print(f"complete: {out_path}")
+    except Exception:
+        pass
     return str(out_path.resolve())

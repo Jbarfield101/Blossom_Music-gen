@@ -21,6 +21,7 @@ import {
 import { getVersion } from "../api/version";
 import LogPanel from "../components/LogPanel";
 import BackButton from "../components/BackButton.jsx";
+import { Store } from "@tauri-apps/plugin-store";
 import {
   setTheme,
   getTheme,
@@ -44,6 +45,7 @@ export default function Settings() {
   const [accent, setAccentState] = useState("#ff4d6d");
   const [baseFontSize, setBaseFontSizeState] = useState("16px");
   const [versions, setVersions] = useState({ app: "", python: "" });
+  const [currentUser, setCurrentUser] = useState("");
   const [vaultError, setVaultError] = useState("");
   const vaultRef = useRef("");
 
@@ -68,6 +70,18 @@ export default function Settings() {
       setBaseFontSizeState(size);
       setBaseFontSize(size);
     });
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const store = new Store("users.json");
+        const cur = await store.get("currentUser");
+        if (typeof cur === "string") setCurrentUser(cur);
+      } catch (e) {
+        console.warn("Failed to load current user", e);
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -362,6 +376,30 @@ export default function Settings() {
     <main className="settings">
       <BackButton />
       <h1>Settings</h1>
+      <section className="settings-section">
+        <fieldset>
+          <legend>Users</legend>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <div>Current user: <strong>{currentUser || 'None'}</strong></div>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const store = new Store('users.json');
+                  await store.delete('currentUser');
+                  await store.save();
+                  setCurrentUser('');
+                  location.reload();
+                } catch (e) {
+                  console.error('Failed to clear current user', e);
+                }
+              }}
+            >
+              Switch User
+            </button>
+          </div>
+        </fieldset>
+      </section>
       <section className="settings-section">
         <p>Vault path: {vault || "(none)"}</p>
         {vaultError && <p className="error">{vaultError}</p>}

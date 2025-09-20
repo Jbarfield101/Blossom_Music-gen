@@ -341,3 +341,43 @@ def test_get_pipeline_allows_supported_torch_versions(monkeypatch):
     pipe = musicgen_backend._get_pipeline("medium")
 
     assert pipe is not None
+
+
+def test_generate_music_accepts_object_output(monkeypatch, tmp_path):
+    class ObjOutput:
+        def __init__(self, audio, sampling_rate):
+            self.audio = audio
+            self.sampling_rate = sampling_rate
+
+    class DummyObjPipeline:
+        def __init__(self):
+            self.calls = []
+            self.model = SimpleNamespace(config=SimpleNamespace(max_position_embeddings=2048))
+
+        def __call__(self, prompt, preprocess_params=None, forward_params=None, generate_kwargs=None, **kwargs):
+            self.calls.append(generate_kwargs.get("max_new_tokens"))
+            return ObjOutput([0.0, 0.0, 0.0], 22050)
+
+    monkeypatch.setattr(musicgen_backend, "_PIPELINE_CACHE", {})
+    monkeypatch.setattr(musicgen_backend, "_get_pipeline", lambda *_a, **_kw: DummyObjPipeline())
+
+    written = {}
+
+    def fake_write_wav(path, sr, audio):
+        written["path"] = path
+        written["sr"] = sr
+        written["audio"] = audio
+
+    monkeypatch.setattr(musicgen_backend, "write_wav", fake_write_wav)
+
+    out = musicgen_backend.generate_music(
+        prompt="obj",
+        duration=1.0,
+        model_name="small",
+        temperature=1.0,
+        output_dir=str(tmp_path),
+    )
+
+    assert out
+    assert written["sr"] == 22050
+    assert isinstance(written["audio"], list) and len(written["audio"]) == 3

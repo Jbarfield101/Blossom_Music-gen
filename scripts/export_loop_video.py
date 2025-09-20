@@ -80,61 +80,37 @@ def main(argv: list[str] | None = None) -> int:
         f"Starting loop export for '{args.label or input_path.name}' → {output_path}"
     )
 
-    if full_loops >= 1 and not has_remainder:
-        concat_file = build_concat_file(input_path, full_loops)
-        try:
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
-                "-i",
-                str(concat_file),
-                "-c",
-                "copy",
-                str(output_path),
-            ]
-            try:
-                result = run_ffmpeg(cmd)
-            except RuntimeError as exc:
-                print(str(exc), file=sys.stderr)
-                return 1
-        finally:
-            try:
-                concat_file.unlink()
-            except OSError:
-                pass
-    else:
-        loops_nonneg = max(full_loops, 0)
-        cmd = ["ffmpeg", "-y"]
-        if loops_nonneg > 0:
-            cmd.extend(["-stream_loop", str(loops_nonneg)])
-        cmd.extend(["-i", str(input_path)])
-        cmd.extend(["-t", f"{max(args.target_seconds, 0.0):.3f}"])
-        cmd.extend(
-            [
-                "-c:v",
-                "libx264",
-                "-pix_fmt",
-                "yuv420p",
-                "-preset",
-                "veryfast",
-                "-crf",
-                "18",
-                "-c:a",
-                "aac",
-                "-b:a",
-                "192k",
-                str(output_path),
-            ]
-        )
-        try:
-            result = run_ffmpeg(cmd)
-        except RuntimeError as exc:
-            print(str(exc), file=sys.stderr)
-            return 1
+    # Always re-encode for robust MP4 output. Copy-concat can yield broken timestamps
+    # in MP4 containers, resulting in players reporting or playing only the first segment.
+    # Using -stream_loop with -t and encoding ensures a single continuous timeline.
+    loops_nonneg = max(full_loops, 0)
+    cmd = ["ffmpeg", "-y"]
+    if loops_nonneg > 0:
+        cmd.extend(["-stream_loop", str(loops_nonneg)])
+    cmd.extend(["-i", str(input_path)])
+    cmd.extend(["-t", f"{max(args.target_seconds, 0.0):.3f}"])
+    cmd.extend(
+        [
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "18",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            str(output_path),
+        ]
+    )
+    try:
+        result = run_ffmpeg(cmd)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
 
     if result.returncode != 0:
         stderr = (result.stderr or "").strip()

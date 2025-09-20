@@ -5,6 +5,7 @@ import { isTauri, invoke } from '@tauri-apps/api/core';
 import BackButton from '../components/BackButton.jsx';
 import { useSharedState, DEFAULT_LOOPMAKER_FORM } from '../lib/sharedState.jsx';
 import { useJobQueue } from '../lib/useJobQueue.js';
+import JobQueuePanel from "../components/JobQueuePanel.jsx";
 
 const OUTPUT_FORMAT_OPTIONS = [
   {
@@ -143,7 +144,8 @@ export default function LoopMaker() {
   const pollTimeoutRef = useRef(null);
   const jobRequestRef = useRef(null);
   const [jobId, setJobId] = useState(null);
-  const { refresh: refreshQueue } = useJobQueue(0);
+  // Poll the global job queue so loop exports appear in the queue UI
+  const { queue, refresh: refreshQueue } = useJobQueue(2000);
 
   const clearPollTimeout = useCallback(() => {
     if (pollTimeoutRef.current) {
@@ -1660,6 +1662,7 @@ export default function LoopMaker() {
     <div style={styles.page}>
       <BackButton />
       <h1>Loop Maker</h1>
+      <JobQueuePanel queue={queue} onCancel={(id) => invoke('cancel_job', { jobId: id })} activeId={jobId || undefined} />
       <p style={styles.description}>
         Upload a video clip, preview how it loops to reach a target duration, and
         save the rendered result once it&apos;s ready.
