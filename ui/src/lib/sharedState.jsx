@@ -120,19 +120,52 @@ export function SharedStateProvider({ children }) {
   const readyRef = useRef(false);
   const storeRef = useRef(null);
   const useLocalRef = useRef(false);
+  const closingRef = useRef(false);
 
   const persistState = useCallback(
     async (nextState) => {
-      if (!readyRef.current) return;
+      if (!readyRef.current || closingRef.current) return; // React StrictMode double-invokes providers, so guard cleanup races.
+
+      const persistToLocal = () => {
+        if (typeof window === 'undefined') return;
+        window.localStorage?.setItem(
+          LOCAL_STORAGE_KEY,
+          JSON.stringify(nextState)
+        );
+      };
+
       try {
-        if (storeRef.current) {
-          await storeRef.current.set(STORAGE_KEY, nextState);
-          await storeRef.current.save();
-        } else if (useLocalRef.current && typeof window !== 'undefined') {
-          window.localStorage?.setItem(
-            LOCAL_STORAGE_KEY,
-            JSON.stringify(nextState)
-          );
+        const store = storeRef.current;
+        if (store) {
+          try {
+            if (closingRef.current) return;
+            await store.set(STORAGE_KEY, nextState);
+            if (closingRef.current) return;
+            await store.save();
+            return;
+          } catch (err) {
+            const message =
+              typeof err?.message === 'string' ? err.message.toLowerCase() : '';
+            if (message.includes('resource id') && message.includes('invalid')) {
+              // React StrictMode remounts can leave us with a stale store handle; fall back to localStorage.
+              storeRef.current = null;
+              useLocalRef.current = true;
+              try {
+                persistToLocal();
+              } catch (storageErr) {
+                console.warn(
+                  'Failed to persist shared state to localStorage fallback',
+                  storageErr
+                );
+              }
+              return;
+            }
+            throw err;
+          }
+        }
+
+        if (useLocalRef.current) {
+          persistToLocal();
         }
       } catch (err) {
         console.warn('Failed to persist shared state', err);
@@ -143,6 +176,7 @@ export function SharedStateProvider({ children }) {
 
   useEffect(() => {
     let cancelled = false;
+    closingRef.current = false;
 
     const load = async () => {
       const defaults = defaultStateRef.current;
@@ -201,6 +235,7 @@ export function SharedStateProvider({ children }) {
 
     return () => {
       cancelled = true;
+      closingRef.current = true;
       const store = storeRef.current;
       storeRef.current = null;
       if (store) {
