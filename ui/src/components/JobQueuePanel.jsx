@@ -16,7 +16,7 @@ function formatSeconds(value) {
   )}`;
 }
 
-export default function JobQueuePanel({ queue, onCancel, activeId }) {
+export default function JobQueuePanel({ queue = [], onCancel, activeId } = {}) {
   if (!Array.isArray(queue) || queue.length === 0) {
     return null;
   }
@@ -82,8 +82,3 @@ export default function JobQueuePanel({ queue, onCancel, activeId }) {
   );
 }
 
-JobQueuePanel.defaultProps = {
-  queue: [],
-  onCancel: undefined,
-  activeId: undefined,
-};
