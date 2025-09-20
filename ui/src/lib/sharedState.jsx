@@ -144,9 +144,14 @@ export function SharedStateProvider({ children }) {
             await store.save();
             return;
           } catch (err) {
-            const message =
-              typeof err?.message === 'string' ? err.message.toLowerCase() : '';
-            if (message.includes('resource id') && message.includes('invalid')) {
+            let rawMessage = '';
+            if (typeof err === 'string') {
+              rawMessage = err;
+            } else if (err && typeof err.message === 'string') {
+              rawMessage = err.message;
+            }
+            const normalizedMessage = rawMessage.toLowerCase();
+            if (normalizedMessage.includes('resource id') && normalizedMessage.includes('invalid')) {
               // React StrictMode remounts can leave us with a stale store handle; fall back to localStorage.
               storeRef.current = null;
               useLocalRef.current = true;
