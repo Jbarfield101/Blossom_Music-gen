@@ -1,0 +1,74 @@
+{
+  "B. Hardscrabble Oxley": {
+    "emotion": "neutral",
+    "speed": 1.0,
+    "tags": [
+      "storekeeper",
+      "intimate"
+    ],
+    "voice_id": "zQzvQBubVkDWYuqJYMFn"
+  },
+  "David": {
+    "emotion": "neutral",
+    "speed": 1.0,
+    "tags": [
+      "Epic",
+      "expensive"
+    ],
+    "voice_id": "FF7KdobWPaiR0vkcALHF"
+  },
+  "Demon Monster": {
+    "emotion": "neutral",
+    "speed": 1.0,
+    "tags": [
+      "expensive",
+      "demon",
+      "evil"
+    ],
+    "voice_id": "vfaqCOvlrKi4Zp7C2IAm"
+  },
+  "Grandfather Joe": {
+    "emotion": "neutral",
+    "speed": 1.0,
+    "tags": [
+      "gentle",
+      "warm",
+      "wise",
+      "storyteller"
+    ],
+    "voice_id": "0lp4RIz96WD1RUtvEu3Q"
+  },
+  "James": {
+    "emotion": "neutral",
+    "speed": 1.0,
+    "tags": [
+      "npc"
+    ],
+    "voice_id": "EkK5I93UQWFDigLMpZcX"
+  },
+  "Jessica": {
+    "emotion": "neutral",
+    "speed": 1.0,
+    "tags": [
+      "npc"
+    ],
+    "voice_id": "flHkNRp1BlvT73UL6gyz"
+  },
+  "Oracle": {
+    "emotion": "neutral",
+    "speed": 1.0,
+    "tags": [
+      "narrator"
+    ],
+    "voice_id": "1hlpeD1ydbI2ow0Tt3EW"
+  },
+  "Pirate": {
+    "emotion": "neutral",
+    "speed": 1.0,
+    "tags": [
+      "Sea",
+      "Pirate"
+    ],
+    "voice_id": "PPzYpIqttlTYA83688JI"
+  }
+}

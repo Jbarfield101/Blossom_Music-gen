@@ -152,6 +152,27 @@ fn configure_python_command(cmd: &mut Command) {
     }
 }
 
+#[tauri::command]
+fn write_discord_token(token: String) -> Result<(), String> {
+    let root = project_root();
+    let dir = root.join("config");
+    if let Err(e) = fs::create_dir_all(&dir) {
+        // Continue if directory exists or cannot be created; file write may still succeed when dir exists.
+        if e.kind() != ErrorKind::AlreadyExists {
+            return Err(e.to_string());
+        }
+    }
+    let path = dir.join("discord_token.txt");
+    fs::write(&path, token).map_err(|e| e.to_string())?;
+    // Best-effort set read-only; ignore errors on platforms that disallow it.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o444));
+    }
+    Ok(())
+}
+
 fn python_command() -> Command {
     // Resolution priority:
     // 1) BLOSSOM_PY (explicit override)
@@ -1686,6 +1707,240 @@ fn list_presets() -> Result<Vec<String>, String> {
 #[tauri::command]
 fn list_styles() -> Result<Vec<String>, String> {
     list_from_dir(Path::new("assets/styles"))
+}
+
+// Settings store accessor (shared with config.rs pattern)
+fn settings_store(app: &AppHandle) -> Result<Arc<Store<tauri::Wry>>, String> {
+    let path = app
+        .path()
+        .app_config_dir()
+        .map_err(|_| "Unable to resolve app config directory".to_string())?
+        .join("settings.json");
+    StoreBuilder::new(app, path)
+        .build()
+        .map_err(|e| e.to_string())
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct InboxItem {
+    path: String,
+    name: String,
+    title: String,
+    size: u64,
+    modified_ms: i64,
+    preview: Option<String>,
+}
+
+fn read_first_paragraph(text: &str, max_len: usize) -> Option<String> {
+    let norm = text.replace("\r\n", "\n");
+    let mut parts = norm.splitn(2, "\n\n");
+    let first = parts.next().unwrap_or("").trim();
+    if first.is_empty() {
+        return None;
+    }
+    let snippet = if first.len() > max_len {
+        let mut s = first[..max_len].to_string();
+        s.push_str("…");
+        s
+    } else {
+        first.to_string()
+    };
+    Some(snippet)
+}
+
+#[tauri::command]
+fn inbox_list(app: AppHandle, path: Option<String>) -> Result<Vec<InboxItem>, String> {
+    // Resolve base path: explicit param > vaultPath + 00_Inbox
+    let base_dir = if let Some(p) = path.filter(|s| !s.trim().is_empty()) {
+        PathBuf::from(p)
+    } else {
+        let store = settings_store(&app)?;
+        let vault = store
+            .get("vaultPath")
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .ok_or_else(|| "Vault path not set. Choose it in Settings.".to_string())?;
+        PathBuf::from(vault).join("00_Inbox")
+    };
+
+    if !base_dir.exists() {
+        return Err(format!(
+            "Inbox folder does not exist: {}",
+            base_dir.to_string_lossy()
+        ));
+    }
+    if !base_dir.is_dir() {
+        return Err(format!(
+            "Inbox path is not a directory: {}",
+            base_dir.to_string_lossy()
+        ));
+    }
+
+    let mut items: Vec<InboxItem> = Vec::new();
+    for entry in fs::read_dir(&base_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        let meta = match entry.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        if !meta.is_file() {
+            continue;
+        }
+        let name = match path.file_name().and_then(|s| s.to_str()) {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
+        let title = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&name)
+            .to_string();
+        let size = meta.len();
+        let modified_ms = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .map(|e| {
+                // Convert to an approximate ms since now - elapsed
+                let now = Utc::now();
+                let ago = ChronoDuration::from_std(e).unwrap_or_else(|_| ChronoDuration::seconds(0));
+                (now - ago).timestamp_millis()
+            })
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
+
+        // Try to read small preview
+        let preview = fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| read_first_paragraph(&t, 280));
+
+        items.push(InboxItem {
+            path: path.to_string_lossy().to_string(),
+            name,
+            title,
+            size,
+            modified_ms,
+            preview,
+        });
+    }
+
+    // Sort by modified desc, then name
+    items.sort_by(|a, b| b.modified_ms.cmp(&a.modified_ms).then(a.name.cmp(&b.name)));
+    Ok(items)
+}
+
+#[tauri::command]
+fn inbox_read(path: String) -> Result<String, String> {
+    let p = PathBuf::from(path);
+    if !p.exists() || !p.is_file() {
+        return Err("File not found".into());
+    }
+    fs::read_to_string(p).map_err(|e| e.to_string())
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct DirEntryItem {
+    path: String,
+    name: String,
+    is_dir: bool,
+    size: Option<u64>,
+    modified_ms: i64,
+}
+
+#[tauri::command]
+fn dir_list(path: String) -> Result<Vec<DirEntryItem>, String> {
+    let base = PathBuf::from(&path);
+    if !base.exists() {
+        return Err(format!("Path does not exist: {}", path));
+    }
+    if !base.is_dir() {
+        return Err(format!("Not a directory: {}", path));
+    }
+    let mut items: Vec<DirEntryItem> = Vec::new();
+    for entry in fs::read_dir(&base).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let p = entry.path();
+        let meta = match entry.metadata() { Ok(m) => m, Err(_) => continue };
+        let is_dir = meta.is_dir();
+        let name = match p.file_name().and_then(|s| s.to_str()) { Some(s) => s.to_string(), None => continue };
+        let modified_ms = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.elapsed().ok())
+            .map(|e| {
+                let now = Utc::now();
+                let ago = ChronoDuration::from_std(e).unwrap_or_else(|_| ChronoDuration::seconds(0));
+                (now - ago).timestamp_millis()
+            })
+            .unwrap_or_else(|| Utc::now().timestamp_millis());
+        let size = if is_dir { None } else { Some(meta.len()) };
+        items.push(DirEntryItem {
+            path: p.to_string_lossy().to_string(),
+            name,
+            is_dir,
+            size,
+            modified_ms,
+        });
+    }
+    // Sort: directories first by name, then files by name
+    items.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+    });
+    Ok(items)
+}
+
+#[tauri::command]
+fn monster_create(app: AppHandle, name: String, template: Option<String>) -> Result<String, String> {
+    // Determine Monsters directory
+    let store = settings_store(&app)?;
+    let vault = store
+        .get("vaultPath")
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
+    let monsters_dir = if let Some(v) = vault {
+        PathBuf::from(v).join("20_DM").join("Monsters")
+    } else {
+        PathBuf::from(r"D:\\Documents\\DreadHaven\\20_DM\\Monsters")
+    };
+    if !monsters_dir.exists() {
+        fs::create_dir_all(&monsters_dir).map_err(|e| e.to_string())?;
+    }
+
+    // Resolve template path
+    let template_path = template.unwrap_or_else(|| r"D:\\Documents\\DreadHaven\\_Templates\\Monster_Template.md".to_string());
+    let template_text = fs::read_to_string(&template_path)
+        .map_err(|e| format!("Failed to read template: {}", e))?;
+
+    // Build prompt for LLM
+    let prompt = format!(
+        "You are drafting a D&D 5e monster statblock. Using the TEMPLATE, fully populate it for a monster named \"{name}\".\n\nRules:\n- Keep Markdown structure, headings, lists, and YAML frontmatter.\n- Fill all placeholders with appropriate values.\n- Output only the completed markdown, no extra commentary.\n\nTEMPLATE:\n```\n{template}\n```",
+        name = name,
+        template = template_text
+    );
+    let system = Some("You are a meticulous editor that outputs only valid Markdown and YAML frontmatter.
+Include typical D&D 5e fields: type, size, alignment, AC, HP, speed, abilities, skills, senses, languages, CR, traits, actions. No OGL text.
+");
+    let content = generate_llm(prompt, system)?;
+
+    // Build a safe file name
+    let mut fname = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' })
+        .collect::<String>()
+        .trim()
+        .replace(' ', "_");
+    if fname.is_empty() { fname = "New_Monster".to_string(); }
+    let mut target = monsters_dir.join(format!("{}.md", fname));
+    let mut counter = 2;
+    while target.exists() {
+        target = monsters_dir.join(format!("{}_{}.md", fname, counter));
+        counter += 1;
+        if counter > 9999 { break; }
+    }
+
+    fs::write(&target, content.as_bytes()).map_err(|e| e.to_string())?;
+
+    Ok(target.to_string_lossy().to_string())
 }
 
 fn models_store<R: Runtime>(app: &AppHandle<R>) -> Result<Arc<Store<R>>, String> {
@@ -3278,6 +3533,10 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             list_presets,
             list_styles,
+            inbox_list,
+            inbox_read,
+            dir_list,
+            monster_create,
             list_whisper,
             set_whisper,
             list_piper,
@@ -3288,6 +3547,7 @@ fn main() {
             update_piper_profile,
             remove_piper_profile,
             piper_test,
+            write_discord_token,
             musicgen_test,
             generate_musicgen,
             musicgen_env,

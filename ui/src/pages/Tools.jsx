@@ -7,6 +7,9 @@ export default function Tools() {
       <BackButton />
       <h1>Tools</h1>
       <main className="dashboard">
+        <Card to="/tools/voices" icon="Mic2" title="AI Voice Labs">
+          Piper + ElevenLabs
+        </Card>
         <Card to="/fusion" icon="Atom" title="Fusion">
           Concept Combiner
         </Card>

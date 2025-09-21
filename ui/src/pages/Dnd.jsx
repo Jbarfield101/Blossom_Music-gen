@@ -4,6 +4,30 @@ import './Dnd.css';
 
 const sections = [
   {
+    to: '/dnd/inbox',
+    icon: 'Inbox',
+    title: 'Inbox',
+    description: 'Recently added or unfiled notes from your vault.',
+  },
+  {
+    to: '/dnd/world',
+    icon: 'Globe',
+    title: 'World',
+    description: 'Regions, locations, factions, and worldbuilding.',
+  },
+  {
+    to: '/dnd/dungeon-master',
+    icon: 'Crown',
+    title: 'Dungeon Master',
+    description: 'Session notes, encounters, initiatives, and tools.',
+  },
+  {
+    to: '/dnd/assets',
+    icon: 'Package',
+    title: 'Assets',
+    description: 'Images, maps, handouts, and reference materials.',
+  },
+  {
     to: '/dnd/lore',
     icon: 'BookOpen',
     title: 'Lore',
@@ -14,12 +38,6 @@ const sections = [
     icon: 'Users',
     title: 'NPCs',
     description: 'Create, edit, and manage your non-player characters.',
-  },
-  {
-    to: '/dnd/piper',
-    icon: 'Mic2',
-    title: 'AI Voices',
-    description: 'Discover voices and synthesize dialogue for your stories.',
   },
   {
     to: '/dnd/discord',

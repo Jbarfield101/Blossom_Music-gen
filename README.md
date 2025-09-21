@@ -327,6 +327,23 @@ The `mouth` package adds text-to-speech capabilities powered by
 speech to Discord voice channels or generate narration for other
 systems.
 
+### Secrets (API Keys)
+
+Blossom stores sensitive keys (like ElevenLabs and Discord) in a Tauri Store file named `secrets.json` under your app data directory. You don’t need to commit this file.
+
+Quick start:
+- Use the UI (AI Voice Labs) to paste your ElevenLabs key. It will be saved to `secrets.json` automatically.
+- Or create a `secrets.json` file manually in the app’s data directory with this shape:
+
+```
+{
+  "elevenlabs": { "apiKey": "..." },
+  "discord": { "botToken": "..." }
+}
+```
+
+There’s also a `secrets.example.json` at the project root to copy from. The actual location of the app data directory depends on your OS (e.g., `%APPDATA%` on Windows). If you prefer, share the values via the UI instead of editing files.
+
 ### Piper installation
 
 Install the `piper-tts` command-line tool and download at least one

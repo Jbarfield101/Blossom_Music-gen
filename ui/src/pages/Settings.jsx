@@ -401,6 +401,7 @@ export default function Settings() {
           </div>
         </fieldset>
       </section>
+      {/* AI Voice Labs links removed per request; now accessible via Tools only */}
       <section className="settings-section">
         <p>Vault path: {vault || "(none)"}</p>
         {vaultError && <p className="error">{vaultError}</p>}
@@ -432,7 +433,7 @@ export default function Settings() {
             </select>
           </div>
           <div>
-            <label htmlFor="piper-select">Piper voice</label>
+            <label htmlFor="piper-select">Default Blossom Voice</label>
             <button
               type="button"
               className="ml-sm"

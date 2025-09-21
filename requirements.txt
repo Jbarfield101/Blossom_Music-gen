@@ -11,6 +11,9 @@ faster-whisper
 pytest
 requests
 
+# ElevenLabs TTS
+elevenlabs
+
 faiss-cpu
 sentence-transformers
 watchfiles

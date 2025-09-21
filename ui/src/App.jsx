@@ -5,12 +5,30 @@ import DndChat from './pages/DndChat.jsx';
 import DndDiscord from './pages/DndDiscord.jsx';
 import DndLore from './pages/DndLore.jsx';
 import DndNpcs from './pages/DndNpcs.jsx';
-import DndPiper from './pages/DndPiper.jsx';
+import DndInbox from './pages/DndInbox.jsx';
+import DndWorld from './pages/DndWorld.jsx';
+import DndDungeonMaster from './pages/DndDungeonMaster.jsx';
+import DndAssets from './pages/DndAssets.jsx';
+import DndDmEvents from './pages/DndDmEvents.jsx';
+import DndDmMonsters from './pages/DndDmMonsters.jsx';
+import DndDmNpcs from './pages/DndDmNpcs.jsx';
+import DndDmPlayers from './pages/DndDmPlayers.jsx';
+import DndDmQuests from './pages/DndDmQuests.jsx';
+import DndDmQuestsFaction from './pages/DndDmQuestsFaction.jsx';
+import DndDmQuestsMain from './pages/DndDmQuestsMain.jsx';
+import DndDmQuestsPersonal from './pages/DndDmQuestsPersonal.jsx';
+import DndDmQuestsSide from './pages/DndDmQuestsSide.jsx';
+import DndVoiceLabs from './pages/DndVoiceLabs.jsx';
+import DndPiperOnly from './pages/DndPiperOnly.jsx';
+import DndElevenLabs from './pages/DndElevenLabs.jsx';
+import ManageVoices from './pages/ManageVoices.jsx';
 import Settings from './pages/Settings.jsx';
 import Train from './pages/Train.jsx';
 import Profiles from './pages/Profiles.jsx';
 import MusicGen from './pages/MusicGen.jsx';
 import AlgorithmicGenerator from './pages/Generate.jsx';
+import DndWorldPantheon from './pages/DndWorldPantheon.jsx';
+import DndWorldRegions from './pages/DndWorldRegions.jsx';
 import SoundLab from './pages/SoundLab.jsx';
 import Queue from './pages/Queue.jsx';
 import Tools from './pages/Tools.jsx';
@@ -136,9 +154,30 @@ export default function App() {
           <Route path="algorithmic" element={<AlgorithmicGenerator />} />
         </Route>
         <Route path="/dnd" element={<Dnd />} />
+        <Route path="/dnd/inbox" element={<DndInbox />} />
+        <Route path="/dnd/world" element={<DndWorld />} />
+        <Route path="/dnd/world/pantheon" element={<DndWorldPantheon />} />
+        <Route path="/dnd/world/regions" element={<DndWorldRegions />} />
+        <Route path="/dnd/dungeon-master" element={<DndDungeonMaster />} />
+        <Route path="/dnd/dungeon-master/events" element={<DndDmEvents />} />
+        <Route path="/dnd/dungeon-master/monsters" element={<DndDmMonsters />} />
+        <Route path="/dnd/dungeon-master/npcs" element={<DndDmNpcs />} />
+        <Route path="/dnd/dungeon-master/players" element={<DndDmPlayers />} />
+        <Route path="/dnd/dungeon-master/quests" element={<DndDmQuests />} />
+        <Route path="/dnd/dungeon-master/quests/faction" element={<DndDmQuestsFaction />} />
+        <Route path="/dnd/dungeon-master/quests/main" element={<DndDmQuestsMain />} />
+        <Route path="/dnd/dungeon-master/quests/personal" element={<DndDmQuestsPersonal />} />
+        <Route path="/dnd/dungeon-master/quests/side" element={<DndDmQuestsSide />} />
+        <Route path="/dnd/assets" element={<DndAssets />} />
         <Route path="/dnd/lore" element={<DndLore />} />
         <Route path="/dnd/npcs" element={<DndNpcs />} />
-        <Route path="/dnd/piper" element={<DndPiper />} />
+        <Route path="/dnd/piper" element={<DndVoiceLabs />} />
+        <Route path="/dnd/piper/piper" element={<DndPiperOnly />} />
+        <Route path="/dnd/piper/eleven" element={<DndElevenLabs />} />
+        <Route path="/tools/voices" element={<DndVoiceLabs />} />
+        <Route path="/tools/voices/piper" element={<DndPiperOnly />} />
+        <Route path="/tools/voices/eleven" element={<DndElevenLabs />} />
+        <Route path="/tools/voices/manage" element={<ManageVoices />} />
         <Route path="/dnd/discord" element={<DndDiscord />} />
         <Route path="/dnd/chat" element={<DndChat />} />
         <Route path="/settings" element={<Settings />} />
