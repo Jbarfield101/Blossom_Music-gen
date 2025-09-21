@@ -10,6 +10,7 @@ import './Dnd.css';
 
 const DEFAULT_MONSTERS = 'D\\\\Documents\\\\DreadHaven\\\\20_DM\\\\Monsters'.replace(/\\\\/g, '\\\\');
 const DEFAULT_PORTRAITS = 'D\\\\Documents\\\\DreadHaven\\\\30_Assets\\\\Images\\\\Monster_Portraits'.replace(/\\\\/g, '\\\\');
+const MONSTER_TEMPLATE = 'D\\\\Documents\\\\DreadHaven\\\\_Templates\\\\Monster_Template.md';
 const IMG_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
 
 function formatDate(ms) {
@@ -50,6 +51,7 @@ export default function DndDmMonsters() {
   const [creating, setCreating] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
+  const [createError, setCreateError] = useState('');
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -79,6 +81,40 @@ export default function DndDmMonsters() {
       setLoading(false);
     }
   }, [activePath]);
+
+  const openCreateModal = () => {
+    if (creating) return;
+    setNewName('');
+    setCreateError('');
+    setShowCreate(true);
+  };
+
+  const dismissCreateModal = () => {
+    setShowCreate(false);
+    setNewName('');
+    setCreateError('');
+  };
+
+  const handleCreateSubmit = async (event) => {
+    event.preventDefault();
+    if (creating) return;
+    const name = newName.trim();
+    if (!name) {
+      setCreateError('Please enter a monster name.');
+      return;
+    }
+    try {
+      setCreating(true);
+      setCreateError('');
+      await createMonster(name, MONSTER_TEMPLATE);
+      dismissCreateModal();
+      await fetchItems();
+    } catch (e) {
+      setCreateError(e?.message || 'Failed to create monster.');
+    } finally {
+      setCreating(false);
+    }
+  };
 
   useEffect(() => { fetchItems(); }, [fetchItems]);
 
@@ -234,6 +270,9 @@ export default function DndDmMonsters() {
         <button type="button" onClick={fetchItems} disabled={loading}>
           {loading ? 'Loading…' : 'Refresh'}
         </button>
+        <button type="button" onClick={openCreateModal} disabled={creating}>
+          Add Monster
+        </button>
         {usingPath && <span className="muted">Folder: {usingPath}</span>}
         {error && <span className="error">{error}</span>}
       </div>
@@ -286,6 +325,53 @@ export default function DndDmMonsters() {
             ) : (
               <div className="muted">Loading…</div>
             )}
+          </div>
+        </div>
+      )}
+
+      {showCreate && (
+        <div
+          className="lightbox"
+          onClick={() => {
+            if (!creating) dismissCreateModal();
+          }}
+        >
+          <div
+            className="lightbox-panel monster-create-panel"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2>New Monster</h2>
+            <form className="monster-create-form" onSubmit={handleCreateSubmit}>
+              <label htmlFor="monster-name">
+                Monster Name
+                <input
+                  id="monster-name"
+                  type="text"
+                  value={newName}
+                  onChange={(event) => {
+                    setNewName(event.target.value);
+                    if (createError) setCreateError('');
+                  }}
+                  disabled={creating}
+                  autoFocus
+                />
+              </label>
+              {createError && <div className="error">{createError}</div>}
+              <div className="monster-create-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!creating) dismissCreateModal();
+                  }}
+                  disabled={creating}
+                >
+                  Cancel
+                </button>
+                <button type="submit" disabled={creating}>
+                  {creating ? 'Creating…' : 'Create'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
