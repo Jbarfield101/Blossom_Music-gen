@@ -1917,9 +1917,9 @@ fn monster_create(app: AppHandle, name: String, template: Option<String>) -> Res
         name = name,
         template = template_text
     );
-    let system = Some("You are a meticulous editor that outputs only valid Markdown and YAML frontmatter.
+    let system = Some(String::from("You are a meticulous editor that outputs only valid Markdown and YAML frontmatter.
 Include typical D&D 5e fields: type, size, alignment, AC, HP, speed, abilities, skills, senses, languages, CR, traits, actions. No OGL text.
-");
+"));
     let content = generate_llm(prompt, system)?;
 
     // Build a safe file name
