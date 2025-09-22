@@ -10,7 +10,7 @@ import './Dnd.css';
 
 const DEFAULT_MONSTERS = 'D\\\\Documents\\\\DreadHaven\\\\20_DM\\\\Monsters'.replace(/\\\\/g, '\\\\');
 const DEFAULT_PORTRAITS = 'D\\\\Documents\\\\DreadHaven\\\\30_Assets\\\\Images\\\\Monster_Portraits'.replace(/\\\\/g, '\\\\');
-const MONSTER_TEMPLATE = 'D\\\\Documents\\\\DreadHaven\\\\_Templates\\\\Monster_Template.md';
+const MONSTER_TEMPLATE = 'D\\\\Documents\\\\DreadHaven\\\\_Templates\\\\Monster Template + Universal (D&D 5e Statblock).md';
 const IMG_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
 
 function formatDate(ms) {

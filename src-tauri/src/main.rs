@@ -2082,7 +2082,9 @@ fn monster_create(app: AppHandle, name: String, template: Option<String>) -> Res
 
     // Resolve template path (be tolerant of malformed Windows paths and relative inputs)
     eprintln!("[blossom] monster_create: resolving template path");
-    let default_template = r"D:\\Documents\\DreadHaven\\_Templates\\Monster_Template.md".to_string();
+    let default_template =
+        r"D:\\Documents\\DreadHaven\\_Templates\\Monster Template + Universal (D&D 5e Statblock).md"
+            .to_string();
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Some(mut s) = template {
         eprintln!("[blossom] monster_create: raw template arg='{}'", s);
