@@ -197,7 +197,19 @@ export default function DndDmMonsters() {
 
   const selected = useMemo(() => items.find((i) => i.path === activePath), [items, activePath]);
 
-  // Extract monster type from frontmatter or simple `Type: ...` line
+  const sanitizeType = (raw) => {
+    let s = String(raw || '').trim();
+    if (!s) return '';
+    // Strip common markdown emphasis/backticks
+    s = s.replace(/[\*_`]+/g, '');
+    // Collapse whitespace and trim punctuation
+    s = s.replace(/\s+/g, ' ').replace(/^[:\-–—\s]+|[:\-–—\s]+$/g, '');
+    // Title-case words for nicer display
+    s = s.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase());
+    return s;
+  };
+
+  // Extract monster type from frontmatter or simple `Type: ...` line, then sanitize
   const extractMonsterType = (text) => {
     try {
       const src = String(text || '');
@@ -207,12 +219,12 @@ export default function DndDmMonsters() {
         const body = fm[1];
         const line = body.split(/\r?\n/).find((l) => /^\s*type\s*:/i.test(l));
         if (line) {
-          return line.split(':').slice(1).join(':').trim();
+          return sanitizeType(line.split(':').slice(1).join(':').trim());
         }
       }
       // Fallback: find a line `Type: something`
       const m = src.match(/\bType\s*:\s*([^\n\r]+)/i);
-      if (m) return m[1].trim();
+      if (m) return sanitizeType(m[1].trim());
     } catch {}
     return '';
   };
@@ -434,7 +446,7 @@ function MonsterDetails({ content, fileName, inferredType }) {
   const [fm, body] = parseFrontmatter(String(content || ''));
   const [kv, abil] = extractKV(String(content || ''));
   const title = fm.title || nameFromFile;
-  const type = fm.type || kv.type || inferredType || '';
+  const type = sanitizeType(fm.type || kv.type || inferredType || '');
   const normalizeCr = (val, fullSrc) => {
     const s = String(val || '');
     const m = s.match(/([0-9]+(?:\/[0-9]+)?)/);

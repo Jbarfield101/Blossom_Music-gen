@@ -1829,6 +1829,159 @@ fn inbox_list(app: AppHandle, path: Option<String>) -> Result<Vec<InboxItem>, St
 }
 
 #[tauri::command]
+fn npc_create(app: AppHandle, name: String, region: Option<String>, purpose: Option<String>, template: Option<String>, random_name: Option<bool>) -> Result<String, String> {
+    eprintln!("[blossom] npc_create: start name='{}', region={:?}, purpose={:?}, template={:?}", name, region, purpose, template);
+    // Resolve NPC base directory
+    let store = settings_store(&app).map_err(|e| { eprintln!("[blossom] npc_create: settings_store error: {}", e); e })?;
+    let vault = store
+        .get("vaultPath")
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
+    let base_dir = if let Some(ref v) = vault {
+        PathBuf::from(v).join("20_DM").join("NPC")
+    } else {
+        PathBuf::from(r"D:\\Documents\\DreadHaven\\20_DM\\NPC")
+    };
+    if !base_dir.exists() { fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?; }
+
+    // Build target directory from region (can be nested like "Bree/Inn")
+    let mut target_dir = base_dir.clone();
+    if let Some(r) = region.and_then(|s| if s.trim().is_empty() { None } else { Some(s) }) {
+        for part in r.replace("\\", "/").split('/') {
+            if part.trim().is_empty() { continue; }
+            target_dir = target_dir.join(part);
+        }
+    }
+    if !target_dir.exists() { fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?; }
+
+    // Safe filename
+    let mut fname = name.chars().map(|c| if c.is_alphanumeric() || c==' ' || c=='-' || c=='_' { c } else { '_' }).collect::<String>().trim().replace(' ', "_");
+    if fname.is_empty() { fname = "New_NPC".to_string(); }
+    let mut target = target_dir.join(format!("{}.md", fname));
+    let mut counter = 2u32;
+    while target.exists() {
+        target = target_dir.join(format!("{}_{}.md", fname, counter));
+        counter += 1;
+        if counter > 9999 { break; }
+    }
+
+    // Resolve template path and load text (tolerant of spaces and variants)
+    eprintln!("[blossom] npc_create: resolving template path");
+    let default_template_a = r"D:\\Documents\\DreadHaven\\_Templates\\NPC Template.md".to_string();
+    let default_template_b = r"D:\\Documents\\DreadHaven\\_Templates\\NPC_Template.md".to_string();
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    let mut tried: Vec<String> = Vec::new();
+    if let Some(mut s) = template {
+        let mut ch = s.chars();
+        if let (Some(d), Some(sep)) = (ch.next(), ch.next()) {
+            if d.is_ascii_alphabetic() && sep == '\\' && !s.contains(":\\") {
+                let rest: String = s.chars().skip(2).collect();
+                s = format!("{}:\\{}", d, rest);
+            }
+        }
+        let p = PathBuf::from(&s);
+        if p.is_absolute() { candidates.push(p); }
+        if let Some(v) = &vault {
+            candidates.push(PathBuf::from(v).join("_Templates").join(&s));
+            candidates.push(PathBuf::from(v).join(&s));
+        }
+    }
+    if let Some(v) = &vault {
+        candidates.push(PathBuf::from(v).join("_Templates").join("NPC Template.md"));
+        candidates.push(PathBuf::from(v).join("_Templates").join("NPC_Template.md"));
+    }
+    candidates.push(PathBuf::from(&default_template_a));
+    candidates.push(PathBuf::from(&default_template_b));
+    let mut template_text: Option<String> = None;
+    for cand in candidates {
+        let s = cand.to_string_lossy().to_string();
+        tried.push(s.clone());
+        match fs::read_to_string(&cand) {
+            Ok(t) => { template_text = Some(t); break; }
+            Err(_) => {}
+        }
+    }
+    let now = Utc::now().format("%Y-%m-%d").to_string();
+    let location_str = target_dir.strip_prefix(&base_dir).ok().map(|p| p.to_string_lossy().to_string()).unwrap_or_default().replace('\\', "/");
+    let purpose_str = purpose.unwrap_or_default();
+    let use_random_name = random_name.unwrap_or(false) || name.trim().is_empty();
+
+    // Build LLM prompt using template (or a fallback structure)
+    let tpl = template_text.unwrap_or_else(|| {
+        String::from("---\nTitle: {{NAME}}\nLocation: {{LOCATION}}\nPurpose: {{PURPOSE}}\nDate: {{DATE}}\n---\n\n# {{NAME}}\n\n## Description\n\n## Personality\n\n## Goals\n\n## Hooks\n\n## Relationships\n\n## Secrets\n")
+    });
+    let prompt = if use_random_name {
+        format!(
+            "You are drafting a D&D NPC note. Using the TEMPLATE, fully populate it for an NPC appropriate to the location \"{location}\" with the role/purpose \"{purpose}\".\n\nRules:\n- Choose an evocative, setting-appropriate NPC name and set it consistently in all places ({{{{NAME}}}}, Title/frontmatter, headings).\n- Keep Markdown structure, headings, lists, and YAML/frontmatter as in the template.\n- Fill placeholders with specific details grounded in the location and purpose.\n- Provide short but rich sections: appearance, personality, goals, plot hooks, relationships, and any relevant secrets.\n- Avoid game-legal OGL text; keep it original and setting-agnostic.\n- Output only the completed markdown.\n\nTEMPLATE:\n```\n{template}\n```",
+            location = location_str,
+            purpose = purpose_str,
+            template = tpl
+        )
+    } else {
+        format!(
+            "You are drafting a D&D NPC note. Using the TEMPLATE, fully populate it for an NPC named \"{name}\". The NPC is located in \"{location}\" and has the role/purpose \"{purpose}\".\n\nRules:\n- Keep Markdown structure, headings, lists, and YAML/frontmatter as in the template.\n- Fill placeholders with evocative, specific details grounded in the location and purpose.\n- Provide short but rich sections: appearance, personality, goals, plot hooks, relationships, and any relevant secrets.\n- Avoid game-legal OGL text; keep it original and setting-agnostic.\n- Output only the completed markdown.\n\nTEMPLATE:\n```\n{template}\n```",
+            name = name,
+            location = location_str,
+            purpose = purpose_str,
+            template = tpl
+        )
+    };
+    let system = Some(String::from("You are a helpful worldbuilding assistant. Produce clean, cohesive Markdown. Keep a grounded tone; avoid overpowered traits."));
+    eprintln!("[blossom] npc_create: invoking LLM generation (ollama)");
+    let content = generate_llm(prompt, system)?;
+
+    // Determine filename
+    fn extract_title(src: &str) -> Option<String> {
+        let s = src.replace("\r\n", "\n");
+        if s.starts_with("---\n") {
+            if let Some(end) = s[4..].find("\n---") { // position of closing
+                let body = &s[4..4+end];
+                for line in body.lines() {
+                    let ln = line.trim();
+                    let lower = ln.to_ascii_lowercase();
+                    if lower.starts_with("title:") {
+                        return Some(ln.splitn(2, ':').nth(1).unwrap_or("").trim().to_string());
+                    }
+                    if lower.starts_with("name:") {
+                        return Some(ln.splitn(2, ':').nth(1).unwrap_or("").trim().to_string());
+                    }
+                }
+            }
+        }
+        for line in s.lines() {
+            let ln = line.trim();
+            if let Some(rest) = ln.strip_prefix('#') {
+                let rest = rest.trim_start_matches('#').trim();
+                if !rest.is_empty() { return Some(rest.to_string()); }
+            }
+        }
+        None
+    }
+
+    let effective_name = if use_random_name {
+        extract_title(&content).unwrap_or_else(|| "New_NPC".to_string())
+    } else { name.clone() };
+
+    // Safe filename and unique path
+    let mut fname = effective_name
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c==' ' || c=='-' || c=='_' { c } else { '_' })
+        .collect::<String>()
+        .trim()
+        .replace(' ', "_");
+    if fname.is_empty() { fname = "New_NPC".to_string(); }
+    let mut target = target_dir.join(format!("{}.md", fname));
+    let mut counter = 2u32;
+    while target.exists() {
+        target = target_dir.join(format!("{}_{}.md", fname, counter));
+        counter += 1;
+        if counter > 9999 { break; }
+    }
+
+    fs::write(&target, content.as_bytes()).map_err(|e| e.to_string())?;
+    eprintln!("[blossom] npc_create: wrote '{}'", target.to_string_lossy());
+    Ok(target.to_string_lossy().to_string())
+}
+#[tauri::command]
 fn inbox_read(path: String) -> Result<String, String> {
     let p = PathBuf::from(path);
     if !p.exists() || !p.is_file() {
@@ -1892,24 +2045,108 @@ fn dir_list(path: String) -> Result<Vec<DirEntryItem>, String> {
 
 #[tauri::command]
 fn monster_create(app: AppHandle, name: String, template: Option<String>) -> Result<String, String> {
+    eprintln!(
+        "[blossom] monster_create: start name='{}', template={:?}",
+        name, template
+    );
+
     // Determine Monsters directory
-    let store = settings_store(&app)?;
+    let store = settings_store(&app).map_err(|e| {
+        eprintln!("[blossom] monster_create: settings_store error: {}", e);
+        e
+    })?;
     let vault = store
         .get("vaultPath")
         .and_then(|v| v.as_str().map(|s| s.to_string()));
-    let monsters_dir = if let Some(v) = vault {
+    eprintln!("[blossom] monster_create: vaultPath={:?}", vault);
+    let monsters_dir = if let Some(ref v) = vault {
         PathBuf::from(v).join("20_DM").join("Monsters")
     } else {
         PathBuf::from(r"D:\\Documents\\DreadHaven\\20_DM\\Monsters")
     };
+    eprintln!(
+        "[blossom] monster_create: monsters_dir='{}'",
+        monsters_dir.to_string_lossy()
+    );
     if !monsters_dir.exists() {
-        fs::create_dir_all(&monsters_dir).map_err(|e| e.to_string())?;
+        eprintln!("[blossom] monster_create: creating monsters_dir");
+        fs::create_dir_all(&monsters_dir).map_err(|e| {
+            eprintln!(
+                "[blossom] monster_create: failed to create monsters_dir '{}': {}",
+                monsters_dir.to_string_lossy(),
+                e
+            );
+            e.to_string()
+        })?;
     }
 
-    // Resolve template path
-    let template_path = template.unwrap_or_else(|| r"D:\\Documents\\DreadHaven\\_Templates\\Monster_Template.md".to_string());
-    let template_text = fs::read_to_string(&template_path)
-        .map_err(|e| format!("Failed to read template: {}", e))?;
+    // Resolve template path (be tolerant of malformed Windows paths and relative inputs)
+    eprintln!("[blossom] monster_create: resolving template path");
+    let default_template = r"D:\\Documents\\DreadHaven\\_Templates\\Monster_Template.md".to_string();
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(mut s) = template {
+        eprintln!("[blossom] monster_create: raw template arg='{}'", s);
+        // Fix a common Windows input: "D\\path" (missing ":") -> "D:\\path"
+        let mut ch = s.chars();
+        if let (Some(drive), Some(sep)) = (ch.next(), ch.next()) {
+            if drive.is_ascii_alphabetic() && sep == '\\' && !s.contains(":\\") {
+                let rest: String = s.chars().skip(2).collect();
+                s = format!("{}:\\{}", drive, rest);
+                eprintln!("[blossom] monster_create: normalized Windows path -> '{}'", s);
+            }
+        }
+        let p = PathBuf::from(&s);
+        if p.is_absolute() {
+            candidates.push(p);
+        }
+        if let Some(v) = &vault {
+            candidates.push(PathBuf::from(v).join("_Templates").join(&s));
+            candidates.push(PathBuf::from(v).join(&s));
+        }
+    } else {
+        candidates.push(PathBuf::from(&default_template));
+    }
+    // Always try the default last as a safety net
+    candidates.push(PathBuf::from(&default_template));
+
+    // Try candidates in order
+    let mut template_text_opt: Option<String> = None;
+    let mut tried: Vec<String> = Vec::new();
+    let mut last_err: Option<String> = None;
+    for cand in candidates {
+        let cand_str = cand.to_string_lossy().to_string();
+        eprintln!("[blossom] monster_create: trying template candidate '{}'", cand_str);
+        tried.push(cand_str.clone());
+        match fs::read_to_string(&cand) {
+            Ok(t) => {
+                eprintln!(
+                    "[blossom] monster_create: template selected '{}' ({} bytes)",
+                    cand_str,
+                    t.len()
+                );
+                template_text_opt = Some(t);
+                break;
+            }
+            Err(e) => {
+                eprintln!(
+                    "[blossom] monster_create: candidate failed '{}': {}",
+                    cand_str, e
+                );
+                last_err = Some(e.to_string());
+            }
+        }
+    }
+    let template_text = match template_text_opt {
+        Some(t) => t,
+        None => {
+            let summary = tried.join("; ");
+            let last = last_err.unwrap_or_else(|| "unknown error".to_string());
+            return Err(format!(
+                "Failed to read template. Tried: {}. Last error: {}",
+                summary, last
+            ));
+        }
+    };
 
     // Build prompt for LLM
     let prompt = format!(
@@ -1917,10 +2154,20 @@ fn monster_create(app: AppHandle, name: String, template: Option<String>) -> Res
         name = name,
         template = template_text
     );
-    let system = Some(String::from("You are a meticulous editor that outputs only valid Markdown and YAML frontmatter.
-Include typical D&D 5e fields: type, size, alignment, AC, HP, speed, abilities, skills, senses, languages, CR, traits, actions. No OGL text.
-"));
-    let content = generate_llm(prompt, system)?;
+    let system = Some(String::from(
+        "You are a meticulous editor that outputs only valid Markdown and YAML frontmatter.\nInclude typical D&D 5e fields: type, size, alignment, AC, HP, speed, abilities, skills, senses, languages, CR, traits, actions. No OGL text.\n"
+    ));
+    eprintln!("[blossom] monster_create: invoking LLM generation");
+    let content = match generate_llm(prompt, system) {
+        Ok(c) => {
+            eprintln!("[blossom] monster_create: LLM returned ({} bytes)", c.len());
+            c
+        }
+        Err(e) => {
+            eprintln!("[blossom] monster_create: LLM generation failed: {}", e);
+            return Err(e);
+        }
+    };
 
     // Build a safe file name
     let mut fname = name
@@ -1937,8 +2184,20 @@ Include typical D&D 5e fields: type, size, alignment, AC, HP, speed, abilities, 
         counter += 1;
         if counter > 9999 { break; }
     }
+    eprintln!(
+        "[blossom] monster_create: writing file to '{}'",
+        target.to_string_lossy()
+    );
 
-    fs::write(&target, content.as_bytes()).map_err(|e| e.to_string())?;
+    fs::write(&target, content.as_bytes()).map_err(|e| {
+        eprintln!(
+            "[blossom] monster_create: failed to write file '{}': {}",
+            target.to_string_lossy(),
+            e
+        );
+        e.to_string()
+    })?;
+    eprintln!("[blossom] monster_create: completed -> '{}'", target.to_string_lossy());
 
     Ok(target.to_string_lossy().to_string())
 }
@@ -3537,6 +3796,7 @@ fn main() {
             inbox_read,
             dir_list,
             monster_create,
+            npc_create,
             list_whisper,
             set_whisper,
             list_piper,
