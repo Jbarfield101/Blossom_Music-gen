@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "test": "node --test --loader ./tests/jsx-loader.mjs"
   },
   "dependencies": {
     "@fontsource/urbanist": "^5.2.7",
