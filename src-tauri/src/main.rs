@@ -36,6 +36,74 @@ mod util;
 use crate::commands::{album_concat, generate_musicgen, musicgen_env};
 use crate::util::list_from_dir;
 
+fn strip_code_fence(s: &str) -> &str {
+    let mut trimmed = s.trim();
+    if !trimmed.starts_with("```") {
+        return trimmed;
+    }
+
+    trimmed = &trimmed[3..];
+
+    if let Some(without_close) = trimmed.strip_suffix("```") {
+        trimmed = without_close;
+    }
+
+    trimmed = trimmed.trim_matches(|c| c == '\r' || c == '\n');
+
+    if let Some(idx) = trimmed.find('\n') {
+        let (first_line, remainder) = trimmed.split_at(idx + 1);
+        let first_line_trimmed = first_line.trim_matches(|c| c == '\r' || c == '\n');
+        let remainder_trimmed = remainder.trim_start_matches(|c| c == '\r' || c == '\n');
+        let remainder_head = remainder_trimmed.trim_start();
+        let remainder_is_markdown = remainder_head.starts_with("---")
+            || remainder_head.starts_with('#')
+            || remainder_head.starts_with('*')
+            || remainder_head.starts_with('-')
+            || remainder_head.starts_with('>')
+            || remainder_head.starts_with('[')
+            || remainder_head.starts_with('!')
+            || remainder_head
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_digit())
+                .unwrap_or(false);
+        let first_line_looks_like_lang = !first_line_trimmed.is_empty()
+            && first_line_trimmed
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric());
+
+        if first_line_trimmed.is_empty()
+            || (first_line_looks_like_lang && (remainder_trimmed.is_empty() || remainder_is_markdown))
+        {
+            return remainder_trimmed.trim();
+        }
+    }
+
+    trimmed.trim()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strip_code_fence;
+
+    #[test]
+    fn preserves_plain_text() {
+        assert_eq!(strip_code_fence("  Hello world  "), "Hello world");
+    }
+
+    #[test]
+    fn strips_markdown_fence_with_language() {
+        let input = "```markdown\n---\nTitle: Example\n```\n";
+        assert_eq!(strip_code_fence(input), "---\nTitle: Example");
+    }
+
+    #[test]
+    fn strips_basic_fence() {
+        let input = "```\n# Heading\n```";
+        assert_eq!(strip_code_fence(input), "# Heading");
+    }
+}
+
 fn persistence_enabled() -> bool {
     env::var("BLOSSOM_DISABLE_PERSIST").ok().as_deref() != Some("1")
 }
@@ -1928,6 +1996,7 @@ fn npc_create(app: AppHandle, name: String, region: Option<String>, purpose: Opt
     let system = Some(String::from("You are a helpful worldbuilding assistant. Produce clean, cohesive Markdown. Keep a grounded tone; avoid overpowered traits."));
     eprintln!("[blossom] npc_create: invoking LLM generation (ollama)");
     let content = generate_llm(prompt, system)?;
+    let content = strip_code_fence(&content).to_string();
 
     // Determine filename
     fn extract_title(src: &str) -> Option<String> {
@@ -2170,6 +2239,7 @@ fn monster_create(app: AppHandle, name: String, template: Option<String>) -> Res
             return Err(e);
         }
     };
+    let content = strip_code_fence(&content).to_string();
 
     // Build a safe file name
     let mut fname = name
