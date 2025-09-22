@@ -36,6 +36,7 @@ import MusicGen from './pages/MusicGen.jsx';
 import AlgorithmicGenerator from './pages/Generate.jsx';
 import DndWorldPantheon from './pages/DndWorldPantheon.jsx';
 import DndWorldRegions from './pages/DndWorldRegions.jsx';
+import DndWorldFactions from './pages/DndWorldFactions.jsx';
 import SoundLab from './pages/SoundLab.jsx';
 import Queue from './pages/Queue.jsx';
 import Tools from './pages/Tools.jsx';
@@ -169,6 +170,7 @@ export default function App() {
         <Route path="/dnd/world" element={<DndWorld />} />
         <Route path="/dnd/world/pantheon" element={<DndWorldPantheon />} />
         <Route path="/dnd/world/regions" element={<DndWorldRegions />} />
+        <Route path="/dnd/world/factions" element={<DndWorldFactions />} />
         <Route path="/dnd/lore/secrets" element={<DndLoreSecrets />} />
         <Route path="/dnd/lore/journal" element={<DndLoreJournal />} />
         <Route path="/dnd/tasks" element={<DndTasks />} />

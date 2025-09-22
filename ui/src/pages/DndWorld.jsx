@@ -15,6 +15,12 @@ const sections = [
     title: 'Regions',
     description: 'Continents, nations, cities, and locales.',
   },
+  {
+    to: '/dnd/world/factions',
+    icon: 'Shield',
+    title: 'Factions',
+    description: 'Organizations, alliances, and power blocs.',
+  },
 ];
 
 export default function DndWorld() {
