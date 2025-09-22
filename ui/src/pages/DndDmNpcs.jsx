@@ -40,6 +40,10 @@ export default function DndDmNpcs() {
   const [modalOpen, setModalOpen] = useState(false);
   const [activePath, setActivePath] = useState('');
   const [activeContent, setActiveContent] = useState('');
+  const [activeMeta, setActiveMeta] = useState({});
+  const [activeBody, setActiveBody] = useState('');
+  const [metaNotice, setMetaNotice] = useState('');
+  const [metaDismissed, setMetaDismissed] = useState(false);
   const [locations, setLocations] = useState({});
   const [portraitIndex, setPortraitIndex] = useState({});
   const [portraitUrls, setPortraitUrls] = useState({});
@@ -52,6 +56,46 @@ export default function DndDmNpcs() {
   const [customPurpose, setCustomPurpose] = useState('');
   const [createError, setCreateError] = useState('');
   const [regionOptions, setRegionOptions] = useState([]);
+
+  const parseNpcFrontmatter = useCallback((src) => {
+    const text = typeof src === 'string' ? src : '';
+    const trimmed = text.trim();
+    if (!trimmed || /^failed to load file/i.test(trimmed)) {
+      return [{}, text, ''];
+    }
+    const hasOpening = /^---/.test(trimmed);
+    const match = text.match(/^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n?([\s\S]*)$/);
+    if (!match) {
+      const message = hasOpening
+        ? 'The NPC metadata block could not be parsed. Chips may be incomplete.'
+        : 'No NPC metadata frontmatter was found. Chips may be incomplete.';
+      return [{}, text, message];
+    }
+    const lines = match[1].split(/\r?\n/);
+    const meta = {};
+    const stray = [];
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#')) continue;
+      const mm = rawLine.match(/^\s*([A-Za-z0-9_][A-Za-z0-9_ \-]*)\s*:\s*(.*)$/);
+      if (mm) {
+        const key = mm[1].trim().toLowerCase().replace(/\s+/g, '_');
+        const rawVal = mm[2].trim();
+        const value = rawVal.replace(/^['"]|['"]$/g, '').trim();
+        if (value) meta[key] = value;
+      } else {
+        stray.push(line);
+      }
+    }
+    const body = (match[2] || '').replace(/^\s*[\r\n]+/, '');
+    let issue = '';
+    if (Object.keys(meta).length === 0) {
+      issue = 'The NPC metadata block was empty. Chips may be incomplete.';
+    } else if (stray.length) {
+      issue = 'Some NPC metadata entries could not be parsed. Chips may be incomplete.';
+    }
+    return [meta, body, issue];
+  }, []);
 
   const crawl = useCallback(async (root) => {
     const out = [];
@@ -264,17 +308,138 @@ export default function DndDmNpcs() {
 
   const selected = useMemo(() => items.find((i) => i.path === activePath), [items, activePath]);
 
+  const metadataChips = useMemo(() => {
+    const meta = activeMeta || {};
+    const chips = [];
+    const usedKeys = new Set();
+    const seen = new Set();
+    const plan = [
+      { keys: ['aliases', 'alias'], split: /[,;|]/, prefix: '' },
+      { keys: ['pronouns', 'pronoun'], prefix: 'Pronouns: ' },
+      { keys: ['tags', 'tag', 'keywords', 'keyword'], split: /[,;|]/, prefix: '' },
+      { keys: ['occupation', 'occupations', 'job', 'jobs', 'role', 'roles', 'profession', 'professions', 'position'], split: /[,;|]/, prefix: '' },
+      { keys: ['faction', 'factions', 'affiliation', 'affiliations', 'organization', 'organizations', 'group', 'groups', 'clan', 'guild'], split: /[,;|]/, prefix: '' },
+      { keys: ['race', 'ancestry', 'species', 'heritage', 'lineage'], prefix: '' },
+      { keys: ['demeanor', 'attitude', 'mood', 'vibe'], prefix: '' },
+      { keys: ['quirks', 'quirk', 'traits', 'trait'], split: /[,;|]/, prefix: '' },
+      { keys: ['status'], prefix: 'Status: ' },
+      { keys: ['rank'], prefix: 'Rank: ' },
+      { keys: ['age'], prefix: 'Age: ' },
+      { keys: ['gender'], prefix: 'Gender: ' },
+    ];
+    const ignore = new Set(['title', 'name', 'location', 'summary', 'description', 'notes', 'body', 'portrait', 'image', 'img', 'thumbnail']);
+    const formatKey = (key) => key
+      .split('_')
+      .map((part) => (part ? part.charAt(0).toUpperCase() + part.slice(1) : ''))
+      .join(' ')
+      .trim();
+    const addValues = (rawValue, key, { prefix, split }) => {
+      if (rawValue === undefined || rawValue === null) return;
+      const str = String(rawValue);
+      if (!str.trim()) return;
+      const parts = split ? str.split(split) : [str];
+      let added = false;
+      for (const part of parts) {
+        const clean = sanitizeChip(part);
+        if (!clean) continue;
+        const label = prefix === undefined
+          ? `${formatKey(key)}: ${clean}`
+          : prefix === '' ? clean : `${prefix}${clean}`;
+        const dedupeKey = `${key}:${label.toLowerCase()}`;
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+        chips.push({ id: dedupeKey, label });
+        added = true;
+      }
+      if (added) usedKeys.add(key);
+    };
+
+    plan.forEach((entry) => {
+      entry.keys.forEach((key) => {
+        if (meta[key] === undefined) return;
+        addValues(meta[key], key, entry);
+      });
+    });
+
+    Object.entries(meta).forEach(([key, value]) => {
+      if (value === undefined || value === null) return;
+      if (usedKeys.has(key)) return;
+      if (ignore.has(key)) return;
+      const clean = sanitizeChip(value);
+      if (!clean) return;
+      const label = `${formatKey(key)}: ${clean}`;
+      const dedupeKey = `${key}:${label.toLowerCase()}`;
+      if (seen.has(dedupeKey)) return;
+      seen.add(dedupeKey);
+      chips.push({ id: dedupeKey, label });
+    });
+
+    return chips;
+  }, [activeMeta]);
+
+  const locationLabel = useMemo(() => {
+    if (!selected) return '';
+    const metaLoc = sanitizeChip(activeMeta.location);
+    if (metaLoc) return metaLoc;
+    return locations[selected.path] || relLocation(usingPath, selected.path) || '';
+  }, [selected, activeMeta.location, locations, usingPath]);
+
+  const markdownSource = useMemo(() => {
+    const fallback = typeof activeContent === 'string' ? activeContent : '';
+    return activeBody || fallback;
+  }, [activeBody, activeContent]);
+
   useEffect(() => {
-    if (!activePath) { setActiveContent(''); return; }
+    let cancelled = false;
+    if (!activePath) {
+      setActiveContent('');
+      setActiveMeta({});
+      setActiveBody('');
+      setMetaNotice('');
+      setMetaDismissed(false);
+      return () => { cancelled = true; };
+    }
+    setActiveContent('');
+    setActiveMeta({});
+    setActiveBody('');
+    setMetaNotice('');
+    setMetaDismissed(false);
     (async () => {
       try {
         const text = await readInbox(activePath);
-        setActiveContent(text || '');
+        if (!cancelled) setActiveContent(text || '');
       } catch (e) {
-        setActiveContent('Failed to load file.');
+        if (!cancelled) setActiveContent('Failed to load file.');
       }
     })();
+    return () => { cancelled = true; };
   }, [activePath]);
+
+  useEffect(() => {
+    if (!selected) {
+      setActiveMeta({});
+      setActiveBody('');
+      if (metaNotice) setMetaNotice('');
+      return;
+    }
+    const text = typeof activeContent === 'string' ? activeContent : '';
+    if (!text.trim()) {
+      setActiveMeta({});
+      setActiveBody('');
+      if (metaNotice) setMetaNotice('');
+      return;
+    }
+    const [meta, body, issue] = parseNpcFrontmatter(text);
+    setActiveMeta(meta);
+    setActiveBody(body);
+    setMetaNotice(issue);
+  }, [selected, activeContent, parseNpcFrontmatter]);
+
+  useEffect(() => {
+    if (!metaNotice) {
+      setMetaDismissed(false);
+    }
+  }, [metaNotice]);
 
   return (
     <>
@@ -296,7 +461,12 @@ export default function DndDmNpcs() {
           <button
             key={item.path}
             className="pantheon-card"
-            onClick={() => { setActivePath(item.path); setModalOpen(true); }}
+            onClick={() => {
+              setActivePath(item.path);
+              setModalOpen(true);
+              setMetaDismissed(false);
+              setMetaNotice('');
+            }}
             title={item.path}
           >
             {portraitUrls[item.path] ? (
@@ -318,19 +488,47 @@ export default function DndDmNpcs() {
           <div className="lightbox-panel" onClick={(e) => e.stopPropagation()}>
             {selected ? (
               <>
-                <header className="inbox-reader-header">
-                  <h2 className="inbox-reader-title">{selected.title || selected.name}</h2>
-                  <div className="inbox-reader-meta">
-                    <span>{selected.name}</span>
-                    <span>·</span>
-                    <span>{locations[selected.path] || relLocation(usingPath, selected.path) || ''}</span>
+                <header className="inbox-reader-header npc-header">
+                  {portraitUrls[selected.path] ? (
+                    <img
+                      src={portraitUrls[selected.path]}
+                      alt={selected.title || selected.name}
+                      className="npc-portrait"
+                    />
+                  ) : (
+                    <div className="npc-portrait placeholder">?</div>
+                  )}
+                  <div className="npc-header-main">
+                    <h2 className="npc-name">{selected.title || selected.name}</h2>
+                    <div className="inbox-reader-meta">
+                      <span>{selected.name}</span>
+                      {locationLabel && (
+                        <>
+                          <span>·</span>
+                          <span>{locationLabel}</span>
+                        </>
+                      )}
+                    </div>
+                    {metadataChips.length > 0 && (
+                      <div className="npc-chips">
+                        {metadataChips.map((chip) => (
+                          <span key={chip.id} className="chip">{chip.label}</span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </header>
+                {metaNotice && !metaDismissed && (
+                  <div className="npc-banner">
+                    <span>{metaNotice}</span>
+                    <button type="button" onClick={() => setMetaDismissed(true)}>Dismiss</button>
+                  </div>
+                )}
                 <article className="inbox-reader-body">
                   {/\.(md|mdx|markdown)$/i.test(selected.name || '') ? (
-                    renderMarkdown(activeContent || 'Loading.')
+                    renderMarkdown(markdownSource || 'Loading.')
                   ) : (
-                    <pre className="inbox-reader-content">{activeContent || 'Loading.'}</pre>
+                    <pre className="inbox-reader-content">{markdownSource || 'Loading.'}</pre>
                   )}
                 </article>
               </>
