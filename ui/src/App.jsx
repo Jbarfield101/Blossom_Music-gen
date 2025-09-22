@@ -4,7 +4,6 @@ import Dnd from './pages/Dnd.jsx';
 import DndChat from './pages/DndChat.jsx';
 import DndDiscord from './pages/DndDiscord.jsx';
 import DndLore from './pages/DndLore.jsx';
-import DndNpcs from './pages/DndNpcs.jsx';
 import DndInbox from './pages/DndInbox.jsx';
 import DndWorld from './pages/DndWorld.jsx';
 import DndDungeonMaster from './pages/DndDungeonMaster.jsx';
@@ -22,7 +21,15 @@ import DndVoiceLabs from './pages/DndVoiceLabs.jsx';
 import DndPiperOnly from './pages/DndPiperOnly.jsx';
 import DndElevenLabs from './pages/DndElevenLabs.jsx';
 import ManageVoices from './pages/ManageVoices.jsx';
-import Settings from './pages/Settings.jsx';
+import Settings from './pages/SettingsHome.jsx';
+import SettingsAdvanced from './pages/Settings.jsx';
+import SettingsUsers from './pages/SettingsUsers.jsx';
+import SettingsVault from './pages/SettingsVault.jsx';
+import SettingsAppearance from './pages/SettingsAppearance.jsx';
+import SettingsModels from './pages/SettingsModels.jsx';
+import SettingsDevices from './pages/SettingsDevices.jsx';
+import SettingsHotwords from './pages/SettingsHotwords.jsx';
+import SettingsBackup from './pages/SettingsBackup.jsx';
 import Train from './pages/Train.jsx';
 import Profiles from './pages/Profiles.jsx';
 import MusicGen from './pages/MusicGen.jsx';
@@ -42,6 +49,10 @@ import BrickBreaker from './pages/BrickBreaker.jsx';
 import AlbumMaker from './pages/AlbumMaker.jsx';
 import Calendar from './pages/Calendar.jsx';
 import GeneralChat from './pages/GeneralChat.jsx';
+import DndTasks from './pages/DndTasks.jsx';
+import DndDmWorldInventory from './pages/DndDmWorldInventory.jsx';
+import DndLoreSecrets from './pages/DndLoreSecrets.jsx';
+import DndLoreJournal from './pages/DndLoreJournal.jsx';
 import { Store } from '@tauri-apps/plugin-store';
 import { useEffect, useState } from 'react';
 
@@ -158,6 +169,9 @@ export default function App() {
         <Route path="/dnd/world" element={<DndWorld />} />
         <Route path="/dnd/world/pantheon" element={<DndWorldPantheon />} />
         <Route path="/dnd/world/regions" element={<DndWorldRegions />} />
+        <Route path="/dnd/lore/secrets" element={<DndLoreSecrets />} />
+        <Route path="/dnd/lore/journal" element={<DndLoreJournal />} />
+        <Route path="/dnd/tasks" element={<DndTasks />} />
         <Route path="/dnd/dungeon-master" element={<DndDungeonMaster />} />
         <Route path="/dnd/dungeon-master/events" element={<DndDmEvents />} />
         <Route path="/dnd/dungeon-master/monsters" element={<DndDmMonsters />} />
@@ -168,9 +182,9 @@ export default function App() {
         <Route path="/dnd/dungeon-master/quests/main" element={<DndDmQuestsMain />} />
         <Route path="/dnd/dungeon-master/quests/personal" element={<DndDmQuestsPersonal />} />
         <Route path="/dnd/dungeon-master/quests/side" element={<DndDmQuestsSide />} />
+        <Route path="/dnd/dungeon-master/world-inventory" element={<DndDmWorldInventory />} />
         <Route path="/dnd/assets" element={<DndAssets />} />
         <Route path="/dnd/lore" element={<DndLore />} />
-        <Route path="/dnd/npcs" element={<DndNpcs />} />
         <Route path="/dnd/piper" element={<DndVoiceLabs />} />
         <Route path="/dnd/piper/piper" element={<DndPiperOnly />} />
         <Route path="/dnd/piper/eleven" element={<DndElevenLabs />} />
@@ -181,6 +195,14 @@ export default function App() {
         <Route path="/dnd/discord" element={<DndDiscord />} />
         <Route path="/dnd/chat" element={<DndChat />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/settings/users" element={<SettingsUsers />} />
+        <Route path="/settings/vault" element={<SettingsVault />} />
+        <Route path="/settings/appearance" element={<SettingsAppearance />} />
+        <Route path="/settings/models" element={<SettingsModels />} />
+        <Route path="/settings/devices" element={<SettingsDevices />} />
+        <Route path="/settings/hotwords" element={<SettingsHotwords />} />
+        <Route path="/settings/backup" element={<SettingsBackup />} />
+        <Route path="/settings/advanced" element={<SettingsAdvanced />} />
         <Route path="/profiles" element={<Profiles />} />
         <Route path="/train" element={<Train />} />
         <Route path="/tools" element={<Tools />} />

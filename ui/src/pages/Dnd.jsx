@@ -34,10 +34,10 @@ const sections = [
     description: 'Browse campaign lore entries gathered by Blossom.',
   },
   {
-    to: '/dnd/npcs',
-    icon: 'Users',
-    title: 'NPCs',
-    description: 'Create, edit, and manage your non-player characters.',
+    to: '/dnd/tasks',
+    icon: 'ListTodo',
+    title: 'Tasks',
+    description: 'Track campaign todos and session tasks. (WIP)',
   },
   {
     to: '/dnd/discord',

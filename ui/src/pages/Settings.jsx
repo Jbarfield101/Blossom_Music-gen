@@ -182,7 +182,6 @@ export default function Settings() {
         return;
       }
       const normalizedPath = path || "";
-      const shouldInvoke = Boolean(path) && path !== vaultRef.current;
 
       if (!active) {
         return;
@@ -193,29 +192,10 @@ export default function Settings() {
         return;
       }
 
-      if (path) {
-        if (shouldInvoke) {
-          try {
-            await invoke("select_vault", { path });
-            if (!active) {
-              return;
-            }
-            setVaultError("");
-          } catch (err) {
-            console.error("Failed to start vault watcher", err);
-            if (!active) {
-              return;
-            }
-            setVaultError(
-              "Failed to start the vault watcher automatically. Please choose the vault again.",
-            );
-          }
-        } else if (active) {
-          setVaultError("");
-        }
-      } else if (active) {
-        setVaultError("");
-      }
+      // Do not auto-start the vault watcher on load to avoid UI jank.
+      // We only update the displayed path here; selecting a new vault via the button
+      // will explicitly invoke the watcher.
+      if (active) setVaultError("");
     };
 
     const reload = () =>
@@ -376,41 +356,7 @@ export default function Settings() {
     <main className="settings">
       <BackButton />
       <h1>Settings</h1>
-      <section className="settings-section">
-        <fieldset>
-          <legend>Users</legend>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <div>Current user: <strong>{currentUser || 'None'}</strong></div>
-            <button
-              type="button"
-              onClick={async () => {
-                try {
-                  const store = await Store.load('users.json');
-                  await store.delete('currentUser');
-                  await store.save();
-                  setCurrentUser('');
-                  localStorage.removeItem('blossom.currentUser');
-                  location.reload();
-                } catch (e) {
-                  console.error('Failed to clear current user', e);
-                }
-              }}
-            >
-              Switch User
-            </button>
-          </div>
-        </fieldset>
-      </section>
-      {/* AI Voice Labs links removed per request; now accessible via Tools only */}
-      <section className="settings-section">
-        <p>Vault path: {vault || "(none)"}</p>
-        {vaultError && <p className="error">{vaultError}</p>}
-        <div className="button-row">
-          <button type="button" onClick={chooseVault}>
-            Choose Vault
-          </button>
-        </div>
-      </section>
+      {/* Users and Vault moved to dedicated cards/pages */}
       <section className="settings-section">
         <fieldset>
           <legend>Models</legend>

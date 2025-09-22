@@ -393,6 +393,17 @@ export default function DndDmMonsters() {
 
 function MonsterDetails({ content, fileName, inferredType }) {
   const nameFromFile = String(fileName || '').replace(/\.[^.]+$/, '');
+  // Local copy to avoid referencing outer component scope
+  const sanitizeType = (raw) => {
+    let s = String(raw || '').trim();
+    if (!s) return '';
+    s = s.replace(/[\*_`]+/g, '');
+    // Collapse whitespace and trim common punctuation (colon, hyphen, en/em dash)
+    s = s.replace(/\s+/g, ' ').replace(/^[:\-–—\s]+|[:\-–—\s]+$/g, '');
+    // Title-case words for nicer display
+    s = s.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase());
+    return s;
+  };
   const parseFrontmatter = (src) => {
     const m = src.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
     if (!m) return [{}, src];

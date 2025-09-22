@@ -8,6 +8,7 @@ const sections = [
   { to: '/dnd/dungeon-master/npcs', icon: 'Users', title: 'NPCs', description: 'Quick access to important NPC notes.' },
   { to: '/dnd/dungeon-master/players', icon: 'User', title: 'Players', description: 'PC sheets, bonds, and party info.' },
   { to: '/dnd/dungeon-master/quests', icon: 'ScrollText', title: 'Quests', description: 'Active, pending, and completed quests.' },
+  { to: '/dnd/dungeon-master/world-inventory', icon: 'Boxes', title: 'World Inventory', description: 'Under construction' },
 ];
 
 export default function DndDungeonMaster() {
