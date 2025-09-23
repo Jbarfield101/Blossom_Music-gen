@@ -4,11 +4,17 @@ import { invoke } from '@tauri-apps/api/core';
 import BackButton from '../components/BackButton.jsx';
 import './Dnd.css';
 
+const ELEVEN_MODEL_OPTIONS = [
+  'eleven_multilingual_v3',
+  'eleven_multilingual_v2',
+  'eleven_turbo_v2',
+];
+
 export default function DndElevenLabs() {
   const [apiKey, setApiKey] = useState('');
   const [profiles, setProfiles] = useState([]);
   const [selectedName, setSelectedName] = useState('');
-  const [modelId, setModelId] = useState('eleven_multilingual_v2');
+  const [modelId, setModelId] = useState(ELEVEN_MODEL_OPTIONS[0]);
   const [text, setText] = useState('');
   const [audioUrl, setAudioUrl] = useState('');
   const [error, setError] = useState('');
@@ -86,8 +92,9 @@ export default function DndElevenLabs() {
               onChange={(e) => setModelId(e.target.value)}
               style={{ marginLeft: '0.5rem' }}
             >
-              <option value="eleven_multilingual_v2">eleven_multilingual_v2</option>
-              <option value="eleven_turbo_v2">eleven_turbo_v2</option>
+              {ELEVEN_MODEL_OPTIONS.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
             </select>
           </label>
         </div>
