@@ -57,13 +57,14 @@ def search_chunks(
         if "vector_id" not in cols:
             return []
         if tags:
-            placeholders = ",".join("?" * len(tags))
+            normalized_tags = [tag.lower() for tag in tags]
+            placeholders = ",".join("?" * len(normalized_tags))
             sql = (
                 "SELECT id, vector_id FROM chunks "
-                f"WHERE id IN (SELECT DISTINCT chunk_id FROM tags WHERE tag IN ({placeholders})) "
+                f"WHERE id IN (SELECT DISTINCT chunk_id FROM tags WHERE LOWER(tag) IN ({placeholders})) "
                 "AND vector_id IS NOT NULL"
             )
-            rows = conn.execute(sql, tags).fetchall()
+            rows = conn.execute(sql, normalized_tags).fetchall()
         else:
             rows = conn.execute(
                 "SELECT id, vector_id FROM chunks WHERE vector_id IS NOT NULL"

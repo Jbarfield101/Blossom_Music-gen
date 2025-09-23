@@ -90,7 +90,10 @@ def search(query: str, tags: List[str] | None = None) -> List[Dict[str, Any]]:
 
     _, db_path, index_path = _paths()
     _ensure_chunks_db_ready(db_path)
-    results = search_chunks(query, db_path, index_path, tags=tags, top_k=5)
+    normalized_tags = [tag.lower() for tag in tags] if tags else None
+    results = search_chunks(
+        query, db_path, index_path, tags=normalized_tags, top_k=5
+    )
     if not results:
         return []
 
