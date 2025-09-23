@@ -502,6 +502,13 @@
 .monster-create-form label { display: grid; gap: 0.35rem; font-weight: 600; }
 .monster-create-form input { padding: 0.55rem 0.7rem; border-radius: 8px; border: 1px solid #1f2937; background: rgba(15, 23, 42, 0.9); color: var(--text); }
 .monster-create-form input:disabled { opacity: 0.6; }
+.monster-create-form select,
+.monster-create-form textarea { padding: 0.55rem 0.7rem; border-radius: 8px; border: 1px solid #1f2937; background: rgba(15, 23, 42, 0.9); color: var(--text); }
+.monster-create-form select:disabled,
+.monster-create-form textarea:disabled { opacity: 0.6; }
+.monster-create-shopkeeper { display: grid; gap: 0.75rem; padding: 0.85rem; border-radius: 10px; border: 1px solid #1f2937; background: rgba(15, 23, 42, 0.6); }
+.monster-create-shopkeeper button { align-self: flex-start; }
+.monster-create-shopkeeper-title { font-size: 0.8rem; letter-spacing: 0.05em; text-transform: uppercase; font-weight: 600; color: rgba(255, 255, 255, 0.75); }
 .monster-create-actions { display: flex; justify-content: flex-end; gap: 0.9rem; }
 
 /* Monster card portrait */

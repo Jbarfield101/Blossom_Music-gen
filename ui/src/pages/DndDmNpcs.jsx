@@ -56,6 +56,8 @@ export default function DndDmNpcs() {
   const [customPurpose, setCustomPurpose] = useState('');
   const [createError, setCreateError] = useState('');
   const [regionOptions, setRegionOptions] = useState([]);
+  const [establishmentName, setEstablishmentName] = useState('');
+  const [establishmentRecord, setEstablishmentRecord] = useState('');
 
   const parseNpcFrontmatter = useCallback((src) => {
     const text = typeof src === 'string' ? src : '';
@@ -197,6 +199,13 @@ export default function DndDmNpcs() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (selPurpose !== 'Shopkeeper') {
+      setEstablishmentName('');
+      setEstablishmentRecord('');
+    }
+  }, [selPurpose]);
 
   // Build portrait index from Assets folder (optional)
   useEffect(() => {
@@ -559,6 +568,8 @@ export default function DndDmNpcs() {
                 setSelRegion('');
                 setSelPurpose('');
                 setCustomPurpose('');
+                setEstablishmentName('');
+                setEstablishmentRecord('');
                 await fetchItems();
               } catch (err) {
                 setCreateError(err?.message || String(err));
@@ -591,6 +602,38 @@ export default function DndDmNpcs() {
                   <option value="__custom__">Custom…</option>
                 </select>
               </label>
+              {selPurpose === 'Shopkeeper' && (
+                <div className="monster-create-shopkeeper">
+                  <div className="monster-create-shopkeeper-title">Establishment Link</div>
+                  <p className="muted">
+                    Connect this shopkeeper to the storefront they manage. Linking support is coming soon,
+                    but you can note the establishment details here for reference.
+                  </p>
+                  <label>
+                    Establishment Name
+                    <input
+                      type="text"
+                      value={establishmentName}
+                      onChange={(e) => setEstablishmentName(e.target.value)}
+                      disabled={creating}
+                      placeholder="e.g. The Gilded Griffin General Store"
+                    />
+                  </label>
+                  <label>
+                    Existing Shop Record
+                    <select
+                      value={establishmentRecord}
+                      onChange={(e) => setEstablishmentRecord(e.target.value)}
+                      disabled
+                    >
+                      <option value="">Linking support coming soon</option>
+                    </select>
+                  </label>
+                  <button type="button" disabled>
+                    Connect to Establishment
+                  </button>
+                </div>
+              )}
               {selPurpose === '__custom__' && (
                 <label>
                   Custom purpose
