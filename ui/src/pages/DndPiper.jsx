@@ -8,6 +8,12 @@ import { appDataDir } from '@tauri-apps/api/path';
 import BackButton from '../components/BackButton.jsx';
 import './Dnd.css';
 
+const ELEVEN_MODEL_OPTIONS = [
+  'eleven_multilingual_v3',
+  'eleven_multilingual_v2',
+  'eleven_turbo_v2',
+];
+
 export default function DndPiper() {
   const [aiModel, setAiModel] = useState('piper');
   const [voices, setVoices] = useState([]);
@@ -15,6 +21,7 @@ export default function DndPiper() {
   const [elVoices, setElVoices] = useState([]);
   const [elevenVoice, setElevenVoice] = useState('');
   const [elevenApiKey, setElevenApiKey] = useState('');
+  const [elevenModelId, setElevenModelId] = useState(ELEVEN_MODEL_OPTIONS[0]);
   const [elStatus, setElStatus] = useState('');
   const [piperText, setPiperText] = useState('');
   const [piperAudio, setPiperAudio] = useState('');
@@ -355,6 +362,20 @@ export default function DndPiper() {
                 {elStatus && <span style={{ opacity: 0.85 }}>{elStatus}</span>}
               </div>
             )}
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <label>
+                Model
+                <select
+                  value={elevenModelId}
+                  onChange={(e) => setElevenModelId(e.target.value)}
+                  style={{ marginLeft: '0.5rem' }}
+                >
+                  {ELEVEN_MODEL_OPTIONS.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <select
               value={elevenVoice}
               onChange={(e) => {
@@ -400,6 +421,7 @@ export default function DndPiper() {
                     },
                     body: JSON.stringify({
                       text: piperText,
+                      model_id: elevenModelId,
                     }),
                   });
                   if (!res.ok) {
