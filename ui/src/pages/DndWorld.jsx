@@ -21,6 +21,12 @@ const sections = [
     title: 'Factions',
     description: 'Organizations, alliances, and power blocs.',
   },
+  {
+    to: '/dnd/world/bank',
+    icon: 'Coins',
+    title: 'Bank',
+    description: 'Treasury planning tools and ledgers.',
+  },
 ];
 
 export default function DndWorld() {
