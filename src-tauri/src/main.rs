@@ -712,6 +712,33 @@ fn lore_list() -> Result<Vec<LoreItem>, String> {
 }
 
 #[tauri::command]
+fn dnd_chat_message(message: String) -> Result<String, String> {
+    let mut cmd = python_command();
+    let message_literal =
+        serde_json::to_string(&message).unwrap_or_else(|_| format!("{:?}", message));
+    let script = format!(
+        r#"import sys
+from brain import dnd_chat
+try:
+    sys.stdout.write(dnd_chat.chat({message}))
+except Exception as exc:
+    sys.stderr.write(str(exc))
+    sys.exit(1)
+"#,
+        message = message_literal,
+    );
+    let output = cmd
+        .arg("-c")
+        .arg(script)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+#[tauri::command]
 fn npc_save(npc: Npc) -> Result<(), String> {
     let mut npcs = read_npcs()?;
     if let Some(existing) = npcs.iter_mut().find(|n| n.name == npc.name) {
@@ -3892,6 +3919,7 @@ fn main() {
             pull_llm,
             generate_llm,
             lore_list,
+            dnd_chat_message,
             npc_list,
             npc_save,
             npc_delete,
