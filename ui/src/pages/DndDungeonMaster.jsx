@@ -1,5 +1,6 @@
 import BackButton from '../components/BackButton.jsx';
 import Card from '../components/Card.jsx';
+import { TAGS } from '../lib/dndTags.js';
 import './Dnd.css';
 
 const sections = [
@@ -44,6 +45,12 @@ const sections = [
     icon: 'Boxes',
     title: 'World Inventory',
     description: 'Under construction',
+  },
+  {
+    to: '/dnd/dungeon-master/tag-manager',
+    icon: 'Tags',
+    title: 'Tag Manager',
+    description: TAGS.join(' · '),
   },
 ];
 
