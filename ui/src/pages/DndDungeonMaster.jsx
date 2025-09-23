@@ -3,12 +3,48 @@ import Card from '../components/Card.jsx';
 import './Dnd.css';
 
 const sections = [
-  { to: '/dnd/dungeon-master/events', icon: 'Calendar', title: 'Events', description: 'Session plans, timelines, and hooks.' },
-  { to: '/dnd/dungeon-master/monsters', icon: 'Skull', title: 'Monsters', description: 'Bestiary and custom creature notes.' },
-  { to: '/dnd/dungeon-master/npcs', icon: 'Users', title: 'NPCs', description: 'Quick access to important NPC notes.' },
-  { to: '/dnd/dungeon-master/players', icon: 'User', title: 'Players', description: 'PC sheets, bonds, and party info.' },
-  { to: '/dnd/dungeon-master/quests', icon: 'ScrollText', title: 'Quests', description: 'Active, pending, and completed quests.' },
-  { to: '/dnd/dungeon-master/world-inventory', icon: 'Boxes', title: 'World Inventory', description: 'Under construction' },
+  {
+    to: '/dnd/dungeon-master/events',
+    icon: 'Calendar',
+    title: 'Events',
+    description: 'Session plans, timelines, and hooks.',
+  },
+  {
+    to: '/dnd/dungeon-master/monsters',
+    icon: 'Skull',
+    title: 'Monsters',
+    description: 'Bestiary and custom creature notes.',
+  },
+  {
+    to: '/dnd/dungeon-master/npcs',
+    icon: 'Users',
+    title: 'NPCs',
+    description: 'Quick access to important NPC notes.',
+  },
+  {
+    to: '/dnd/dungeon-master/players',
+    icon: 'User',
+    title: 'Players',
+    description: 'PC sheets, bonds, and party info.',
+  },
+  {
+    to: '/dnd/dungeon-master/quests',
+    icon: 'ScrollText',
+    title: 'Quests',
+    description: 'Active, pending, and completed quests.',
+  },
+  {
+    to: '/dnd/dungeon-master/establishments',
+    icon: 'Building',
+    title: 'Establishment',
+    description: 'Taverns, shops, and notable businesses.',
+  },
+  {
+    to: '/dnd/dungeon-master/world-inventory',
+    icon: 'Boxes',
+    title: 'World Inventory',
+    description: 'Under construction',
+  },
 ];
 
 export default function DndDungeonMaster() {
