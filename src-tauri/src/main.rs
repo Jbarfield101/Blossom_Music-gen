@@ -87,7 +87,7 @@ fn strip_code_fence(s: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{add_establishment_metadata, strip_code_fence};
+    use super::{add_establishment_metadata, merge_player_template, strip_code_fence};
 
     #[test]
     fn preserves_plain_text() {
@@ -104,6 +104,30 @@ mod tests {
     fn strips_basic_fence() {
         let input = "```\n# Heading\n```";
         assert_eq!(strip_code_fence(input), "# Heading");
+    }
+
+    #[test]
+    fn player_template_inserts_sheet() {
+        let template = "---\nTitle: {{NAME}}\nClass: {{CLASS}}\n---\n\n{{PLAYER_SHEET}}\n";
+        let replacements = vec![
+            ("NAME".to_string(), "Lyra".to_string()),
+            ("CLASS".to_string(), "Wizard".to_string()),
+        ];
+        let sheet = "# Lyra Dawn\n\n## Notes\nArcane prodigy.";
+        let merged = merge_player_template(template, sheet, &replacements);
+        assert!(merged.contains("Title: Lyra"));
+        assert!(merged.contains("Class: Wizard"));
+        assert!(merged.contains("# Lyra Dawn"));
+    }
+
+    #[test]
+    fn player_template_appends_when_placeholder_missing() {
+        let template = "# Heading\n";
+        let replacements = vec![];
+        let sheet = "## Details\nAdventurer.";
+        let merged = merge_player_template(template, sheet, &replacements);
+        assert!(merged.contains("# Heading"));
+        assert!(merged.contains("## Details"));
     }
 
     #[test]
@@ -3058,6 +3082,363 @@ fn dir_list(path: String) -> Result<Vec<DirEntryItem>, String> {
     Ok(items)
 }
 
+const DEFAULT_PLAYER_TEMPLATE: &str = r"---
+Title: {{NAME}}
+Class: {{CLASS}}
+Level: {{LEVEL}}
+Background: {{BACKGROUND}}
+Player: {{PLAYER}}
+Race: {{RACE}}
+Alignment: {{ALIGNMENT}}
+Experience: {{EXPERIENCE}}
+Date: {{DATE}}
+---
+
+# {{NAME}}
+
+{{PLAYER_SHEET}}
+";
+
+fn normalize_windows_path(input: &str) -> String {
+    let trimmed = input.trim();
+    if trimmed.len() >= 2 {
+        let mut chars = trimmed.chars();
+        if let (Some(drive), Some(sep)) = (chars.next(), chars.next()) {
+            if drive.is_ascii_alphabetic() && sep == '\\' && !trimmed.contains(":\\") {
+                let rest: String = trimmed.chars().skip(2).collect();
+                return format!("{}:\\{}", drive, rest);
+            }
+        }
+    }
+    trimmed.to_string()
+}
+
+fn merge_player_template(
+    template: &str,
+    sheet_markdown: &str,
+    replacements: &[(String, String)],
+) -> String {
+    let mut output = template.to_string();
+    for (key, value) in replacements {
+        let token = format!("{{{{{}}}}}", key);
+        output = output.replace(&token, value);
+    }
+    let trimmed_sheet = sheet_markdown.trim();
+    if output.contains("{{PLAYER_SHEET}}") {
+        output = output.replace("{{PLAYER_SHEET}}", trimmed_sheet);
+    } else if output.contains("{{CHARACTER_SHEET}}") {
+        output = output.replace("{{CHARACTER_SHEET}}", trimmed_sheet);
+    } else if output.contains("{{SHEET}}") {
+        output = output.replace("{{SHEET}}", trimmed_sheet);
+    } else {
+        if !output.ends_with('\n') {
+            output.push('\n');
+        }
+        output.push('\n');
+        output.push_str(trimmed_sheet);
+        output.push('\n');
+    }
+    output
+}
+
+fn extract_sheet_string(sheet: &Value, path: &[&str]) -> Option<String> {
+    let mut current = sheet;
+    for key in path {
+        current = match current.get(*key) {
+            Some(v) => v,
+            None => return None,
+        };
+    }
+    match current {
+        Value::String(s) => {
+            let trimmed = s.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        Value::Number(n) => Some(n.to_string()),
+        Value::Bool(b) => Some(if *b { "true" } else { "false" }.to_string()),
+        _ => None,
+    }
+}
+
+#[tauri::command]
+fn player_create(
+    app: AppHandle,
+    name: String,
+    markdown: String,
+    sheet: Option<Value>,
+    template: Option<String>,
+    directory: Option<String>,
+    use_prefill: Option<bool>,
+    prefill_prompt: Option<String>,
+) -> Result<String, String> {
+    eprintln!(
+        "[blossom] player_create: start name='{}', template={:?}, directory={:?}, use_prefill={:?}",
+        name, template, directory, use_prefill
+    );
+
+    let store = settings_store(&app).map_err(|e| {
+        eprintln!("[blossom] player_create: settings_store error: {}", e);
+        e
+    })?;
+    let vault = store
+        .get("vaultPath")
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
+    let config_template = store
+        .get("dndPlayerTemplate")
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
+    let config_directory = store
+        .get("dndPlayerDirectory")
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
+
+    let base_dir = if let Some(ref v) = vault {
+        PathBuf::from(v).join("20_DM").join("Players")
+    } else {
+        PathBuf::from(r"D:\\Documents\\DreadHaven\\20_DM\\Players")
+    };
+
+    let resolve_relative = |base: &PathBuf, raw: &str| {
+        let mut joined = base.clone();
+        for part in raw.replace('\\', "/").split('/') {
+            let trimmed = part.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            joined.push(trimmed);
+        }
+        joined
+    };
+
+    let directory_override = directory
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| normalize_windows_path(s));
+    let config_directory_norm = config_directory
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| normalize_windows_path(s));
+
+    let mut players_dir = if let Some(ref override_path) = directory_override {
+        let candidate = PathBuf::from(override_path);
+        if candidate.is_absolute() {
+            candidate
+        } else {
+            resolve_relative(&base_dir, override_path)
+        }
+    } else if let Some(ref config_path) = config_directory_norm {
+        let candidate = PathBuf::from(config_path);
+        if candidate.is_absolute() {
+            candidate
+        } else {
+            resolve_relative(&base_dir, config_path)
+        }
+    } else {
+        base_dir.clone()
+    };
+
+    if !players_dir.exists() {
+        eprintln!(
+            "[blossom] player_create: creating players_dir '{}'",
+            players_dir.to_string_lossy()
+        );
+        fs::create_dir_all(&players_dir).map_err(|e| e.to_string())?;
+    }
+
+    let template_override = template
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| normalize_windows_path(s));
+    let config_template_norm = config_template
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| normalize_windows_path(s));
+
+    let mut template_candidates: Vec<PathBuf> = Vec::new();
+    let mut push_candidate = |raw: &str| {
+        let pb = PathBuf::from(raw);
+        if pb.is_absolute() {
+            template_candidates.push(pb.clone());
+        }
+        if let Some(ref v) = vault {
+            template_candidates.push(PathBuf::from(v).join("_Templates").join(raw));
+            template_candidates.push(PathBuf::from(v).join(raw));
+        }
+        template_candidates.push(players_dir.join(raw));
+    };
+
+    if let Some(ref override_tpl) = template_override {
+        push_candidate(override_tpl);
+    }
+    if let Some(ref config_tpl) = config_template_norm {
+        push_candidate(config_tpl);
+    }
+    if let Some(ref v) = vault {
+        template_candidates.push(PathBuf::from(v).join("_Templates").join("Player Character Template.md"));
+        template_candidates.push(PathBuf::from(v).join("_Templates").join("PlayerCharacterTemplate.md"));
+    }
+    template_candidates.push(PathBuf::from(
+        r"D:\\Documents\\DreadHaven\\_Templates\\Player Character Template.md",
+    ));
+    template_candidates.push(PathBuf::from(
+        r"D:\\Documents\\DreadHaven\\_Templates\\PlayerCharacterTemplate.md",
+    ));
+
+    let mut template_text: Option<String> = None;
+    let mut tried: Vec<String> = Vec::new();
+    let mut last_err: Option<String> = None;
+    for cand in template_candidates {
+        let cand_str = cand.to_string_lossy().to_string();
+        if tried.contains(&cand_str) {
+            continue;
+        }
+        tried.push(cand_str.clone());
+        match fs::read_to_string(&cand) {
+            Ok(content) => {
+                eprintln!(
+                    "[blossom] player_create: using template '{}' ({} bytes)",
+                    cand_str,
+                    content.len()
+                );
+                template_text = Some(content);
+                break;
+            }
+            Err(err) => {
+                last_err = Some(err.to_string());
+            }
+        }
+    }
+    let template_body = template_text.unwrap_or_else(|| {
+        if let Some(err) = last_err {
+            eprintln!("[blossom] player_create: template fallback after error: {}", err);
+        }
+        DEFAULT_PLAYER_TEMPLATE.to_string()
+    });
+
+    let mut effective_name = name.trim().to_string();
+    if effective_name.is_empty() {
+        if let Some(ref sheet_val) = sheet {
+            if let Some(sheet_name) = extract_sheet_string(sheet_val, &["identity", "name"]) {
+                effective_name = sheet_name;
+            }
+        }
+    }
+    if effective_name.is_empty() {
+        effective_name = "Adventurer".to_string();
+    }
+
+    let mut replacements: Vec<(String, String)> = Vec::new();
+    replacements.push(("NAME".to_string(), effective_name.clone()));
+    if let Some(ref sheet_val) = sheet {
+        let fields = [
+            ("CLASS", &["identity", "class"] as &[_]),
+            ("LEVEL", &["identity", "level"]),
+            ("BACKGROUND", &["identity", "background"]),
+            ("PLAYER", &["identity", "playerName"]),
+            ("RACE", &["identity", "race"]),
+            ("ALIGNMENT", &["identity", "alignment"]),
+            ("EXPERIENCE", &["identity", "experience"]),
+        ];
+        for (key, path) in fields {
+            if let Some(value) = extract_sheet_string(sheet_val, path) {
+                replacements.push((key.to_string(), value));
+            }
+        }
+    }
+    replacements.push((
+        "DATE".to_string(),
+        Utc::now().format("%Y-%m-%d").to_string(),
+    ));
+
+    let merged = merge_player_template(&template_body, &markdown, &replacements);
+
+    let should_prefill = use_prefill.unwrap_or(false)
+        || prefill_prompt
+            .as_ref()
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
+
+    let final_markdown = if should_prefill {
+        let mut prompt = String::from(
+            "You are a meticulous D&D 5e chronicler. Expand narrative sections such as personality, backstory, allies, and notes while keeping mechanical statistics unchanged."
+        );
+        if let Some(ref extra) = prefill_prompt {
+            let trimmed = extra.trim();
+            if !trimmed.is_empty() {
+                prompt.push_str("\n\nAdditional guidance: ");
+                prompt.push_str(trimmed);
+            }
+        }
+        if let Some(ref sheet_val) = sheet {
+            if let Ok(json_text) = serde_json::to_string_pretty(sheet_val) {
+                prompt.push_str("\n\nCharacter data (JSON):\n```json\n");
+                prompt.push_str(&json_text);
+                prompt.push_str("\n```");
+            }
+        }
+        prompt.push_str("\n\nCurrent character sheet:\n```\n");
+        prompt.push_str(&merged);
+        prompt.push_str("\n```");
+
+        let system = Some(String::from(
+            "You polish Markdown for tabletop RPG characters. Preserve YAML frontmatter and mechanical blocks. Only elaborate narrative sections when appropriate."
+        ));
+        eprintln!("[blossom] player_create: invoking LLM prefill");
+        let llm_content = generate_llm(prompt, system)?;
+        strip_code_fence(&llm_content).to_string()
+    } else {
+        merged
+    };
+
+    let mut file_stem: String = effective_name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim()
+        .replace(' ', "_");
+    if file_stem.is_empty() {
+        file_stem = "Player".to_string();
+    }
+
+    let mut target = players_dir.join(format!("{}.md", file_stem));
+    let mut counter = 2u32;
+    while target.exists() {
+        target = players_dir.join(format!("{}_{}.md", file_stem, counter));
+        counter += 1;
+        if counter > 9999 {
+            break;
+        }
+    }
+
+    fs::write(&target, final_markdown.as_bytes()).map_err(|e| {
+        eprintln!(
+            "[blossom] player_create: failed to write file '{}': {}",
+            target.to_string_lossy(),
+            e
+        );
+        e.to_string()
+    })?;
+
+    eprintln!(
+        "[blossom] player_create: saved '{}'",
+        target.to_string_lossy()
+    );
+
+    Ok(target.to_string_lossy().to_string())
+}
+
 #[tauri::command]
 fn monster_create(
     app: AppHandle,
@@ -5227,6 +5608,7 @@ fn main() {
             inbox_list,
             inbox_read,
             dir_list,
+            player_create,
             monster_create,
             god_create,
             spell_create,
