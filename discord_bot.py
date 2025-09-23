@@ -49,6 +49,17 @@ class BlossomBot(commands.Bot):
         self.tree.add_command(self.scene_group)
         self.tree.add_command(self.export_group)
 
+        guild_id = os.getenv("DISCORD_GUILD_ID")
+        if guild_id:
+            try:
+                guild = discord.Object(id=int(guild_id))
+            except ValueError:
+                guild = None
+            if guild is not None:
+                await self.tree.sync(guild=guild)
+
+        await self.tree.sync()
+
     # ------------------------------------------------------------------
     @app_commands.command(name="npc", description="Fetch NPC info or speak in their voice")
     @app_commands.describe(query="NPC alias optionally followed by ':' and dialogue")
