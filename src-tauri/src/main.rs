@@ -3274,6 +3274,97 @@ fn god_create(app: AppHandle, name: String, template: Option<String>) -> Result<
     Ok(target.to_string_lossy().to_string())
 }
 
+#[tauri::command]
+fn spell_create(app: AppHandle, name: String) -> Result<String, String> {
+    eprintln!("[blossom] spell_create: start name='{}'", name);
+
+    let store = settings_store(&app).map_err(|e| {
+        eprintln!("[blossom] spell_create: settings_store error: {}", e);
+        e
+    })?;
+    let vault = store
+        .get("vaultPath")
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
+    eprintln!("[blossom] spell_create: vaultPath={:?}", vault);
+
+    let spells_dir = if let Some(ref v) = vault {
+        PathBuf::from(v).join("10_World").join("SpellBook")
+    } else {
+        PathBuf::from(r"D:\\Documents\\DreadHaven\\10_World\\SpellBook")
+    };
+    eprintln!(
+        "[blossom] spell_create: spells_dir='{}'",
+        spells_dir.to_string_lossy()
+    );
+
+    if !spells_dir.exists() {
+        if let Err(e) = fs::create_dir_all(&spells_dir) {
+            eprintln!(
+                "[blossom] spell_create: failed to create spells_dir '{}': {}",
+                spells_dir.to_string_lossy(),
+                e
+            );
+            return Err(e.to_string());
+        }
+    }
+
+    let trimmed = name.trim();
+    let effective_name = if trimmed.is_empty() {
+        "New Spell".to_string()
+    } else {
+        trimmed.to_string()
+    };
+
+    let mut fname = effective_name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim()
+        .replace(' ', "_");
+    if fname.is_empty() {
+        fname = "New_Spell".to_string();
+    }
+
+    let mut target = spells_dir.join(format!("{}.md", fname));
+    let mut counter = 2u32;
+    while target.exists() {
+        target = spells_dir.join(format!("{}_{}.md", fname, counter));
+        counter += 1;
+        if counter > 9999 {
+            break;
+        }
+    }
+
+    let created = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
+    let content = format!(
+        "---\ntitle: {title}\ncreated: {created}\n---\n\n# {title}\n\n## Spell Summary\n- **Level:** \n- **School:** \n- **Casting Time:** \n- **Range:** \n- **Components:** \n- **Duration:** \n\n## Description\n\n\n## At Higher Levels\n\n\n## Notes\n\n",
+        title = effective_name,
+        created = created,
+    );
+
+    if let Err(e) = fs::write(&target, content.as_bytes()) {
+        eprintln!(
+            "[blossom] spell_create: failed to write file '{}': {}",
+            target.to_string_lossy(),
+            e
+        );
+        return Err(e.to_string());
+    }
+
+    eprintln!(
+        "[blossom] spell_create: completed -> '{}'",
+        target.to_string_lossy()
+    );
+
+    Ok(target.to_string_lossy().to_string())
+}
+
 fn models_store<R: Runtime>(app: &AppHandle<R>) -> Result<Arc<Store<R>>, String> {
     let path = app
         .path()
@@ -4873,6 +4964,7 @@ fn main() {
             dir_list,
             monster_create,
             god_create,
+            spell_create,
             npc_create,
             list_whisper,
             set_whisper,
