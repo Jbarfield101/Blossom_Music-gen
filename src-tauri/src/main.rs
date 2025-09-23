@@ -944,9 +944,100 @@ fn write_npcs(npcs: &[Npc]) -> Result<(), String> {
     fs::write(path, text).map_err(|e| e.to_string())
 }
 
+fn normalize_npc_display_name(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let normalized = trimmed.replace('\\', "/");
+    let candidate = normalized.rsplit('/').next().unwrap_or(trimmed);
+    if let Some(idx) = candidate.rfind('.') {
+        if idx > 0 {
+            return candidate[..idx].to_string();
+        }
+    }
+    candidate.to_string()
+}
+
+fn filesystem_npc_names(app: &AppHandle) -> Result<Vec<String>, String> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    match settings_store(app) {
+        Ok(store) => {
+            if let Some(vault_path) = store
+                .get("vaultPath")
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+            {
+                let base = PathBuf::from(&vault_path);
+                let joined = join_vault_folder(&base, "20_DM/NPC");
+                if !candidates.iter().any(|p| p == &joined) {
+                    candidates.push(joined);
+                }
+            }
+        }
+        Err(err) => {
+            eprintln!("[blossom] npc_list: failed to read settings store: {}", err);
+        }
+    }
+
+    if let Some(section) = tag_section_map().get("npcs") {
+        for fallback in &section.fallbacks {
+            let path = PathBuf::from(fallback);
+            if !candidates.iter().any(|p| p == &path) {
+                candidates.push(path);
+            }
+        }
+    } else {
+        let default = PathBuf::from(r"D:\\Documents\\DreadHaven\\20_DM\\NPC");
+        if !candidates.iter().any(|p| p == &default) {
+            candidates.push(default);
+        }
+    }
+
+    let mut names: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for dir in candidates {
+        if !dir.exists() || !dir.is_dir() {
+            continue;
+        }
+        for entry in WalkDir::new(&dir).into_iter().filter_map(|e| e.ok()) {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let path = entry.path();
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|s| s.to_ascii_lowercase());
+            if !matches!(ext.as_deref(), Some("md" | "markdown" | "mdx")) {
+                continue;
+            }
+            let file_name = path
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default();
+            let display = normalize_npc_display_name(file_name);
+            if display.is_empty() {
+                continue;
+            }
+            let key = display.to_ascii_lowercase();
+            if seen.insert(key) {
+                names.push(display);
+            }
+        }
+    }
+    names.sort_by(|a, b| a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase()));
+    Ok(names)
+}
+
 #[tauri::command]
-fn npc_list() -> Result<Vec<Npc>, String> {
+fn npc_list(app: AppHandle) -> Result<Vec<Npc>, String> {
     let mut npcs = read_npcs()?;
+    let mut seen: HashSet<String> = npcs
+        .iter()
+        .map(|npc| npc.name.to_ascii_lowercase())
+        .collect();
+
+    let mut service_had_entries = false;
     let mut cmd = python_command();
     if let Ok(output) = cmd
         .args([
@@ -957,15 +1048,23 @@ fn npc_list() -> Result<Vec<Npc>, String> {
     {
         if output.status.success() {
             if let Ok(notes) = serde_json::from_slice::<Vec<Value>>(&output.stdout) {
+                service_had_entries = !notes.is_empty();
                 for note in notes {
-                    if let Some(name) = note
+                    let alias_name = note
                         .get("aliases")
                         .and_then(|v| v.as_array())
                         .and_then(|arr| arr.get(0))
                         .and_then(|v| v.as_str())
-                        .or_else(|| note.get("path").and_then(|v| v.as_str()))
-                    {
-                        if !npcs.iter().any(|n| n.name == name) {
+                        .map(normalize_npc_display_name)
+                        .filter(|s| !s.is_empty());
+                    let path_name = note
+                        .get("path")
+                        .and_then(|v| v.as_str())
+                        .map(normalize_npc_display_name)
+                        .filter(|s| !s.is_empty());
+                    if let Some(name) = alias_name.or(path_name) {
+                        let key = name.to_ascii_lowercase();
+                        if seen.insert(key) {
                             let fields = note.get("fields").and_then(|v| v.as_object());
                             let description = fields
                                 .and_then(|f| f.get("description"))
@@ -983,7 +1082,7 @@ fn npc_list() -> Result<Vec<Npc>, String> {
                                 .unwrap_or("")
                                 .to_string();
                             npcs.push(Npc {
-                                name: name.to_string(),
+                                name,
                                 description,
                                 prompt,
                                 voice,
@@ -994,6 +1093,28 @@ fn npc_list() -> Result<Vec<Npc>, String> {
             }
         }
     }
+
+    if !service_had_entries {
+        match filesystem_npc_names(&app) {
+            Ok(fallback_names) => {
+                for name in fallback_names {
+                    let key = name.to_ascii_lowercase();
+                    if seen.insert(key) {
+                        npcs.push(Npc {
+                            name,
+                            description: String::new(),
+                            prompt: String::new(),
+                            voice: String::new(),
+                        });
+                    }
+                }
+            }
+            Err(err) => {
+                eprintln!("[blossom] npc_list: fallback scan failed: {}", err);
+            }
+        }
+    }
+
     Ok(npcs)
 }
 
