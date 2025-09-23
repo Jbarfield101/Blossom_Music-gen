@@ -198,6 +198,50 @@
   color: var(--text);
 }
 
+.dnd-tag-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  margin-top: var(--space-md);
+}
+
+.dnd-tag-manager-intro {
+  margin: 0;
+  max-width: 60ch;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.dnd-tag-manager-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+}
+
+.dnd-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  background: rgba(37, 99, 235, 0.15);
+  color: #dbeafe;
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .dnd-tag-chip {
+    white-space: normal;
+    text-align: center;
+  }
+}
+
 .dnd-chat-panel {
   background: var(--card-bg);
   color: var(--text);
