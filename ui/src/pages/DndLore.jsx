@@ -8,6 +8,7 @@ const sections = [
   { to: '/dnd/lore/stories', icon: 'ScrollText', title: 'Stories & Legends', description: 'Chronicles of epic moments and table tales. (WIP)' },
   { to: '/dnd/lore/notes', icon: 'StickyNote', title: 'Loose Notes', description: 'Quick thoughts, sketches, and session scraps. (WIP)' },
   { to: '/dnd/lore/relations', icon: 'Users', title: 'Player Relations', description: 'Tracking bonds, rivalries, and party dynamics. (WIP)' },
+  { to: '/dnd/lore/spellbook', icon: 'BookMarked', title: 'Spell Book', description: 'Catalog spells, incantations, and arcane research.' },
 ];
 
 export default function DndLore() {
