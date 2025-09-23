@@ -59,6 +59,43 @@ def test_empty_database_returns_no_results(tmp_path: Path, monkeypatch) -> None:
     )
 
 
+def test_search_chunks_matches_case_insensitive_tags(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Searching with lowercase tags matches stored uppercase tags."""
+
+    db_path = tmp_path / "chunks.sqlite"
+    conn = sqlite3.connect(db_path)
+    try:
+        ensure_chunk_tables(conn)
+        conn.execute("ALTER TABLE chunks ADD COLUMN vector_id INTEGER")
+        chunk_id = "chunk-npc"
+        conn.execute(
+            "INSERT INTO chunks(id, path, heading, content, vector_id) "
+            "VALUES(?, ?, ?, ?, ?)",
+            (chunk_id, "npc.md", "Heading", "Details", 0),
+        )
+        conn.execute(
+            "INSERT INTO tags(chunk_id, tag) VALUES(?, ?)", (chunk_id, "NPC")
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    monkeypatch.setattr(note_search, "embed_texts", _fake_embed_texts)
+    fake_faiss = types.SimpleNamespace(read_index=lambda path: _FakeFaissIndex())
+    monkeypatch.setitem(sys.modules, "faiss", fake_faiss)
+
+    results = note_search.search_chunks(
+        "anything",
+        db_path,
+        tmp_path / note_search.DEFAULT_INDEX_PATH,
+        tags=["npc"],
+    )
+
+    assert [cid for cid, _ in results] == [chunk_id]
+
+
 def test_missing_database_raises_helpful_error(tmp_path: Path, monkeypatch) -> None:
     """The guard should prompt users to run the indexer when DB is absent."""
 
