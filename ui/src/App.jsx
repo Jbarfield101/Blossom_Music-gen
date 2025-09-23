@@ -38,6 +38,9 @@ import AlgorithmicGenerator from './pages/Generate.jsx';
 import DndWorldPantheon from './pages/DndWorldPantheon.jsx';
 import DndWorldRegions from './pages/DndWorldRegions.jsx';
 import DndWorldFactions from './pages/DndWorldFactions.jsx';
+import DndWorldBank from './pages/DndWorldBank.jsx';
+import DndWorldBankEconomy from './pages/DndWorldBankEconomy.jsx';
+import DndWorldBankTransactions from './pages/DndWorldBankTransactions.jsx';
 import SoundLab from './pages/SoundLab.jsx';
 import Queue from './pages/Queue.jsx';
 import Tools from './pages/Tools.jsx';
@@ -172,6 +175,9 @@ export default function App() {
         <Route path="/dnd" element={<Dnd />} />
         <Route path="/dnd/inbox" element={<DndInbox />} />
         <Route path="/dnd/world" element={<DndWorld />} />
+        <Route path="/dnd/world/bank" element={<DndWorldBank />} />
+        <Route path="/dnd/world/bank/economy" element={<DndWorldBankEconomy />} />
+        <Route path="/dnd/world/bank/transactions" element={<DndWorldBankTransactions />} />
         <Route path="/dnd/world/pantheon" element={<DndWorldPantheon />} />
         <Route path="/dnd/world/regions" element={<DndWorldRegions />} />
         <Route path="/dnd/world/factions" element={<DndWorldFactions />} />
