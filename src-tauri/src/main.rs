@@ -2301,6 +2301,173 @@ fn monster_create(app: AppHandle, name: String, template: Option<String>) -> Res
     Ok(target.to_string_lossy().to_string())
 }
 
+#[tauri::command]
+fn god_create(app: AppHandle, name: String, template: Option<String>) -> Result<String, String> {
+    eprintln!(
+        "[blossom] god_create: start name='{}', template={:?}",
+        name, template
+    );
+
+    let store = settings_store(&app).map_err(|e| {
+        eprintln!("[blossom] god_create: settings_store error: {}", e);
+        e
+    })?;
+    let vault = store
+        .get("vaultPath")
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
+    eprintln!("[blossom] god_create: vaultPath={:?}", vault);
+
+    let gods_dir = if let Some(ref v) = vault {
+        PathBuf::from(v)
+            .join("10_World")
+            .join("Gods of the Realm")
+    } else {
+        PathBuf::from(r"D:\\Documents\\DreadHaven\\10_World\\Gods of the Realm")
+    };
+    eprintln!(
+        "[blossom] god_create: gods_dir='{}'",
+        gods_dir.to_string_lossy()
+    );
+    if !gods_dir.exists() {
+        eprintln!("[blossom] god_create: creating gods_dir");
+        fs::create_dir_all(&gods_dir).map_err(|e| {
+            eprintln!(
+                "[blossom] god_create: failed to create gods_dir '{}': {}",
+                gods_dir.to_string_lossy(),
+                e
+            );
+            e.to_string()
+        })?;
+    }
+
+    eprintln!("[blossom] god_create: resolving template path");
+    let default_template =
+        r"D:\\Documents\\DreadHaven\\_Templates\\God_Template.md".to_string();
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(mut s) = template {
+        eprintln!("[blossom] god_create: raw template arg='{}'", s);
+        let mut ch = s.chars();
+        if let (Some(drive), Some(sep)) = (ch.next(), ch.next()) {
+            if drive.is_ascii_alphabetic() && sep == '\\' && !s.contains(":\\") {
+                let rest: String = s.chars().skip(2).collect();
+                s = format!("{}:\\{}", drive, rest);
+                eprintln!("[blossom] god_create: normalized Windows path -> '{}'", s);
+            }
+        }
+        let p = PathBuf::from(&s);
+        if p.is_absolute() {
+            candidates.push(p);
+        }
+        if let Some(v) = &vault {
+            candidates.push(PathBuf::from(v).join("_Templates").join(&s));
+            candidates.push(PathBuf::from(v).join(&s));
+        }
+    } else {
+        candidates.push(PathBuf::from(&default_template));
+    }
+    candidates.push(PathBuf::from(&default_template));
+
+    let mut template_text_opt: Option<String> = None;
+    let mut tried: Vec<String> = Vec::new();
+    let mut last_err: Option<String> = None;
+    for cand in candidates {
+        let cand_str = cand.to_string_lossy().to_string();
+        eprintln!(
+            "[blossom] god_create: trying template candidate '{}'",
+            cand_str
+        );
+        tried.push(cand_str.clone());
+        match fs::read_to_string(&cand) {
+            Ok(t) => {
+                eprintln!(
+                    "[blossom] god_create: template selected '{}' ({} bytes)",
+                    cand_str,
+                    t.len()
+                );
+                template_text_opt = Some(t);
+                break;
+            }
+            Err(e) => {
+                eprintln!(
+                    "[blossom] god_create: candidate failed '{}': {}",
+                    cand_str, e
+                );
+                last_err = Some(e.to_string());
+            }
+        }
+    }
+    let template_text = match template_text_opt {
+        Some(t) => t,
+        None => {
+            let summary = tried.join("; ");
+            let last = last_err.unwrap_or_else(|| "unknown error".to_string());
+            return Err(format!(
+                "Failed to read template. Tried: {}. Last error: {}",
+                summary, last
+            ));
+        }
+    };
+
+    let prompt = format!(
+        "You are drafting a D&D deity dossier. Using the TEMPLATE, fully populate it for a deity named \"{name}\".\n\nRules:\n- Keep Markdown structure, headings, lists, and YAML frontmatter.\n- Fill all placeholders with lore, domains, symbols, worshippers, and edicts.\n- Output only the completed markdown, no extra commentary.\n\nTEMPLATE:\n```\n{template}\n```",
+        name = name,
+        template = template_text
+    );
+    let system = Some(String::from(
+        "You are a meticulous loremaster producing only valid Markdown and YAML frontmatter for fantasy deities.\nDetail portfolios, relationships, worshippers, and church customs without duplicating headings.\n"
+    ));
+    eprintln!("[blossom] god_create: invoking LLM generation");
+    let content = match generate_llm(prompt, system) {
+        Ok(c) => {
+            eprintln!("[blossom] god_create: LLM returned ({} bytes)", c.len());
+            c
+        }
+        Err(e) => {
+            eprintln!("[blossom] god_create: LLM generation failed: {}", e);
+            return Err(e);
+        }
+    };
+    let content = strip_code_fence(&content).to_string();
+
+    let mut fname = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' })
+        .collect::<String>()
+        .trim()
+        .replace(' ', "_");
+    if fname.is_empty() {
+        fname = "New_God".to_string();
+    }
+    let mut target = gods_dir.join(format!("{}.md", fname));
+    let mut counter = 2;
+    while target.exists() {
+        target = gods_dir.join(format!("{}_{}.md", fname, counter));
+        counter += 1;
+        if counter > 9999 {
+            break;
+        }
+    }
+    eprintln!(
+        "[blossom] god_create: writing file to '{}'",
+        target.to_string_lossy()
+    );
+
+    fs::write(&target, content.as_bytes()).map_err(|e| {
+        eprintln!(
+            "[blossom] god_create: failed to write file '{}': {}",
+            target.to_string_lossy(),
+            e
+        );
+        e.to_string()
+    })?;
+    eprintln!(
+        "[blossom] god_create: completed -> '{}'",
+        target.to_string_lossy()
+    );
+
+    Ok(target.to_string_lossy().to_string())
+}
+
 fn models_store<R: Runtime>(app: &AppHandle<R>) -> Result<Arc<Store<R>>, String> {
     let path = app
         .path()
@@ -3895,6 +4062,7 @@ fn main() {
             inbox_read,
             dir_list,
             monster_create,
+            god_create,
             npc_create,
             list_whisper,
             set_whisper,
