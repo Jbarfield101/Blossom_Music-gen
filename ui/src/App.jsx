@@ -55,6 +55,9 @@ import DndTasks from './pages/DndTasks.jsx';
 import DndDmWorldInventory from './pages/DndDmWorldInventory.jsx';
 import DndLoreSecrets from './pages/DndLoreSecrets.jsx';
 import DndLoreJournal from './pages/DndLoreJournal.jsx';
+import DndLoreStories from './pages/DndLoreStories.jsx';
+import DndLoreNotes from './pages/DndLoreNotes.jsx';
+import DndLorePlayerRelations from './pages/DndLorePlayerRelations.jsx';
 import { Store } from '@tauri-apps/plugin-store';
 import { useEffect, useState } from 'react';
 
@@ -174,6 +177,9 @@ export default function App() {
         <Route path="/dnd/world/factions" element={<DndWorldFactions />} />
         <Route path="/dnd/lore/secrets" element={<DndLoreSecrets />} />
         <Route path="/dnd/lore/journal" element={<DndLoreJournal />} />
+        <Route path="/dnd/lore/stories" element={<DndLoreStories />} />
+        <Route path="/dnd/lore/notes" element={<DndLoreNotes />} />
+        <Route path="/dnd/lore/relations" element={<DndLorePlayerRelations />} />
         <Route path="/dnd/tasks" element={<DndTasks />} />
         <Route path="/dnd/dungeon-master" element={<DndDungeonMaster />} />
         <Route path="/dnd/dungeon-master/events" element={<DndDmEvents />} />
