@@ -1,3 +1,4 @@
+import asyncio
 import os
 import sys
 import types
@@ -10,6 +11,7 @@ pytest.importorskip("discord")
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+import discord_bot
 from discord_bot import BlossomBot
 import config.discord as discord_config
 sys.modules.setdefault(
@@ -45,8 +47,7 @@ def test_load_permissions(tmp_path):
     assert rules == {"npc": {"channels": [1], "roles": [2]}}
 
 
-@pytest.mark.asyncio
-async def test_permission_check(tmp_path):
+def test_permission_check(tmp_path):
     cfg = tmp_path / "discord.yaml"
     _write_config(cfg)
     discord_config.PERMISSIONS_FILE = cfg
@@ -54,10 +55,28 @@ async def test_permission_check(tmp_path):
 
     bot = BlossomBot()
     interaction = _make_interaction("npc", channel_id=2, role_ids=[3])
-    allowed = await bot._permission_check(interaction)
+    allowed = asyncio.run(bot._permission_check(interaction))
     assert not allowed
     interaction.response.send_message.assert_called_once()
 
     interaction_ok = _make_interaction("npc", channel_id=1, role_ids=[2])
-    allowed_ok = await bot._permission_check(interaction_ok)
+    allowed_ok = asyncio.run(bot._permission_check(interaction_ok))
     assert allowed_ok
+
+
+def test_commands_list_includes_all_entries():
+    bot = BlossomBot()
+    interaction = MagicMock()
+    interaction.response = MagicMock()
+    interaction.response.send_message = AsyncMock()
+
+    asyncio.run(bot.commands_list.callback(bot, interaction))
+
+    interaction.response.send_message.assert_called_once()
+    args, kwargs = interaction.response.send_message.call_args
+    message = args[0]
+    assert "Available Blossom commands" in message
+    for syntax, description in discord_bot.COMMAND_SUMMARIES:
+        assert syntax in message
+        assert description in message
+    assert kwargs.get("ephemeral") is True
