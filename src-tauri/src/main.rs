@@ -87,7 +87,7 @@ fn strip_code_fence(s: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::strip_code_fence;
+    use super::{add_establishment_metadata, strip_code_fence};
 
     #[test]
     fn preserves_plain_text() {
@@ -104,6 +104,27 @@ mod tests {
     fn strips_basic_fence() {
         let input = "```\n# Heading\n```";
         assert_eq!(strip_code_fence(input), "# Heading");
+    }
+
+    #[test]
+    fn adds_establishment_metadata_to_plain_markdown() {
+        let input = "# Adventurer";
+        let result =
+            add_establishment_metadata(input, Some("World/Shop.md"), Some("The Gilded Griffin"));
+        assert!(result.starts_with("---\n"));
+        assert!(result.contains("establishment_path: \"World/Shop.md\""));
+        assert!(result.contains("establishment_name: \"The Gilded Griffin\""));
+        assert!(result.contains("# Adventurer"));
+    }
+
+    #[test]
+    fn updates_existing_frontmatter_with_establishment_metadata() {
+        let input = "---\nTitle: Shopkeep\n---\nNotes";
+        let result =
+            add_establishment_metadata(input, Some("World/Shop.md"), Some("Gilded Griffin"));
+        assert!(result.contains("Title: Shopkeep"));
+        assert!(result.contains("establishment_path: \"World/Shop.md\""));
+        assert!(result.contains("establishment_name: \"Gilded Griffin\""));
     }
 }
 
@@ -212,6 +233,51 @@ fn serialize_frontmatter(mapping: &YamlMapping) -> Result<String, String> {
         yaml.push('\n');
     }
     Ok(yaml)
+}
+
+fn upsert_frontmatter_string(mapping: &mut YamlMapping, key: &str, value: Option<&str>) {
+    let key_value = YamlValue::String(key.to_string());
+    if let Some(v) = value {
+        mapping.insert(key_value, YamlValue::String(v.to_string()));
+    } else {
+        mapping.remove(&key_value);
+    }
+}
+
+fn add_establishment_metadata(content: &str, path: Option<&str>, name: Option<&str>) -> String {
+    if path.is_none() && name.is_none() {
+        return content.to_string();
+    }
+    match parse_frontmatter(content) {
+        Ok((mut mapping, body, _raw)) => {
+            upsert_frontmatter_string(&mut mapping, "establishment_path", path);
+            upsert_frontmatter_string(&mut mapping, "establishment_name", name);
+            match serialize_frontmatter(&mapping) {
+                Ok(frontmatter_src) => {
+                    let mut out = String::with_capacity(content.len() + frontmatter_src.len() + 16);
+                    out.push_str("---\n");
+                    out.push_str(&frontmatter_src);
+                    out.push_str("---\n");
+                    out.push_str(&body);
+                    out
+                }
+                Err(err) => {
+                    eprintln!(
+                        "[blossom] npc_create: failed to serialize frontmatter with establishment metadata: {}",
+                        err
+                    );
+                    content.to_string()
+                }
+            }
+        }
+        Err(err) => {
+            eprintln!(
+                "[blossom] npc_create: failed to parse frontmatter for establishment metadata: {}",
+                err
+            );
+            content.to_string()
+        }
+    }
 }
 
 fn extract_tags(mapping: &YamlMapping) -> Vec<String> {
@@ -2645,10 +2711,23 @@ fn npc_create(
     purpose: Option<String>,
     template: Option<String>,
     random_name: Option<bool>,
+    establishment_path: Option<String>,
+    establishment_name: Option<String>,
 ) -> Result<String, String> {
+    let establishment_path = establishment_path
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let establishment_name = establishment_name
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
     eprintln!(
-        "[blossom] npc_create: start name='{}', region={:?}, purpose={:?}, template={:?}",
-        name, region, purpose, template
+        "[blossom] npc_create: start name='{}', region={:?}, purpose={:?}, template={:?}, establishment_path={:?}, establishment_name={:?}",
+        name,
+        &region,
+        &purpose,
+        &template,
+        &establishment_path,
+        &establishment_name
     );
     // Resolve NPC base directory
     let store = settings_store(&app).map_err(|e| {
@@ -2781,7 +2860,15 @@ fn npc_create(
     let system = Some(String::from("You are a helpful worldbuilding assistant. Produce clean, cohesive Markdown. Keep a grounded tone; avoid overpowered traits."));
     eprintln!("[blossom] npc_create: invoking LLM generation (ollama)");
     let content = generate_llm(prompt, system)?;
-    let content = strip_code_fence(&content).to_string();
+    let mut content = strip_code_fence(&content).to_string();
+
+    if establishment_path.is_some() || establishment_name.is_some() {
+        content = add_establishment_metadata(
+            &content,
+            establishment_path.as_deref(),
+            establishment_name.as_deref(),
+        );
+    }
 
     // Determine filename
     fn extract_title(src: &str) -> Option<String> {

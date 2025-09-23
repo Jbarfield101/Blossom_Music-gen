@@ -5,6 +5,7 @@ import { listDir } from '../api/dir';
 import { readInbox } from '../api/inbox';
 import { readFileBytes } from '../api/files';
 import { createNpc } from '../api/npcs';
+import { loadEstablishments } from '../api/establishments';
 import { renderMarkdown } from '../lib/markdown.jsx';
 import './Dnd.css';
 
@@ -58,6 +59,36 @@ export default function DndDmNpcs() {
   const [regionOptions, setRegionOptions] = useState([]);
   const [establishmentName, setEstablishmentName] = useState('');
   const [establishmentRecord, setEstablishmentRecord] = useState('');
+  const [establishments, setEstablishments] = useState([]);
+  const [establishmentsLoading, setEstablishmentsLoading] = useState(false);
+  const [establishmentsError, setEstablishmentsError] = useState('');
+  const [establishmentsLoaded, setEstablishmentsLoaded] = useState(false);
+
+  const establishmentOptions = useMemo(() => {
+    if (!Array.isArray(establishments) || establishments.length === 0) return [];
+    return establishments.map((entry) => {
+      const rawGroup = String(entry.group || '').split('/').map((part) => part.trim()).filter(Boolean);
+      const region = entry.region || rawGroup[0] || '';
+      const location = entry.location || rawGroup.slice(1).join(' · ');
+      const title = entry.title || entry.name || entry.path || '';
+      const parts = [];
+      if (region) parts.push(region);
+      if (location) parts.push(location);
+      if (title) parts.push(title);
+      const label = parts.filter(Boolean).join(' · ') || title || entry.path || '';
+      return {
+        value: entry.path || '',
+        label,
+        title,
+        group: entry.group || '',
+      };
+    }).filter((entry) => entry.value);
+  }, [establishments]);
+
+  const selectedEstablishment = useMemo(
+    () => establishmentOptions.find((entry) => entry.value === establishmentRecord) || null,
+    [establishmentOptions, establishmentRecord],
+  );
 
   const parseNpcFrontmatter = useCallback((src) => {
     const text = typeof src === 'string' ? src : '';
@@ -201,11 +232,56 @@ export default function DndDmNpcs() {
   }, []);
 
   useEffect(() => {
+    if (!showCreate) return;
+    if (establishmentsLoaded || establishmentsLoading) return;
+    let cancelled = false;
+    setEstablishmentsLoading(true);
+    setEstablishmentsError('');
+    (async () => {
+      try {
+        const result = await loadEstablishments();
+        if (cancelled) return;
+        const list = Array.isArray(result?.items) ? result.items : [];
+        const simplified = list.map((entry) => ({
+          path: entry.path || '',
+          title: entry.title || entry.name || '',
+          name: entry.name || '',
+          group: entry.group || '',
+          region: entry.region || '',
+          location: entry.location || '',
+        })).filter((entry) => entry.path);
+        setEstablishments(simplified);
+        setEstablishmentsLoaded(true);
+      } catch (err) {
+        if (!cancelled) {
+          console.error(err);
+          setEstablishments([]);
+          setEstablishmentsError(err?.message || String(err));
+        }
+      } finally {
+        if (!cancelled) {
+          setEstablishmentsLoading(false);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [showCreate, establishmentsLoaded, establishmentsLoading]);
+
+  useEffect(() => {
     if (selPurpose !== 'Shopkeeper') {
       setEstablishmentName('');
       setEstablishmentRecord('');
     }
   }, [selPurpose]);
+
+  useEffect(() => {
+    if (!establishmentRecord) return;
+    const match = establishments.find((entry) => entry.path === establishmentRecord);
+    if (!match) return;
+    const defaultName = match.title || match.name || '';
+    if (!defaultName) return;
+    setEstablishmentName((prev) => (prev ? prev : defaultName));
+  }, [establishmentRecord, establishments]);
 
   // Build portrait index from Assets folder (optional)
   useEffect(() => {
@@ -558,10 +634,20 @@ export default function DndDmNpcs() {
               const name = newName.trim();
               if (!randName && !name) { setCreateError('Please enter a name or enable random.'); return; }
               const purpose = selPurpose === '__custom__' ? (customPurpose.trim()) : selPurpose;
+              const estPath = selPurpose === 'Shopkeeper' ? establishmentRecord : '';
+              const estDisplay = selPurpose === 'Shopkeeper' ? establishmentName.trim() : '';
               try {
                 setCreating(true);
                 setCreateError('');
-                await createNpc(randName ? '' : name, selRegion || '', purpose || '', null, randName);
+                await createNpc(
+                  randName ? '' : name,
+                  selRegion || '',
+                  purpose || '',
+                  null,
+                  randName,
+                  estPath || null,
+                  estDisplay || null,
+                );
                 setShowCreate(false);
                 setNewName('');
                 setRandName(false);
@@ -606,8 +692,8 @@ export default function DndDmNpcs() {
                 <div className="monster-create-shopkeeper">
                   <div className="monster-create-shopkeeper-title">Establishment Link</div>
                   <p className="muted">
-                    Connect this shopkeeper to the storefront they manage. Linking support is coming soon,
-                    but you can note the establishment details here for reference.
+                    Connect this shopkeeper to the storefront they manage. Select an existing establishment to
+                    embed its reference in the new NPC note.
                   </p>
                   <label>
                     Establishment Name
@@ -623,15 +709,38 @@ export default function DndDmNpcs() {
                     Existing Shop Record
                     <select
                       value={establishmentRecord}
-                      onChange={(e) => setEstablishmentRecord(e.target.value)}
-                      disabled
+                      onChange={(e) => {
+                        const { value } = e.target;
+                        setEstablishmentRecord(value);
+                        if (!value) {
+                          setEstablishmentName('');
+                          return;
+                        }
+                        const match = establishments.find((entry) => entry.path === value);
+                        if (match) {
+                          const autoName = match.title || match.name || '';
+                          setEstablishmentName(autoName);
+                        }
+                      }}
+                      disabled={creating || establishmentsLoading}
                     >
-                      <option value="">Linking support coming soon</option>
+                      <option value="">{establishmentsLoading ? 'Loading establishments…' : 'Select an establishment…'}</option>
+                      {establishmentOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
                     </select>
                   </label>
-                  <button type="button" disabled>
-                    Connect to Establishment
-                  </button>
+                  {selectedEstablishment && (
+                    <div className="muted">
+                      Linking to: {selectedEstablishment.label}
+                    </div>
+                  )}
+                  {establishmentsError && <div className="error">{establishmentsError}</div>}
+                  {!establishmentsLoading && !establishmentsError && establishmentsLoaded && establishmentOptions.length === 0 && (
+                    <div className="muted">No establishments found. Create a storefront note first.</div>
+                  )}
                 </div>
               )}
               {selPurpose === '__custom__' && (
