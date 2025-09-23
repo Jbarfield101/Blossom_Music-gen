@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
 import { getConfig } from '../api/config';
 import { listInbox, readInbox } from '../api/inbox';
+import { createGod } from '../api/gods';
 import { renderMarkdown } from '../lib/markdown.jsx';
 import './Dnd.css';
 
 const DEFAULT_PANTHEON = 'D:\\Documents\\DreadHaven\\10_World\\Gods of the Realm';
+const GOD_TEMPLATE = 'D:\\Documents\\DreadHaven\\_Templates\\God_Template.md';
 
 function formatDate(ms) {
   try {
@@ -41,6 +43,11 @@ export default function DndWorldPantheon() {
   const [usingPath, setUsingPath] = useState('');
   const [activePath, setActivePath] = useState('');
   const [activeContent, setActiveContent] = useState('');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [createError, setCreateError] = useState('');
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -94,63 +101,157 @@ export default function DndWorldPantheon() {
 
   const selected = useMemo(() => items.find((i) => i.path === activePath), [items, activePath]);
 
+  const openCreateModal = () => {
+    if (creating) return;
+    setNewName('');
+    setCreateError('');
+    setShowCreate(true);
+  };
+
+  const dismissCreateModal = () => {
+    setShowCreate(false);
+    setNewName('');
+    setCreateError('');
+  };
+
+  const handleCreateSubmit = async (event) => {
+    event.preventDefault();
+    if (creating) return;
+    const name = newName.trim();
+    if (!name) {
+      setCreateError('Please enter a god name.');
+      return;
+    }
+    try {
+      setCreating(true);
+      setCreateError('');
+      await createGod(name, GOD_TEMPLATE);
+      dismissCreateModal();
+      await fetchItems();
+    } catch (e) {
+      setCreateError(e?.message || 'Failed to create god.');
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
     <>
       <BackButton />
       <h1>Dungeons & Dragons · Pantheon</h1>
-      <main className="dashboard dnd-detail-layout">
-        <section className="dnd-surface">
-          <div className="dnd-toolbar">
-            <button type="button" onClick={fetchItems} disabled={loading}>
-              {loading ? 'Loading…' : 'Refresh'}
-            </button>
-            {usingPath && <span className="muted">Folder: {usingPath}</span>}
-            {error && <span className="error">{error}</span>}
-          </div>
-          <div className="dnd-card-collection">
-            {items.map((item) => (
-              <button
-                type="button"
-                key={item.path}
-                className={`dnd-card-button${item.path === activePath ? ' is-active' : ''}`}
-                onClick={() => setActivePath(item.path)}
-                title={item.path}
-              >
-                <span className="dnd-card-button-title">{item.title || item.name}</span>
-                <span className="dnd-card-button-meta">
-                  <time title={formatDate(item.modified_ms)}>{formatRelative(item.modified_ms)}</time>
-                </span>
-              </button>
-            ))}
-            {!loading && items.length === 0 && (
-              <div className="muted dnd-card-empty">No gods found in this folder.</div>
+      <div className="pantheon-controls">
+        <button type="button" onClick={fetchItems} disabled={loading}>
+          {loading ? 'Loading…' : 'Refresh'}
+        </button>
+        <button type="button" onClick={openCreateModal} disabled={creating}>
+          Add God
+        </button>
+        {usingPath && <span className="muted">Folder: {usingPath}</span>}
+        {error && <span className="error">{error}</span>}
+      </div>
+      <section className="pantheon-grid">
+        {items.map((item) => (
+          <button
+            type="button"
+            key={item.path}
+            className="pantheon-card"
+            onClick={() => {
+              setActivePath(item.path);
+              setError('');
+              setCreateError('');
+              setModalOpen(true);
+            }}
+            title={item.path}
+          >
+            <div className="pantheon-card-title">{item.title || item.name}</div>
+            <div className="pantheon-card-meta">
+              <time title={formatDate(item.modified_ms)}>{formatRelative(item.modified_ms)}</time>
+            </div>
+          </button>
+        ))}
+        {!loading && items.length === 0 && (
+          <div className="muted">No gods found in this folder.</div>
+        )}
+      </section>
+
+      {modalOpen && (
+        <div
+          className="lightbox"
+          onClick={() => {
+            setModalOpen(false);
+          }}
+        >
+          <div
+            className="lightbox-panel"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {selected ? (
+              <>
+                <header className="inbox-reader-header">
+                  <h2 className="inbox-reader-title">{selected.title || selected.name}</h2>
+                  <div className="inbox-reader-meta">
+                    <span>{selected.name}</span>
+                    <span>·</span>
+                    <time>{formatDate(selected.modified_ms)}</time>
+                  </div>
+                </header>
+                <article className="inbox-reader-body">
+                  {renderMarkdown(activeContent || 'Loading…')}
+                </article>
+              </>
+            ) : (
+              <div className="muted">Loading…</div>
             )}
           </div>
-        </section>
-        <section className="dnd-reader">
-          {selected ? (
-            <>
-              <header className="inbox-reader-header">
-                <h2 className="inbox-reader-title">{selected.title || selected.name}</h2>
-                <div className="inbox-reader-meta">
-                  <span>{selected.name}</span>
-                  <span>·</span>
-                  <time>{formatDate(selected.modified_ms)}</time>
-                </div>
-              </header>
-              <article className="inbox-reader-body">
-                {/\.(md|mdx|markdown)$/i.test(selected.name || '') ? (
-                  renderMarkdown(activeContent)
-                ) : (
-                  <pre className="inbox-reader-content">{activeContent}</pre>
-                )}
-              </article>
-            </>
-          ) : (
-            <div className="muted">Select a god to view details.</div>
-          )}
-        </section>
-      </main>
+        </div>
+      )}
+
+      {showCreate && (
+        <div
+          className="lightbox"
+          onClick={() => {
+            if (!creating) dismissCreateModal();
+          }}
+        >
+          <div
+            className="lightbox-panel monster-create-panel"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2>New God</h2>
+            <form className="monster-create-form" onSubmit={handleCreateSubmit}>
+              <label htmlFor="god-name">
+                God Name
+                <input
+                  id="god-name"
+                  type="text"
+                  value={newName}
+                  onChange={(event) => {
+                    setNewName(event.target.value);
+                    if (createError) setCreateError('');
+                  }}
+                  disabled={creating}
+                  autoFocus
+                />
+              </label>
+              {createError && <div className="error">{createError}</div>}
+              <div className="monster-create-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!creating) dismissCreateModal();
+                  }}
+                  disabled={creating}
+                >
+                  Cancel
+                </button>
+                <button type="submit" disabled={creating}>
+                  {creating ? 'Creating…' : 'Create'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 }
