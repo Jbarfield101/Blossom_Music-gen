@@ -3275,8 +3275,11 @@ fn god_create(app: AppHandle, name: String, template: Option<String>) -> Result<
 }
 
 #[tauri::command]
-fn spell_create(app: AppHandle, name: String) -> Result<String, String> {
-    eprintln!("[blossom] spell_create: start name='{}'", name);
+fn spell_create(app: AppHandle, name: String, template: Option<String>) -> Result<String, String> {
+    eprintln!(
+        "[blossom] spell_create: start name='{}', template={:?}",
+        name, template
+    );
 
     let store = settings_store(&app).map_err(|e| {
         eprintln!("[blossom] spell_create: settings_store error: {}", e);
@@ -3296,24 +3299,152 @@ fn spell_create(app: AppHandle, name: String) -> Result<String, String> {
         "[blossom] spell_create: spells_dir='{}'",
         spells_dir.to_string_lossy()
     );
-
     if !spells_dir.exists() {
-        if let Err(e) = fs::create_dir_all(&spells_dir) {
+        eprintln!("[blossom] spell_create: creating spells_dir");
+        fs::create_dir_all(&spells_dir).map_err(|e| {
             eprintln!(
                 "[blossom] spell_create: failed to create spells_dir '{}': {}",
                 spells_dir.to_string_lossy(),
                 e
             );
-            return Err(e.to_string());
+            e.to_string()
+        })?;
+    }
+
+    eprintln!("[blossom] spell_create: resolving template path");
+    let default_template_dir = PathBuf::from(r"D:\\Documents\\DreadHaven\\_Templates");
+    let default_template_names = [
+        "Spell Template + Universal (D&D 5e Spell).md",
+        "Spell Template + Universal (D&D 5e).md",
+        "Spell Template (D&D 5e).md",
+        "Spell Template.md",
+    ];
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(mut s) = template {
+        eprintln!("[blossom] spell_create: raw template arg='{}'", s);
+        let mut ch = s.chars();
+        if let (Some(drive), Some(sep)) = (ch.next(), ch.next()) {
+            if drive.is_ascii_alphabetic() && sep == '\\' && !s.contains(":\\") {
+                let rest: String = s.chars().skip(2).collect();
+                s = format!("{}:\\{}", drive, rest);
+                eprintln!("[blossom] spell_create: normalized Windows path -> '{}'", s);
+            }
+        }
+        let p = PathBuf::from(&s);
+        if p.is_absolute() && !candidates.contains(&p) {
+            candidates.push(p.clone());
+        }
+        if let Some(ref v) = vault {
+            let vault_path = PathBuf::from(v);
+            let templated = vault_path.join("_Templates").join(&s);
+            if !candidates.contains(&templated) {
+                candidates.push(templated);
+            }
+            let joined = vault_path.join(&s);
+            if !candidates.contains(&joined) {
+                candidates.push(joined);
+            }
+        }
+        if !p.is_absolute() {
+            let joined = default_template_dir.join(&s);
+            if !candidates.contains(&joined) {
+                candidates.push(joined);
+            }
+        }
+    } else {
+        if let Some(first) = default_template_names.first() {
+            candidates.push(default_template_dir.join(first));
+        }
+    }
+    if let Some(ref v) = vault {
+        let vault_templates = PathBuf::from(v).join("_Templates");
+        for name in &default_template_names {
+            let cand = vault_templates.join(name);
+            if !candidates.contains(&cand) {
+                candidates.push(cand);
+            }
+        }
+        let vault_root = PathBuf::from(v);
+        for name in &default_template_names {
+            let cand = vault_root.join(name);
+            if !candidates.contains(&cand) {
+                candidates.push(cand);
+            }
+        }
+    }
+    for name in &default_template_names {
+        let cand = default_template_dir.join(name);
+        if !candidates.contains(&cand) {
+            candidates.push(cand);
         }
     }
 
-    let trimmed = name.trim();
-    let effective_name = if trimmed.is_empty() {
+    let mut template_text_opt: Option<String> = None;
+    let mut tried: Vec<String> = Vec::new();
+    let mut last_err: Option<String> = None;
+    for cand in candidates {
+        let cand_str = cand.to_string_lossy().to_string();
+        eprintln!(
+            "[blossom] spell_create: trying template candidate '{}'",
+            cand_str
+        );
+        tried.push(cand_str.clone());
+        match fs::read_to_string(&cand) {
+            Ok(t) => {
+                eprintln!(
+                    "[blossom] spell_create: template selected '{}' ({} bytes)",
+                    cand_str,
+                    t.len()
+                );
+                template_text_opt = Some(t);
+                break;
+            }
+            Err(e) => {
+                eprintln!(
+                    "[blossom] spell_create: candidate failed '{}': {}",
+                    cand_str, e
+                );
+                last_err = Some(e.to_string());
+            }
+        }
+    }
+    let template_text = match template_text_opt {
+        Some(t) => t,
+        None => {
+            let summary = tried.join("; ");
+            let last = last_err.unwrap_or_else(|| "unknown error".to_string());
+            return Err(format!(
+                "Failed to read template. Tried: {}. Last error: {}",
+                summary, last
+            ));
+        }
+    };
+
+    let effective_name = if name.trim().is_empty() {
         "New Spell".to_string()
     } else {
-        trimmed.to_string()
+        name.trim().to_string()
     };
+    let prompt = format!(
+        "You are drafting a D&D 5e spell entry. Using the TEMPLATE, fully populate it for a spell named \"{name}\".\n\nRules:\n- Keep Markdown structure, headings, lists, and YAML frontmatter.\n- Fill all placeholders with spell level, school, casting time, range, components, duration, saving throws, and effects.\n- Provide flavorful description plus mechanical details, including At Higher Levels if appropriate.\n- Output only the completed markdown, no extra commentary.\n\nTEMPLATE:\n```\n{template}\n```",
+        name = effective_name,
+        template = template_text
+    );
+    let system = Some(String::from(
+        "You are an arcane archivist who outputs only valid Markdown with YAML frontmatter describing D&D 5e spells.\nEnsure level, school, casting time, range, components, duration, saving throws, damage, and scaling are detailed without using OGL-restricted phrasing.\n"
+    ));
+    eprintln!("[blossom] spell_create: invoking LLM generation");
+    let content = match generate_llm(prompt, system) {
+        Ok(c) => {
+            eprintln!("[blossom] spell_create: LLM returned ({} bytes)", c.len());
+            c
+        }
+        Err(e) => {
+            eprintln!("[blossom] spell_create: LLM generation failed: {}", e);
+            return Err(e);
+        }
+    };
+    let content = strip_code_fence(&content).to_string();
 
     let mut fname = effective_name
         .chars()
@@ -3330,9 +3461,8 @@ fn spell_create(app: AppHandle, name: String) -> Result<String, String> {
     if fname.is_empty() {
         fname = "New_Spell".to_string();
     }
-
     let mut target = spells_dir.join(format!("{}.md", fname));
-    let mut counter = 2u32;
+    let mut counter = 2;
     while target.exists() {
         target = spells_dir.join(format!("{}_{}.md", fname, counter));
         counter += 1;
@@ -3340,23 +3470,19 @@ fn spell_create(app: AppHandle, name: String) -> Result<String, String> {
             break;
         }
     }
-
-    let created = Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true);
-    let content = format!(
-        "---\ntitle: {title}\ncreated: {created}\n---\n\n# {title}\n\n## Spell Summary\n- **Level:** \n- **School:** \n- **Casting Time:** \n- **Range:** \n- **Components:** \n- **Duration:** \n\n## Description\n\n\n## At Higher Levels\n\n\n## Notes\n\n",
-        title = effective_name,
-        created = created,
+    eprintln!(
+        "[blossom] spell_create: writing file to '{}'",
+        target.to_string_lossy()
     );
 
-    if let Err(e) = fs::write(&target, content.as_bytes()) {
+    fs::write(&target, content.as_bytes()).map_err(|e| {
         eprintln!(
             "[blossom] spell_create: failed to write file '{}': {}",
             target.to_string_lossy(),
             e
         );
-        return Err(e.to_string());
-    }
-
+        e.to_string()
+    })?;
     eprintln!(
         "[blossom] spell_create: completed -> '{}'",
         target.to_string_lossy()
