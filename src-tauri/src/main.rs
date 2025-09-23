@@ -289,7 +289,59 @@ fn extract_tags(mapping: &YamlMapping) -> Vec<String> {
                 for item in seq {
                     match item {
                         YamlValue::String(s) => tags.push(s.clone()),
-                        other => tags.push(other.to_string()),
+                        other => {
+                            let maybe_tag = match other {
+                                YamlValue::Bool(_) | YamlValue::Number(_) => {
+                                    match serde_yaml::to_string(other) {
+                                        Ok(serialized) => {
+                                            let trimmed = serialized.trim();
+                                            let trimmed = trimmed
+                                                .strip_prefix("---")
+                                                .map(|rest| rest.trim_start())
+                                                .unwrap_or(trimmed);
+                                            let trimmed = trimmed
+                                                .strip_suffix("...")
+                                                .map(|rest| rest.trim_end())
+                                                .unwrap_or(trimmed);
+                                            if trimmed.is_empty() {
+                                                None
+                                            } else if trimmed.contains('\n') {
+                                                eprintln!(
+                                                    "[blossom] extract_tags: skipping non-string tag value: {:?}",
+                                                    other
+                                                );
+                                                None
+                                            } else {
+                                                Some(trimmed.to_string())
+                                            }
+                                        }
+                                        Err(err) => {
+                                            eprintln!(
+                                                "[blossom] extract_tags: failed to serialize tag value {:?}: {}",
+                                                other, err
+                                            );
+                                            None
+                                        }
+                                    }
+                                }
+                                YamlValue::Null => {
+                                    eprintln!(
+                                        "[blossom] extract_tags: skipping null tag value"
+                                    );
+                                    None
+                                }
+                                _ => {
+                                    eprintln!(
+                                        "[blossom] extract_tags: skipping unsupported tag value: {:?}",
+                                        other
+                                    );
+                                    None
+                                }
+                            };
+                            if let Some(tag) = maybe_tag {
+                                tags.push(tag);
+                            }
+                        }
                     }
                 }
             }
