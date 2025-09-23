@@ -428,7 +428,7 @@ struct TagUpdateSummary {
     duration_ms: u64,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 struct TagUpdateEvent {
     section: String,
     label: String,
