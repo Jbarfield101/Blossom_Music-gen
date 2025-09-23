@@ -51,11 +51,25 @@ class BlossomBot(commands.Bot):
 
         guild_id = os.getenv("DISCORD_GUILD_ID")
         if guild_id:
+            guild: discord.abc.Snowflake | None = None
             try:
-                guild = discord.Object(id=int(guild_id))
+                guild_id_int = int(guild_id)
             except ValueError:
-                guild = None
+                guild_id_int = None
+            else:
+                # Prefer an actual guild object so commands mirror instantly.
+                try:
+                    guild = self.get_guild(guild_id_int)
+                    if guild is None:
+                        guild = await self.fetch_guild(guild_id_int)
+                except discord.DiscordException:
+                    guild = None
+                if guild is None:
+                    guild = discord.Object(id=guild_id_int)
+
             if guild is not None:
+                if isinstance(guild, discord.Guild):
+                    self.tree.copy_global_to(guild=guild)
                 await self.tree.sync(guild=guild)
 
         await self.tree.sync()
