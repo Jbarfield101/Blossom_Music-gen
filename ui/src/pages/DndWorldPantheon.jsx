@@ -150,25 +150,40 @@ export default function DndWorldPantheon() {
         {error && <span className="error">{error}</span>}
       </div>
       <section className="pantheon-grid">
-        {items.map((item) => (
-          <button
-            type="button"
-            key={item.path}
-            className="pantheon-card"
-            onClick={() => {
-              setActivePath(item.path);
-              setError('');
-              setCreateError('');
-              setModalOpen(true);
-            }}
-            title={item.path}
-          >
-            <div className="pantheon-card-title">{item.title || item.name}</div>
-            <div className="pantheon-card-meta">
-              <time title={formatDate(item.modified_ms)}>{formatRelative(item.modified_ms)}</time>
-            </div>
-          </button>
-        ))}
+        {items.map((item) => {
+          const portraitSrc =
+            item?.portraitUrl ||
+            item?.portrait ||
+            item?.imageUrl ||
+            item?.image ||
+            item?.thumbnail ||
+            item?.cover;
+
+          return (
+            <button
+              type="button"
+              key={item.path}
+              className="pantheon-card"
+              onClick={() => {
+                setActivePath(item.path);
+                setError('');
+                setCreateError('');
+                setModalOpen(true);
+              }}
+              title={item.path}
+            >
+              {portraitSrc ? (
+                <img src={portraitSrc} alt={item.title || item.name} className="monster-portrait" />
+              ) : (
+                <div className="monster-portrait placeholder">?</div>
+              )}
+              <div className="pantheon-card-title">{item.title || item.name}</div>
+              <div className="pantheon-card-meta">
+                <time title={formatDate(item.modified_ms)}>{formatRelative(item.modified_ms)}</time>
+              </div>
+            </button>
+          );
+        })}
         {!loading && items.length === 0 && (
           <div className="muted">No gods found in this folder.</div>
         )}
