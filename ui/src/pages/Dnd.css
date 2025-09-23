@@ -11,6 +11,336 @@
   margin: 0;
 }
 
+.card.is-disabled,
+.card:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+  transform: none;
+  box-shadow: none;
+}
+
+.card.is-disabled:hover,
+.card.is-disabled:focus,
+.card:disabled:hover,
+.card:disabled:focus {
+  background: var(--card-bg);
+}
+
+.dnd-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-xl);
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(10px);
+  overflow-y: auto;
+}
+
+.dnd-modal {
+  width: min(960px, 100%);
+  max-height: 90vh;
+  background: var(--card-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.45);
+  display: flex;
+  flex-direction: column;
+}
+
+.dnd-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-lg) var(--space-xl) var(--space-md);
+}
+
+.dnd-modal-header h2 {
+  margin: 0;
+}
+
+.dnd-modal-header button {
+  align-self: flex-start;
+}
+
+.dnd-modal-subtitle {
+  margin: 0.25rem 0 0;
+  color: rgba(226, 232, 240, 0.75);
+  line-height: 1.5;
+  max-width: 60ch;
+}
+
+.dnd-modal-body {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  gap: var(--space-xl);
+  padding: 0 var(--space-xl) var(--space-xl);
+  overflow-y: auto;
+}
+
+.dnd-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-xl) var(--space-lg);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.dnd-modal-error {
+  margin: 0 var(--space-xl);
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  color: #fecaca;
+}
+
+.dnd-section-picker h3,
+.dnd-task-progress h3 {
+  margin: 0 0 0.75rem;
+}
+
+.dnd-section-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.dnd-section-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  padding: 0.75rem;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.dnd-section-option.is-selected {
+  border-color: rgba(96, 165, 250, 0.5);
+  background: rgba(37, 99, 235, 0.12);
+}
+
+.dnd-section-option input {
+  margin-top: 0.35rem;
+}
+
+.dnd-section-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.dnd-section-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.dnd-section-title {
+  font-weight: 600;
+  font-size: 1.05rem;
+}
+
+.dnd-section-path {
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.9);
+  word-break: break-word;
+}
+
+.dnd-section-prompt {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: rgba(226, 232, 240, 0.85);
+}
+
+.dnd-section-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.dnd-section-option .dnd-tag-chip {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.6rem;
+}
+
+.dnd-task-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-height: 0;
+}
+
+.dnd-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.dnd-progress-active {
+  font-size: 0.9rem;
+  color: rgba(148, 163, 184, 0.85);
+}
+
+.dnd-progress-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 0.3rem;
+}
+
+.dnd-progress-item {
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  display: grid;
+  gap: 0.45rem;
+  font-size: 0.95rem;
+}
+
+.dnd-progress-item.status-updated {
+  border-color: rgba(74, 222, 128, 0.45);
+}
+
+.dnd-progress-item.status-error {
+  border-color: rgba(248, 113, 113, 0.5);
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.dnd-progress-item.status-finished {
+  border-color: rgba(129, 140, 248, 0.5);
+}
+
+.dnd-progress-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.dnd-progress-status {
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.85);
+}
+
+.dnd-progress-count {
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.7);
+}
+
+.dnd-progress-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  color: rgba(226, 232, 240, 0.85);
+  word-break: break-word;
+}
+
+.dnd-progress-message {
+  font-size: 0.9rem;
+  color: rgba(226, 232, 240, 0.9);
+}
+
+.dnd-progress-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.dnd-progress-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  color: rgba(226, 232, 240, 0.85);
+}
+
+.dnd-progress-summaries {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.dnd-summary-card {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 12px;
+  padding: 0.75rem 1rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.dnd-summary-card h4 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.dnd-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: rgba(226, 232, 240, 0.85);
+}
+
+.dnd-summary-duration {
+  font-size: 0.8rem;
+  color: rgba(148, 163, 184, 0.85);
+}
+
+@media (max-width: 900px) {
+  .dnd-modal-body {
+    grid-template-columns: 1fr;
+    gap: var(--space-lg);
+  }
+
+  .dnd-progress-list {
+    max-height: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .dnd-modal-backdrop {
+    padding: var(--space-md);
+  }
+
+  .dnd-modal {
+    max-height: none;
+  }
+
+  .dnd-modal-header,
+  .dnd-modal-actions {
+    padding-left: var(--space-md);
+    padding-right: var(--space-md);
+  }
+
+  .dnd-modal-body {
+    padding: 0 var(--space-md) var(--space-md);
+  }
+}
+
 .dnd-lore {
   display: flex;
   flex-direction: column;

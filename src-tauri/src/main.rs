@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     env, fs,
     io::{BufRead, BufReader, ErrorKind},
     path::{Path, PathBuf},
@@ -10,13 +10,14 @@ use std::{
         atomic::{AtomicU64, AtomicUsize, Ordering},
         Arc, Mutex, OnceLock,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
+use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 use tauri::path::BaseDirectory;
 use tauri::Emitter;
 use tauri::Manager;
@@ -29,6 +30,7 @@ use tauri_plugin_store::{Builder, Store, StoreBuilder};
 use tempfile::NamedTempFile;
 use tokio::time::sleep;
 use url::Url;
+use walkdir::WalkDir;
 mod commands;
 mod config;
 mod musiclang;
@@ -73,7 +75,8 @@ fn strip_code_fence(s: &str) -> &str {
                 .all(|c| c.is_ascii_alphanumeric());
 
         if first_line_trimmed.is_empty()
-            || (first_line_looks_like_lang && (remainder_trimmed.is_empty() || remainder_is_markdown))
+            || (first_line_looks_like_lang
+                && (remainder_trimmed.is_empty() || remainder_is_markdown))
         {
             return remainder_trimmed.trim();
         }
@@ -101,6 +104,238 @@ mod tests {
     fn strips_basic_fence() {
         let input = "```\n# Heading\n```";
         assert_eq!(strip_code_fence(input), "# Heading");
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct TagSectionConfig {
+    id: String,
+    label: String,
+    #[serde(rename = "vaultSubfolder")]
+    vault_subfolder: String,
+    prompt: String,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    includes: Vec<String>,
+    #[serde(default)]
+    fallbacks: Vec<String>,
+}
+
+fn tag_sections() -> &'static [TagSectionConfig] {
+    static SECTIONS: OnceLock<Vec<TagSectionConfig>> = OnceLock::new();
+    SECTIONS
+        .get_or_init(|| {
+            let raw = include_str!("../../ui/src/lib/dndTagSections.json");
+            serde_json::from_str(raw).expect("invalid dnd tag section metadata")
+        })
+        .as_slice()
+}
+
+fn tag_section_map() -> &'static HashMap<String, TagSectionConfig> {
+    static MAP: OnceLock<HashMap<String, TagSectionConfig>> = OnceLock::new();
+    MAP.get_or_init(|| {
+        let mut out = HashMap::new();
+        for section in tag_sections() {
+            out.insert(section.id.clone(), section.clone());
+        }
+        out
+    })
+}
+
+fn join_vault_folder(base: &Path, subfolder: &str) -> PathBuf {
+    let mut path = PathBuf::from(base);
+    for segment in subfolder.split(['/', '\\']) {
+        let trimmed = segment.trim();
+        if !trimmed.is_empty() {
+            path.push(trimmed);
+        }
+    }
+    path
+}
+
+fn clamp_text(text: &str, max_chars: usize) -> String {
+    let trimmed = text.trim();
+    if trimmed.chars().count() <= max_chars {
+        return trimmed.to_string();
+    }
+    let mut out = String::with_capacity(max_chars + 1);
+    for (idx, ch) in trimmed.chars().enumerate() {
+        if idx >= max_chars {
+            out.push('…');
+            break;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+fn relative_display(base: &Path, path: &Path) -> String {
+    path.strip_prefix(base)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+fn parse_frontmatter(text: &str) -> Result<(YamlMapping, String, String), String> {
+    static FRONTMATTER_RE: OnceLock<Regex> = OnceLock::new();
+    let re = FRONTMATTER_RE.get_or_init(|| {
+        Regex::new(r"(?s)^\u{feff}?---\s*\r?\n(.*?)\r?\n---\s*\r?\n?")
+            .expect("invalid frontmatter regex")
+    });
+    if let Some(caps) = re.captures(text) {
+        let full = caps.get(0).unwrap();
+        let yaml_src = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+        let value: YamlValue = serde_yaml::from_str(yaml_src)
+            .map_err(|err| format!("failed to parse YAML frontmatter: {}", err))?;
+        let mapping = match value {
+            YamlValue::Mapping(map) => map,
+            _ => YamlMapping::new(),
+        };
+        let body = text[full.end()..].to_string();
+        Ok((mapping, body, yaml_src.to_string()))
+    } else {
+        Ok((YamlMapping::new(), text.to_string(), String::new()))
+    }
+}
+
+fn serialize_frontmatter(mapping: &YamlMapping) -> Result<String, String> {
+    let mut yaml = serde_yaml::to_string(mapping).map_err(|e| e.to_string())?;
+    if yaml.ends_with("\n...") {
+        let new_len = yaml.len() - 4;
+        yaml.truncate(new_len);
+        if !yaml.ends_with('\n') {
+            yaml.push('\n');
+        }
+    }
+    if !yaml.ends_with('\n') {
+        yaml.push('\n');
+    }
+    Ok(yaml)
+}
+
+fn extract_tags(mapping: &YamlMapping) -> Vec<String> {
+    let key = YamlValue::String("tags".to_string());
+    let mut tags = Vec::new();
+    if let Some(value) = mapping.get(&key) {
+        match value {
+            YamlValue::Sequence(seq) => {
+                for item in seq {
+                    match item {
+                        YamlValue::String(s) => tags.push(s.clone()),
+                        other => tags.push(other.to_string()),
+                    }
+                }
+            }
+            YamlValue::String(s) => tags.push(s.clone()),
+            _ => {}
+        }
+    }
+    tags
+}
+
+fn normalize_tag(tag: &str) -> Option<String> {
+    let trimmed = tag.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut out = String::new();
+    let mut last_dash = false;
+    for ch in trimmed.chars() {
+        let lower = ch.to_ascii_lowercase();
+        if lower.is_ascii_alphanumeric() {
+            out.push(lower);
+            last_dash = false;
+        } else if matches!(lower, '-' | '_' | ' ' | '/' | '\\' | '&') {
+            if !last_dash && !out.is_empty() {
+                out.push('-');
+                last_dash = true;
+            }
+        } else {
+            if !last_dash && !out.is_empty() {
+                out.push('-');
+                last_dash = true;
+            }
+        }
+    }
+    let normalized = out.trim_matches('-').to_string();
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(normalized)
+    }
+}
+
+fn normalize_tags(tags: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for tag in tags {
+        if let Some(normalized) = normalize_tag(tag) {
+            if seen.insert(normalized.clone()) {
+                out.push(normalized);
+            }
+        }
+    }
+    out
+}
+
+fn parse_model_tags(response: &str) -> Result<Vec<String>, String> {
+    let cleaned = strip_code_fence(response).trim();
+    if cleaned.is_empty() {
+        return Err("model returned an empty response".into());
+    }
+    if let Ok(tags) = serde_json::from_str::<Vec<String>>(cleaned) {
+        return Ok(tags);
+    }
+    if let (Some(start), Some(end)) = (cleaned.find('['), cleaned.rfind(']')) {
+        if end > start {
+            let slice = &cleaned[start..=end];
+            if let Ok(tags) = serde_json::from_str::<Vec<String>>(slice) {
+                return Ok(tags);
+            }
+        }
+    }
+    Err("model response was not valid JSON".into())
+}
+
+#[derive(Serialize)]
+struct TagUpdateSummary {
+    section: String,
+    label: String,
+    base_path: String,
+    total_notes: usize,
+    updated_notes: usize,
+    skipped_notes: usize,
+    failed_notes: usize,
+    duration_ms: u64,
+}
+
+#[derive(Serialize)]
+struct TagUpdateEvent {
+    section: String,
+    label: String,
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    index: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    total: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rel_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tags: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    updated: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    skipped: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    failed: Option<usize>,
+}
+
+fn emit_tag_event(app: &AppHandle, payload: TagUpdateEvent) {
+    if let Err(err) = app.emit("tag-update::progress", payload) {
+        eprintln!("failed to emit tag update event: {}", err);
     }
 }
 
@@ -196,10 +431,7 @@ fn configure_python_command(cmd: &mut Command) {
     cmd.env("PYTHONUNBUFFERED", "1");
     // Optional debug: print Python working directory and PYTHONPATH
     if env::var("BLOSSOM_DEBUG").ok().as_deref() == Some("1") {
-        eprintln!(
-            "[blossom] python cwd: {}",
-            root.to_string_lossy()
-        );
+        eprintln!("[blossom] python cwd: {}", root.to_string_lossy());
     }
     let mut pythonpath = root.clone().into_os_string();
     if let Some(existing) = env::var_os("PYTHONPATH") {
@@ -1329,7 +1561,10 @@ impl JobRegistry {
                     }
                 };
                 if let Some((success, code)) = result {
-                    eprintln!("[blossom] job {} exited (success={}, code={:?})", id, success, code);
+                    eprintln!(
+                        "[blossom] job {} exited (success={}, code={:?})",
+                        id, success, code
+                    );
                     let registry = app_handle.state::<JobRegistry>();
                     registry.complete_job(&app_handle, id, success, code, false);
                     registry.maybe_start_jobs(&app_handle);
@@ -1509,11 +1744,11 @@ impl JobRegistry {
             let Some(id) = next_id else {
                 break;
             };
-        if persistence_enabled() {
-            if let Err(err) = self.persist_queue() {
-                eprintln!("failed to persist job queue after dequeue: {}", err);
+            if persistence_enabled() {
+                if let Err(err) = self.persist_queue() {
+                    eprintln!("failed to persist job queue after dequeue: {}", err);
+                }
             }
-        }
             if let Err(err) = self.start_job_process(app, id) {
                 eprintln!("failed to start job {}: {}", id, err);
                 self.complete_job(app, id, false, None, false);
@@ -1553,7 +1788,17 @@ impl JobRegistry {
             Arc<Mutex<VecDeque<String>>>,
             Arc<Mutex<Vec<JobArtifact>>>,
             Arc<Mutex<Option<JobProgressSnapshot>>>,
-            (Option<String>, Option<String>, Vec<String>, DateTime<Utc>, Option<DateTime<Utc>>, Option<DateTime<Utc>>, Option<bool>, Option<i32>, bool),
+            (
+                Option<String>,
+                Option<String>,
+                Vec<String>,
+                DateTime<Utc>,
+                Option<DateTime<Utc>>,
+                Option<DateTime<Utc>>,
+                Option<bool>,
+                Option<i32>,
+                bool,
+            ),
         )> = None;
         {
             let mut jobs = self.jobs.lock().unwrap();
@@ -1574,7 +1819,10 @@ impl JobRegistry {
                     let mut child_guard = job.child.lock().unwrap();
                     *child_guard = None;
                 }
-                eprintln!("[blossom] complete_job: checking artifact candidates id={}", id);
+                eprintln!(
+                    "[blossom] complete_job: checking artifact candidates id={}",
+                    id
+                );
                 if job.artifacts.lock().map(|a| a.is_empty()).unwrap_or(true) {
                     let mut artifacts = job.artifacts.lock().unwrap();
                     for candidate in &job.artifact_candidates {
@@ -1586,7 +1834,10 @@ impl JobRegistry {
                         }
                     }
                 }
-                eprintln!("[blossom] complete_job: building progress snapshot id={}", id);
+                eprintln!(
+                    "[blossom] complete_job: building progress snapshot id={}",
+                    id
+                );
                 let mut progress = job.progress.lock().unwrap();
                 let mut snapshot = progress.clone().unwrap_or_default();
                 snapshot.queue_position = None;
@@ -1636,19 +1887,28 @@ impl JobRegistry {
             }
         }
         // If we captured handles, build the record outside of the jobs lock to avoid deadlocks
-        if let Some((stdout_arc, stderr_arc, artifacts_arc, progress_arc2, (
-            kind,
-            label,
-            args_clone,
-            created_at,
-            started_at,
-            finished_at,
-            success_val,
-            exit_code_val,
-            cancelled_val,
-        ))) = captured
+        if let Some((
+            stdout_arc,
+            stderr_arc,
+            artifacts_arc,
+            progress_arc2,
+            (
+                kind,
+                label,
+                args_clone,
+                created_at,
+                started_at,
+                finished_at,
+                success_val,
+                exit_code_val,
+                cancelled_val,
+            ),
+        )) = captured
         {
-            eprintln!("[blossom] complete_job: building record outside lock id={}", id);
+            eprintln!(
+                "[blossom] complete_job: building record outside lock id={}",
+                id
+            );
             let stdout = stdout_arc
                 .lock()
                 .map(|buf| buf.iter().cloned().collect::<Vec<_>>())
@@ -1657,8 +1917,14 @@ impl JobRegistry {
                 .lock()
                 .map(|buf| buf.iter().cloned().collect::<Vec<_>>())
                 .unwrap_or_default();
-            let artifacts = artifacts_arc.lock().map(|items| items.clone()).unwrap_or_default();
-            let progress = progress_arc2.lock().map(|p| (*p).clone()).unwrap_or_default();
+            let artifacts = artifacts_arc
+                .lock()
+                .map(|items| items.clone())
+                .unwrap_or_default();
+            let progress = progress_arc2
+                .lock()
+                .map(|p| (*p).clone())
+                .unwrap_or_default();
             maybe_record = Some(JobRecord {
                 id,
                 kind,
@@ -1816,6 +2082,453 @@ fn settings_store(app: &AppHandle) -> Result<Arc<Store<tauri::Wry>>, String> {
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn update_section_tags(app: AppHandle, section: String) -> Result<TagUpdateSummary, String> {
+    let trimmed = section.trim();
+    let section_cfg = tag_section_map()
+        .get(trimmed)
+        .cloned()
+        .ok_or_else(|| format!("Unknown tag section '{}'.", trimmed))?;
+
+    let store = settings_store(&app)?;
+    let vault = store
+        .get("vaultPath")
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
+
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(ref base) = vault {
+        let base_path = PathBuf::from(base);
+        candidates.push(join_vault_folder(&base_path, &section_cfg.vault_subfolder));
+    }
+    for fallback in &section_cfg.fallbacks {
+        let candidate = PathBuf::from(fallback);
+        if !candidates.iter().any(|p| p == &candidate) {
+            candidates.push(candidate);
+        }
+    }
+    if candidates.is_empty() {
+        return Err(format!(
+            "No folder mapping configured for section '{}'. Set a vault path in Settings.",
+            section_cfg.label
+        ));
+    }
+
+    let mut base_dir: Option<PathBuf> = None;
+    for candidate in &candidates {
+        if candidate.exists() && candidate.is_dir() {
+            base_dir = Some(candidate.clone());
+            break;
+        }
+    }
+    let base_dir = match base_dir {
+        Some(dir) => dir,
+        None => {
+            let searched = candidates
+                .iter()
+                .map(|p| p.to_string_lossy().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(format!(
+                "Folder for '{}' not found. Checked: {}.",
+                section_cfg.label, searched
+            ));
+        }
+    };
+
+    let base_display = base_dir.to_string_lossy().to_string();
+    let label = section_cfg.label.clone();
+
+    let mut files: Vec<PathBuf> = Vec::new();
+    for entry in WalkDir::new(&base_dir).into_iter().filter_map(|e| e.ok()) {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path();
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_ascii_lowercase());
+        if !matches!(ext.as_deref(), Some("md" | "markdown" | "mdx")) {
+            continue;
+        }
+        if !section_cfg.includes.is_empty() {
+            let rel = path.strip_prefix(&base_dir).unwrap_or(path);
+            let rel_str = rel.to_string_lossy();
+            if !section_cfg
+                .includes
+                .iter()
+                .all(|needle| rel_str.contains(needle))
+            {
+                continue;
+            }
+        }
+        files.push(path.to_path_buf());
+    }
+    files.sort();
+
+    let total = files.len();
+    emit_tag_event(
+        &app,
+        TagUpdateEvent {
+            section: section_cfg.id.clone(),
+            label: label.clone(),
+            status: "started".into(),
+            index: None,
+            total: Some(total),
+            rel_path: Some(base_display.clone()),
+            tags: None,
+            message: Some(if total == 1 {
+                "Processing 1 note.".to_string()
+            } else {
+                format!("Processing {} notes.", total)
+            }),
+            updated: None,
+            skipped: None,
+            failed: None,
+        },
+    );
+
+    let mut updated_notes = 0usize;
+    let mut skipped_notes = 0usize;
+    let mut failed_notes = 0usize;
+    let start = Instant::now();
+
+    for (index, path) in files.iter().enumerate() {
+        let rel = relative_display(&base_dir, path);
+        emit_tag_event(
+            &app,
+            TagUpdateEvent {
+                section: section_cfg.id.clone(),
+                label: label.clone(),
+                status: "inspecting".into(),
+                index: Some(index),
+                total: Some(total),
+                rel_path: Some(rel.clone()),
+                tags: None,
+                message: None,
+                updated: None,
+                skipped: None,
+                failed: None,
+            },
+        );
+
+        let file_text = match fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(err) => {
+                failed_notes += 1;
+                emit_tag_event(
+                    &app,
+                    TagUpdateEvent {
+                        section: section_cfg.id.clone(),
+                        label: label.clone(),
+                        status: "error".into(),
+                        index: Some(index),
+                        total: Some(total),
+                        rel_path: Some(rel.clone()),
+                        tags: None,
+                        message: Some(format!("Failed to read file: {}", err)),
+                        updated: None,
+                        skipped: None,
+                        failed: None,
+                    },
+                );
+                continue;
+            }
+        };
+
+        let (mut mapping, body, raw_frontmatter) = match parse_frontmatter(&file_text) {
+            Ok(parts) => parts,
+            Err(err) => {
+                failed_notes += 1;
+                emit_tag_event(
+                    &app,
+                    TagUpdateEvent {
+                        section: section_cfg.id.clone(),
+                        label: label.clone(),
+                        status: "error".into(),
+                        index: Some(index),
+                        total: Some(total),
+                        rel_path: Some(rel.clone()),
+                        tags: None,
+                        message: Some(err),
+                        updated: None,
+                        skipped: None,
+                        failed: None,
+                    },
+                );
+                continue;
+            }
+        };
+
+        let frontmatter_text = if raw_frontmatter.is_empty() {
+            match serialize_frontmatter(&mapping) {
+                Ok(s) => s,
+                Err(err) => {
+                    failed_notes += 1;
+                    emit_tag_event(
+                        &app,
+                        TagUpdateEvent {
+                            section: section_cfg.id.clone(),
+                            label: label.clone(),
+                            status: "error".into(),
+                            index: Some(index),
+                            total: Some(total),
+                            rel_path: Some(rel.clone()),
+                            tags: None,
+                            message: Some(format!("Failed to serialize frontmatter: {}", err)),
+                            updated: None,
+                            skipped: None,
+                            failed: None,
+                        },
+                    );
+                    continue;
+                }
+            }
+        } else {
+            raw_frontmatter.clone()
+        };
+
+        let existing_tags = extract_tags(&mapping);
+        let existing_normalized = normalize_tags(&existing_tags);
+
+        let canonical_line = if section_cfg.tags.is_empty() {
+            "- Prefer concise, campaign-consistent tags.".to_string()
+        } else {
+            format!(
+                "- Prioritize these canonical tags when relevant: {}.",
+                section_cfg.tags.join(", ")
+            )
+        };
+        let existing_line = if existing_normalized.is_empty() {
+            "- Current tags: (none).".to_string()
+        } else {
+            format!("- Current tags: {}.", existing_normalized.join(", "))
+        };
+
+        let prompt = format!(
+            "You refresh the YAML `tags` array for a Dungeons & Dragons knowledge base.\n\
+Section: {label}\n\
+File: {rel}\n\
+Rules:\n\
+- Output only a JSON array of lower-case kebab-case tags.\n\
+- Keep relevant existing tags and remove ones no longer supported.\n\
+{existing_line}\n\
+{canonical_line}\n\
+- Suggest new tags only when clearly supported by the content.\n\
+\n\
+Frontmatter:\n{frontmatter}\n---\nBody excerpt:\n{body}",
+            label = label,
+            rel = rel,
+            existing_line = existing_line,
+            canonical_line = canonical_line,
+            frontmatter = clamp_text(&frontmatter_text, 1200),
+            body = clamp_text(&body, 1500),
+        );
+
+        let system = "You return only compact JSON arrays of tags.";
+        let response = match generate_llm(prompt, Some(system.to_string())) {
+            Ok(text) => text,
+            Err(err) => {
+                failed_notes += 1;
+                emit_tag_event(
+                    &app,
+                    TagUpdateEvent {
+                        section: section_cfg.id.clone(),
+                        label: label.clone(),
+                        status: "error".into(),
+                        index: Some(index),
+                        total: Some(total),
+                        rel_path: Some(rel.clone()),
+                        tags: None,
+                        message: Some(format!("Model call failed: {}", err)),
+                        updated: None,
+                        skipped: None,
+                        failed: None,
+                    },
+                );
+                continue;
+            }
+        };
+
+        let candidate_tags = match parse_model_tags(&response) {
+            Ok(tags) => tags,
+            Err(err) => {
+                failed_notes += 1;
+                emit_tag_event(
+                    &app,
+                    TagUpdateEvent {
+                        section: section_cfg.id.clone(),
+                        label: label.clone(),
+                        status: "error".into(),
+                        index: Some(index),
+                        total: Some(total),
+                        rel_path: Some(rel.clone()),
+                        tags: None,
+                        message: Some(err),
+                        updated: None,
+                        skipped: None,
+                        failed: None,
+                    },
+                );
+                continue;
+            }
+        };
+
+        let normalized = normalize_tags(&candidate_tags);
+        if normalized.is_empty() {
+            skipped_notes += 1;
+            emit_tag_event(
+                &app,
+                TagUpdateEvent {
+                    section: section_cfg.id.clone(),
+                    label: label.clone(),
+                    status: "skipped".into(),
+                    index: Some(index),
+                    total: Some(total),
+                    rel_path: Some(rel.clone()),
+                    tags: None,
+                    message: Some(
+                        "Model returned no tags; existing values were left unchanged.".into(),
+                    ),
+                    updated: None,
+                    skipped: None,
+                    failed: None,
+                },
+            );
+            continue;
+        }
+
+        if normalized == existing_normalized {
+            skipped_notes += 1;
+            emit_tag_event(
+                &app,
+                TagUpdateEvent {
+                    section: section_cfg.id.clone(),
+                    label: label.clone(),
+                    status: "skipped".into(),
+                    index: Some(index),
+                    total: Some(total),
+                    rel_path: Some(rel.clone()),
+                    tags: Some(normalized.clone()),
+                    message: Some("Tags already up to date.".into()),
+                    updated: None,
+                    skipped: None,
+                    failed: None,
+                },
+            );
+            continue;
+        }
+
+        let yaml_tags: Vec<YamlValue> = normalized
+            .iter()
+            .map(|tag| YamlValue::String(tag.clone()))
+            .collect();
+        mapping.insert(
+            YamlValue::String("tags".to_string()),
+            YamlValue::Sequence(yaml_tags),
+        );
+
+        let serialized = match serialize_frontmatter(&mapping) {
+            Ok(s) => s,
+            Err(err) => {
+                failed_notes += 1;
+                emit_tag_event(
+                    &app,
+                    TagUpdateEvent {
+                        section: section_cfg.id.clone(),
+                        label: label.clone(),
+                        status: "error".into(),
+                        index: Some(index),
+                        total: Some(total),
+                        rel_path: Some(rel.clone()),
+                        tags: None,
+                        message: Some(format!("Failed to serialize updated frontmatter: {}", err)),
+                        updated: None,
+                        skipped: None,
+                        failed: None,
+                    },
+                );
+                continue;
+            }
+        };
+
+        let mut new_content = String::with_capacity(serialized.len() + body.len() + 8);
+        new_content.push_str("---\n");
+        new_content.push_str(&serialized);
+        new_content.push_str("---\n");
+        new_content.push_str(&body);
+
+        if let Err(err) = fs::write(path, new_content) {
+            failed_notes += 1;
+            emit_tag_event(
+                &app,
+                TagUpdateEvent {
+                    section: section_cfg.id.clone(),
+                    label: label.clone(),
+                    status: "error".into(),
+                    index: Some(index),
+                    total: Some(total),
+                    rel_path: Some(rel.clone()),
+                    tags: Some(normalized.clone()),
+                    message: Some(format!("Failed to write file: {}", err)),
+                    updated: None,
+                    skipped: None,
+                    failed: None,
+                },
+            );
+            continue;
+        }
+
+        updated_notes += 1;
+        emit_tag_event(
+            &app,
+            TagUpdateEvent {
+                section: section_cfg.id.clone(),
+                label: label.clone(),
+                status: "updated".into(),
+                index: Some(index),
+                total: Some(total),
+                rel_path: Some(rel),
+                tags: Some(normalized),
+                message: None,
+                updated: None,
+                skipped: None,
+                failed: None,
+            },
+        );
+    }
+
+    let duration_ms = start.elapsed().as_millis() as u64;
+
+    emit_tag_event(
+        &app,
+        TagUpdateEvent {
+            section: section_cfg.id.clone(),
+            label: label.clone(),
+            status: "finished".into(),
+            index: None,
+            total: Some(total),
+            rel_path: Some(base_display.clone()),
+            tags: None,
+            message: Some("Tag refresh complete.".into()),
+            updated: Some(updated_notes),
+            skipped: Some(skipped_notes),
+            failed: Some(failed_notes),
+        },
+    );
+
+    Ok(TagUpdateSummary {
+        section: section_cfg.id,
+        label,
+        base_path: base_display,
+        total_notes: total,
+        updated_notes,
+        skipped_notes,
+        failed_notes,
+        duration_ms,
+    })
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct InboxItem {
     path: String,
@@ -1898,7 +2611,8 @@ fn inbox_list(app: AppHandle, path: Option<String>) -> Result<Vec<InboxItem>, St
             .map(|e| {
                 // Convert to an approximate ms since now - elapsed
                 let now = Utc::now();
-                let ago = ChronoDuration::from_std(e).unwrap_or_else(|_| ChronoDuration::seconds(0));
+                let ago =
+                    ChronoDuration::from_std(e).unwrap_or_else(|_| ChronoDuration::seconds(0));
                 (now - ago).timestamp_millis()
             })
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -1924,10 +2638,23 @@ fn inbox_list(app: AppHandle, path: Option<String>) -> Result<Vec<InboxItem>, St
 }
 
 #[tauri::command]
-fn npc_create(app: AppHandle, name: String, region: Option<String>, purpose: Option<String>, template: Option<String>, random_name: Option<bool>) -> Result<String, String> {
-    eprintln!("[blossom] npc_create: start name='{}', region={:?}, purpose={:?}, template={:?}", name, region, purpose, template);
+fn npc_create(
+    app: AppHandle,
+    name: String,
+    region: Option<String>,
+    purpose: Option<String>,
+    template: Option<String>,
+    random_name: Option<bool>,
+) -> Result<String, String> {
+    eprintln!(
+        "[blossom] npc_create: start name='{}', region={:?}, purpose={:?}, template={:?}",
+        name, region, purpose, template
+    );
     // Resolve NPC base directory
-    let store = settings_store(&app).map_err(|e| { eprintln!("[blossom] npc_create: settings_store error: {}", e); e })?;
+    let store = settings_store(&app).map_err(|e| {
+        eprintln!("[blossom] npc_create: settings_store error: {}", e);
+        e
+    })?;
     let vault = store
         .get("vaultPath")
         .and_then(|v| v.as_str().map(|s| s.to_string()));
@@ -1936,27 +2663,48 @@ fn npc_create(app: AppHandle, name: String, region: Option<String>, purpose: Opt
     } else {
         PathBuf::from(r"D:\\Documents\\DreadHaven\\20_DM\\NPC")
     };
-    if !base_dir.exists() { fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?; }
+    if !base_dir.exists() {
+        fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?;
+    }
 
     // Build target directory from region (can be nested like "Bree/Inn")
     let mut target_dir = base_dir.clone();
     if let Some(r) = region.and_then(|s| if s.trim().is_empty() { None } else { Some(s) }) {
         for part in r.replace("\\", "/").split('/') {
-            if part.trim().is_empty() { continue; }
+            if part.trim().is_empty() {
+                continue;
+            }
             target_dir = target_dir.join(part);
         }
     }
-    if !target_dir.exists() { fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?; }
+    if !target_dir.exists() {
+        fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
+    }
 
     // Safe filename
-    let mut fname = name.chars().map(|c| if c.is_alphanumeric() || c==' ' || c=='-' || c=='_' { c } else { '_' }).collect::<String>().trim().replace(' ', "_");
-    if fname.is_empty() { fname = "New_NPC".to_string(); }
+    let mut fname = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim()
+        .replace(' ', "_");
+    if fname.is_empty() {
+        fname = "New_NPC".to_string();
+    }
     let mut target = target_dir.join(format!("{}.md", fname));
     let mut counter = 2u32;
     while target.exists() {
         target = target_dir.join(format!("{}_{}.md", fname, counter));
         counter += 1;
-        if counter > 9999 { break; }
+        if counter > 9999 {
+            break;
+        }
     }
 
     // Resolve template path and load text (tolerant of spaces and variants)
@@ -1974,7 +2722,9 @@ fn npc_create(app: AppHandle, name: String, region: Option<String>, purpose: Opt
             }
         }
         let p = PathBuf::from(&s);
-        if p.is_absolute() { candidates.push(p); }
+        if p.is_absolute() {
+            candidates.push(p);
+        }
         if let Some(v) = &vault {
             candidates.push(PathBuf::from(v).join("_Templates").join(&s));
             candidates.push(PathBuf::from(v).join(&s));
@@ -1991,12 +2741,20 @@ fn npc_create(app: AppHandle, name: String, region: Option<String>, purpose: Opt
         let s = cand.to_string_lossy().to_string();
         tried.push(s.clone());
         match fs::read_to_string(&cand) {
-            Ok(t) => { template_text = Some(t); break; }
+            Ok(t) => {
+                template_text = Some(t);
+                break;
+            }
             Err(_) => {}
         }
     }
     let now = Utc::now().format("%Y-%m-%d").to_string();
-    let location_str = target_dir.strip_prefix(&base_dir).ok().map(|p| p.to_string_lossy().to_string()).unwrap_or_default().replace('\\', "/");
+    let location_str = target_dir
+        .strip_prefix(&base_dir)
+        .ok()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default()
+        .replace('\\', "/");
     let purpose_str = purpose.unwrap_or_default();
     let use_random_name = random_name.unwrap_or(false) || name.trim().is_empty();
 
@@ -2029,8 +2787,9 @@ fn npc_create(app: AppHandle, name: String, region: Option<String>, purpose: Opt
     fn extract_title(src: &str) -> Option<String> {
         let s = src.replace("\r\n", "\n");
         if s.starts_with("---\n") {
-            if let Some(end) = s[4..].find("\n---") { // position of closing
-                let body = &s[4..4+end];
+            if let Some(end) = s[4..].find("\n---") {
+                // position of closing
+                let body = &s[4..4 + end];
                 for line in body.lines() {
                     let ln = line.trim();
                     let lower = ln.to_ascii_lowercase();
@@ -2047,7 +2806,9 @@ fn npc_create(app: AppHandle, name: String, region: Option<String>, purpose: Opt
             let ln = line.trim();
             if let Some(rest) = ln.strip_prefix('#') {
                 let rest = rest.trim_start_matches('#').trim();
-                if !rest.is_empty() { return Some(rest.to_string()); }
+                if !rest.is_empty() {
+                    return Some(rest.to_string());
+                }
             }
         }
         None
@@ -2055,22 +2816,34 @@ fn npc_create(app: AppHandle, name: String, region: Option<String>, purpose: Opt
 
     let effective_name = if use_random_name {
         extract_title(&content).unwrap_or_else(|| "New_NPC".to_string())
-    } else { name.clone() };
+    } else {
+        name.clone()
+    };
 
     // Safe filename and unique path
     let mut fname = effective_name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c==' ' || c=='-' || c=='_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect::<String>()
         .trim()
         .replace(' ', "_");
-    if fname.is_empty() { fname = "New_NPC".to_string(); }
+    if fname.is_empty() {
+        fname = "New_NPC".to_string();
+    }
     let mut target = target_dir.join(format!("{}.md", fname));
     let mut counter = 2u32;
     while target.exists() {
         target = target_dir.join(format!("{}_{}.md", fname, counter));
         counter += 1;
-        if counter > 9999 { break; }
+        if counter > 9999 {
+            break;
+        }
     }
 
     fs::write(&target, content.as_bytes()).map_err(|e| e.to_string())?;
@@ -2108,16 +2881,23 @@ fn dir_list(path: String) -> Result<Vec<DirEntryItem>, String> {
     for entry in fs::read_dir(&base).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let p = entry.path();
-        let meta = match entry.metadata() { Ok(m) => m, Err(_) => continue };
+        let meta = match entry.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
         let is_dir = meta.is_dir();
-        let name = match p.file_name().and_then(|s| s.to_str()) { Some(s) => s.to_string(), None => continue };
+        let name = match p.file_name().and_then(|s| s.to_str()) {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
         let modified_ms = meta
             .modified()
             .ok()
             .and_then(|t| t.elapsed().ok())
             .map(|e| {
                 let now = Utc::now();
-                let ago = ChronoDuration::from_std(e).unwrap_or_else(|_| ChronoDuration::seconds(0));
+                let ago =
+                    ChronoDuration::from_std(e).unwrap_or_else(|_| ChronoDuration::seconds(0));
                 (now - ago).timestamp_millis()
             })
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -2140,7 +2920,11 @@ fn dir_list(path: String) -> Result<Vec<DirEntryItem>, String> {
 }
 
 #[tauri::command]
-fn monster_create(app: AppHandle, name: String, template: Option<String>) -> Result<String, String> {
+fn monster_create(
+    app: AppHandle,
+    name: String,
+    template: Option<String>,
+) -> Result<String, String> {
     eprintln!(
         "[blossom] monster_create: start name='{}', template={:?}",
         name, template
@@ -2190,7 +2974,10 @@ fn monster_create(app: AppHandle, name: String, template: Option<String>) -> Res
             if drive.is_ascii_alphabetic() && sep == '\\' && !s.contains(":\\") {
                 let rest: String = s.chars().skip(2).collect();
                 s = format!("{}:\\{}", drive, rest);
-                eprintln!("[blossom] monster_create: normalized Windows path -> '{}'", s);
+                eprintln!(
+                    "[blossom] monster_create: normalized Windows path -> '{}'",
+                    s
+                );
             }
         }
         let p = PathBuf::from(&s);
@@ -2213,7 +3000,10 @@ fn monster_create(app: AppHandle, name: String, template: Option<String>) -> Res
     let mut last_err: Option<String> = None;
     for cand in candidates {
         let cand_str = cand.to_string_lossy().to_string();
-        eprintln!("[blossom] monster_create: trying template candidate '{}'", cand_str);
+        eprintln!(
+            "[blossom] monster_create: trying template candidate '{}'",
+            cand_str
+        );
         tried.push(cand_str.clone());
         match fs::read_to_string(&cand) {
             Ok(t) => {
@@ -2271,17 +3061,27 @@ fn monster_create(app: AppHandle, name: String, template: Option<String>) -> Res
     // Build a safe file name
     let mut fname = name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect::<String>()
         .trim()
         .replace(' ', "_");
-    if fname.is_empty() { fname = "New_Monster".to_string(); }
+    if fname.is_empty() {
+        fname = "New_Monster".to_string();
+    }
     let mut target = monsters_dir.join(format!("{}.md", fname));
     let mut counter = 2;
     while target.exists() {
         target = monsters_dir.join(format!("{}_{}.md", fname, counter));
         counter += 1;
-        if counter > 9999 { break; }
+        if counter > 9999 {
+            break;
+        }
     }
     eprintln!(
         "[blossom] monster_create: writing file to '{}'",
@@ -2296,7 +3096,10 @@ fn monster_create(app: AppHandle, name: String, template: Option<String>) -> Res
         );
         e.to_string()
     })?;
-    eprintln!("[blossom] monster_create: completed -> '{}'", target.to_string_lossy());
+    eprintln!(
+        "[blossom] monster_create: completed -> '{}'",
+        target.to_string_lossy()
+    );
 
     Ok(target.to_string_lossy().to_string())
 }
@@ -2318,9 +3121,7 @@ fn god_create(app: AppHandle, name: String, template: Option<String>) -> Result<
     eprintln!("[blossom] god_create: vaultPath={:?}", vault);
 
     let gods_dir = if let Some(ref v) = vault {
-        PathBuf::from(v)
-            .join("10_World")
-            .join("Gods of the Realm")
+        PathBuf::from(v).join("10_World").join("Gods of the Realm")
     } else {
         PathBuf::from(r"D:\\Documents\\DreadHaven\\10_World\\Gods of the Realm")
     };
@@ -2341,8 +3142,7 @@ fn god_create(app: AppHandle, name: String, template: Option<String>) -> Result<
     }
 
     eprintln!("[blossom] god_create: resolving template path");
-    let default_template =
-        r"D:\\Documents\\DreadHaven\\_Templates\\God_Template.md".to_string();
+    let default_template = r"D:\\Documents\\DreadHaven\\_Templates\\God_Template.md".to_string();
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Some(mut s) = template {
         eprintln!("[blossom] god_create: raw template arg='{}'", s);
@@ -2431,7 +3231,13 @@ fn god_create(app: AppHandle, name: String, template: Option<String>) -> Result<
 
     let mut fname = name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect::<String>()
         .trim()
         .replace(' ', "_");
@@ -2882,7 +3688,11 @@ fn set_llm(app: AppHandle, model: String) -> Result<(), String> {
 #[tauri::command]
 fn pull_llm(model: String) -> Result<String, String> {
     // Run `ollama pull <model>` and return stdout/stderr text on success/failure
-    let output = Command::new("ollama").arg("pull").arg(&model).output().map_err(|e| e.to_string())?;
+    let output = Command::new("ollama")
+        .arg("pull")
+        .arg(&model)
+        .output()
+        .map_err(|e| e.to_string())?;
     if output.status.success() {
         let text = String::from_utf8_lossy(&output.stdout).to_string();
         Ok(text)
@@ -4091,6 +4901,7 @@ fn main() {
             npc_list,
             npc_save,
             npc_delete,
+            update_section_tags,
             list_devices,
             set_devices,
             hotword_get,
