@@ -5,6 +5,7 @@ import { listDir } from '../api/dir';
 import { readInbox } from '../api/inbox';
 import { readFileBytes } from '../api/files';
 import { createNpc } from '../api/npcs';
+import { loadEstablishments } from '../api/establishments';
 import { renderMarkdown } from '../lib/markdown.jsx';
 import './Dnd.css';
 
@@ -58,6 +59,10 @@ export default function DndDmNpcs() {
   const [regionOptions, setRegionOptions] = useState([]);
   const [establishmentName, setEstablishmentName] = useState('');
   const [establishmentRecord, setEstablishmentRecord] = useState('');
+  const [establishmentOptions, setEstablishmentOptions] = useState([]);
+  const [establishmentsLoading, setEstablishmentsLoading] = useState(false);
+  const [establishmentsError, setEstablishmentsError] = useState('');
+  const [establishmentsAttempted, setEstablishmentsAttempted] = useState(false);
 
   const parseNpcFrontmatter = useCallback((src) => {
     const text = typeof src === 'string' ? src : '';
@@ -206,6 +211,42 @@ export default function DndDmNpcs() {
       setEstablishmentRecord('');
     }
   }, [selPurpose]);
+
+  const fetchEstablishments = useCallback(async () => {
+    if (establishmentsLoading) return;
+    setEstablishmentsLoading(true);
+    setEstablishmentsError('');
+    try {
+      const result = await loadEstablishments();
+      const items = Array.isArray(result?.items) ? result.items : [];
+      const simplified = items
+        .map((item) => ({
+          path: item?.path || '',
+          title: item?.title || item?.name || '',
+          group: item?.group || '',
+          region: item?.region || '',
+          location: item?.location || '',
+        }))
+        .filter((item) => item.path);
+      setEstablishmentOptions(simplified);
+    } catch (err) {
+      setEstablishmentsError(err?.message || String(err));
+    } finally {
+      setEstablishmentsAttempted(true);
+      setEstablishmentsLoading(false);
+    }
+  }, [establishmentsLoading]);
+
+  useEffect(() => {
+    if (!showCreate) {
+      setEstablishmentsAttempted(false);
+      return;
+    }
+    if (selPurpose !== 'Shopkeeper') return;
+    if (establishmentOptions.length > 0) return;
+    if (establishmentsLoading || establishmentsAttempted) return;
+    fetchEstablishments();
+  }, [showCreate, selPurpose, establishmentOptions.length, establishmentsLoading, establishmentsAttempted, fetchEstablishments]);
 
   // Build portrait index from Assets folder (optional)
   useEffect(() => {
@@ -558,10 +599,24 @@ export default function DndDmNpcs() {
               const name = newName.trim();
               if (!randName && !name) { setCreateError('Please enter a name or enable random.'); return; }
               const purpose = selPurpose === '__custom__' ? (customPurpose.trim()) : selPurpose;
+              const estPath = selPurpose === 'Shopkeeper'
+                ? (establishmentRecord || '').trim()
+                : '';
+              const estDisplay = selPurpose === 'Shopkeeper'
+                ? (establishmentName || '').trim()
+                : '';
               try {
                 setCreating(true);
                 setCreateError('');
-                await createNpc(randName ? '' : name, selRegion || '', purpose || '', null, randName);
+                await createNpc(
+                  randName ? '' : name,
+                  selRegion || '',
+                  purpose || '',
+                  null,
+                  randName,
+                  estPath || null,
+                  estDisplay || null,
+                );
                 setShowCreate(false);
                 setNewName('');
                 setRandName(false);
@@ -606,8 +661,8 @@ export default function DndDmNpcs() {
                 <div className="monster-create-shopkeeper">
                   <div className="monster-create-shopkeeper-title">Establishment Link</div>
                   <p className="muted">
-                    Connect this shopkeeper to the storefront they manage. Linking support is coming soon,
-                    but you can note the establishment details here for reference.
+                    Connect this shopkeeper to the storefront they manage. Choose from an existing establishment
+                    note or enter the display name manually.
                   </p>
                   <label>
                     Establishment Name
@@ -623,14 +678,86 @@ export default function DndDmNpcs() {
                     Existing Shop Record
                     <select
                       value={establishmentRecord}
-                      onChange={(e) => setEstablishmentRecord(e.target.value)}
-                      disabled
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setEstablishmentRecord(value);
+                        if (value) {
+                          const found = establishmentOptions.find((item) => item.path === value);
+                          if (found) {
+                            setEstablishmentName(found.title || found.group || found.path || '');
+                          }
+                        } else {
+                          setEstablishmentName('');
+                        }
+                      }}
+                      disabled={creating || (establishmentsLoading && establishmentOptions.length === 0)}
                     >
-                      <option value="">Linking support coming soon</option>
+                      <option value="">(no linked establishment)</option>
+                      {establishmentsLoading && establishmentOptions.length === 0 && (
+                        <option value="" disabled>Loading establishments…</option>
+                      )}
+                      {establishmentRecord && !establishmentOptions.some((item) => item.path === establishmentRecord) && (
+                        <option value={establishmentRecord}>
+                          {establishmentName || `Previously selected (${establishmentRecord})`}
+                        </option>
+                      )}
+                      {establishmentOptions.map((item) => {
+                        const seen = new Set();
+                        const gather = (value) => String(value || '')
+                          .split('/')
+                          .map((segment) => segment.trim())
+                          .filter(Boolean);
+                        const parts = [];
+                        const pushSeg = (seg) => {
+                          if (!seg) return;
+                          const key = seg.toLowerCase();
+                          if (seen.has(key)) return;
+                          seen.add(key);
+                          parts.push(seg);
+                        };
+                        gather(item.region).forEach(pushSeg);
+                        gather(item.location).forEach(pushSeg);
+                        if (!parts.length) {
+                          gather(item.group).forEach(pushSeg);
+                        }
+                        const prefix = parts.join(' · ');
+                        const title = String(item.title || item.group || item.path || '').trim() || 'Untitled Establishment';
+                        const label = prefix ? `${prefix} · ${title}` : title;
+                        return (
+                          <option key={item.path} value={item.path}>
+                            {label}
+                          </option>
+                        );
+                      })}
                     </select>
                   </label>
-                  <button type="button" disabled>
-                    Connect to Establishment
+                  {!establishmentsLoading && establishmentsAttempted && establishmentOptions.length === 0 && !establishmentsError && (
+                    <div className="muted">No establishment notes were found.</div>
+                  )}
+                  {establishmentsError && (
+                    <div className="error" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <span>{establishmentsError}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEstablishmentsAttempted(false);
+                          fetchEstablishments();
+                        }}
+                        disabled={establishmentsLoading}
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEstablishmentsAttempted(false);
+                      fetchEstablishments();
+                    }}
+                    disabled={establishmentsLoading}
+                  >
+                    {establishmentsLoading ? 'Loading establishments…' : 'Refresh Establishments'}
                   </button>
                 </div>
               )}

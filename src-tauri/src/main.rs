@@ -73,7 +73,8 @@ fn strip_code_fence(s: &str) -> &str {
                 .all(|c| c.is_ascii_alphanumeric());
 
         if first_line_trimmed.is_empty()
-            || (first_line_looks_like_lang && (remainder_trimmed.is_empty() || remainder_is_markdown))
+            || (first_line_looks_like_lang
+                && (remainder_trimmed.is_empty() || remainder_is_markdown))
         {
             return remainder_trimmed.trim();
         }
@@ -84,7 +85,7 @@ fn strip_code_fence(s: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::strip_code_fence;
+    use super::{add_establishment_metadata, strip_code_fence};
 
     #[test]
     fn preserves_plain_text() {
@@ -101,6 +102,34 @@ mod tests {
     fn strips_basic_fence() {
         let input = "```\n# Heading\n```";
         assert_eq!(strip_code_fence(input), "# Heading");
+    }
+
+    #[test]
+    fn injects_establishment_into_frontmatter() {
+        let src = "---\nTitle: Example\n---\n\nBody";
+        let out = add_establishment_metadata(src, Some("/path/to/shop.md"), Some("Gilded Griffin"));
+        assert!(out.contains("Establishment: Gilded Griffin"));
+        assert!(out.contains("Establishment_Path: /path/to/shop.md"));
+        assert!(out.starts_with("---\nTitle: Example"));
+    }
+
+    #[test]
+    fn avoids_duplicate_establishment_keys() {
+        let src =
+            "---\nTitle: Example\nEstablishment: Old Name\nEstablishment_Path: old/path.md\n---\n";
+        let out = add_establishment_metadata(src, Some("/new/path.md"), Some("New Name"));
+        assert!(out.contains("Establishment: Old Name"));
+        assert!(out.contains("Establishment_Path: old/path.md"));
+        assert!(!out.contains("/new/path.md"));
+    }
+
+    #[test]
+    fn creates_frontmatter_when_missing() {
+        let src = "# Heading";
+        let out = add_establishment_metadata(src, Some("/path"), Some("Shop"));
+        assert!(out.starts_with("---\nEstablishment: Shop"));
+        assert!(out.contains("Establishment_Path: /path"));
+        assert!(out.contains("# Heading"));
     }
 }
 
@@ -196,10 +225,7 @@ fn configure_python_command(cmd: &mut Command) {
     cmd.env("PYTHONUNBUFFERED", "1");
     // Optional debug: print Python working directory and PYTHONPATH
     if env::var("BLOSSOM_DEBUG").ok().as_deref() == Some("1") {
-        eprintln!(
-            "[blossom] python cwd: {}",
-            root.to_string_lossy()
-        );
+        eprintln!("[blossom] python cwd: {}", root.to_string_lossy());
     }
     let mut pythonpath = root.clone().into_os_string();
     if let Some(existing) = env::var_os("PYTHONPATH") {
@@ -1329,7 +1355,10 @@ impl JobRegistry {
                     }
                 };
                 if let Some((success, code)) = result {
-                    eprintln!("[blossom] job {} exited (success={}, code={:?})", id, success, code);
+                    eprintln!(
+                        "[blossom] job {} exited (success={}, code={:?})",
+                        id, success, code
+                    );
                     let registry = app_handle.state::<JobRegistry>();
                     registry.complete_job(&app_handle, id, success, code, false);
                     registry.maybe_start_jobs(&app_handle);
@@ -1509,11 +1538,11 @@ impl JobRegistry {
             let Some(id) = next_id else {
                 break;
             };
-        if persistence_enabled() {
-            if let Err(err) = self.persist_queue() {
-                eprintln!("failed to persist job queue after dequeue: {}", err);
+            if persistence_enabled() {
+                if let Err(err) = self.persist_queue() {
+                    eprintln!("failed to persist job queue after dequeue: {}", err);
+                }
             }
-        }
             if let Err(err) = self.start_job_process(app, id) {
                 eprintln!("failed to start job {}: {}", id, err);
                 self.complete_job(app, id, false, None, false);
@@ -1553,7 +1582,17 @@ impl JobRegistry {
             Arc<Mutex<VecDeque<String>>>,
             Arc<Mutex<Vec<JobArtifact>>>,
             Arc<Mutex<Option<JobProgressSnapshot>>>,
-            (Option<String>, Option<String>, Vec<String>, DateTime<Utc>, Option<DateTime<Utc>>, Option<DateTime<Utc>>, Option<bool>, Option<i32>, bool),
+            (
+                Option<String>,
+                Option<String>,
+                Vec<String>,
+                DateTime<Utc>,
+                Option<DateTime<Utc>>,
+                Option<DateTime<Utc>>,
+                Option<bool>,
+                Option<i32>,
+                bool,
+            ),
         )> = None;
         {
             let mut jobs = self.jobs.lock().unwrap();
@@ -1574,7 +1613,10 @@ impl JobRegistry {
                     let mut child_guard = job.child.lock().unwrap();
                     *child_guard = None;
                 }
-                eprintln!("[blossom] complete_job: checking artifact candidates id={}", id);
+                eprintln!(
+                    "[blossom] complete_job: checking artifact candidates id={}",
+                    id
+                );
                 if job.artifacts.lock().map(|a| a.is_empty()).unwrap_or(true) {
                     let mut artifacts = job.artifacts.lock().unwrap();
                     for candidate in &job.artifact_candidates {
@@ -1586,7 +1628,10 @@ impl JobRegistry {
                         }
                     }
                 }
-                eprintln!("[blossom] complete_job: building progress snapshot id={}", id);
+                eprintln!(
+                    "[blossom] complete_job: building progress snapshot id={}",
+                    id
+                );
                 let mut progress = job.progress.lock().unwrap();
                 let mut snapshot = progress.clone().unwrap_or_default();
                 snapshot.queue_position = None;
@@ -1636,19 +1681,28 @@ impl JobRegistry {
             }
         }
         // If we captured handles, build the record outside of the jobs lock to avoid deadlocks
-        if let Some((stdout_arc, stderr_arc, artifacts_arc, progress_arc2, (
-            kind,
-            label,
-            args_clone,
-            created_at,
-            started_at,
-            finished_at,
-            success_val,
-            exit_code_val,
-            cancelled_val,
-        ))) = captured
+        if let Some((
+            stdout_arc,
+            stderr_arc,
+            artifacts_arc,
+            progress_arc2,
+            (
+                kind,
+                label,
+                args_clone,
+                created_at,
+                started_at,
+                finished_at,
+                success_val,
+                exit_code_val,
+                cancelled_val,
+            ),
+        )) = captured
         {
-            eprintln!("[blossom] complete_job: building record outside lock id={}", id);
+            eprintln!(
+                "[blossom] complete_job: building record outside lock id={}",
+                id
+            );
             let stdout = stdout_arc
                 .lock()
                 .map(|buf| buf.iter().cloned().collect::<Vec<_>>())
@@ -1657,8 +1711,14 @@ impl JobRegistry {
                 .lock()
                 .map(|buf| buf.iter().cloned().collect::<Vec<_>>())
                 .unwrap_or_default();
-            let artifacts = artifacts_arc.lock().map(|items| items.clone()).unwrap_or_default();
-            let progress = progress_arc2.lock().map(|p| (*p).clone()).unwrap_or_default();
+            let artifacts = artifacts_arc
+                .lock()
+                .map(|items| items.clone())
+                .unwrap_or_default();
+            let progress = progress_arc2
+                .lock()
+                .map(|p| (*p).clone())
+                .unwrap_or_default();
             maybe_record = Some(JobRecord {
                 id,
                 kind,
@@ -1898,7 +1958,8 @@ fn inbox_list(app: AppHandle, path: Option<String>) -> Result<Vec<InboxItem>, St
             .map(|e| {
                 // Convert to an approximate ms since now - elapsed
                 let now = Utc::now();
-                let ago = ChronoDuration::from_std(e).unwrap_or_else(|_| ChronoDuration::seconds(0));
+                let ago =
+                    ChronoDuration::from_std(e).unwrap_or_else(|_| ChronoDuration::seconds(0));
                 (now - ago).timestamp_millis()
             })
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -1923,11 +1984,141 @@ fn inbox_list(app: AppHandle, path: Option<String>) -> Result<Vec<InboxItem>, St
     Ok(items)
 }
 
+fn add_establishment_metadata(src: &str, path: Option<&str>, display: Option<&str>) -> String {
+    let path_val = path.and_then(|s| {
+        let trimmed = s.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    });
+    let display_val = display.and_then(|s| {
+        let trimmed = s.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    });
+    if path_val.is_none() && display_val.is_none() {
+        return src.to_string();
+    }
+
+    let mut additions: Vec<(String, String)> = Vec::new();
+    if let Some(name) = display_val {
+        additions.push((
+            "establishment".to_string(),
+            format!("Establishment: {}", name),
+        ));
+    }
+    if let Some(path_str) = path_val {
+        additions.push((
+            "establishment_path".to_string(),
+            format!("Establishment_Path: {}", path_str),
+        ));
+    }
+
+    let normalized = src.replace("\r\n", "\n");
+    if normalized.starts_with("---\n") {
+        if let Some(end) = normalized[4..].find("\n---") {
+            let existing = &normalized[4..4 + end];
+            let mut has_display = false;
+            let mut has_path = false;
+            for line in existing.lines() {
+                let trimmed = line.trim().to_ascii_lowercase();
+                if trimmed.starts_with("establishment_path:")
+                    || trimmed.starts_with("establishment path:")
+                {
+                    has_path = true;
+                } else if trimmed.starts_with("establishment:") {
+                    has_display = true;
+                }
+            }
+            let mut missing: Vec<String> = Vec::new();
+            for (key, line) in &additions {
+                if key == "establishment" && !has_display {
+                    missing.push(line.clone());
+                    has_display = true;
+                } else if key == "establishment_path" && !has_path {
+                    missing.push(line.clone());
+                    has_path = true;
+                }
+            }
+            if missing.is_empty() {
+                return src.to_string();
+            }
+            let mut new_body = existing.trim_end().to_string();
+            for line in missing {
+                if !new_body.is_empty() && !new_body.ends_with('\n') {
+                    new_body.push('\n');
+                }
+                new_body.push_str(&line);
+            }
+            if !new_body.ends_with('\n') {
+                new_body.push('\n');
+            }
+            let mut rebuilt = String::from("---\n");
+            rebuilt.push_str(&new_body);
+            rebuilt.push_str(&normalized[4 + end..]);
+            return rebuilt;
+        }
+    }
+
+    let mut front = String::from("---\n");
+    for (_, line) in &additions {
+        front.push_str(line);
+        front.push('\n');
+    }
+    front.push_str("---\n");
+    if !src.trim().is_empty() {
+        front.push('\n');
+        front.push_str(src);
+    }
+    front
+}
+
 #[tauri::command]
-fn npc_create(app: AppHandle, name: String, region: Option<String>, purpose: Option<String>, template: Option<String>, random_name: Option<bool>) -> Result<String, String> {
-    eprintln!("[blossom] npc_create: start name='{}', region={:?}, purpose={:?}, template={:?}", name, region, purpose, template);
+fn npc_create(
+    app: AppHandle,
+    name: String,
+    region: Option<String>,
+    purpose: Option<String>,
+    template: Option<String>,
+    random_name: Option<bool>,
+    establishment_path: Option<String>,
+    establishment_name: Option<String>,
+) -> Result<String, String> {
+    let establishment_path = establishment_path.and_then(|s| {
+        let trimmed = s.trim().to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    });
+    let establishment_name = establishment_name.and_then(|s| {
+        let trimmed = s.trim().to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    });
+    eprintln!(
+        "[blossom] npc_create: start name='{}', region={:?}, purpose={:?}, template={:?}, establishment_path={:?}, establishment_name={:?}",
+        name,
+        region,
+        purpose,
+        template,
+        establishment_path,
+        establishment_name,
+    );
     // Resolve NPC base directory
-    let store = settings_store(&app).map_err(|e| { eprintln!("[blossom] npc_create: settings_store error: {}", e); e })?;
+    let store = settings_store(&app).map_err(|e| {
+        eprintln!("[blossom] npc_create: settings_store error: {}", e);
+        e
+    })?;
     let vault = store
         .get("vaultPath")
         .and_then(|v| v.as_str().map(|s| s.to_string()));
@@ -1936,27 +2127,48 @@ fn npc_create(app: AppHandle, name: String, region: Option<String>, purpose: Opt
     } else {
         PathBuf::from(r"D:\\Documents\\DreadHaven\\20_DM\\NPC")
     };
-    if !base_dir.exists() { fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?; }
+    if !base_dir.exists() {
+        fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?;
+    }
 
     // Build target directory from region (can be nested like "Bree/Inn")
     let mut target_dir = base_dir.clone();
     if let Some(r) = region.and_then(|s| if s.trim().is_empty() { None } else { Some(s) }) {
         for part in r.replace("\\", "/").split('/') {
-            if part.trim().is_empty() { continue; }
+            if part.trim().is_empty() {
+                continue;
+            }
             target_dir = target_dir.join(part);
         }
     }
-    if !target_dir.exists() { fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?; }
+    if !target_dir.exists() {
+        fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
+    }
 
     // Safe filename
-    let mut fname = name.chars().map(|c| if c.is_alphanumeric() || c==' ' || c=='-' || c=='_' { c } else { '_' }).collect::<String>().trim().replace(' ', "_");
-    if fname.is_empty() { fname = "New_NPC".to_string(); }
+    let mut fname = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim()
+        .replace(' ', "_");
+    if fname.is_empty() {
+        fname = "New_NPC".to_string();
+    }
     let mut target = target_dir.join(format!("{}.md", fname));
     let mut counter = 2u32;
     while target.exists() {
         target = target_dir.join(format!("{}_{}.md", fname, counter));
         counter += 1;
-        if counter > 9999 { break; }
+        if counter > 9999 {
+            break;
+        }
     }
 
     // Resolve template path and load text (tolerant of spaces and variants)
@@ -1974,7 +2186,9 @@ fn npc_create(app: AppHandle, name: String, region: Option<String>, purpose: Opt
             }
         }
         let p = PathBuf::from(&s);
-        if p.is_absolute() { candidates.push(p); }
+        if p.is_absolute() {
+            candidates.push(p);
+        }
         if let Some(v) = &vault {
             candidates.push(PathBuf::from(v).join("_Templates").join(&s));
             candidates.push(PathBuf::from(v).join(&s));
@@ -1991,12 +2205,20 @@ fn npc_create(app: AppHandle, name: String, region: Option<String>, purpose: Opt
         let s = cand.to_string_lossy().to_string();
         tried.push(s.clone());
         match fs::read_to_string(&cand) {
-            Ok(t) => { template_text = Some(t); break; }
+            Ok(t) => {
+                template_text = Some(t);
+                break;
+            }
             Err(_) => {}
         }
     }
     let now = Utc::now().format("%Y-%m-%d").to_string();
-    let location_str = target_dir.strip_prefix(&base_dir).ok().map(|p| p.to_string_lossy().to_string()).unwrap_or_default().replace('\\', "/");
+    let location_str = target_dir
+        .strip_prefix(&base_dir)
+        .ok()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default()
+        .replace('\\', "/");
     let purpose_str = purpose.unwrap_or_default();
     let use_random_name = random_name.unwrap_or(false) || name.trim().is_empty();
 
@@ -2023,14 +2245,20 @@ fn npc_create(app: AppHandle, name: String, region: Option<String>, purpose: Opt
     let system = Some(String::from("You are a helpful worldbuilding assistant. Produce clean, cohesive Markdown. Keep a grounded tone; avoid overpowered traits."));
     eprintln!("[blossom] npc_create: invoking LLM generation (ollama)");
     let content = generate_llm(prompt, system)?;
-    let content = strip_code_fence(&content).to_string();
+    let mut content = strip_code_fence(&content).to_string();
+    content = add_establishment_metadata(
+        &content,
+        establishment_path.as_deref(),
+        establishment_name.as_deref(),
+    );
 
     // Determine filename
     fn extract_title(src: &str) -> Option<String> {
         let s = src.replace("\r\n", "\n");
         if s.starts_with("---\n") {
-            if let Some(end) = s[4..].find("\n---") { // position of closing
-                let body = &s[4..4+end];
+            if let Some(end) = s[4..].find("\n---") {
+                // position of closing
+                let body = &s[4..4 + end];
                 for line in body.lines() {
                     let ln = line.trim();
                     let lower = ln.to_ascii_lowercase();
@@ -2047,7 +2275,9 @@ fn npc_create(app: AppHandle, name: String, region: Option<String>, purpose: Opt
             let ln = line.trim();
             if let Some(rest) = ln.strip_prefix('#') {
                 let rest = rest.trim_start_matches('#').trim();
-                if !rest.is_empty() { return Some(rest.to_string()); }
+                if !rest.is_empty() {
+                    return Some(rest.to_string());
+                }
             }
         }
         None
@@ -2055,22 +2285,34 @@ fn npc_create(app: AppHandle, name: String, region: Option<String>, purpose: Opt
 
     let effective_name = if use_random_name {
         extract_title(&content).unwrap_or_else(|| "New_NPC".to_string())
-    } else { name.clone() };
+    } else {
+        name.clone()
+    };
 
     // Safe filename and unique path
     let mut fname = effective_name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c==' ' || c=='-' || c=='_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect::<String>()
         .trim()
         .replace(' ', "_");
-    if fname.is_empty() { fname = "New_NPC".to_string(); }
+    if fname.is_empty() {
+        fname = "New_NPC".to_string();
+    }
     let mut target = target_dir.join(format!("{}.md", fname));
     let mut counter = 2u32;
     while target.exists() {
         target = target_dir.join(format!("{}_{}.md", fname, counter));
         counter += 1;
-        if counter > 9999 { break; }
+        if counter > 9999 {
+            break;
+        }
     }
 
     fs::write(&target, content.as_bytes()).map_err(|e| e.to_string())?;
@@ -2108,16 +2350,23 @@ fn dir_list(path: String) -> Result<Vec<DirEntryItem>, String> {
     for entry in fs::read_dir(&base).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let p = entry.path();
-        let meta = match entry.metadata() { Ok(m) => m, Err(_) => continue };
+        let meta = match entry.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
         let is_dir = meta.is_dir();
-        let name = match p.file_name().and_then(|s| s.to_str()) { Some(s) => s.to_string(), None => continue };
+        let name = match p.file_name().and_then(|s| s.to_str()) {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
         let modified_ms = meta
             .modified()
             .ok()
             .and_then(|t| t.elapsed().ok())
             .map(|e| {
                 let now = Utc::now();
-                let ago = ChronoDuration::from_std(e).unwrap_or_else(|_| ChronoDuration::seconds(0));
+                let ago =
+                    ChronoDuration::from_std(e).unwrap_or_else(|_| ChronoDuration::seconds(0));
                 (now - ago).timestamp_millis()
             })
             .unwrap_or_else(|| Utc::now().timestamp_millis());
@@ -2140,7 +2389,11 @@ fn dir_list(path: String) -> Result<Vec<DirEntryItem>, String> {
 }
 
 #[tauri::command]
-fn monster_create(app: AppHandle, name: String, template: Option<String>) -> Result<String, String> {
+fn monster_create(
+    app: AppHandle,
+    name: String,
+    template: Option<String>,
+) -> Result<String, String> {
     eprintln!(
         "[blossom] monster_create: start name='{}', template={:?}",
         name, template
@@ -2190,7 +2443,10 @@ fn monster_create(app: AppHandle, name: String, template: Option<String>) -> Res
             if drive.is_ascii_alphabetic() && sep == '\\' && !s.contains(":\\") {
                 let rest: String = s.chars().skip(2).collect();
                 s = format!("{}:\\{}", drive, rest);
-                eprintln!("[blossom] monster_create: normalized Windows path -> '{}'", s);
+                eprintln!(
+                    "[blossom] monster_create: normalized Windows path -> '{}'",
+                    s
+                );
             }
         }
         let p = PathBuf::from(&s);
@@ -2213,7 +2469,10 @@ fn monster_create(app: AppHandle, name: String, template: Option<String>) -> Res
     let mut last_err: Option<String> = None;
     for cand in candidates {
         let cand_str = cand.to_string_lossy().to_string();
-        eprintln!("[blossom] monster_create: trying template candidate '{}'", cand_str);
+        eprintln!(
+            "[blossom] monster_create: trying template candidate '{}'",
+            cand_str
+        );
         tried.push(cand_str.clone());
         match fs::read_to_string(&cand) {
             Ok(t) => {
@@ -2271,17 +2530,27 @@ fn monster_create(app: AppHandle, name: String, template: Option<String>) -> Res
     // Build a safe file name
     let mut fname = name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect::<String>()
         .trim()
         .replace(' ', "_");
-    if fname.is_empty() { fname = "New_Monster".to_string(); }
+    if fname.is_empty() {
+        fname = "New_Monster".to_string();
+    }
     let mut target = monsters_dir.join(format!("{}.md", fname));
     let mut counter = 2;
     while target.exists() {
         target = monsters_dir.join(format!("{}_{}.md", fname, counter));
         counter += 1;
-        if counter > 9999 { break; }
+        if counter > 9999 {
+            break;
+        }
     }
     eprintln!(
         "[blossom] monster_create: writing file to '{}'",
@@ -2296,7 +2565,10 @@ fn monster_create(app: AppHandle, name: String, template: Option<String>) -> Res
         );
         e.to_string()
     })?;
-    eprintln!("[blossom] monster_create: completed -> '{}'", target.to_string_lossy());
+    eprintln!(
+        "[blossom] monster_create: completed -> '{}'",
+        target.to_string_lossy()
+    );
 
     Ok(target.to_string_lossy().to_string())
 }
@@ -2318,9 +2590,7 @@ fn god_create(app: AppHandle, name: String, template: Option<String>) -> Result<
     eprintln!("[blossom] god_create: vaultPath={:?}", vault);
 
     let gods_dir = if let Some(ref v) = vault {
-        PathBuf::from(v)
-            .join("10_World")
-            .join("Gods of the Realm")
+        PathBuf::from(v).join("10_World").join("Gods of the Realm")
     } else {
         PathBuf::from(r"D:\\Documents\\DreadHaven\\10_World\\Gods of the Realm")
     };
@@ -2341,8 +2611,7 @@ fn god_create(app: AppHandle, name: String, template: Option<String>) -> Result<
     }
 
     eprintln!("[blossom] god_create: resolving template path");
-    let default_template =
-        r"D:\\Documents\\DreadHaven\\_Templates\\God_Template.md".to_string();
+    let default_template = r"D:\\Documents\\DreadHaven\\_Templates\\God_Template.md".to_string();
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Some(mut s) = template {
         eprintln!("[blossom] god_create: raw template arg='{}'", s);
@@ -2431,7 +2700,13 @@ fn god_create(app: AppHandle, name: String, template: Option<String>) -> Result<
 
     let mut fname = name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect::<String>()
         .trim()
         .replace(' ', "_");
@@ -2882,7 +3157,11 @@ fn set_llm(app: AppHandle, model: String) -> Result<(), String> {
 #[tauri::command]
 fn pull_llm(model: String) -> Result<String, String> {
     // Run `ollama pull <model>` and return stdout/stderr text on success/failure
-    let output = Command::new("ollama").arg("pull").arg(&model).output().map_err(|e| e.to_string())?;
+    let output = Command::new("ollama")
+        .arg("pull")
+        .arg(&model)
+        .output()
+        .map_err(|e| e.to_string())?;
     if output.status.success() {
         let text = String::from_utf8_lossy(&output.stdout).to_string();
         Ok(text)
