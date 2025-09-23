@@ -16,6 +16,16 @@ from config.discord_token import get_token
 import session_export
 
 
+COMMAND_SUMMARIES = [
+    ("/npc <alias[: message]>", "Fetch NPC info or speak in their voice."),
+    ("/lore <query>", "Query lore notes and generate a response."),
+    ("/note <path> <text>", "Append a timestamped entry to a note."),
+    ("/track <stat> <delta>", "Update a combat tracker statistic."),
+    ("/scene as <voice>", "Switch the narrator TTS voice."),
+    ("/export session", "Export the current session log."),
+]
+
+
 class BlossomBot(commands.Bot):
     """Discord bot providing slash commands for lore and note management."""
 
@@ -35,6 +45,7 @@ class BlossomBot(commands.Bot):
         self.tree.add_command(self.lore)
         self.tree.add_command(self.note)
         self.tree.add_command(self.track)
+        self.tree.add_command(self.commands_list)
         self.tree.add_command(self.scene_group)
         self.tree.add_command(self.export_group)
 
@@ -150,6 +161,18 @@ class BlossomBot(commands.Bot):
             return
 
         await interaction.response.send_message(f"{stat} is now {new_value}")
+
+    # ------------------------------------------------------------------
+    @app_commands.command(
+        name="commands", description="List Blossom's available slash commands"
+    )
+    async def commands_list(self, interaction: discord.Interaction) -> None:
+        """Provide a short description of each registered slash command."""
+
+        lines = ["**Available Blossom commands**"]
+        lines.extend(f"{syntax} — {description}" for syntax, description in COMMAND_SUMMARIES)
+        message = "\n".join(lines)
+        await interaction.response.send_message(message, ephemeral=True)
 
     # ------------------------------------------------------------------
     @export_group.command(name="session", description="Export the current session log")
