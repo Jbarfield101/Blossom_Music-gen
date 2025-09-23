@@ -295,10 +295,49 @@
 }
 
 /* Pantheon layout */
+.dashboard.dnd-detail-layout {
+  grid-template-columns: minmax(320px, 460px) minmax(0, 1fr);
+  align-items: start;
+}
+
+.dashboard.dnd-detail-layout > * {
+  min-width: 0;
+}
+
+@media (max-width: 960px) {
+  .dashboard.dnd-detail-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dnd-surface,
+.dnd-reader,
+.pantheon-reader {
+  background: var(--card-bg);
+  color: var(--text);
+  border: 1px solid #1f2937;
+  border-radius: 12px;
+  padding: var(--space-md);
+}
+
+.dnd-surface,
+.dnd-reader {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  min-width: 0;
+  min-height: 0;
+}
+
+.dnd-toolbar,
 .pantheon-controls {
   display: flex;
   align-items: center;
   gap: 0.9rem;
+  flex-wrap: wrap;
+}
+
+.pantheon-controls {
   margin: var(--space-sm) 0 var(--space-md);
 }
 
@@ -309,6 +348,7 @@
   min-height: 60vh;
 }
 
+.dnd-card-collection,
 .pantheon-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -316,6 +356,7 @@
   align-content: start;
 }
 
+.dnd-card-button,
 .pantheon-card {
   background: var(--card-bg);
   color: var(--text);
@@ -323,28 +364,56 @@
   border-radius: 12px;
   padding: 0.9rem;
   text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
+  height: 100%;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.2s ease, transform 0.2s ease, background 0.2s ease;
 }
 
+.dnd-card-button:hover,
+.dnd-card-button:focus-visible,
+.pantheon-card:hover,
+.pantheon-card:focus-visible {
+  border-color: var(--accent);
+  background: var(--card-hover-bg);
+  transform: translateY(-2px);
+}
+
+.dnd-card-button.is-active,
 .pantheon-card.active {
   border-color: var(--accent);
+  background: var(--card-hover-bg);
 }
 
+.dnd-card-button-title,
 .pantheon-card-title {
   font-weight: 700;
-  margin-bottom: 0.35rem;
+  margin: 0;
 }
 
+.dnd-card-button-meta,
 .pantheon-card-meta {
   font-size: 0.85rem;
   opacity: 0.8;
 }
 
-.pantheon-reader {
-  background: var(--card-bg);
-  color: var(--text);
-  border: 1px solid #1f2937;
+.dnd-card-empty {
+  grid-column: 1 / -1;
+  padding: 0.75rem;
+  text-align: center;
   border-radius: 10px;
-  padding: 1rem;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+@media (max-width: 600px) {
+  .dnd-card-collection,
+  .pantheon-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Regions layout */

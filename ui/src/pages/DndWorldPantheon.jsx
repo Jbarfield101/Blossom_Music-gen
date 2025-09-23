@@ -98,33 +98,36 @@ export default function DndWorldPantheon() {
     <>
       <BackButton />
       <h1>Dungeons & Dragons · Pantheon</h1>
-      <div className="pantheon-controls">
-        <button type="button" onClick={fetchItems} disabled={loading}>
-          {loading ? 'Loading…' : 'Refresh'}
-        </button>
-        {usingPath && <span className="muted">Folder: {usingPath}</span>}
-        {error && <span className="error">{error}</span>}
-      </div>
-      <div className="pantheon">
-        <section className="pantheon-grid">
-          {items.map((item) => (
-            <button
-              key={item.path}
-              className={`pantheon-card${item.path === activePath ? ' active' : ''}`}
-              onClick={() => setActivePath(item.path)}
-              title={item.path}
-            >
-              <div className="pantheon-card-title">{item.title || item.name}</div>
-              <div className="pantheon-card-meta">
-                <time title={formatDate(item.modified_ms)}>{formatRelative(item.modified_ms)}</time>
-              </div>
+      <main className="dashboard dnd-detail-layout">
+        <section className="dnd-surface">
+          <div className="dnd-toolbar">
+            <button type="button" onClick={fetchItems} disabled={loading}>
+              {loading ? 'Loading…' : 'Refresh'}
             </button>
-          ))}
-          {!loading && items.length === 0 && (
-            <div className="muted">No gods found in this folder.</div>
-          )}
+            {usingPath && <span className="muted">Folder: {usingPath}</span>}
+            {error && <span className="error">{error}</span>}
+          </div>
+          <div className="dnd-card-collection">
+            {items.map((item) => (
+              <button
+                type="button"
+                key={item.path}
+                className={`dnd-card-button${item.path === activePath ? ' is-active' : ''}`}
+                onClick={() => setActivePath(item.path)}
+                title={item.path}
+              >
+                <span className="dnd-card-button-title">{item.title || item.name}</span>
+                <span className="dnd-card-button-meta">
+                  <time title={formatDate(item.modified_ms)}>{formatRelative(item.modified_ms)}</time>
+                </span>
+              </button>
+            ))}
+            {!loading && items.length === 0 && (
+              <div className="muted dnd-card-empty">No gods found in this folder.</div>
+            )}
+          </div>
         </section>
-        <section className="pantheon-reader">
+        <section className="dnd-reader">
           {selected ? (
             <>
               <header className="inbox-reader-header">
@@ -147,7 +150,7 @@ export default function DndWorldPantheon() {
             <div className="muted">Select a god to view details.</div>
           )}
         </section>
-      </div>
+      </main>
     </>
   );
 }
