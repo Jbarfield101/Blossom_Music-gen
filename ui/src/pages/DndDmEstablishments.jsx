@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
 import { loadEstablishments } from '../api/establishments';
 import { readInbox } from '../api/inbox';
@@ -42,6 +42,7 @@ export default function DndDmEstablishments() {
   const [activePath, setActivePath] = useState('');
   const [activeContent, setActiveContent] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
 
   const fetchEstablishments = useCallback(async () => {
     setLoading(true);
@@ -55,7 +56,8 @@ export default function DndDmEstablishments() {
         if (prev && list.some((entry) => entry.path === prev)) {
           return prev;
         }
-        return list.length ? list[0].path : '';
+        setModalOpen(false);
+        return '';
       });
     } catch (err) {
       console.error(err);
@@ -63,6 +65,7 @@ export default function DndDmEstablishments() {
       setItems([]);
       setUsingPath('');
       setActivePath('');
+      setModalOpen(false);
     } finally {
       setLoading(false);
     }
@@ -129,6 +132,8 @@ export default function DndDmEstablishments() {
     [items, activePath],
   );
 
+  const showGroupHeadings = grouped.length > 1 || grouped.some((group) => group.label !== 'Ungrouped');
+
   return (
     <>
       <BackButton />
@@ -140,79 +145,91 @@ export default function DndDmEstablishments() {
         {usingPath && <span className="muted">Root: {usingPath}</span>}
         {error && <span className="error">{error}</span>}
       </div>
-      <div className="establishments-layout">
-        <section className="dnd-surface establishments-list">
-          {grouped.length > 0 ? (
-            grouped.map((group) => (
-              <div key={group.key} className="establishment-group">
-                <h2 className="establishment-group-title">{group.label}</h2>
-                <div className="establishment-items">
-                  {group.items.map((item) => (
-                    <button
-                      type="button"
-                      key={item.path}
-                      className={`establishment-card${item.path === activePath ? ' is-active' : ''}`}
-                      onClick={() => setActivePath(item.path)}
-                      title={item.relative || item.path}
-                    >
-                      <div className="establishment-card-head">
-                        <div className="establishment-title">{item.title || item.name}</div>
-                        <time title={formatDate(item.modified_ms)}>{formatRelative(item.modified_ms)}</time>
-                      </div>
-                      {(item.relative || item.category) && (
-                        <div className="establishment-meta">
-                          {item.relative && <span className="establishment-meta-item">{item.relative}</span>}
-                          {item.category && <span className="establishment-meta-item">{item.category}</span>}
-                        </div>
-                      )}
-                      {(item.location || item.region) && (
-                        <div className="establishment-tags">
-                          {item.region && <span className="chip">Region: {item.region}</span>}
-                          {item.location && <span className="chip">Town: {item.location}</span>}
-                        </div>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))
-          ) : (
-            <div className="muted">{loading ? 'Searching for establishments…' : 'No establishments found.'}</div>
-          )}
-        </section>
-        <section className="dnd-reader establishments-reader">
-          {selected ? (
-            <>
-              <header className="inbox-reader-header">
-                <h2 className="inbox-reader-title">{selected.title || selected.name}</h2>
-                <div className="inbox-reader-meta">
-                  {selected.group && <span>{selected.group}</span>}
-                  {selected.group && <span>·</span>}
-                  <time title={formatDate(selected.modified_ms)}>{formatDate(selected.modified_ms)}</time>
-                </div>
-                {(selected.category || selected.location || selected.region) && (
-                  <div className="establishment-tags">
-                    {selected.region && <span className="chip">Region: {selected.region}</span>}
-                    {selected.location && <span className="chip">Town: {selected.location}</span>}
-                    {selected.category && <span className="chip">{selected.category}</span>}
-                  </div>
-                )}
-              </header>
-              {previewLoading ? (
-                <div className="muted">Loading…</div>
-              ) : (
-                <article className="inbox-reader-body">
-                  {renderMarkdown(activeContent || '')}
-                </article>
+      <section className="pantheon-grid establishments-grid">
+        {grouped.length > 0 ? (
+          grouped.map((group) => (
+            <Fragment key={group.key}>
+              {(showGroupHeadings || group.label !== 'Ungrouped') && (
+                <div className="establishments-grid-heading">{group.label}</div>
               )}
-            </>
-          ) : (
-            <div className="muted establishment-reader-empty">
-              {loading ? 'Loading…' : 'Select an establishment to preview.'}
-            </div>
-          )}
-        </section>
-      </div>
+              {group.items.map((item) => (
+                <button
+                  type="button"
+                  key={item.path}
+                  className="pantheon-card establishment-card"
+                  onClick={() => {
+                    setActivePath(item.path);
+                    setModalOpen(true);
+                  }}
+                  title={item.relative || item.path}
+                >
+                  <div className="establishment-card-head">
+                    <div className="pantheon-card-title">{item.title || item.name}</div>
+                    <time title={formatDate(item.modified_ms)}>{formatRelative(item.modified_ms)}</time>
+                  </div>
+                  {(item.relative || item.category) && (
+                    <div className="establishment-meta">
+                      {item.relative && <span className="establishment-meta-item">{item.relative}</span>}
+                      {item.category && <span className="establishment-meta-item">{item.category}</span>}
+                    </div>
+                  )}
+                  {(item.location || item.region) && (
+                    <div className="establishment-tags">
+                      {item.region && <span className="chip">Region: {item.region}</span>}
+                      {item.location && <span className="chip">Town: {item.location}</span>}
+                    </div>
+                  )}
+                </button>
+              ))}
+            </Fragment>
+          ))
+        ) : (
+          <div className="muted">{loading ? 'Searching for establishments…' : 'No establishments found.'}</div>
+        )}
+      </section>
+
+      {modalOpen && (
+        <div
+          className="lightbox"
+          onClick={() => {
+            setModalOpen(false);
+          }}
+        >
+          <div
+            className="lightbox-panel"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {selected ? (
+              <>
+                <header className="inbox-reader-header establishment-header">
+                  <h2 className="inbox-reader-title">{selected.title || selected.name}</h2>
+                  <div className="inbox-reader-meta">
+                    {selected.group && <span>{selected.group}</span>}
+                    {selected.group && <span>·</span>}
+                    <time title={formatDate(selected.modified_ms)}>{formatDate(selected.modified_ms)}</time>
+                  </div>
+                  {(selected.category || selected.location || selected.region) && (
+                    <div className="establishment-tags">
+                      {selected.region && <span className="chip">Region: {selected.region}</span>}
+                      {selected.location && <span className="chip">Town: {selected.location}</span>}
+                      {selected.category && <span className="chip">{selected.category}</span>}
+                    </div>
+                  )}
+                </header>
+                {previewLoading ? (
+                  <div className="muted">Loading…</div>
+                ) : (
+                  <article className="inbox-reader-body">
+                    {renderMarkdown(activeContent || '')}
+                  </article>
+                )}
+              </>
+            ) : (
+              <div className="muted">Loading…</div>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 }

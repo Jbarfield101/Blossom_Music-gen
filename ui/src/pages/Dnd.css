@@ -707,61 +707,23 @@
   padding: 1rem;
 }
 
-/* Establishments layout */
-.establishments-layout {
-  display: grid;
-  grid-template-columns: minmax(320px, 460px) minmax(0, 1fr);
-  gap: 1rem;
-  min-height: 60vh;
-}
-
-.establishments-list {
-  gap: 1rem;
-  max-height: 70vh;
-  overflow-y: auto;
-}
-
-.establishment-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.establishment-group-title {
-  margin: 0;
-  font-size: 1rem;
+/* Establishments cards */
+.establishments-grid-heading {
+  grid-column: 1 / -1;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   font-weight: 700;
+  opacity: 0.75;
+  margin: 1.2rem 0 0.35rem;
 }
 
-.establishment-items {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+.establishments-grid-heading:first-child {
+  margin-top: 0;
 }
 
 .establishment-card {
-  background: rgba(15, 23, 42, 0.65);
-  border: 1px solid #1f2937;
-  border-radius: 10px;
-  padding: 0.75rem 0.9rem;
-  text-align: left;
-  color: var(--text);
-  display: grid;
-  gap: 0.4rem;
-  cursor: pointer;
-  font: inherit;
-  transition: border-color 0.2s ease, background 0.2s ease;
-}
-
-.establishment-card:hover,
-.establishment-card:focus-visible {
-  border-color: var(--accent);
-  background: var(--card-hover-bg);
-}
-
-.establishment-card.is-active {
-  border-color: var(--accent);
-  background: var(--card-hover-bg);
+  gap: 0.6rem;
 }
 
 .establishment-card-head {
@@ -771,9 +733,9 @@
   gap: 0.75rem;
 }
 
-.establishment-title {
-  font-weight: 600;
-  margin: 0;
+.establishment-card time {
+  font-size: 0.8rem;
+  opacity: 0.75;
 }
 
 .establishment-meta {
@@ -796,24 +758,11 @@
   gap: 0.4rem;
 }
 
-.establishments-reader {
-  max-height: 70vh;
-  overflow-y: auto;
-}
-
-.establishment-reader-empty {
-  text-align: center;
-}
-
-@media (max-width: 960px) {
-  .establishments-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .establishments-list,
-  .establishments-reader {
-    max-height: none;
-  }
+.lightbox-panel .establishment-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
 }
 
 /* Assets explorer */
