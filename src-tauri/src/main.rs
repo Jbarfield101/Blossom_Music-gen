@@ -349,9 +349,7 @@ fn extract_tags(mapping: &YamlMapping) -> Vec<String> {
                                     }
                                 }
                                 YamlValue::Null => {
-                                    eprintln!(
-                                        "[blossom] extract_tags: skipping null tag value"
-                                    );
+                                    eprintln!("[blossom] extract_tags: skipping null tag value");
                                     None
                                 }
                                 _ => {
@@ -486,17 +484,19 @@ fn persistence_enabled() -> bool {
 }
 
 #[tauri::command]
-fn generate_llm(prompt: String, system: Option<String>) -> Result<String, String> {
-    // Use the Python helper which streams from Ollama and concatenates the result
-    let mut cmd = python_command();
-    // Safely embed the prompt as a Python string literal
-    let prompt_literal = serde_json::to_string(&prompt).unwrap_or_else(|_| format!("{:?}", prompt));
-    let system_literal = system
-        .as_ref()
-        .and_then(|s| serde_json::to_string(s).ok())
-        .unwrap_or_else(|| "null".to_string());
-    let py = format!(
-        r#"import os, json, requests, sys
+async fn generate_llm(prompt: String, system: Option<String>) -> Result<String, String> {
+    async_runtime::spawn_blocking(move || -> Result<String, String> {
+        // Use the Python helper which streams from Ollama and concatenates the result
+        let mut cmd = python_command();
+        // Safely embed the prompt as a Python string literal
+        let prompt_literal =
+            serde_json::to_string(&prompt).unwrap_or_else(|_| format!("{:?}", prompt));
+        let system_literal = system
+            .as_ref()
+            .and_then(|s| serde_json::to_string(s).ok())
+            .unwrap_or_else(|| "null".to_string());
+        let py = format!(
+            r#"import os, json, requests, sys
 url = "http://localhost:11434/api/generate"
 model = os.getenv("LLM_MODEL", os.getenv("OLLAMA_MODEL", "mistral"))
 payload = {{"model": model, "prompt": {prompt}, "stream": False}}
@@ -512,14 +512,17 @@ except Exception as e:
     sys.stderr.write(str(e))
     sys.exit(1)
 "#,
-        prompt = prompt_literal,
-        system = system_literal,
-    );
-    let output = cmd.arg("-c").arg(py).output().map_err(|e| e.to_string())?;
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+            prompt = prompt_literal,
+            system = system_literal,
+        );
+        let output = cmd.arg("-c").arg(py).output().map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).to_string());
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    })
+    .await
+    .map_err(|e| format!("Failed to join blocking task: {}", e))?
 }
 
 fn looks_like_project_root(dir: &Path) -> bool {
@@ -2225,7 +2228,7 @@ fn settings_store(app: &AppHandle) -> Result<Arc<Store<tauri::Wry>>, String> {
 }
 
 #[tauri::command]
-fn update_section_tags(app: AppHandle, section: String) -> Result<TagUpdateSummary, String> {
+async fn update_section_tags(app: AppHandle, section: String) -> Result<TagUpdateSummary, String> {
     let trimmed = section.trim();
     let section_cfg = tag_section_map()
         .get(trimmed)
@@ -2468,7 +2471,7 @@ Frontmatter:\n{frontmatter}\n---\nBody excerpt:\n{body}",
         );
 
         let system = "You return only compact JSON arrays of tags.";
-        let response = match generate_llm(prompt, Some(system.to_string())) {
+        let response = match generate_llm(prompt, Some(system.to_string())).await {
             Ok(text) => text,
             Err(err) => {
                 failed_notes += 1;
@@ -2780,7 +2783,7 @@ fn inbox_list(app: AppHandle, path: Option<String>) -> Result<Vec<InboxItem>, St
 }
 
 #[tauri::command]
-fn npc_create(
+async fn npc_create(
     app: AppHandle,
     name: String,
     region: Option<String>,
@@ -2935,7 +2938,7 @@ fn npc_create(
     };
     let system = Some(String::from("You are a helpful worldbuilding assistant. Produce clean, cohesive Markdown. Keep a grounded tone; avoid overpowered traits."));
     eprintln!("[blossom] npc_create: invoking LLM generation (ollama)");
-    let content = generate_llm(prompt, system)?;
+    let content = generate_llm(prompt, system).await?;
     let mut content = strip_code_fence(&content).to_string();
 
     if establishment_path.is_some() || establishment_name.is_some() {
@@ -3165,7 +3168,7 @@ fn extract_sheet_string(sheet: &Value, path: &[&str]) -> Option<String> {
 }
 
 #[tauri::command]
-fn player_create(
+async fn player_create(
     app: AppHandle,
     name: String,
     markdown: String,
@@ -3280,8 +3283,16 @@ fn player_create(
         push_candidate(config_tpl);
     }
     if let Some(ref v) = vault {
-        template_candidates.push(PathBuf::from(v).join("_Templates").join("Player Character Template.md"));
-        template_candidates.push(PathBuf::from(v).join("_Templates").join("PlayerCharacterTemplate.md"));
+        template_candidates.push(
+            PathBuf::from(v)
+                .join("_Templates")
+                .join("Player Character Template.md"),
+        );
+        template_candidates.push(
+            PathBuf::from(v)
+                .join("_Templates")
+                .join("PlayerCharacterTemplate.md"),
+        );
     }
     template_candidates.push(PathBuf::from(
         r"D:\\Documents\\DreadHaven\\_Templates\\Player Character Template.md",
@@ -3316,7 +3327,10 @@ fn player_create(
     }
     let template_body = template_text.unwrap_or_else(|| {
         if let Some(err) = last_err {
-            eprintln!("[blossom] player_create: template fallback after error: {}", err);
+            eprintln!(
+                "[blossom] player_create: template fallback after error: {}",
+                err
+            );
         }
         DEFAULT_PLAYER_TEMPLATE.to_string()
     });
@@ -3390,7 +3404,7 @@ fn player_create(
             "You polish Markdown for tabletop RPG characters. Preserve YAML frontmatter and mechanical blocks. Only elaborate narrative sections when appropriate."
         ));
         eprintln!("[blossom] player_create: invoking LLM prefill");
-        let llm_content = generate_llm(prompt, system)?;
+        let llm_content = generate_llm(prompt, system).await?;
         strip_code_fence(&llm_content).to_string()
     } else {
         merged
@@ -3440,7 +3454,7 @@ fn player_create(
 }
 
 #[tauri::command]
-fn monster_create(
+async fn monster_create(
     app: AppHandle,
     name: String,
     template: Option<String>,
@@ -3566,7 +3580,7 @@ fn monster_create(
         "You are a meticulous editor that outputs only valid Markdown and YAML frontmatter.\nInclude typical D&D 5e fields: type, size, alignment, AC, HP, speed, abilities, skills, senses, languages, CR, traits, actions. No OGL text.\n"
     ));
     eprintln!("[blossom] monster_create: invoking LLM generation");
-    let content = match generate_llm(prompt, system) {
+    let content = match generate_llm(prompt, system).await {
         Ok(c) => {
             eprintln!("[blossom] monster_create: LLM returned ({} bytes)", c.len());
             c
@@ -3625,7 +3639,11 @@ fn monster_create(
 }
 
 #[tauri::command]
-fn god_create(app: AppHandle, name: String, template: Option<String>) -> Result<String, String> {
+async fn god_create(
+    app: AppHandle,
+    name: String,
+    template: Option<String>,
+) -> Result<String, String> {
     eprintln!(
         "[blossom] god_create: start name='{}', template={:?}",
         name, template
@@ -3737,7 +3755,7 @@ fn god_create(app: AppHandle, name: String, template: Option<String>) -> Result<
         "You are a meticulous loremaster producing only valid Markdown and YAML frontmatter for fantasy deities.\nDetail portfolios, relationships, worshippers, and church customs without duplicating headings.\n"
     ));
     eprintln!("[blossom] god_create: invoking LLM generation");
-    let content = match generate_llm(prompt, system) {
+    let content = match generate_llm(prompt, system).await {
         Ok(c) => {
             eprintln!("[blossom] god_create: LLM returned ({} bytes)", c.len());
             c
@@ -3795,7 +3813,11 @@ fn god_create(app: AppHandle, name: String, template: Option<String>) -> Result<
 }
 
 #[tauri::command]
-fn spell_create(app: AppHandle, name: String, template: Option<String>) -> Result<String, String> {
+async fn spell_create(
+    app: AppHandle,
+    name: String,
+    template: Option<String>,
+) -> Result<String, String> {
     eprintln!(
         "[blossom] spell_create: start name='{}', template={:?}",
         name, template
@@ -3954,7 +3976,7 @@ fn spell_create(app: AppHandle, name: String, template: Option<String>) -> Resul
         "You are an arcane archivist who outputs only valid Markdown with YAML frontmatter describing D&D 5e spells.\nEnsure level, school, casting time, range, components, duration, saving throws, damage, and scaling are detailed without using OGL-restricted phrasing.\n"
     ));
     eprintln!("[blossom] spell_create: invoking LLM generation");
-    let content = match generate_llm(prompt, system) {
+    let content = match generate_llm(prompt, system).await {
         Ok(c) => {
             eprintln!("[blossom] spell_create: LLM returned ({} bytes)", c.len());
             c
