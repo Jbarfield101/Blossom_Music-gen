@@ -10,7 +10,7 @@ import './Dnd.css';
 
 const DEFAULT_MONSTERS = 'D\\\\Documents\\\\DreadHaven\\\\20_DM\\\\Monsters'.replace(/\\\\/g, '\\\\');
 const DEFAULT_PORTRAITS = 'D\\\\Documents\\\\DreadHaven\\\\30_Assets\\\\Images\\\\Monster_Portraits'.replace(/\\\\/g, '\\\\');
-const MONSTER_TEMPLATE = 'D\\\\Documents\\\\DreadHaven\\\\_Templates\\\\Monster Template + Universal (D&D 5e Statblock).md';
+const MONSTER_TEMPLATE = 'Monster Template + Universal (D&D 5e Statblock).md';
 const IMG_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
 
 function formatDate(ms) {
@@ -41,6 +41,7 @@ export default function DndDmMonsters() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [usingPath, setUsingPath] = useState('');
+  const [vaultPath, setVaultPath] = useState('');
   const [activePath, setActivePath] = useState('');
   const [activeContent, setActiveContent] = useState('');
   const [types, setTypes] = useState({});
@@ -53,12 +54,29 @@ export default function DndDmMonsters() {
   const [newName, setNewName] = useState('');
   const [createError, setCreateError] = useState('');
 
+  const refreshVaultPath = useCallback(async () => {
+    try {
+      const vault = await getConfig('vaultPath');
+      const normalized = typeof vault === 'string' ? vault.trim() : '';
+      if (normalized) {
+        setVaultPath(normalized);
+        return normalized;
+      }
+    } catch (e) {
+      // ignore
+    }
+    setVaultPath('');
+    return '';
+  }, []);
+
   const fetchItems = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const vault = await getConfig('vaultPath');
-      const base = (typeof vault === 'string' && vault) ? `${vault}\\\\20_DM\\\\Monsters`.replace(/\\\\/g, '\\\\') : '';
+      const vault = await refreshVaultPath();
+      const base = vault
+        ? `${vault}\\\\20_DM\\\\Monsters`.replace(/\\\\/g, '\\\\')
+        : '';
       if (base) {
         const list = await listInbox(base);
         setUsingPath(base);
@@ -80,14 +98,15 @@ export default function DndDmMonsters() {
     } finally {
       setLoading(false);
     }
-  }, [activePath]);
+  }, [refreshVaultPath]);
 
-  const openCreateModal = () => {
+  const openCreateModal = useCallback(async () => {
     if (creating) return;
+    await refreshVaultPath();
     setNewName('');
     setCreateError('');
     setShowCreate(true);
-  };
+  }, [creating, refreshVaultPath]);
 
   const dismissCreateModal = () => {
     setShowCreate(false);
@@ -106,7 +125,9 @@ export default function DndDmMonsters() {
     try {
       setCreating(true);
       setCreateError('');
-      await createMonster(name, MONSTER_TEMPLATE);
+      const resolvedVault = vaultPath || (await refreshVaultPath());
+      const templateArg = resolvedVault ? MONSTER_TEMPLATE : undefined;
+      await createMonster(name, templateArg);
       dismissCreateModal();
       await fetchItems();
     } catch (e) {
