@@ -21,6 +21,7 @@ COMMAND_SUMMARIES = [
     ("/lore <query>", "Query lore notes and generate a response."),
     ("/note <path> <text>", "Append a timestamped entry to a note."),
     ("/track <stat> <delta>", "Update a combat tracker statistic."),
+    ("/commands", "List Blossom's available slash commands."),
     ("/scene as <voice>", "Switch the narrator TTS voice."),
     ("/export session", "Export the current session log."),
 ]
