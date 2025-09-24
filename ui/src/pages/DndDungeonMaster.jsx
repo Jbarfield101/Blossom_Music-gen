@@ -44,7 +44,8 @@ const sections = [
     to: '/dnd/dungeon-master/world-inventory',
     icon: 'Boxes',
     title: 'World Inventory',
-    description: 'Under construction',
+    description:
+      'Audit magical loot, provenance, attunement, and placement across the world.',
   },
   {
     to: '/dnd/dungeon-master/tag-manager',
