@@ -80,3 +80,56 @@ def test_commands_list_includes_all_entries():
         assert syntax in message
         assert description in message
     assert kwargs.get("ephemeral") is True
+
+
+def test_npcs_lists_known_characters(monkeypatch):
+    bot = BlossomBot()
+    interaction = MagicMock()
+    interaction.response = MagicMock()
+    interaction.response.send_message = AsyncMock()
+
+    monkeypatch.setattr(
+        discord_bot.service_api,
+        "list_npcs",
+        lambda: [
+            {"aliases": ["Aelar", "Prince of Autumn"], "fields": {"voice": "soft"}},
+            {"aliases": ["Brakka"], "fields": {}},
+        ],
+    )
+
+    asyncio.run(bot.npcs.callback(bot, interaction))
+
+    interaction.response.send_message.assert_called_once()
+    args, kwargs = interaction.response.send_message.call_args
+    message = args[0]
+    assert "Known NPCs" in message
+    assert "Aelar" in message
+    assert "voice: soft" in message
+    assert kwargs.get("ephemeral") is True
+
+
+def test_lore_entries_lists_summaries(monkeypatch):
+    bot = BlossomBot()
+    interaction = MagicMock()
+    interaction.response = MagicMock()
+    interaction.response.send_message = AsyncMock()
+
+    monkeypatch.setattr(
+        discord_bot.service_api,
+        "list_lore",
+        lambda: [
+            {"title": "Ancient Tome", "summary": "Forgotten rituals."},
+            {"path": "lore/dragons.md", "summary": ""},
+        ],
+    )
+
+    asyncio.run(bot.lore_entries.callback(bot, interaction))
+
+    interaction.response.send_message.assert_called_once()
+    args, kwargs = interaction.response.send_message.call_args
+    message = args[0]
+    assert "Lore entries" in message
+    assert "Ancient Tome" in message
+    assert "Forgotten rituals" in message
+    assert "dragons" in message
+    assert kwargs.get("ephemeral") is True
