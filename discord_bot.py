@@ -18,7 +18,9 @@ import session_export
 
 COMMAND_SUMMARIES = [
     ("/npc <alias[: message]>", "Fetch NPC info or speak in their voice."),
+    ("/npcs", "List discovered NPC aliases and assigned voices."),
     ("/lore <query>", "Query lore notes and generate a response."),
+    ("/loreentries", "List lore entries with short summaries."),
     ("/note <path> <text>", "Append a timestamped entry to a note."),
     ("/track <stat> <delta>", "Update a combat tracker statistic."),
     ("/commands", "List Blossom's available slash commands."),
@@ -43,7 +45,9 @@ class BlossomBot(commands.Bot):
     async def setup_hook(self) -> None:  # pragma: no cover - Discord runtime
         """Register slash commands once the bot is ready."""
         self.tree.add_command(self.npc)
+        self.tree.add_command(self.npcs)
         self.tree.add_command(self.lore)
+        self.tree.add_command(self.lore_entries)
         self.tree.add_command(self.note)
         self.tree.add_command(self.track)
         self.tree.add_command(self.commands_list)
@@ -120,6 +124,58 @@ class BlossomBot(commands.Bot):
 
     # ------------------------------------------------------------------
     @app_commands.command(
+        name="npcs", description="List discovered NPC aliases and assigned voices"
+    )
+    async def npcs(self, interaction: discord.Interaction) -> None:
+        """Handle the ``/npcs`` command."""
+
+        try:
+            npcs = service_api.list_npcs()
+        except Exception as exc:
+            await interaction.response.send_message(f"Error: {exc}", ephemeral=True)
+            return
+
+        if not npcs:
+            await interaction.response.send_message(
+                "No NPCs discovered yet.", ephemeral=True
+            )
+            return
+
+        def _sort_key(item: dict) -> str:
+            aliases = item.get("aliases") or []
+            if aliases:
+                return aliases[0].lower()
+            path = str(item.get("path", ""))
+            return path.lower()
+
+        sorted_npcs = sorted(npcs, key=_sort_key)
+        max_entries = 20
+        lines = ["**Known NPCs**"]
+        for npc in sorted_npcs[:max_entries]:
+            aliases = [alias for alias in (npc.get("aliases") or []) if alias]
+            primary = aliases[0] if aliases else str(npc.get("path", "Unnamed NPC"))
+            extras = ", ".join(aliases[1:])
+            fields = npc.get("fields") or {}
+            voice = fields.get("voice")
+            details = []
+            if extras:
+                details.append(f"aliases: {extras}")
+            if voice:
+                details.append(f"voice: {voice}")
+            if details:
+                lines.append(f"- {primary} ({'; '.join(details)})")
+            else:
+                lines.append(f"- {primary}")
+
+        remaining = len(sorted_npcs) - max_entries
+        if remaining > 0:
+            lines.append(f"...and {remaining} more NPCs.")
+
+        message = "\n".join(lines)
+        await interaction.response.send_message(message, ephemeral=True)
+
+    # ------------------------------------------------------------------
+    @app_commands.command(
         name="lore", description="Query lore notes and generate a response"
     )
     @app_commands.describe(query="Lore question or prompt")
@@ -141,6 +197,63 @@ class BlossomBot(commands.Bot):
             await interaction.response.send_message(str(reply))
         except Exception as exc:
             await interaction.response.send_message(f"Error: {exc}", ephemeral=True)
+
+    # ------------------------------------------------------------------
+    @app_commands.command(
+        name="loreentries", description="List lore entries with short summaries"
+    )
+    async def lore_entries(self, interaction: discord.Interaction) -> None:
+        """Handle the ``/loreentries`` command."""
+
+        try:
+            entries = service_api.list_lore()
+        except Exception as exc:
+            await interaction.response.send_message(f"Error: {exc}", ephemeral=True)
+            return
+
+        if not entries:
+            await interaction.response.send_message(
+                "No lore entries available.", ephemeral=True
+            )
+            return
+
+        def _title(item: dict) -> str:
+            title = (item.get("title") or "").strip()
+            if title:
+                return title
+            aliases = [alias for alias in (item.get("aliases") or []) if alias]
+            if aliases:
+                return aliases[0]
+            path = str(item.get("path", ""))
+            if path:
+                return path.rsplit("/", 1)[-1]
+            return "Untitled lore entry"
+
+        def _summarize(text: str, limit: int = 140) -> str:
+            snippet = (text or "").strip()
+            if not snippet:
+                return ""
+            if len(snippet) <= limit:
+                return snippet
+            return snippet[: limit - 1].rstrip() + "…"
+
+        sorted_entries = sorted(entries, key=lambda item: _title(item).lower())
+        max_entries = 10
+        lines = ["**Lore entries**"]
+        for entry in sorted_entries[:max_entries]:
+            title = _title(entry)
+            summary = _summarize(entry.get("summary", ""))
+            if summary:
+                lines.append(f"- {title}: {summary}")
+            else:
+                lines.append(f"- {title}")
+
+        remaining = len(sorted_entries) - max_entries
+        if remaining > 0:
+            lines.append(f"...and {remaining} more lore entries.")
+
+        message = "\n".join(lines)
+        await interaction.response.send_message(message, ephemeral=True)
 
     # ------------------------------------------------------------------
     @app_commands.command(
