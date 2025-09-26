@@ -65,6 +65,14 @@ export default function DndDiscord() {
   const [commandsLoading, setCommandsLoading] = useState(true);
   const [commandsError, setCommandsError] = useState('');
 
+  // Bot controls
+  const [botPid, setBotPid] = useState(0);
+  const [botStatus, setBotStatus] = useState('');
+  const [starting, setStarting] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [logs, setLogs] = useState([]);
+  const [tokenSources, setTokenSources] = useState([]);
+
   const computeSelections = useCallback((items, piperOpts, elevenOpts) => {
     const piperSet = new Set(piperOpts.map((opt) => opt.value));
     const elevenSet = new Set(elevenOpts.map((opt) => opt.value));
@@ -301,6 +309,76 @@ export default function DndDiscord() {
     loadCommands();
   }, [loadCommands]);
 
+  const handleStartBot = useCallback(async () => {
+    if (starting) return;
+    setStarting(true);
+    setBotStatus('');
+    try {
+      const pid = await invoke('discord_bot_start');
+      const num = typeof pid === 'number' ? pid : Number(pid);
+      setBotPid(Number.isFinite(num) ? num : 0);
+      setBotStatus(Number.isFinite(num) ? `Running (PID ${num})` : 'Started');
+    } catch (err) {
+      console.error('Failed to start Discord bot', err);
+      setBotStatus(err?.message || 'Failed to start bot');
+    } finally {
+      setStarting(false);
+    }
+  }, [starting]);
+
+  const handleStopBot = useCallback(async () => {
+    if (stopping) return;
+    setStopping(true);
+    try {
+      await invoke('discord_bot_stop');
+      setBotPid(0);
+      setBotStatus('Stopped');
+    } catch (err) {
+      console.error('Failed to stop Discord bot', err);
+      setBotStatus(err?.message || 'Failed to stop bot');
+    } finally {
+      setStopping(false);
+    }
+  }, [stopping]);
+
+  const handleCheckStatus = useCallback(async () => {
+    try {
+      const status = await invoke('discord_bot_status');
+      const pid = typeof status?.pid === 'number' ? status.pid : 0;
+      const running = Boolean(status?.running);
+      const exit = typeof status?.exit_code === 'number' ? status.exit_code : null;
+      setBotPid(running ? pid : 0);
+      setBotStatus(running ? `Running (PID ${pid})` : exit === null ? 'Idle' : `Exited (code ${exit})`);
+    } catch (err) {
+      console.error('Failed to query bot status', err);
+    }
+  }, []);
+
+  const handleFetchLogs = useCallback(async () => {
+    try {
+      const lines = await invoke('discord_bot_logs_tail', { lines: 120 });
+      setLogs(Array.isArray(lines) ? lines : []);
+    } catch (err) {
+      console.error('Failed to fetch bot logs', err);
+    }
+  }, []);
+
+  const handleDetectTokens = useCallback(async () => {
+    try {
+      const det = await invoke('discord_detect_token_sources');
+      setTokenSources(Array.isArray(det) ? det : []);
+    } catch (err) {
+      console.error('Failed to detect tokens', err);
+    }
+  }, []);
+
+  const handleResync = useCallback(async () => {
+    try {
+      await invoke('discord_bot_stop');
+    } catch {}
+    await handleStartBot();
+  }, [handleStartBot]);
+
   const voiceHint = (provider, options, loading, error) => {
     if (loading) {
       return <span className="muted">Loading voices…</span>;
@@ -340,6 +418,41 @@ export default function DndDiscord() {
         className="dashboard"
         style={{ display: 'grid', gap: 'var(--space-lg)', marginTop: 'var(--space-lg)' }}
       >
+        <section className="dnd-surface" aria-labelledby="discord-bot-controls-heading">
+          <div className="section-head">
+            <div>
+              <h2 id="discord-bot-controls-heading">Discord Bot</h2>
+              <p className="muted" style={{ marginTop: '0.25rem' }}>
+                Token from <code>secrets.json</code> or selected in <code>Settings → Discord</code>. Commands: <code>/ping</code>, <code>/join</code>, <code>/leave</code>, <code>/say</code>.
+              </p>
+            </div>
+            <div className="button-row" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button type="button" onClick={handleStartBot} disabled={starting}>
+                {starting ? 'Starting.' : 'Start Bot'}
+              </button>
+              <button type="button" onClick={handleStopBot} disabled={stopping}>
+                {stopping ? 'Stopping.' : 'Stop Bot'}
+              </button>
+              <button type="button" onClick={handleCheckStatus}>Check Status</button>
+              <button type="button" onClick={handleFetchLogs}>View Logs</button>
+            </div>
+          </div>
+          <div className="muted">
+            Status: {botStatus || (botPid ? `Running (PID ${botPid})` : 'Idle')}
+          </div>
+          <div className="muted">
+            Token sources: {tokenSources.length === 0 ? 'Unknown' : tokenSources.map((t) => `${t.source} (${t.length} chars)`).join(', ')}
+          </div>
+          <div className="button-row" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button type="button" onClick={handleDetectTokens}>Check Token</button>
+            <button type="button" onClick={handleResync}>Re-sync Commands</button>
+          </div>
+          {logs.length > 0 && (
+            <pre className="inbox-reader" style={{ maxHeight: 240, overflow: 'auto' }}>
+              {logs.join('\n')}
+            </pre>
+          )}
+        </section>
         <section className="dnd-surface" aria-labelledby="npc-voice-selector-heading">
           <div className="section-head">
             <div>
@@ -437,6 +550,9 @@ export default function DndDiscord() {
               <h2 id="commands-help-heading">Commands Help</h2>
               <p className="muted" style={{ marginTop: '0.25rem' }}>
                 Slash commands mirrored from <code>discord_bot.py</code>.
+              </p>
+              <p className="muted" style={{ marginTop: '0.25rem' }}>
+                Token is read from <code>secrets.json</code> (no token input required here).
               </p>
             </div>
             <button type="button" onClick={loadCommands} disabled={commandsLoading}>

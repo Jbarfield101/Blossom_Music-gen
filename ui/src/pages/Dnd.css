@@ -809,7 +809,7 @@
 
 .npc-voice-grid {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(140px, 160px) minmax(220px, 1.25fr);
+  grid-template-columns: minmax(220px, 1fr) minmax(160px, 200px) minmax(260px, 1.4fr);
   gap: 0.75rem;
   align-items: start;
 }
@@ -831,6 +831,7 @@
 
 .npc-voice-name {
   font-weight: 600;
+  word-break: break-word;
 }
 
 .npc-voice-description {
@@ -847,6 +848,7 @@
 
 .npc-voice-cell select {
   width: 100%;
+  min-height: 2.25rem;
 }
 
 .npc-voice-hint-container {

@@ -38,6 +38,284 @@ mod util;
 use crate::commands::{album_concat, generate_musicgen, musicgen_env};
 use crate::util::list_from_dir;
 
+static DISCORD_BOT_CHILD: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
+static DISCORD_BOT_LOGS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+static DISCORD_BOT_EXIT: OnceLock<Mutex<Option<i32>>> = OnceLock::new();
+
+fn discord_bot_store() -> &'static Mutex<Option<Child>> {
+    DISCORD_BOT_CHILD.get_or_init(|| Mutex::new(None))
+}
+
+fn discord_bot_logs() -> &'static Mutex<Vec<String>> {
+    DISCORD_BOT_LOGS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn discord_bot_exit_code() -> &'static Mutex<Option<i32>> {
+    DISCORD_BOT_EXIT.get_or_init(|| Mutex::new(None))
+}
+
+fn discord_settings_path() -> std::path::PathBuf {
+    project_root().join("config").join("discord_accounts.json")
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct DiscordSettings {
+    #[serde(default)]
+    currentToken: Option<String>,
+    #[serde(default)]
+    tokens: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    currentGuild: Option<String>,
+    #[serde(default)]
+    guilds: std::collections::HashMap<String, u64>,
+}
+
+fn read_discord_settings() -> DiscordSettings {
+    let path = discord_settings_path();
+    if let Ok(text) = std::fs::read_to_string(&path) {
+        if let Ok(cfg) = serde_json::from_str::<DiscordSettings>(&text) {
+            return cfg;
+        }
+    }
+    DiscordSettings::default()
+}
+
+fn write_discord_settings(settings: &DiscordSettings) -> Result<(), String> {
+    let path = discord_settings_path();
+    if let Some(dir) = path.parent() { std::fs::create_dir_all(dir).map_err(|e| e.to_string())?; }
+    let text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
+    std::fs::write(&path, text).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn discord_settings_get() -> Result<DiscordSettings, String> {
+    Ok(read_discord_settings())
+}
+
+#[tauri::command]
+fn discord_token_add(name: String, token: String) -> Result<DiscordSettings, String> {
+    let mut s = read_discord_settings();
+    s.tokens.insert(name.clone(), token);
+    if s.currentToken.is_none() { s.currentToken = Some(name); }
+    write_discord_settings(&s)?;
+    Ok(s)
+}
+
+#[tauri::command]
+fn discord_token_remove(name: String) -> Result<DiscordSettings, String> {
+    let mut s = read_discord_settings();
+    let cur = s.currentToken.clone();
+    s.tokens.remove(&name);
+    if cur.as_deref() == Some(&name) {
+        s.currentToken = s.tokens.keys().next().cloned();
+    }
+    write_discord_settings(&s)?;
+    Ok(s)
+}
+
+#[tauri::command]
+fn discord_token_select(name: String) -> Result<DiscordSettings, String> {
+    let mut s = read_discord_settings();
+    if s.tokens.contains_key(&name) { s.currentToken = Some(name); }
+    write_discord_settings(&s)?;
+    Ok(s)
+}
+
+#[tauri::command]
+fn discord_guild_add(name: String, id: u64) -> Result<DiscordSettings, String> {
+    let mut s = read_discord_settings();
+    s.guilds.insert(name.clone(), id);
+    if s.currentGuild.is_none() { s.currentGuild = Some(name); }
+    write_discord_settings(&s)?;
+    Ok(s)
+}
+
+#[tauri::command]
+fn discord_guild_remove(name: String) -> Result<DiscordSettings, String> {
+    let mut s = read_discord_settings();
+    let cur = s.currentGuild.clone();
+    s.guilds.remove(&name);
+    if cur.as_deref() == Some(&name) {
+        s.currentGuild = s.guilds.keys().next().cloned();
+    }
+    write_discord_settings(&s)?;
+    Ok(s)
+}
+
+#[tauri::command]
+fn discord_guild_select(name: String) -> Result<DiscordSettings, String> {
+    let mut s = read_discord_settings();
+    if s.guilds.contains_key(&name) { s.currentGuild = Some(name); }
+    write_discord_settings(&s)?;
+    Ok(s)
+}
+
+#[derive(Serialize)]
+struct TokenSource { source: String, length: usize, path: String }
+
+#[tauri::command]
+fn discord_detect_token_sources() -> Result<Vec<TokenSource>, String> {
+    let mut out: Vec<TokenSource> = Vec::new();
+    // config/discord_token.txt
+    let token_file = project_root().join("config").join("discord_token.txt");
+    if let Ok(text) = std::fs::read_to_string(&token_file) {
+        let t = text.trim().to_string();
+        if !t.is_empty() {
+            out.push(TokenSource { source: "discord_token.txt".into(), length: t.len(), path: token_file.to_string_lossy().to_string() });
+        }
+    }
+    // secrets.json at repo root
+    let secrets = project_root().join("secrets.json");
+    if let Ok(text) = std::fs::read_to_string(&secrets) {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
+            if let Some(tok) = val.get("discord").and_then(|d| d.get("botToken")).and_then(|v| v.as_str()) {
+                let tok = tok.trim();
+                if !tok.is_empty() {
+                    out.push(TokenSource { source: "secrets.json".into(), length: tok.len(), path: secrets.to_string_lossy().to_string() });
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+fn discord_bot_start() -> Result<u32, String> {
+    // If already running, stop it first
+    {
+        let mut guard = discord_bot_store().lock().unwrap();
+        if let Some(child) = guard.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+            *guard = None;
+        }
+    }
+
+    // reset logs/exit
+    {
+        let mut logs = discord_bot_logs().lock().unwrap();
+        logs.clear();
+    }
+    {
+        let mut exitc = discord_bot_exit_code().lock().unwrap();
+        *exitc = None;
+    }
+
+    // spawn for logs capture, injecting selected token/guild
+    let mut cmd = python_command();
+    // Load selected token/guild from settings
+    let settings = read_discord_settings();
+    if let Some(name) = settings.currentToken.as_ref() {
+        if let Some(tok) = settings.tokens.get(name) {
+            cmd.env("DISCORD_TOKEN", tok);
+        }
+    }
+    if let Some(name) = settings.currentGuild.as_ref() {
+        if let Some(gid) = settings.guilds.get(name) {
+            cmd.env("DISCORD_GUILD_ID", gid.to_string());
+        }
+    }
+    cmd.arg("discord_bot.py").stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut log_child = cmd.spawn().map_err(|e| e.to_string())?;
+    // stdout
+    if let Some(out) = log_child.stdout.take() {
+        std::thread::spawn(move || {
+            let reader = BufReader::new(out);
+            for line in reader.lines() {
+                match line {
+                    Ok(l) => {
+                        let mut logs = discord_bot_logs().lock().unwrap();
+                        logs.push(l);
+                        if logs.len() > 400 {
+                            let drop = logs.len() - 400;
+                            logs.drain(0..drop);
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+    // stderr
+    if let Some(err) = log_child.stderr.take() {
+        std::thread::spawn(move || {
+            let reader = BufReader::new(err);
+            for line in reader.lines() {
+                match line {
+                    Ok(l) => {
+                        let mut logs = discord_bot_logs().lock().unwrap();
+                        logs.push(l);
+                        if logs.len() > 400 {
+                            let drop = logs.len() - 400;
+                            logs.drain(0..drop);
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+    // store child handle
+    let pid = log_child.id();
+    let mut guard = discord_bot_store().lock().unwrap();
+    *guard = Some(log_child);
+    // quick exit check
+    std::thread::sleep(std::time::Duration::from_millis(800));
+    if let Some(c) = guard.as_mut() {
+        if let Ok(Some(status)) = c.try_wait() {
+            let code = status.code().unwrap_or(-1);
+            let logs = discord_bot_logs().lock().unwrap();
+            let tail: Vec<String> = logs.iter().rev().take(12).cloned().collect::<Vec<_>>().into_iter().rev().collect();
+            let joined = tail.join("\n");
+            return Err(format!("Discord bot exited immediately (code {}). Logs:\n{}", code, joined));
+        }
+    }
+    Ok(pid)
+}
+
+#[tauri::command]
+fn discord_bot_stop() -> Result<(), String> {
+    let mut guard = discord_bot_store().lock().unwrap();
+    if let Some(mut child) = guard.take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct DiscordBotStatus {
+    running: bool,
+    pid: Option<u32>,
+    exit_code: Option<i32>,
+}
+
+#[tauri::command]
+fn discord_bot_status() -> Result<DiscordBotStatus, String> {
+    let mut running = false;
+    let mut pid = None;
+    {
+        let mut guard = discord_bot_store().lock().unwrap();
+        if let Some(child) = guard.as_mut() {
+            pid = Some(child.id());
+            if child.try_wait().map_err(|e| e.to_string())?.is_none() {
+                running = true;
+            }
+        }
+    }
+    let code = { *discord_bot_exit_code().lock().unwrap() };
+    Ok(DiscordBotStatus { running, pid, exit_code: code })
+}
+
+#[tauri::command]
+fn discord_bot_logs_tail(lines: Option<usize>) -> Result<Vec<String>, String> {
+    let count = lines.unwrap_or(100).min(400);
+    let logs = discord_bot_logs().lock().unwrap();
+    let n = logs.len();
+    let start = n.saturating_sub(count);
+    Ok(logs[start..].to_vec())
+}
+
 fn strip_code_fence(s: &str) -> &str {
     let mut trimmed = s.trim();
     if !trimmed.starts_with("```") {
@@ -5811,6 +6089,18 @@ fn main() {
             config::set_config,
             config::export_settings,
             config::import_settings,
+            discord_bot_start,
+            discord_bot_stop,
+            discord_bot_status,
+            discord_bot_logs_tail,
+            discord_settings_get,
+            discord_token_add,
+            discord_token_remove,
+            discord_token_select,
+            discord_guild_add,
+            discord_guild_remove,
+            discord_guild_select,
+            discord_detect_token_sources,
             musiclang::list_musiclang_models,
             musiclang::download_model
         ])
@@ -5818,6 +6108,14 @@ fn main() {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 let app_handle = window.app_handle();
                 let registry = app_handle.state::<JobRegistry>();
+                // Stop Discord bot if running
+                {
+                    let mut guard = discord_bot_store().lock().unwrap();
+                    if let Some(mut child) = guard.take() {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                    }
+                }
                 let mut to_requeue = Vec::new();
                 {
                     let mut jobs = registry.jobs.lock().unwrap();
