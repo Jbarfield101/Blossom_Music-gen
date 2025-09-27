@@ -4,6 +4,9 @@ import asyncio
 import math
 import os
 from typing import Dict, List, Optional
+import json
+import uuid
+from datetime import datetime, timezone
 
 import discord
 from discord import app_commands
@@ -32,6 +35,7 @@ COMMAND_SUMMARIES = [
     ("/join [channel]", "Join your voice channel or specified channel"),
     ("/leave", "Leave the current voice channel"),
     ("/say <text>", "Speak text in the connected voice channel"),
+    ("/act", "Open UI to choose NPC + voice"),
 ]
 
 
@@ -179,14 +183,42 @@ class SlashTTSBot(commands.Bot):
             self._guild_voice_map[guild.id] = vc
 
     async def join(self, interaction: discord.Interaction, channel: Optional[discord.VoiceChannel]) -> discord.VoiceClient:
-        if channel is None:
-            # Try the user's current voice channel
+        # Resolve target channel: explicit option or the requester's current channel
+        target: Optional[discord.VoiceChannel] = channel
+        if target is None:
             me = interaction.user  # type: ignore[assignment]
             if hasattr(me, "voice") and me.voice and me.voice.channel:
-                channel = me.voice.channel  # type: ignore[assignment]
-        if channel is None:
+                target = me.voice.channel  # type: ignore[assignment]
+        if target is None:
             raise RuntimeError("You are not in a voice channel and no channel was provided.")
-        vc = await channel.connect()
+
+        # Preflight permission check if possible
+        if interaction.guild and isinstance(target, discord.VoiceChannel):
+            me_member = interaction.guild.me
+            if me_member is not None:
+                perms = target.permissions_for(me_member)
+                if not perms.connect:
+                    raise RuntimeError("Missing permission to connect to that voice channel.")
+                if target.user_limit and len(target.members) >= target.user_limit and not perms.move_members:
+                    raise RuntimeError("Channel is full and I lack Move Members permission.")
+
+        # Reuse or move existing connection when already connected
+        existing = self._get_guild_vc(interaction.guild)
+        if existing and existing.is_connected():
+            try:
+                if getattr(existing, "channel", None) and existing.channel == target:
+                    return existing
+                await existing.move_to(target)
+                return existing
+            except discord.ClientException:
+                # Fallback to reconnecting cleanly
+                try:
+                    await existing.disconnect(force=True)
+                except Exception:
+                    pass
+
+        # Fresh connect
+        vc = await target.connect(self_deaf=True, reconnect=True)
         if interaction.guild:
             self._set_guild_vc(interaction.guild, vc)
         return vc
@@ -276,10 +308,16 @@ async def join(interaction: discord.Interaction, channel: Optional[discord.Voice
         await interaction.response.send_message("You are not allowed to use this command here.", ephemeral=True)
         return
     try:
+        # Defer in case connect or move takes > 3 seconds
+        if not interaction.response.is_done():
+            await interaction.response.defer(thinking=True)
         vc = await bot.join(interaction, channel)
-        await interaction.response.send_message(f"Joined {vc.channel.mention}")
+        await interaction.followup.send(f"Joined {vc.channel.mention}")
     except Exception as e:
-        await interaction.response.send_message(f"Join failed: {e}", ephemeral=True)
+        if interaction.response.is_done():
+            await interaction.followup.send(f"Join failed: {e}", ephemeral=True)
+        else:
+            await interaction.response.send_message(f"Join failed: {e}", ephemeral=True)
 
 
 @bot.tree.command(description="Leave the current voice channel")
@@ -321,6 +359,32 @@ async def say(interaction: discord.Interaction, text: str) -> None:
         await interaction.followup.send("Done.", ephemeral=True)
     except Exception as e:
         await interaction.followup.send(f"Failed to speak: {e}", ephemeral=True)
+
+
+@bot.tree.command(description="Open UI to choose an NPC and voice")
+async def act(interaction: discord.Interaction) -> None:
+    if not bot._is_allowed(interaction, "act"):
+        await interaction.response.send_message("You are not allowed to use this command here.", ephemeral=True)
+        return
+    try:
+        req = {
+            "guild_id": getattr(interaction.guild, "id", None),
+            "channel_id": getattr(interaction.channel, "id", None),
+            "user_id": getattr(interaction.user, "id", None),
+            "username": getattr(interaction.user, "name", None),
+            "request_id": str(uuid.uuid4()),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        print(json.dumps({"discord_act": req}), flush=True)
+        await interaction.response.send_message(
+            "Prompting the Blossom UI to select an NPC and voice…",
+            ephemeral=True,
+        )
+    except Exception as e:
+        if interaction.response.is_done():
+            await interaction.followup.send(f"Act failed: {e}", ephemeral=True)
+        else:
+            await interaction.response.send_message(f"Act failed: {e}", ephemeral=True)
 
 
 def main() -> None:

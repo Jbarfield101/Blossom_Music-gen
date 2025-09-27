@@ -11,6 +11,26 @@
   margin: 0;
 }
 
+/* Discord page responsive tweaks */
+.discord-dashboard {
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 1100px) {
+  .discord-dashboard {
+    grid-template-columns: 1fr; /* keep single column for readability */
+  }
+}
+
+.discord-status-bar {
+  font-size: 0.95rem;
+}
+
+.discord-bot-controls {
+  display: grid;
+  gap: 0.75rem;
+}
+
 .card.is-disabled,
 .card:disabled {
   opacity: 0.55;

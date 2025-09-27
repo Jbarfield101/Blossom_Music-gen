@@ -225,7 +225,9 @@ export default function DndDmPlayerCreate() {
             } finally {
               setRolling((r) => ({ ...r, traits: false }));
             }
-          }} disabled={rolling.traits}>{rolling.traits ? 'Rolling…' : 'Random'}</button>
+          }} disabled={rolling.traits}>
+            {rolling.traits ? (<><span className="spinner" aria-label="loading" /> Rolling…</>) : 'Random'}
+          </button>
         </div>
       </label>
       <label>
@@ -252,7 +254,9 @@ export default function DndDmPlayerCreate() {
             } finally {
               setRolling((r) => ({ ...r, ideals: false }));
             }
-          }} disabled={rolling.ideals}>{rolling.ideals ? 'Rolling…' : 'Random'}</button>
+          }} disabled={rolling.ideals}>
+            {rolling.ideals ? (<><span className="spinner" aria-label="loading" /> Rolling…</>) : 'Random'}
+          </button>
         </div>
       </label>
       <label>
@@ -279,7 +283,9 @@ export default function DndDmPlayerCreate() {
             } finally {
               setRolling((r) => ({ ...r, backstory: false }));
             }
-          }} disabled={rolling.backstory}>{rolling.backstory ? 'Rolling…' : 'Random'}</button>
+          }} disabled={rolling.backstory}>
+            {rolling.backstory ? (<><span className="spinner" aria-label="loading" /> Rolling…</>) : 'Random'}
+          </button>
         </div>
       </label>
     </CharacterSheetSection>

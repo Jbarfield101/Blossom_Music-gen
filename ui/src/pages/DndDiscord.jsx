@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 
 import BackButton from '../components/BackButton.jsx';
 import { listNpcs, saveNpc } from '../api/npcs.js';
@@ -72,6 +73,12 @@ export default function DndDiscord() {
   const [stopping, setStopping] = useState(false);
   const [logs, setLogs] = useState([]);
   const [tokenSources, setTokenSources] = useState([]);
+  const [showBotControls, setShowBotControls] = useState(true);
+  const [actOpen, setActOpen] = useState(false);
+  const [actRequest, setActRequest] = useState(null);
+  const [actNpc, setActNpc] = useState('');
+  const [actProvider, setActProvider] = useState('piper');
+  const [actVoice, setActVoice] = useState('');
 
   const computeSelections = useCallback((items, piperOpts, elevenOpts) => {
     const piperSet = new Set(piperOpts.map((opt) => opt.value));
@@ -309,6 +316,31 @@ export default function DndDiscord() {
     loadCommands();
   }, [loadCommands]);
 
+  // Listen for /act events from the bot
+  useEffect(() => {
+    let unlisten;
+    (async () => {
+      try {
+        unlisten = await listen('discord::act', (event) => {
+          const payload = event?.payload || {};
+          setActRequest(payload);
+          setActOpen(true);
+          // Best-effort preselects
+          if (npcs.length > 0) {
+            setActNpc(npcs[0]?.name || '');
+          }
+          setActProvider('piper');
+          setActVoice('');
+        });
+      } catch (err) {
+        console.warn('Failed to listen for discord::act events', err);
+      }
+    })();
+    return () => {
+      if (typeof unlisten === 'function') unlisten();
+    };
+  }, [npcs]);
+
   const handleStartBot = useCallback(async () => {
     if (starting) return;
     setStarting(true);
@@ -414,8 +446,11 @@ export default function DndDiscord() {
     <>
       <BackButton />
       <h1>Dungeons &amp; Dragons &middot; Discord</h1>
+      <div className="discord-status-bar muted" style={{ marginTop: '0.25rem' }}>
+        Status: {botStatus || (botPid ? `Running (PID ${botPid})` : 'Idle')}
+      </div>
       <main
-        className="dashboard"
+        className="dashboard discord-dashboard"
         style={{ display: 'grid', gap: 'var(--space-lg)', marginTop: 'var(--space-lg)' }}
       >
         <section className="dnd-surface" aria-labelledby="discord-bot-controls-heading">
@@ -427,6 +462,14 @@ export default function DndDiscord() {
               </p>
             </div>
             <div className="button-row" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setShowBotControls((v) => !v)}
+                aria-expanded={showBotControls}
+                aria-controls="discord-bot-controls"
+              >
+                {showBotControls ? 'Collapse' : 'Expand'}
+              </button>
               <button type="button" onClick={handleStartBot} disabled={starting}>
                 {starting ? 'Starting.' : 'Start Bot'}
               </button>
@@ -437,20 +480,21 @@ export default function DndDiscord() {
               <button type="button" onClick={handleFetchLogs}>View Logs</button>
             </div>
           </div>
-          <div className="muted">
-            Status: {botStatus || (botPid ? `Running (PID ${botPid})` : 'Idle')}
-          </div>
-          <div className="muted">
-            Token sources: {tokenSources.length === 0 ? 'Unknown' : tokenSources.map((t) => `${t.source} (${t.length} chars)`).join(', ')}
-          </div>
-          <div className="button-row" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <button type="button" onClick={handleDetectTokens}>Check Token</button>
-            <button type="button" onClick={handleResync}>Re-sync Commands</button>
-          </div>
-          {logs.length > 0 && (
-            <pre className="inbox-reader" style={{ maxHeight: 240, overflow: 'auto' }}>
-              {logs.join('\n')}
-            </pre>
+          {showBotControls && (
+            <div id="discord-bot-controls" className="discord-bot-controls">
+              <div className="muted">
+                Token sources: {tokenSources.length === 0 ? 'Unknown' : tokenSources.map((t) => `${t.source} (${t.length} chars)`).join(', ')}
+              </div>
+              <div className="button-row" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button type="button" onClick={handleDetectTokens}>Check Token</button>
+                <button type="button" onClick={handleResync}>Re-sync Commands</button>
+              </div>
+              {logs.length > 0 && (
+                <pre className="inbox-reader" style={{ maxHeight: 240, overflow: 'auto' }}>
+                  {logs.join('\n')}
+                </pre>
+              )}
+            </div>
           )}
         </section>
         <section className="dnd-surface" aria-labelledby="npc-voice-selector-heading">
@@ -576,6 +620,61 @@ export default function DndDiscord() {
           )}
         </section>
       </main>
+
+      {actOpen && (
+        <div className="dnd-modal-backdrop" role="dialog" aria-modal="true" aria-label="Select NPC and voice">
+          <div className="dnd-modal">
+            <div className="dnd-modal-header">
+              <div>
+                <h2>Choose NPC and Voice</h2>
+                <p className="dnd-modal-subtitle">
+                  Triggered by /act from Discord{actRequest?.username ? ` (${actRequest.username})` : ''}.
+                </p>
+              </div>
+              <button type="button" onClick={() => setActOpen(false)}>Close</button>
+            </div>
+            <div className="dnd-modal-body" style={{ gridTemplateColumns: '1fr' }}>
+              <div className="dnd-summary-card">
+                <label htmlFor="act-npc">NPC</label>
+                <select id="act-npc" value={actNpc} onChange={(e) => setActNpc(e.target.value)}>
+                  <option value="">Select NPC</option>
+                  {npcs.map((n) => (
+                    <option key={n.name} value={n.name}>{n.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="dnd-summary-card">
+                <label htmlFor="act-provider">Voice Provider</label>
+                <select id="act-provider" value={actProvider} onChange={(e) => { setActProvider(e.target.value); setActVoice(''); }}>
+                  {PROVIDERS.map((p) => (
+                    <option key={p.value} value={p.value}>{p.label}</option>
+                  ))}
+                </select>
+                <label htmlFor="act-voice" style={{ marginTop: '0.5rem' }}>Voice</label>
+                <select id="act-voice" value={actVoice} onChange={(e) => setActVoice(e.target.value)}>
+                  <option value="">Select voice</option>
+                  {(voiceOptions[actProvider] || []).map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label || opt.value}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="dnd-modal-actions">
+              <button type="button" onClick={() => setActOpen(false)}>Cancel</button>
+              <button
+                type="button"
+                disabled={!actNpc || !actVoice}
+                onClick={() => {
+                  console.log('Act selection', { npc: actNpc, provider: actProvider, voice: actVoice, request: actRequest });
+                  setActOpen(false);
+                }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

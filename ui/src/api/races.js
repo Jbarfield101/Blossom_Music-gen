@@ -53,7 +53,8 @@ export function createRace({ name, templatePath, directory, parentName = null, u
   const payload = {
     name,
     template: templatePath || DEFAULT_TEMPLATE_ABS,
-    directory: directory || '10_World\\Races',
+    // do not set a default here; backend uses vault/10_World/Races
+    directory: directory || null,
     parent: parentName || null,
     use_llm: !!useLLM,
   };

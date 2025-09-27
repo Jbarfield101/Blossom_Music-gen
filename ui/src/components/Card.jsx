@@ -1,10 +1,12 @@
 import { NavLink } from 'react-router-dom';
 import Icon from './Icon.jsx';
 
-export default function Card({ to, icon, title, children, onClick, disabled = false }) {
+export default function Card({ to, icon, imageSrc, imageAlt, title, children, onClick, disabled = false }) {
   const content = (
     <>
-      {icon && (
+      {imageSrc ? (
+        <img src={imageSrc} alt={imageAlt || ''} className="card-image" style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 8 }} />
+      ) : icon && (
         <Icon
           name={icon}
           size={48}

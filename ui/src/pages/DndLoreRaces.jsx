@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { getConfig } from '../api/config';
 import BackButton from '../components/BackButton.jsx';
 import Card from '../components/Card.jsx';
 import { loadRaces, createRace, saveRacePortrait } from '../api/races';
+import { readInbox } from '../api/inbox';
+import { renderMarkdown } from '../lib/markdown.jsx';
 import './Dnd.css';
 
 export default function DndLoreRaces() {
@@ -17,6 +21,10 @@ export default function DndLoreRaces() {
   const [parentRace, setParentRace] = useState('');
   const [showImagePrompt, setShowImagePrompt] = useState(false);
   const [lastCreated, setLastCreated] = useState({ race: '', subrace: '' });
+  const [modalOpen, setModalOpen] = useState(false);
+  const [activePath, setActivePath] = useState('');
+  const [activeContent, setActiveContent] = useState('');
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -36,6 +44,71 @@ export default function DndLoreRaces() {
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // Resolve portrait path for a race (Portrait_<RaceName>.*)
+  const resolvePortrait = useCallback(async (raceName) => {
+    let base = 'D:\\Documents\\DreadHaven';
+    try {
+      const vault = await getConfig('vaultPath');
+      if (typeof vault === 'string' && vault.trim()) base = vault;
+    } catch {}
+    const dir = `${base}\\\\30_Assets\\\\Images\\\\Race_Portraits`;
+    const clean = (s) => String(s || '').trim().replace(/\s+/g, '_');
+    const race = clean(raceName);
+    const exts = ['png','jpg','jpeg','webp'];
+    const candidates = exts.map((ext) => `${dir}\\\\Portrait_${race}.${ext}`);
+    for (const path of candidates) {
+      try {
+        await invoke('read_file_bytes', { path });
+        return convertFileSrc(path);
+      } catch {}
+    }
+    return '';
+  }, []);
+
+  // Build augmented view model with portraitUrl, race/subrace
+  const itemsWithMeta = useMemo(() => items.map((it) => {
+    const rel = String(it.path || '').replace(/\\/g, '/');
+    const root = String(usingPath || '').replace(/\\/g, '/').replace(/\/+$/, '');
+    const inner = rel.startsWith(root) ? rel.slice(root.length).replace(/^\/+/, '') : rel;
+    const segs = inner.split('/');
+    const folder = segs[0] || '';
+    const file = (it.name || '').replace(/\.[^.]+$/, '');
+    const isRace = folder && file && folder.toLowerCase() === file.toLowerCase();
+    return { ...it, race: folder || file, subrace: isRace ? '' : file };
+  }), [items, usingPath]);
+
+  const [portraits, setPortraits] = useState({});
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const map = {};
+      for (const it of itemsWithMeta) {
+        const url = await resolvePortrait(it.race);
+        if (cancelled) return;
+        if (url) map[it.path] = url;
+      }
+      if (!cancelled) setPortraits(map);
+    })();
+    return () => { cancelled = true; };
+  }, [itemsWithMeta, resolvePortrait]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!activePath) { setActiveContent(''); setPreviewLoading(false); return; }
+    setPreviewLoading(true);
+    setActiveContent('');
+    (async () => {
+      try {
+        const text = await readInbox(activePath);
+        if (!cancelled) { setActiveContent(text || ''); setPreviewLoading(false); }
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) { setActiveContent('Failed to load file.'); setPreviewLoading(false); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activePath]);
 
   return (
     <>
@@ -57,13 +130,20 @@ export default function DndLoreRaces() {
             </div>
           </div>
           {error && <div className="warning">{error}</div>}
-          {items.length === 0 ? (
+          {itemsWithMeta.length === 0 ? (
             <div className="muted">{loading ? 'Searching for races…' : 'No race notes found.'}</div>
           ) : (
             <div className="dnd-card-grid" style={{ marginTop: 'var(--space-md)' }}>
-              {items.map((it) => (
-                <Card key={it.path} to={''} icon="ScrollText" title={it.title}>
-                  {it.name}
+              {itemsWithMeta.map((it) => (
+                <Card
+                  key={it.path}
+                  to={''}
+                  imageSrc={portraits[it.path] || ''}
+                  imageAlt={it.title}
+                  title={it.title}
+                  onClick={() => { setActivePath(it.path); setModalOpen(true); }}
+                >
+                  {it.subrace ? `${it.subrace} (${it.race})` : it.race}
                 </Card>
               ))}
             </div>
@@ -117,7 +197,7 @@ export default function DndLoreRaces() {
                   Parent Race
                   <select value={parentRace} onChange={(e) => setParentRace(e.target.value)} disabled={creating}>
                     <option value="">Select a parent race…</option>
-                    {items.map((it) => (
+                    {itemsWithMeta.filter((it) => !it.subrace).map((it) => (
                       <option key={it.title} value={it.title}>{it.title}</option>
                     ))}
                   </select>
@@ -130,9 +210,24 @@ export default function DndLoreRaces() {
               {createError && <div className="error">{createError}</div>}
               <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
                 <button type="button" onClick={() => { if (!creating) setShowCreate(false); }} disabled={creating}>Cancel</button>
-                <button type="submit" disabled={creating}>{creating ? 'Creating…' : 'Create'}</button>
+                <button type="submit" disabled={creating}>{creating ? (<><span className="spinner" aria-label="loading" /> Creating…</>) : 'Create'}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {modalOpen && (
+        <div className="lightbox" onClick={() => setModalOpen(false)}>
+          <div className="lightbox-panel" onClick={(e) => e.stopPropagation()}>
+            <h2>{(itemsWithMeta.find((i) => i.path === activePath)?.title) || 'Race'}</h2>
+            {previewLoading ? (
+              <div className="muted">Loading…</div>
+            ) : (
+              <article className="inbox-reader-body">
+                {renderMarkdown(activeContent || '')}
+              </article>
+            )}
           </div>
         </div>
       )}

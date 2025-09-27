@@ -21,6 +21,7 @@ use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 use tauri::path::BaseDirectory;
 use tauri::Emitter;
 use tauri::Manager;
+use tauri::{PhysicalPosition, PhysicalSize, Position, Size};
 use tauri::{async_runtime, AppHandle, Runtime, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::init as fs_init;
@@ -41,6 +42,8 @@ use crate::util::list_from_dir;
 static DISCORD_BOT_CHILD: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
 static DISCORD_BOT_LOGS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
 static DISCORD_BOT_EXIT: OnceLock<Mutex<Option<i32>>> = OnceLock::new();
+// Controls whether the bot should be kept alive (auto-restarted) in background
+static DISCORD_BOT_KEEPALIVE: OnceLock<Mutex<bool>> = OnceLock::new();
 
 // Discord transcription listener (Whisper pipeline)
 static DISCORD_LISTEN_CHILD: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
@@ -57,6 +60,10 @@ fn discord_bot_logs() -> &'static Mutex<Vec<String>> {
 
 fn discord_bot_exit_code() -> &'static Mutex<Option<i32>> {
     DISCORD_BOT_EXIT.get_or_init(|| Mutex::new(None))
+}
+
+fn discord_bot_keepalive() -> &'static Mutex<bool> {
+    DISCORD_BOT_KEEPALIVE.get_or_init(|| Mutex::new(false))
 }
 
 fn discord_listen_store() -> &'static Mutex<Option<Child>> {
@@ -314,7 +321,7 @@ asyncio.run(main())
 }
 
 #[tauri::command]
-fn discord_bot_start() -> Result<u32, String> {
+fn discord_bot_start(app: tauri::AppHandle) -> Result<u32, String> {
     // If already running, stop it first
     {
         let mut guard = discord_bot_store().lock().unwrap();
@@ -336,23 +343,34 @@ fn discord_bot_start() -> Result<u32, String> {
     }
 
     // spawn for logs capture, injecting selected token/guild
-    let mut cmd = python_command();
-    // Load selected token/guild from settings
-    let settings = read_discord_settings();
-    if let Some(name) = settings.currentToken.as_ref() {
-        if let Some(tok) = settings.tokens.get(name) {
-            cmd.env("DISCORD_TOKEN", tok);
+    let spawn_once = || -> Result<Child, String> {
+        let mut cmd = python_command();
+        // Load selected token/guild from settings
+        let settings = read_discord_settings();
+        if let Some(name) = settings.currentToken.as_ref() {
+            if let Some(tok) = settings.tokens.get(name) {
+                cmd.env("DISCORD_TOKEN", tok);
+            }
         }
-    }
-    if let Some(name) = settings.currentGuild.as_ref() {
-        if let Some(gid) = settings.guilds.get(name) {
-            cmd.env("DISCORD_GUILD_ID", gid.to_string());
+        if let Some(name) = settings.currentGuild.as_ref() {
+            if let Some(gid) = settings.guilds.get(name) {
+                cmd.env("DISCORD_GUILD_ID", gid.to_string());
+            }
         }
+        cmd.arg("discord_bot.py").stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd.spawn().map_err(|e| e.to_string())
+    };
+
+    // Enable keepalive so bot stays running
+    {
+        let mut ka = discord_bot_keepalive().lock().unwrap();
+        *ka = true;
     }
-    cmd.arg("discord_bot.py").stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut log_child = cmd.spawn().map_err(|e| e.to_string())?;
+
+    let mut log_child = spawn_once()?;
     // stdout
     if let Some(out) = log_child.stdout.take() {
+        let app_for_thread = app.clone();
         std::thread::spawn(move || {
             let reader = BufReader::new(out);
             for line in reader.lines() {
@@ -363,6 +381,14 @@ fn discord_bot_start() -> Result<u32, String> {
                         if logs.len() > 400 {
                             let drop = logs.len() - 400;
                             logs.drain(0..drop);
+                        }
+                        // Try to parse JSON events and emit to UI
+                        if let Some(last) = logs.last() {
+                            if let Ok(val) = serde_json::from_str::<Value>(last) {
+                                if let Some(obj) = val.get("discord_act") {
+                                    let _ = app_for_thread.emit("discord::act", obj.clone());
+                                }
+                            }
                         }
                     }
                     Err(_) => break,
@@ -404,11 +430,97 @@ fn discord_bot_start() -> Result<u32, String> {
             return Err(format!("Discord bot exited immediately (code {}). Logs:\n{}", code, joined));
         }
     }
+
+    // Spawn a watcher thread that auto-restarts the bot if it exits unexpectedly
+    std::thread::spawn(move || {
+        loop {
+            // Poll until the current child exits, without holding the lock while waiting
+            let mut code_opt: Option<i32> = None;
+            loop {
+                let still_running = {
+                    let mut guard = discord_bot_store().lock().unwrap();
+                    if let Some(child) = guard.as_mut() {
+                        match child.try_wait() {
+                            Ok(Some(status)) => { code_opt = status.code(); false }
+                            Ok(None) => true,
+                            Err(_) => { code_opt = Some(-1); false }
+                        }
+                    } else {
+                        // No child to watch
+                        break;
+                    }
+                };
+                if !still_running { break; }
+                // Allow stop() or app shutdown to proceed
+                std::thread::sleep(std::time::Duration::from_millis(1000));
+                // If keepalive disabled during wait and process still running, just continue polling;
+                // stop() will kill the process and the next loop will observe exit.
+            }
+            {
+                let mut exitc = discord_bot_exit_code().lock().unwrap();
+                *exitc = code_opt;
+            }
+            // Check keepalive flag
+            let keepalive = { *discord_bot_keepalive().lock().unwrap() };
+            if !keepalive {
+                // Do not restart; ensure store is cleared and exit watcher
+                let mut guard = discord_bot_store().lock().unwrap();
+                *guard = None;
+                break;
+            }
+            // Attempt restart after a short delay
+            std::thread::sleep(std::time::Duration::from_millis(1200));
+            match (|| -> Result<(), String> {
+                let mut child = spawn_once()?;
+                // reattach log readers
+                if let Some(out) = child.stdout.take() {
+                    std::thread::spawn(move || {
+                        let reader = BufReader::new(out);
+                        for line in reader.lines() {
+                            if let Ok(l) = line {
+                                let mut logs = discord_bot_logs().lock().unwrap();
+                                logs.push(l);
+                                if logs.len() > 400 { let drop = logs.len() - 400; logs.drain(0..drop); }
+                            } else { break; }
+                        }
+                    });
+                }
+                if let Some(err) = child.stderr.take() {
+                    std::thread::spawn(move || {
+                        let reader = BufReader::new(err);
+                        for line in reader.lines() {
+                            if let Ok(l) = line {
+                                let mut logs = discord_bot_logs().lock().unwrap();
+                                logs.push(l);
+                                if logs.len() > 400 { let drop = logs.len() - 400; logs.drain(0..drop); }
+                            } else { break; }
+                        }
+                    });
+                }
+                let mut guard = discord_bot_store().lock().unwrap();
+                *guard = Some(child);
+                Ok(())
+            })() {
+                Ok(()) => {}
+                Err(_) => {
+                    // Could not restart; clear store and exit
+                    let mut guard = discord_bot_store().lock().unwrap();
+                    *guard = None;
+                    break;
+                }
+            }
+        }
+    });
     Ok(pid)
 }
 
 #[tauri::command]
 fn discord_bot_stop() -> Result<(), String> {
+    // Disable keepalive so watcher will not auto-restart
+    {
+        let mut ka = discord_bot_keepalive().lock().unwrap();
+        *ka = false;
+    }
     let mut guard = discord_bot_store().lock().unwrap();
     if let Some(mut child) = guard.take() {
         let _ = child.kill();
@@ -897,6 +1009,13 @@ fn persistence_enabled() -> bool {
 
 #[tauri::command]
 async fn generate_llm(prompt: String, system: Option<String>) -> Result<String, String> {
+    eprintln!(
+        "[llm] generate_llm: prompt_len={}, system_present={}",
+        prompt.len(),
+        system.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false)
+    );
+    let preview = prompt.chars().take(160).collect::<String>().replace('\n', " ");
+    eprintln!("[llm] prompt_preview: {}", preview);
     async_runtime::spawn_blocking(move || -> Result<String, String> {
         // Use the Python helper which streams from Ollama and concatenates the result
         let mut cmd = python_command();
@@ -919,7 +1038,12 @@ try:
     resp = requests.post(url, json=payload, timeout=60)
     resp.raise_for_status()
     data = resp.json()
-    print(data.get("response", ""))
+    text = data.get("response", "")
+    if not isinstance(text, str):
+        text = str(text)
+    # Write UTF-8 bytes directly to avoid Windows console encoding issues
+    sys.stdout.buffer.write(text.encode("utf-8", errors="ignore"))
+    sys.stdout.flush()
 except Exception as e:
     sys.stderr.write(str(e))
     sys.exit(1)
@@ -927,11 +1051,18 @@ except Exception as e:
             prompt = prompt_literal,
             system = system_literal,
         );
-        let output = cmd.arg("-c").arg(py).output().map_err(|e| e.to_string())?;
+        let output = cmd
+            .env("PYTHONIOENCODING", "utf-8")
+            .arg("-c")
+            .arg(py)
+            .output()
+            .map_err(|e| e.to_string())?;
         if !output.status.success() {
             return Err(String::from_utf8_lossy(&output.stderr).to_string());
         }
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        let out = String::from_utf8_lossy(&output.stdout).to_string();
+        eprintln!("[llm] response_len={} preview='{}'", out.len(), out.chars().take(120).collect::<String>().replace('\n', " "));
+        Ok(out)
     })
     .await
     .map_err(|e| format!("Failed to join blocking task: {}", e))?
@@ -3709,6 +3840,10 @@ fn race_create(
     parent: Option<String>,
     use_llm: Option<bool>,
 ) -> Result<String, String> {
+    eprintln!(
+        "[races] race_create: name='{}' parent={:?} dir={:?} use_llm={:?}",
+        name, parent, directory, use_llm
+    );
     // Resolve vault base
     let store = settings_store(&app).map_err(|e| e.to_string())?;
     let vault = store
@@ -3720,6 +3855,7 @@ fn race_create(
     } else {
         PathBuf::from(r"D:\\Documents\\DreadHaven\\10_World\\Races")
     };
+    eprintln!("[races] base_dir='{}'", base_dir.to_string_lossy());
 
     let resolve_relative = |base: &PathBuf, raw: &str| {
         let mut joined = base.clone();
@@ -3736,11 +3872,30 @@ fn race_create(
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .map(|s| normalize_windows_path(s));
+    fn sanitize_filename(input: &str) -> String {
+        let mut out = input
+            .chars()
+            .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' })
+            .collect::<String>()
+            .trim()
+            .replace(' ', "_");
+        if out.is_empty() { out = "New".into(); }
+        out
+    }
+
+    // Default foldering: vault/10_World/Races/<Race> for races; <Parent>/<Subrace> for subraces
+    let default_folder = if let Some(ref base_name) = parent {
+        sanitize_filename(base_name)
+    } else {
+        sanitize_filename(&name)
+    };
+
     let mut target_dir = if let Some(ref override_path) = directory_override {
         let candidate = PathBuf::from(override_path);
         if candidate.is_absolute() { candidate } else { resolve_relative(&base_dir, override_path) }
-    } else { base_dir.clone() };
+    } else { base_dir.join(default_folder) };
     if !target_dir.exists() { fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?; }
+    eprintln!("[races] target_dir='{}'", target_dir.to_string_lossy());
 
     // Determine template candidates
     let template_override = template
@@ -3752,14 +3907,16 @@ fn race_create(
     if let Some(ref path) = template_override {
         let candidate = PathBuf::from(path);
         if candidate.exists() && candidate.is_file() {
-            template_body = fs::read_to_string(candidate).ok();
+            template_body = fs::read_to_string(&candidate).ok();
+            eprintln!("[races] using template override file '{}'", candidate.to_string_lossy());
         } else if let Some(ref v) = vault {
             let rel = resolve_relative(&PathBuf::from(v), path);
-            if rel.exists() && rel.is_file() { template_body = fs::read_to_string(rel).ok(); }
+            if rel.exists() && rel.is_file() { template_body = fs::read_to_string(rel.clone()).ok(); eprintln!("[races] using template override (vault-relative) '{}'", rel.to_string_lossy()); }
         }
     }
     let mut body = String::new();
-    let want_llm = use_llm.unwrap_or(false);
+    let want_llm = use_llm.unwrap_or(true);
+    eprintln!("[races] want_llm={}", want_llm);
     if want_llm {
         let tpl = template_body.unwrap_or_else(|| {
             format!(
@@ -3767,24 +3924,27 @@ fn race_create(
         });
         let prompt = if let Some(parent_name) = parent.as_ref() {
             format!(
-                "You are drafting a D&D race subrace note. Using the TEMPLATE, fully populate it for a subrace named \"{sub}\" of the parent race \"{base}\".\n\nRules:\n- Keep Markdown structure, headings, lists, and YAML/frontmatter as in the template.\n- Fill placeholders with evocative, specific but balanced 5e-style features.\n- Include ASI, size, speed, traits, and languages.\n- Avoid copying OGL text; keep it original and setting-agnostic.\n- Output only the completed markdown.\n\nTEMPLATE:\n```\n{template}\n```",
+                "You are drafting a D&D race subrace note. Using the TEMPLATE, fully populate it for a subrace named \"{sub}\" of the parent race \"{base}\".\n\nRules:\n- Keep Markdown structure, headings, lists, and YAML/frontmatter as in the template.\n- Replace all placeholders; do not leave any TODO/blank sections.\n- Fill with evocative, specific but balanced 5e-style features.\n- Include ASI, size, speed, traits, and languages.\n- Avoid copying OGL text; keep it original and setting-agnostic.\n- Output only the completed markdown without extra commentary.\n\nTEMPLATE:\n```\n{template}\n```",
                 sub = name,
                 base = parent_name,
                 template = tpl
             )
         } else {
             format!(
-                "You are drafting a D&D race note. Using the TEMPLATE, fully populate it for a race named \"{race}\".\n\nRules:\n- Keep Markdown structure, headings, lists, and YAML/frontmatter as in the template.\n- Fill placeholders with evocative, specific but balanced 5e-style features.\n- Include ASI, size, speed, traits, and languages.\n- Avoid copying OGL text; keep it original and setting-agnostic.\n- Output only the completed markdown.\n\nTEMPLATE:\n```\n{template}\n```",
+                "You are drafting a D&D race note. Using the TEMPLATE, fully populate it for a race named \"{race}\".\n\nRules:\n- Keep Markdown structure, headings, lists, and YAML/frontmatter as in the template.\n- Replace all placeholders; do not leave any TODO/blank sections.\n- Fill with evocative, specific but balanced 5e-style features.\n- Include ASI, size, speed, traits, and languages.\n- Avoid copying OGL text; keep it original and setting-agnostic.\n- Output only the completed markdown without extra commentary.\n\nTEMPLATE:\n```\n{template}\n```",
                 race = name,
                 template = tpl
             )
         };
         let system = Some(String::from("You are a helpful worldbuilding assistant. Produce clean, cohesive Markdown and keep to the template headings."));
+        eprintln!("[races] invoking LLM to fill template for '{}' (parent={:?})", name, parent);
         let llm_content = tauri::async_runtime::block_on(async { generate_llm(prompt, system).await })
             .map_err(|e| e.to_string())?;
         body = strip_code_fence(&llm_content).to_string();
+        eprintln!("[races] LLM output len={} preview='{}'", body.len(), body.chars().take(100).collect::<String>().replace('\n', " "));
     } else if let Some(tpl) = template_body {
         body = tpl;
+        eprintln!("[races] using template body without LLM for '{}'", name);
     } else {
         body = format!(
 "---\nTitle: {name}\nTags: race\n---\n\n# {name}\n\n## Ability Score Increases\n\n- \n\n## Size\n\n- \n\n## Speed\n\n- \n\n## Traits\n\n- \n\n## Languages\n\n- \n",
@@ -3793,12 +3953,8 @@ fn race_create(
     }
 
     // Sanitize filename and ensure uniqueness
-    let mut fname = name
-        .chars()
-        .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' })
-        .collect::<String>()
-        .trim()
-        .replace(' ', "_");
+    let base_filename = if let Some(ref parent_name) = parent { sanitize_filename(&name) } else { sanitize_filename(&name) };
+    let mut fname = base_filename.clone();
     if fname.is_empty() { fname = "New_Race".into(); }
     let mut target = target_dir.join(format!("{}.md", fname));
     let mut counter = 2u32;
@@ -3808,6 +3964,7 @@ fn race_create(
         if counter > 9999 { break; }
     }
     fs::write(&target, body.as_bytes()).map_err(|e| e.to_string())?;
+    eprintln!("[races] wrote file '{}' ({} bytes)", target.to_string_lossy(), body.len());
     Ok(target.to_string_lossy().to_string())
 }
 
@@ -6413,6 +6570,22 @@ fn main() {
                     return Err("Python setup failed".into());
                 }
             }
+
+            // Restore window bounds from settings if available
+            if let Some(window) = app.get_webview_window("main") {
+                if let Ok(store) = settings_store(&app.handle()) {
+                    if let Some(bounds) = store.get("windowBounds") {
+                        let x = bounds.get("x").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                        let y = bounds.get("y").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                        let w = bounds.get("w").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                        let h = bounds.get("h").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+                        if w > 0 && h > 0 {
+                            let _ = window.set_size(Size::Physical(PhysicalSize::new(w, h)));
+                        }
+                        let _ = window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
+                    }
+                }
+            }
             Ok(())
         })
         .manage(JobRegistry::default())
@@ -6507,6 +6680,11 @@ fn main() {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
                 let app_handle = window.app_handle();
                 let registry = app_handle.state::<JobRegistry>();
+                // Disable Discord bot keepalive on app close
+                {
+                    let mut ka = discord_bot_keepalive().lock().unwrap();
+                    *ka = false;
+                }
                 // Stop Discord bot if running
                 {
                     let mut guard = discord_bot_store().lock().unwrap();
@@ -6547,7 +6725,28 @@ fn main() {
                     eprintln!("failed to persist job queue on shutdown: {}", err);
                 }
             }
-    })
+            // Persist window bounds on move/resize/scale changes
+            match event {
+                tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. } => {
+                    let app_handle = window.app_handle();
+                    if let (Ok(pos), Ok(size)) = (window.outer_position(), window.outer_size()) {
+                        if let Ok(store) = settings_store(&app_handle) {
+                            let _ = store.set(
+                                "windowBounds",
+                                json!({
+                                    "x": pos.x,
+                                    "y": pos.y,
+                                    "w": size.width,
+                                    "h": size.height,
+                                }),
+                            );
+                            let _ = store.save();
+                        }
+                    }
+                }
+                _ => {}
+            }
+        })
         .run(tauri::generate_context!())
     {
         eprintln!("error while running tauri application: {}", e);

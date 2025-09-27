@@ -14,6 +14,7 @@ import DndDmNpcs from './pages/DndDmNpcs.jsx';
 import DndDmPlayers from './pages/DndDmPlayers.jsx';
 import DndDmPlayersHome from './pages/DndDmPlayersHome.jsx';
 import DndDmPlayerCreate from './pages/DndDmPlayerCreate.jsx';
+import DndDmPlayerAuto from './pages/DndDmPlayerAuto.jsx';
 import DndDmQuests from './pages/DndDmQuests.jsx';
 import DndDmQuestsFaction from './pages/DndDmQuestsFaction.jsx';
 import DndDmQuestsMain from './pages/DndDmQuestsMain.jsx';
@@ -281,6 +282,7 @@ export default function App() {
         <Route path="/dnd/dungeon-master/players" element={<DndDmPlayersHome />} />
         <Route path="/dnd/dungeon-master/players/sheet" element={<DndDmPlayers />} />
         <Route path="/dnd/dungeon-master/players/new" element={<DndDmPlayerCreate />} />
+        <Route path="/dnd/dungeon-master/players/auto" element={<DndDmPlayerAuto />} />
         <Route path="/dnd/dungeon-master/quests" element={<DndDmQuests />} />
         <Route path="/dnd/dungeon-master/quests/faction" element={<DndDmQuestsFaction />} />
         <Route path="/dnd/dungeon-master/quests/main" element={<DndDmQuestsMain />} />
