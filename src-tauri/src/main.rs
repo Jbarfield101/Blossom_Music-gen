@@ -42,6 +42,11 @@ static DISCORD_BOT_CHILD: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
 static DISCORD_BOT_LOGS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
 static DISCORD_BOT_EXIT: OnceLock<Mutex<Option<i32>>> = OnceLock::new();
 
+// Discord transcription listener (Whisper pipeline)
+static DISCORD_LISTEN_CHILD: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
+static DISCORD_LISTEN_LOGS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+static DISCORD_LISTEN_EXIT: OnceLock<Mutex<Option<i32>>> = OnceLock::new();
+
 fn discord_bot_store() -> &'static Mutex<Option<Child>> {
     DISCORD_BOT_CHILD.get_or_init(|| Mutex::new(None))
 }
@@ -52,6 +57,18 @@ fn discord_bot_logs() -> &'static Mutex<Vec<String>> {
 
 fn discord_bot_exit_code() -> &'static Mutex<Option<i32>> {
     DISCORD_BOT_EXIT.get_or_init(|| Mutex::new(None))
+}
+
+fn discord_listen_store() -> &'static Mutex<Option<Child>> {
+    DISCORD_LISTEN_CHILD.get_or_init(|| Mutex::new(None))
+}
+
+fn discord_listen_logs() -> &'static Mutex<Vec<String>> {
+    DISCORD_LISTEN_LOGS.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+fn discord_listen_exit_code() -> &'static Mutex<Option<i32>> {
+    DISCORD_LISTEN_EXIT.get_or_init(|| Mutex::new(None))
 }
 
 fn discord_settings_path() -> std::path::PathBuf {
@@ -177,6 +194,123 @@ fn discord_detect_token_sources() -> Result<Vec<TokenSource>, String> {
         }
     }
     Ok(out)
+}
+
+#[tauri::command]
+fn discord_listen_status() -> Result<String, String> {
+    let running = discord_listen_store().lock().unwrap().is_some();
+    Ok(if running { "running".into() } else { "stopped".into() })
+}
+
+#[tauri::command]
+fn discord_listen_stop() -> Result<(), String> {
+    let mut guard = discord_listen_store().lock().unwrap();
+    if let Some(mut child) = guard.take() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    *discord_listen_exit_code().lock().unwrap() = None;
+    Ok(())
+}
+
+#[tauri::command]
+fn discord_listen_start(app: AppHandle, channel_id: u64) -> Result<u32, String> {
+    // Stop prior listener if any
+    {
+        let mut g = discord_listen_store().lock().unwrap();
+        if let Some(mut child) = g.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+    // Select Whisper model
+    let model = models_store::<tauri::Wry>(&app)
+        .and_then(|s| Ok(s.get("whisper").and_then(|v| v.as_str().map(|s| s.to_string()))))
+        .unwrap_or(None)
+        .unwrap_or_else(|| "small".into());
+
+    // Build Python snippet which runs ears.pipeline.run_bot and prints JSON lines for segments
+    let code = format!(r#"
+import os, asyncio, json, sys
+from ears.pipeline import run_bot
+
+MODEL = {model:?}
+CHANNEL = {channel}
+
+async def emit_segment(part, speaker):
+    try:
+        obj = {{
+            "text": part.text,
+            "is_final": bool(getattr(part, 'is_final', False)),
+            "speaker": speaker or "",
+            "timestamp": float(getattr(part, 'start', 0.0)),
+            "language": getattr(part, 'language', '') or '',
+            "confidence": float(getattr(part, 'confidence', 0.0)),
+        }}
+        sys.stdout.write(json.dumps({{"whisper": obj}}) + "\n")
+        sys.stdout.flush()
+    except Exception as e:
+        sys.stdout.write(json.dumps({{"whisper_error": str(e)}}) + "\n"); sys.stdout.flush()
+
+async def on_part(part, speaker):
+    await emit_segment(part, speaker)
+
+async def main():
+    await run_bot(None, CHANNEL, model_path=MODEL, part_callback=on_part, rate_limit=0.25)
+
+asyncio.run(main())
+"#, model = model, channel = channel_id);
+
+    let mut cmd = python_command();
+    // Ensure relative imports resolve
+    cmd.current_dir(project_root())
+        .env("PYTHONPATH", project_root())
+        .args(["-c", &code])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    let pid = child.id();
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    *discord_listen_exit_code().lock().unwrap() = None;
+    {
+        let app_for_thread = app.clone();
+        let logs_arc = discord_listen_logs().clone();
+        tauri::async_runtime::spawn(async move {
+            // Stdout reader
+            if let Some(out) = stdout {
+                let reader = std::io::BufReader::new(out);
+                for line in reader.lines().flatten() {
+                    // Store raw logs
+                    {
+                        let mut logs = logs_arc.lock().unwrap();
+                        logs.push(line.clone());
+                        if logs.len() > 1000 { let drain = logs.len() - 1000; logs.drain(0..drain); }
+                    }
+                    // Try to parse JSON whisper event
+                    if let Ok(val) = serde_json::from_str::<Value>(&line) {
+                        if let Some(obj) = val.get("whisper") {
+                            let _ = app_for_thread.emit("whisper::segment", obj.clone());
+                        }
+                    }
+                }
+            }
+        });
+    }
+    {
+        let logs_arc = discord_listen_logs().clone();
+        tauri::async_runtime::spawn(async move {
+            if let Some(err) = stderr { for line in std::io::BufReader::new(err).lines().flatten() {
+                let mut logs = logs_arc.lock().unwrap();
+                logs.push(format!("[stderr] {}", line));
+                if logs.len() > 1000 { let drain = logs.len() - 1000; logs.drain(0..drain); }
+            }}
+        });
+    }
+
+    *discord_listen_store().lock().unwrap() = Some(child);
+    Ok(pid)
 }
 
 #[tauri::command]
@@ -3567,6 +3701,158 @@ fn extract_sheet_string(sheet: &Value, path: &[&str]) -> Option<String> {
 }
 
 #[tauri::command]
+fn race_create(
+    app: AppHandle,
+    name: String,
+    template: Option<String>,
+    directory: Option<String>,
+    parent: Option<String>,
+    use_llm: Option<bool>,
+) -> Result<String, String> {
+    // Resolve vault base
+    let store = settings_store(&app).map_err(|e| e.to_string())?;
+    let vault = store
+        .get("vaultPath")
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
+
+    let base_dir = if let Some(ref v) = vault {
+        PathBuf::from(v).join("10_World").join("Races")
+    } else {
+        PathBuf::from(r"D:\\Documents\\DreadHaven\\10_World\\Races")
+    };
+
+    let resolve_relative = |base: &PathBuf, raw: &str| {
+        let mut joined = base.clone();
+        for part in raw.replace('\\', "/").split('/') {
+            let trimmed = part.trim();
+            if trimmed.is_empty() { continue; }
+            joined.push(trimmed);
+        }
+        joined
+    };
+
+    let directory_override = directory
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| normalize_windows_path(s));
+    let mut target_dir = if let Some(ref override_path) = directory_override {
+        let candidate = PathBuf::from(override_path);
+        if candidate.is_absolute() { candidate } else { resolve_relative(&base_dir, override_path) }
+    } else { base_dir.clone() };
+    if !target_dir.exists() { fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?; }
+
+    // Determine template candidates
+    let template_override = template
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| normalize_windows_path(s));
+    let mut template_body: Option<String> = None;
+    if let Some(ref path) = template_override {
+        let candidate = PathBuf::from(path);
+        if candidate.exists() && candidate.is_file() {
+            template_body = fs::read_to_string(candidate).ok();
+        } else if let Some(ref v) = vault {
+            let rel = resolve_relative(&PathBuf::from(v), path);
+            if rel.exists() && rel.is_file() { template_body = fs::read_to_string(rel).ok(); }
+        }
+    }
+    let mut body = String::new();
+    let want_llm = use_llm.unwrap_or(false);
+    if want_llm {
+        let tpl = template_body.unwrap_or_else(|| {
+            format!(
+"---\nTitle: {{NAME}}\nTags: race\n---\n\n# {{NAME}}\n\n## Ability Score Increases\n\n- \n\n## Size\n\n- \n\n## Speed\n\n- \n\n## Traits\n\n- \n\n## Languages\n\n- \n")
+        });
+        let prompt = if let Some(parent_name) = parent.as_ref() {
+            format!(
+                "You are drafting a D&D race subrace note. Using the TEMPLATE, fully populate it for a subrace named \"{sub}\" of the parent race \"{base}\".\n\nRules:\n- Keep Markdown structure, headings, lists, and YAML/frontmatter as in the template.\n- Fill placeholders with evocative, specific but balanced 5e-style features.\n- Include ASI, size, speed, traits, and languages.\n- Avoid copying OGL text; keep it original and setting-agnostic.\n- Output only the completed markdown.\n\nTEMPLATE:\n```\n{template}\n```",
+                sub = name,
+                base = parent_name,
+                template = tpl
+            )
+        } else {
+            format!(
+                "You are drafting a D&D race note. Using the TEMPLATE, fully populate it for a race named \"{race}\".\n\nRules:\n- Keep Markdown structure, headings, lists, and YAML/frontmatter as in the template.\n- Fill placeholders with evocative, specific but balanced 5e-style features.\n- Include ASI, size, speed, traits, and languages.\n- Avoid copying OGL text; keep it original and setting-agnostic.\n- Output only the completed markdown.\n\nTEMPLATE:\n```\n{template}\n```",
+                race = name,
+                template = tpl
+            )
+        };
+        let system = Some(String::from("You are a helpful worldbuilding assistant. Produce clean, cohesive Markdown and keep to the template headings."));
+        let llm_content = tauri::async_runtime::block_on(async { generate_llm(prompt, system).await })
+            .map_err(|e| e.to_string())?;
+        body = strip_code_fence(&llm_content).to_string();
+    } else if let Some(tpl) = template_body {
+        body = tpl;
+    } else {
+        body = format!(
+"---\nTitle: {name}\nTags: race\n---\n\n# {name}\n\n## Ability Score Increases\n\n- \n\n## Size\n\n- \n\n## Speed\n\n- \n\n## Traits\n\n- \n\n## Languages\n\n- \n",
+            name = name
+        );
+    }
+
+    // Sanitize filename and ensure uniqueness
+    let mut fname = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' })
+        .collect::<String>()
+        .trim()
+        .replace(' ', "_");
+    if fname.is_empty() { fname = "New_Race".into(); }
+    let mut target = target_dir.join(format!("{}.md", fname));
+    let mut counter = 2u32;
+    while target.exists() {
+        target = target_dir.join(format!("{}_{}.md", fname, counter));
+        counter += 1;
+        if counter > 9999 { break; }
+    }
+    fs::write(&target, body.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(target.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn race_save_portrait(
+    app: AppHandle,
+    race: String,
+    subrace: Option<String>,
+    filename: String,
+    bytes: Vec<u8>,
+) -> Result<String, String> {
+    let store = settings_store(&app).map_err(|e| e.to_string())?;
+    let vault = store
+        .get("vaultPath")
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
+    let base_dir = if let Some(ref v) = vault {
+        PathBuf::from(v).join("30_Assets").join("Images").join("Race_Portraits")
+    } else {
+        PathBuf::from(r"D:\\Documents\\DreadHaven\\30_Assets\\Images\\Race_Portraits")
+    };
+    if !base_dir.exists() { fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?; }
+
+    fn sanitize(s: &str) -> String {
+        let mut out = s.chars().map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' }).collect::<String>();
+        out = out.trim().replace(' ', "_");
+        if out.is_empty() { out = "Portrait".into(); }
+        out
+    }
+    let race_clean = sanitize(&race);
+    let sub_clean = subrace.as_deref().map(sanitize);
+    let ext = std::path::Path::new(&filename)
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("png");
+    let target_name = if let Some(sub) = sub_clean {
+        format!("Portrait_{}_{}.{}", race_clean, sub, ext)
+    } else {
+        format!("Portrait_{}.{}", race_clean, ext)
+    };
+    let target = base_dir.join(target_name);
+    fs::write(&target, &bytes).map_err(|e| e.to_string())?;
+    Ok(target.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 async fn player_create(
     app: AppHandle,
     name: String,
@@ -4513,7 +4799,24 @@ fn list_piper(app: AppHandle) -> Result<Value, String> {
         .get("piper")
         .and_then(|v| v.as_str().map(|s| s.to_string()));
     if let Some(sel) = &selected {
-        std::env::set_var("PIPER_VOICE", sel);
+        // Attempt to resolve selection to a concrete model path for runtime usage
+        let mut resolved: Option<String> = None;
+        if let Ok(items) = list_bundled_voices(app.clone()) {
+            if let Some(arr) = items.as_array() {
+                for it in arr {
+                    if let (Some(id), Some(model)) = (
+                        it.get("id").and_then(|v| v.as_str()),
+                        it.get("modelPath").and_then(|v| v.as_str()),
+                    ) {
+                        if id == sel {
+                            resolved = Some(model.to_string());
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        std::env::set_var("PIPER_VOICE", resolved.as_deref().unwrap_or(sel));
     }
     Ok(json!({"options": options, "selected": selected}))
 }
@@ -4523,7 +4826,32 @@ fn set_piper(app: AppHandle, voice: String) -> Result<(), String> {
     let store = models_store::<tauri::Wry>(&app)?;
     store.set("piper".to_string(), voice.clone());
     store.save().map_err(|e| e.to_string())?;
-    std::env::set_var("PIPER_VOICE", &voice);
+    // Try to resolve bundled voice id to a concrete model path for the runtime env var
+    let mut resolved: Option<String> = None;
+    // Reuse bundled voice discovery to find model/config paths
+    let mut config_resolved: Option<String> = None;
+    if let Ok(items) = list_bundled_voices(app.clone()) {
+        if let Some(arr) = items.as_array() {
+            for it in arr {
+                if let (Some(id), Some(model)) = (
+                    it.get("id").and_then(|v| v.as_str()),
+                    it.get("modelPath").and_then(|v| v.as_str()),
+                ) {
+                    if id == voice {
+                        resolved = Some(model.to_string());
+                        if let Some(cfg) = it.get("configPath").and_then(|v| v.as_str()) {
+                            config_resolved = Some(cfg.to_string());
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    std::env::set_var("PIPER_VOICE", resolved.as_deref().unwrap_or(&voice));
+    if let Some(cfg) = config_resolved.as_deref() {
+        std::env::set_var("PIPER_CONFIG", cfg);
+    }
     app.emit("settings::models", json!({"piper": voice}))
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -4700,6 +5028,71 @@ fn piper_test(text: String, voice: String) -> Result<PathBuf, String> {
     let tmp = NamedTempFile::new().map_err(|e| e.to_string())?;
     let tmp_path = tmp.into_temp_path();
     let wav_path = tmp_path.to_path_buf();
+    // Resolve voice id to a concrete model path if it matches a bundled voice.
+    // Also, if no voice is provided, fall back to the first bundled voice.
+    let mut voice_to_use = voice.clone();
+    let mut roots: Vec<PathBuf> = Vec::new();
+    let proj = project_root();
+    roots.push(proj.join("assets/voice_models"));
+    roots.push(proj.join("src-tauri").join("assets/voice_models"));
+    roots.push(proj.join("assets/Voice_Models"));
+    roots.push(proj.join("src-tauri").join("assets/Voice_Models"));
+    roots.push(proj.join("Voice_Models"));
+    let mut seen = std::collections::HashSet::new();
+    roots.retain(|p| p.exists() && seen.insert(p.canonicalize().unwrap_or(p.clone())));
+
+    // If a specific voice id was provided, resolve it.
+    if !voice.is_empty() {
+        'resolve_specific: for base in &roots {
+            if let Ok(rd) = fs::read_dir(base) {
+                for entry in rd {
+                    let entry = match entry { Ok(e) => e, Err(_) => continue };
+                    let path = entry.path();
+                    if !path.is_dir() { continue; }
+                    let id = match path.file_name().and_then(|s| s.to_str()) { Some(s) => s.to_string(), None => continue };
+                    if id != voice { continue; }
+                    let mut model_file: Option<String> = None;
+                    if let Ok(files) = fs::read_dir(&path) {
+                        for f in files.flatten() {
+                            if let Ok(ft) = f.file_type() { if !ft.is_file() { continue; } }
+                            let name = match f.file_name().to_str() { Some(s) => s.to_string(), None => continue };
+                            if name.to_lowercase().ends_with(".onnx") { model_file = Some(name); break; }
+                        }
+                    }
+                    if let Some(model) = model_file {
+                        voice_to_use = path.join(model).to_string_lossy().to_string();
+                        break 'resolve_specific;
+                    }
+                }
+            }
+        }
+    }
+
+    // If still empty or unresolved (e.g., "narrator"), choose the first bundled voice model.
+    if voice_to_use.is_empty() || (!voice_to_use.ends_with(".onnx") && voice_to_use == "narrator") {
+        'pick_first: for base in &roots {
+            if let Ok(rd) = fs::read_dir(base) {
+                for entry in rd.flatten() {
+                    let path = entry.path();
+                    if !path.is_dir() { continue; }
+                    if let Ok(files) = fs::read_dir(&path) {
+                        for f in files.flatten() {
+                            let fpath = f.path();
+                            if fpath.is_file() {
+                                if let Some(name) = fpath.file_name().and_then(|s| s.to_str()) {
+                                    if name.to_lowercase().ends_with(".onnx") {
+                                        voice_to_use = fpath.to_string_lossy().to_string();
+                                        break 'pick_first;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let py_script = format!(
         r#"
 import soundfile as sf
@@ -4709,7 +5102,7 @@ audio = engine.synthesize({text:?}, voice={voice:?})
 sf.write({wav:?}, audio, 22050)
 "#,
         text = text,
-        voice = voice,
+        voice = voice_to_use,
         wav = wav_path.to_string_lossy()
     );
     let mut cmd = python_command();
@@ -6029,6 +6422,7 @@ fn main() {
             inbox_list,
             inbox_read,
             dir_list,
+            race_create,
             player_create,
             monster_create,
             god_create,
@@ -6038,6 +6432,7 @@ fn main() {
             set_whisper,
             list_piper,
             set_piper,
+            // Whisper
             discover_piper_voices,
             add_piper_voice,
             list_piper_profiles,
@@ -6093,6 +6488,9 @@ fn main() {
             discord_bot_stop,
             discord_bot_status,
             discord_bot_logs_tail,
+            discord_listen_start,
+            discord_listen_stop,
+            discord_listen_status,
             discord_settings_get,
             discord_token_add,
             discord_token_remove,
@@ -6101,6 +6499,7 @@ fn main() {
             discord_guild_remove,
             discord_guild_select,
             discord_detect_token_sources,
+            race_save_portrait,
             musiclang::list_musiclang_models,
             musiclang::download_model
         ])
@@ -6148,7 +6547,7 @@ fn main() {
                     eprintln!("failed to persist job queue on shutdown: {}", err);
                 }
             }
-        })
+    })
         .run(tauri::generate_context!())
     {
         eprintln!("error while running tauri application: {}", e);

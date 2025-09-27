@@ -9,6 +9,10 @@ const sections = [
   { to: '/dnd/lore/notes', icon: 'StickyNote', title: 'Loose Notes', description: 'Quick thoughts, sketches, and session scraps. (WIP)' },
   { to: '/dnd/lore/relations', icon: 'Users', title: 'Player Relations', description: 'Tracking bonds, rivalries, and party dynamics. (WIP)' },
   { to: '/dnd/lore/spellbook', icon: 'BookMarked', title: 'Spell Book', description: 'Catalog spells, incantations, and arcane research.' },
+  { to: '/dnd/lore/races', icon: 'ScrollText', title: 'Races', description: 'Playable ancestries and cultural notes.' },
+  { to: '/dnd/lore/classes', icon: 'Sword', title: 'Classes', description: 'Class features, variants, and notes.' },
+  { to: '/dnd/lore/rules', icon: 'Scale', title: 'Rules', description: 'House rules, optional rules, clarifications.' },
+  { to: '/dnd/lore/background-rules', icon: 'BookOpen', title: 'Backgrounds & Rules', description: 'Background options and table rules.' },
 ];
 
 export default function DndLore() {

@@ -95,6 +95,9 @@ class TTSEngine:
             from .backends.piper import PiperBackend
 
             backend_kwargs.setdefault("model_path", os.getenv("PIPER_VOICE", "narrator"))
+            cfg_env = os.getenv("PIPER_CONFIG")
+            if cfg_env and "config_path" not in backend_kwargs:
+                backend_kwargs["config_path"] = cfg_env
             self.backend: TTSBackend = PiperBackend(**backend_kwargs)
         else:  # pragma: no cover - defensive programming
             raise ValueError(f"Unsupported TTS backend: {backend}")

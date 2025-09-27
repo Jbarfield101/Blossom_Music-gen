@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
-import { listWhisper, setWhisper as apiSetWhisper, listLlm, setLlm as apiSetLlm } from '../api/models';
+import { listWhisper, setWhisper as apiSetWhisper, listLlm, setLlm as apiSetLlm, listPiper as apiListPiper } from '../api/models';
 import { listPiperVoices } from '../lib/piperVoices';
 import { setPiper as apiSetPiper } from '../api/models';
 import './Settings.css';
@@ -13,18 +13,20 @@ export default function SettingsModels() {
   useEffect(() => {
     let active = true;
     const load = async () => {
-      const w = await listWhisper();
-      const l = await listLlm();
-      const voices = await listPiperVoices();
+      const [w, l, voices, piperPersist] = await Promise.all([
+        listWhisper(),
+        listLlm(),
+        listPiperVoices(),
+        apiListPiper().catch(() => ({ options: [], selected: '' })),
+      ]);
       if (!active) return;
       setWhisper(w);
-      const options = (voices || []).map((v) => ({ id: v.id, label: v.label || v.id }));
-      setPiper((prev) => {
-        const ids = options.map((o) => o.id);
-        const sel = ids.includes(prev.selected) ? prev.selected : ids[0] || '';
-        return { options, selected: sel };
-      });
       setLlm(l);
+      const options = (voices || []).map((v) => ({ id: v.id, label: v.label || v.id }));
+      const persisted = (piperPersist && typeof piperPersist.selected === 'string') ? piperPersist.selected : '';
+      const ids = options.map((o) => o.id);
+      const sel = ids.includes(persisted) ? persisted : (ids[0] || '');
+      setPiper({ options, selected: sel });
     };
     load();
     return () => { active = false; };
@@ -50,13 +52,15 @@ export default function SettingsModels() {
               {piper.options?.map((o) => (<option key={o.id} value={o.id}>{o.label}</option>))}
             </select>
             <button type="button" onClick={async () => {
-              const voices = await listPiperVoices();
+              const [voices, piperPersist] = await Promise.all([
+                listPiperVoices(),
+                apiListPiper().catch(() => ({ options: [], selected: '' })),
+              ]);
               const options = (voices || []).map((v) => ({ id: v.id, label: v.label || v.id }));
-              setPiper((prev) => {
-                const ids = options.map((o) => o.id);
-                const sel = ids.includes(prev.selected) ? prev.selected : ids[0] || '';
-                return { options, selected: sel };
-              });
+              const persisted = (piperPersist && typeof piperPersist.selected === 'string') ? piperPersist.selected : '';
+              const ids = options.map((o) => o.id);
+              const sel = ids.includes(persisted) ? persisted : (ids[0] || '');
+              setPiper({ options, selected: sel });
             }}>Refresh</button>
           </div>
         </fieldset>
@@ -72,4 +76,3 @@ export default function SettingsModels() {
     </main>
   );
 }
-

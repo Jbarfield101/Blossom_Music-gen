@@ -585,22 +585,36 @@ export function WorldInventoryProvider({ children, api: apiOverride }) {
   const api = useMemo(() => ({ ...defaultApi, ...(apiOverride || {}) }), [apiOverride]);
 
   useEffect(() => {
+    const buildSeed = () => {
+      const now = new Date().toISOString();
+      const seedItems = [
+        { id: 'item-rope', name: 'Hempen Rope (50 ft.)', rarity: 'common', type: 'Adventuring Gear', tags: ['mundane'], quests: [], attunement: { required: false }, charges: { current: 0, maximum: 0, recharge: '' }, durability: { current: 10, maximum: 10, state: 'stable', notes: '' }, description: 'Sturdy rope suitable for climbing and tying.', notes: '', provenance: { origin: 'Guild stock', ledger: [] }, ownerId: '', containerId: '', locationId: '', setId: '', weight: 10, createdAt: now, updatedAt: now },
+        { id: 'item-rations', name: 'Rations (1 day)', rarity: 'common', type: 'Adventuring Gear', tags: ['mundane','food'], quests: [], attunement: { required: false }, charges: { current: 1, maximum: 1, recharge: '' }, durability: { current: 1, maximum: 1, state: 'stable', notes: '' }, description: 'Dried fruits, jerky, hardtack; sustains one adventurer for a day.', notes: '', provenance: { origin: 'General store', ledger: [] }, ownerId: '', containerId: '', locationId: '', setId: '', weight: 2, createdAt: now, updatedAt: now },
+        { id: 'item-torch', name: 'Torch', rarity: 'common', type: 'Adventuring Gear', tags: ['mundane','light'], quests: [], attunement: { required: false }, charges: { current: 1, maximum: 1, recharge: '' }, durability: { current: 1, maximum: 1, state: 'stable', notes: '' }, description: 'Wooden torch; burns for 1 hour providing bright light in a 20‑ft radius.', notes: '', provenance: { origin: 'General store', ledger: [] }, ownerId: '', containerId: '', locationId: '', setId: '', weight: 1, createdAt: now, updatedAt: now },
+        { id: 'item-waterskin', name: 'Waterskin', rarity: 'common', type: 'Container', tags: ['mundane','water'], quests: [], attunement: { required: false }, charges: { current: 0, maximum: 0, recharge: '' }, durability: { current: 5, maximum: 5, state: 'stable', notes: '' }, description: 'Leather skin for carrying water.', notes: '', provenance: { origin: 'Outfitter', ledger: [] }, ownerId: '', containerId: '', locationId: '', setId: '', weight: 5, createdAt: now, updatedAt: now },
+        { id: 'item-bedroll', name: 'Bedroll', rarity: 'common', type: 'Adventuring Gear', tags: ['mundane','camp'], quests: [], attunement: { required: false }, charges: { current: 0, maximum: 0, recharge: '' }, durability: { current: 8, maximum: 8, state: 'stable', notes: '' }, description: 'Keeps you warm during rests in the wild.', notes: '', provenance: { origin: 'Outfitter', ledger: [] }, ownerId: '', containerId: '', locationId: '', setId: '', weight: 7, createdAt: now, updatedAt: now },
+      ];
+      return { items: seedItems, containers: [], owners: [], locations: [] };
+    };
+
     let cancelled = false;
     dispatch({ type: 'loadStart' });
     api.fetchSnapshot()
       .then((snapshot) => {
         if (cancelled) return;
-        dispatch({ type: 'loadSuccess', snapshot });
+        try {
+          const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
+          const hasData = items.length > 0;
+          const finalSnap = hasData ? snapshot : buildSeed();
+          dispatch({ type: 'loadSuccess', snapshot: finalSnap });
+        } catch {
+          dispatch({ type: 'loadSuccess', snapshot: buildSeed() });
+        }
       })
       .catch((error) => {
         if (cancelled) return;
         console.warn('Failed to load world inventory', error);
-        dispatch({
-          type: 'loadError',
-          error:
-            (error && typeof error.message === 'string' && error.message) ||
-            'Unable to load world inventory.',
-        });
+        dispatch({ type: 'loadSuccess', snapshot: buildSeed() });
       });
     return () => {
       cancelled = true;

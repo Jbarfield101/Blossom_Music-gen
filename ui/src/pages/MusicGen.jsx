@@ -78,6 +78,66 @@ const PROMPT_TEMPLATES = [
     prompt:
       "Lush downtempo chillout, flowing pads, resonant marimba, gentle waves, 85 BPM underwater dream journey",
   },
+  {
+    value: "daytime-chill-vibe",
+    label: "Daytime Chill Vibe",
+    prompt:
+      "Breezy lofi chill at 88 BPM, soft acoustic guitar, light shaker and rim clicks, airy pads, sunny cafe ambiance, mellow upbeat mood",
+  },
+  {
+    value: "morning-acoustic-chill",
+    label: "Morning Acoustic Chill",
+    prompt:
+      "Calm acoustic groove at 82 BPM, fingerpicked guitar, soft brushes on snare, warm upright bass, gentle piano, fresh morning light",
+  },
+  {
+    value: "coffee-shop-jazz",
+    label: "Coffee Shop Jazz",
+    prompt:
+      "Cozy jazz trio at 95 BPM, brushed drums, upright bass walking, soft piano comping, subtle sax melody, intimate cafe atmosphere",
+  },
+  {
+    value: "study-beats-focus",
+    label: "Study Beats Focus",
+    prompt:
+      "Steady chillhop loop at 78 BPM, muted drums, warm Rhodes, vinyl crackle, deep but gentle bass, unobtrusive focused energy",
+  },
+  {
+    value: "sunny-indie-pop",
+    label: "Sunny Indie Pop",
+    prompt:
+      "Upbeat indie pop at 118 BPM, jangly guitars, tight bass, crisp claps, bright synth hooks, carefree summer afternoon vibe",
+  },
+  {
+    value: "rainy-window-lofi",
+    label: "Rainy Window Lo‑Fi",
+    prompt:
+      "Slow lofi at 72 BPM, soft piano chords, distant rain foley, dusty snare, cozy blanket mood, introspective evening study",
+  },
+  {
+    value: "beachside-bossa",
+    label: "Beachside Bossa",
+    prompt:
+      "Gentle bossa nova at 92 BPM, nylon guitar, light congas, soft ride cymbal, smooth electric piano, warm seaside breeze",
+  },
+  {
+    value: "minimal-daytime-house",
+    label: "Minimal Daytime House",
+    prompt:
+      "Clean deep house at 122 BPM, tight kick and hat groove, warm sub bass, sparse chords, sunny rooftop daytime set energy",
+  },
+  {
+    value: "afternoon-chillhop-groove",
+    label: "Afternoon Chillhop Groove",
+    prompt:
+      "Laidback chillhop at 86 BPM, swung drums, jazzy Rhodes stabs, smooth bassline, subtle tape flutter, relaxed productive flow",
+  },
+  {
+    value: "golden-hour-chillwave",
+    label: "Golden Hour Chillwave",
+    prompt:
+      "Dreamy chillwave at 100 BPM, hazy analog pads, sidechained synths, soft snare, nostalgic sunset glow, wistful yet uplifting",
+  },
 ];
 
 const getTemplateValueForPrompt = (text) => {

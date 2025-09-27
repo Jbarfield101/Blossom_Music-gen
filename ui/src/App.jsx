@@ -12,6 +12,8 @@ import DndDmEvents from './pages/DndDmEvents.jsx';
 import DndDmMonsters from './pages/DndDmMonsters.jsx';
 import DndDmNpcs from './pages/DndDmNpcs.jsx';
 import DndDmPlayers from './pages/DndDmPlayers.jsx';
+import DndDmPlayersHome from './pages/DndDmPlayersHome.jsx';
+import DndDmPlayerCreate from './pages/DndDmPlayerCreate.jsx';
 import DndDmQuests from './pages/DndDmQuests.jsx';
 import DndDmQuestsFaction from './pages/DndDmQuestsFaction.jsx';
 import DndDmQuestsMain from './pages/DndDmQuestsMain.jsx';
@@ -46,6 +48,7 @@ import DndWorldBankTransactions from './pages/DndWorldBankTransactions.jsx';
 import SoundLab from './pages/SoundLab.jsx';
 import Queue from './pages/Queue.jsx';
 import Tools from './pages/Tools.jsx';
+import WhisperOutput from './pages/WhisperOutput.jsx';
 import Fusion from './pages/Fusion.jsx';
 import LoopMaker from './pages/LoopMaker.jsx';
 import BeatMaker from './pages/BeatMaker.jsx';
@@ -64,8 +67,16 @@ import DndLoreStories from './pages/DndLoreStories.jsx';
 import DndLoreNotes from './pages/DndLoreNotes.jsx';
 import DndLorePlayerRelations from './pages/DndLorePlayerRelations.jsx';
 import DndLoreSpellBook from './pages/DndLoreSpellBook.jsx';
+import DndLoreRaces from './pages/DndLoreRaces.jsx';
+import DndLoreClasses from './pages/DndLoreClasses.jsx';
+import DndLoreRules from './pages/DndLoreRules.jsx';
+import DndLoreBackgroundRules from './pages/DndLoreBackgroundRules.jsx';
 import { Store } from '@tauri-apps/plugin-store';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { setPiper as apiSetPiper, listPiper as apiListPiper } from './api/models';
+import { testPiper } from './api/piper';
+import { convertFileSrc } from '@tauri-apps/api/core';
+import { listPiperVoices } from './lib/piperVoices';
 
 function UserSelectorOverlay({ onClose }) {
   const [users, setUsers] = useState([]);
@@ -106,6 +117,25 @@ function UserSelectorOverlay({ onClose }) {
       if (!next.includes(trimmed)) next.push(trimmed);
       await store.set('users', next);
       await store.set('currentUser', trimmed);
+      // Default per-user preferences: enable audio greeting by default
+      const prefs = (await store.get('prefs')) || {};
+      let defaultVoice = '';
+      try {
+        const p = await apiListPiper();
+        if (p && typeof p.selected === 'string') defaultVoice = p.selected;
+        if (!defaultVoice) {
+          const v = await listPiperVoices();
+          if (Array.isArray(v) && v.length) defaultVoice = v[0].id;
+        }
+      } catch {}
+      if (!prefs[trimmed]) {
+        prefs[trimmed] = {
+          audioGreeting: true,
+          greetingText: 'Wellcome {name}, What shall we work on today?',
+          voice: defaultVoice,
+        };
+      }
+      await store.set('prefs', prefs);
       await store.save();
       localStorage.setItem('blossom.currentUser', trimmed);
       onClose?.();
@@ -144,6 +174,7 @@ function UserSelectorOverlay({ onClose }) {
 
 export default function App() {
   const [needsUser, setNeedsUser] = useState(false);
+  const greetedRef = useRef(false);
   useEffect(() => {
     (async () => {
       try {
@@ -164,6 +195,54 @@ export default function App() {
       }
     })();
   }, []);
+  useEffect(() => {
+    (async () => {
+      try {
+        if (greetedRef.current) return;
+        const store = await Store.load('users.json');
+        const current = await store.get('currentUser');
+        const user = typeof current === 'string' ? current : '';
+        if (!user) return;
+        const prefs = await store.get('prefs');
+        const p = (prefs && typeof prefs === 'object' && prefs[user]) || {};
+        let voice = typeof p.voice === 'string' ? p.voice : '';
+        try {
+          const voices = await listPiperVoices();
+          if (!voices || !voices.length) {
+            return; // no available voices; skip greeting silently
+          }
+          if (!voice || voice === 'narrator') {
+            voice = voices[0].id;
+          }
+        } catch {}
+        if (voice) {
+          await apiSetPiper(voice).catch(() => {});
+        }
+        const audioGreeting = p.audioGreeting !== false; // default to on unless explicitly disabled
+        if (audioGreeting) {
+          const tpl = typeof p.greetingText === 'string' && p.greetingText.trim()
+            ? p.greetingText.trim()
+            : `Wellcome {name}, What shall we work on today?`;
+          const message = tpl.replaceAll('{name}', user);
+          try {
+            const mp3Path = await testPiper(voice || '', message);
+            let url = '';
+            try {
+              url = convertFileSrc(mp3Path);
+            } catch {}
+            if (url) {
+              const audio = new Audio(url);
+              audio.volume = 1.0;
+              audio.play().catch(() => {});
+            }
+          } catch {}
+        }
+        greetedRef.current = true;
+      } catch (e) {
+        // ignore greeting errors
+      }
+    })();
+  }, [needsUser]);
   return (
     <>
       {needsUser && (
@@ -190,12 +269,18 @@ export default function App() {
         <Route path="/dnd/lore/notes" element={<DndLoreNotes />} />
         <Route path="/dnd/lore/relations" element={<DndLorePlayerRelations />} />
         <Route path="/dnd/lore/spellbook" element={<DndLoreSpellBook />} />
+        <Route path="/dnd/lore/races" element={<DndLoreRaces />} />
+        <Route path="/dnd/lore/classes" element={<DndLoreClasses />} />
+        <Route path="/dnd/lore/rules" element={<DndLoreRules />} />
+        <Route path="/dnd/lore/background-rules" element={<DndLoreBackgroundRules />} />
         <Route path="/dnd/tasks" element={<DndTasks />} />
         <Route path="/dnd/dungeon-master" element={<DndDungeonMaster />} />
         <Route path="/dnd/dungeon-master/events" element={<DndDmEvents />} />
         <Route path="/dnd/dungeon-master/monsters" element={<DndDmMonsters />} />
         <Route path="/dnd/dungeon-master/npcs" element={<DndDmNpcs />} />
-        <Route path="/dnd/dungeon-master/players" element={<DndDmPlayers />} />
+        <Route path="/dnd/dungeon-master/players" element={<DndDmPlayersHome />} />
+        <Route path="/dnd/dungeon-master/players/sheet" element={<DndDmPlayers />} />
+        <Route path="/dnd/dungeon-master/players/new" element={<DndDmPlayerCreate />} />
         <Route path="/dnd/dungeon-master/quests" element={<DndDmQuests />} />
         <Route path="/dnd/dungeon-master/quests/faction" element={<DndDmQuestsFaction />} />
         <Route path="/dnd/dungeon-master/quests/main" element={<DndDmQuestsMain />} />
@@ -228,6 +313,7 @@ export default function App() {
         <Route path="/profiles" element={<Profiles />} />
         <Route path="/train" element={<Train />} />
         <Route path="/tools" element={<Tools />} />
+        <Route path="/tools/whisper" element={<WhisperOutput />} />
         <Route path="/calendar" element={<Calendar />} />
         <Route path="/chat" element={<GeneralChat />} />
         <Route path="/queue" element={<Queue />} />

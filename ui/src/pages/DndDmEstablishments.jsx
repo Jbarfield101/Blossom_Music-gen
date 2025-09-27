@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
 import { loadEstablishments } from '../api/establishments';
+import { listNpcs } from '../api/npcs';
 import { readInbox } from '../api/inbox';
 import { renderMarkdown } from '../lib/markdown.jsx';
 import './Dnd.css';
@@ -43,6 +44,8 @@ export default function DndDmEstablishments() {
   const [activeContent, setActiveContent] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [npcOptions, setNpcOptions] = useState([]);
+  const [repMap, setRepMap] = useState({});
 
   const fetchEstablishments = useCallback(async () => {
     setLoading(true);
@@ -75,6 +78,14 @@ export default function DndDmEstablishments() {
     fetchEstablishments();
   }, [fetchEstablishments]);
 
+  // Load representative map from localStorage
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('dnd.establishmentReps');
+      if (raw) setRepMap(JSON.parse(raw) || {});
+    } catch {}
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     if (!activePath) {
@@ -105,6 +116,25 @@ export default function DndDmEstablishments() {
       cancelled = true;
     };
   }, [activePath]);
+
+  // Preload NPCs for representative selection
+  useEffect(() => {
+    (async () => {
+      try {
+        const list = await listNpcs();
+        const opts = Array.isArray(list)
+          ? list
+              .map((n) => ({ value: n.name || '', label: n.name || '' }))
+              .filter((o) => o.value)
+          : [];
+        opts.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+        setNpcOptions(opts);
+      } catch (err) {
+        console.warn('Failed to load NPC list', err);
+        setNpcOptions([]);
+      }
+    })();
+  }, []);
 
   const grouped = useMemo(() => {
     if (!items.length) return [];
@@ -220,6 +250,33 @@ export default function DndDmEstablishments() {
                   <div className="muted">Loading…</div>
                 ) : (
                   <article className="inbox-reader-body">
+                    <div className="dnd-surface" style={{ marginBottom: 'var(--space-md)' }}>
+                      <div className="section-head">
+                        <h3>Representative</h3>
+                        <p className="muted">Attach an NPC who represents this location.</p>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <label>
+                          <span>NPC</span>
+                          <select
+                            value={repMap[activePath] || ''}
+                            onChange={(e) => {
+                              const next = { ...repMap, [activePath]: e.target.value };
+                              setRepMap(next);
+                              try { localStorage.setItem('dnd.establishmentReps', JSON.stringify(next)); } catch {}
+                            }}
+                          >
+                            <option value="">(none)</option>
+                            {npcOptions.map((o) => (
+                              <option key={o.value} value={o.value}>{o.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                        {repMap[activePath] && (
+                          <span className="muted">Linked: {repMap[activePath]}</span>
+                        )}
+                      </div>
+                    </div>
                     {renderMarkdown(activeContent || '')}
                   </article>
                 )}
