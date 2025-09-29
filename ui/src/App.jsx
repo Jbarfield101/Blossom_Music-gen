@@ -77,7 +77,8 @@ import DndLoreBackgroundRules from './pages/DndLoreBackgroundRules.jsx';
 import { Store } from '@tauri-apps/plugin-store';
 import { useEffect, useRef, useState } from 'react';
 import { setPiper as apiSetPiper, listPiper as apiListPiper } from './api/models';
-import { testPiper } from './api/piper';
+import { synthWithPiper } from './lib/piperSynth';
+import { listPiperVoices as listBundledVoices } from './lib/piperVoices';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { listPiperVoices } from './lib/piperVoices';
 
@@ -228,11 +229,18 @@ export default function App() {
             : `Wellcome {name}, What shall we work on today?`;
           const message = tpl.replaceAll('{name}', user);
           try {
-            const mp3Path = await testPiper(voice || '', message);
-            let url = '';
+            // Resolve a concrete model/config for the selected voice
+            let model = '';
+            let config = '';
             try {
-              url = convertFileSrc(mp3Path);
+              const opts = await listBundledVoices();
+              const match = opts.find(v => v.id === (voice || '')) || opts[0];
+              if (match) { model = match.modelPath; config = match.configPath; }
             } catch {}
+            if (!model || !config) { throw new Error('No piper voice available'); }
+            // Synthesize locally to AppData to avoid touching watched src-tauri folders in dev
+            const wavPath = await synthWithPiper(message, model, config, {});
+            const url = convertFileSrc(wavPath);
             if (url) {
               const audio = new Audio(url);
               audio.volume = 1.0;

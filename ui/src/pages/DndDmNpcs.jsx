@@ -1,13 +1,15 @@
+import { listPiperVoices } from '../lib/piperVoices';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
 import { getConfig } from '../api/config';
 import { listDir } from '../api/dir';
 import { readInbox, deleteInbox } from '../api/inbox';
 import { readFileBytes } from '../api/files';
-import { createNpc } from '../api/npcs';
+import { createNpc, saveNpc } from '../api/npcs';
 import { loadEstablishments } from '../api/establishments';
 import { renderMarkdown } from '../lib/markdown.jsx';
 import './Dnd.css';
+import { invoke } from '@tauri-apps/api/core';
 
 const DEFAULT_NPC = 'D\\\\Documents\\\\DreadHaven\\\\20_DM\\\\NPC'.replace(/\\\\/g, '\\\\');
 const DEFAULT_PORTRAITS = 'D\\\\Documents\\\\DreadHaven\\\\30_Assets\\\\Images\\\\NPC_Portraits'.replace(/\\\\/g, '\\\\');
@@ -57,6 +59,7 @@ export default function DndDmNpcs() {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [randName, setRandName] = useState(false);
+  const [nameSuggesting, setNameSuggesting] = useState(false);
   const [selRegion, setSelRegion] = useState('');
   const [selPurpose, setSelPurpose] = useState('');
   const [customPurpose, setCustomPurpose] = useState('');
@@ -68,9 +71,12 @@ export default function DndDmNpcs() {
   const [establishmentsLoading, setEstablishmentsLoading] = useState(false);
   const [establishmentsError, setEstablishmentsError] = useState('');
   const [establishmentsLoaded, setEstablishmentsLoaded] = useState(false);
-  const [establishmentsRoot, setEstablishmentsRoot] = useState('');
-
-  const establishmentOptions = useMemo(() => {
+  
+  const [voiceProvider, setVoiceProvider] = useState('piper');
+  const [voiceValue, setVoiceValue] = useState('');
+  const [voiceOptions, setVoiceOptions] = useState({ piper: [], elevenlabs: [] });
+  const [voiceLoading, setVoiceLoading] = useState({ piper: false, elevenlabs: false });
+const establishmentOptions = useMemo(() => {
     if (!Array.isArray(establishments) || establishments.length === 0) return [];
     return establishments.map((entry) => {
       const rawGroup = String(entry.group || '').split('/').map((part) => part.trim()).filter(Boolean);
@@ -620,7 +626,7 @@ export default function DndDmNpcs() {
   }, [metaNotice]);
 
   return (
-    <>
+    <div>
       <BackButton />
       <h1>Dungeons & Dragons · NPCs</h1>
       <div className="pantheon-controls">
@@ -635,8 +641,8 @@ export default function DndDmNpcs() {
         <label>
           Sort
           <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}>
-            <option value="az">A → Z</option>
-            <option value="za">Z → A</option>
+            <option value="az">A - Z</option>
+            <option value="za">Z - A</option>
             <option value="recent">Recents</option>
           </select>
         </label>
@@ -667,6 +673,7 @@ export default function DndDmNpcs() {
         </button>
         {usingPath && <span className="muted">Folder: {usingPath}</span>}
         {error && <span className="error">{error}</span>}
+      </div>
       </div>
 
       <section className="pantheon-grid">
@@ -767,15 +774,29 @@ export default function DndDmNpcs() {
               try {
                 setCreating(true);
                 setCreateError('');
-                await createNpc(
+                const createdPath = await createNpc(
                   randName ? '' : name,
                   selRegion || '',
                   purpose || '',
                   null,
-                  randName,
+                  false,
                   estPath || null,
                   estDisplay || null,
                 );
+                // Persist selected voice mapping for this NPC if provided
+                try {
+                  const fullPath = String(createdPath || '');
+                  const base = fullPath.replace(/\\/g, '/');
+                  const file = base.substring(base.lastIndexOf('/') + 1);
+                  const npcName = titleFromName(file);
+                  let vv = String(voiceValue || '').trim();
+                  if (vv) {
+                    if (voiceProvider === 'elevenlabs' && !/^elevenlabs:/i.test(vv)) {
+                      vv = `elevenlabs:${vv}`;
+                    }
+                    await saveNpc({ name: npcName, description: '', prompt: '', voice: vv });
+                  }
+                } catch (_) {}
                 setShowCreate(false);
                 setNewName('');
                 setRandName(false);
@@ -793,10 +814,45 @@ export default function DndDmNpcs() {
             }}>
               <label>
                 Name
-                <input type="text" value={newName} onChange={(e) => { setNewName(e.target.value); if (createError) setCreateError(''); }} autoFocus disabled={creating || randName} placeholder={randName ? 'Ollama will choose a name' : ''} />
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={(e) => { setNewName(e.target.value); if (createError) setCreateError(''); }}
+                  autoFocus
+                  disabled={creating || nameSuggesting}
+                  placeholder={nameSuggesting ? 'Generating name…' : ''}
+                />
               </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <input type="checkbox" checked={randName} onChange={(e) => setRandName(e.target.checked)} disabled={creating} />
+                <input
+                  type="checkbox"
+                  checked={randName}
+                  onChange={async (e) => {
+                    const checked = e.target.checked;
+                    setRandName(checked);
+                    if (checked) {
+                      try {
+                        setNameSuggesting(true);
+                        setCreateError('');
+                        const region = (selRegion || '').trim();
+                        const purpose = (selPurpose === '__custom__' ? customPurpose : selPurpose || '').trim();
+                        const prompt = `Suggest a single evocative NPC name for a fantasy setting.\nRequirements:\n- Region/Location: ${region || 'generic'}\n- Role/Purpose: ${purpose || 'NPC'}\n- Return ONLY the name, title case, without quotes or extra text.\n- 1–3 words max.`;
+                        const system = 'You only output a name. No punctuation except spaces and hyphens. No prefixes/suffixes.';
+                        const result = await invoke('generate_llm', { prompt, system });
+                        let suggested = String(result || '').split(/\r?\n/)[0].trim();
+                        suggested = suggested.replace(/^[-–•\s]+/, '').replace(/^["'“”]+|["'“”]+$/g, '');
+                        if (!suggested) throw new Error('Empty name');
+                        setNewName(suggested);
+                        setRandName(false);
+                      } catch (err) {
+                        setCreateError(err?.message || 'Failed to generate a name');
+                      } finally {
+                        setNameSuggesting(false);
+                      }
+                    }
+                  }}
+                  disabled={creating || nameSuggesting}
+                />
                 Let Ollama pick the name
               </label>
               <label>
@@ -816,6 +872,55 @@ export default function DndDmNpcs() {
                   <option value="__custom__">Custom…</option>
                 </select>
               </label>
+              <fieldset className="npc-voice-selector" style={{ display: 'grid', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <legend>Voice (optional)</legend>
+                <label>
+                  Provider
+                  <select
+                    value={voiceProvider}
+                    onChange={async (e) => {
+                      const provider = e.target.value;
+                      setVoiceProvider(provider);
+                      setVoiceValue('');
+                      if (provider === 'piper' && voiceOptions.piper.length === 0) {
+                        setVoiceLoading((prev) => ({ ...prev, piper: true }));
+                        try {
+                          const list = await listPiperVoices();
+                          const options = (list || []).map((v) => ({ value: v.id, label: v.label || v.id }));
+                          setVoiceOptions((prev) => ({ ...prev, piper: options }));
+                        } catch {}
+                        setVoiceLoading((prev) => ({ ...prev, piper: false }));
+                      } else if (provider === 'elevenlabs' && voiceOptions.elevenlabs.length === 0) {
+                        setVoiceLoading((prev) => ({ ...prev, elevenlabs: true }));
+                        try {
+                          const list = await invoke('list_piper_profiles');
+                          const items = Array.isArray(list) ? list : [];
+                          const options = items.map((it) => ({ value: it?.name || '', label: it?.voice_id ? `${it.name} (${it.voice_id})` : (it?.name || '') })).filter((o) => o.value);
+                          setVoiceOptions((prev) => ({ ...prev, elevenlabs: options }));
+                        } catch {}
+                        setVoiceLoading((prev) => ({ ...prev, elevenlabs: false }));
+                      }
+                    }}
+                    disabled={creating}
+                  >
+                    <option value="piper">Piper (local)</option>
+                    <option value="elevenlabs">ElevenLabs</option>
+                  </select>
+                </label>
+                <label>
+                  Voice
+                  <select
+                    value={voiceValue}
+                    onChange={(e) => setVoiceValue(e.target.value)}
+                    disabled={creating || (voiceProvider === 'piper' ? voiceLoading.piper : voiceLoading.elevenlabs)}
+                  >
+                    <option value="">(none)</option>
+                    {(voiceProvider === 'piper' ? voiceOptions.piper : voiceOptions.elevenlabs).map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </label>
+              </fieldset>
               {selPurpose === 'Shopkeeper' && (
                 <div className="monster-create-shopkeeper">
                   <div className="monster-create-shopkeeper-title">Establishment Link</div>
@@ -889,9 +994,16 @@ export default function DndDmNpcs() {
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
+
+
+
+
+
+
+
 
 
 

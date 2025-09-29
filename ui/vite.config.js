@@ -12,6 +12,19 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5225,
     strictPort: true,
+    // Avoid watch loops triggered by repo-level changes (e.g., Rust target, venv)
+    watch: {
+      ignored: [
+        '**/src-tauri/**',
+        '**/target/**',
+        '**/.venv/**',
+      ],
+    },
+    // Restrict file-system access to the UI folder
+    fs: {
+      strict: true,
+      allow: ['.'],
+    },
   },
   resolve: {
     alias: {

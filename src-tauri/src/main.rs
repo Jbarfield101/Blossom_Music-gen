@@ -1471,20 +1471,23 @@ struct PiperProfile {
     tags: Vec<String>,
 }
 
-fn read_npcs() -> Result<Vec<Npc>, String> {
-    let path = Path::new("data/npcs.json");
+fn read_npcs(app: &AppHandle) -> Result<Vec<Npc>, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let path = dir.join("npcs.json");
     if !path.exists() {
         return Ok(Vec::new());
     }
-    let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let npcs = serde_json::from_str(&text).map_err(|e| e.to_string())?;
     Ok(npcs)
 }
 
-fn write_npcs(npcs: &[Npc]) -> Result<(), String> {
-    let path = Path::new("data/npcs.json");
+fn write_npcs(app: &AppHandle, npcs: &[Npc]) -> Result<(), String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let path = dir.join("npcs.json");
     let text = serde_json::to_string_pretty(npcs).map_err(|e| e.to_string())?;
-    fs::write(path, text).map_err(|e| e.to_string())
+    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    fs::write(&path, text).map_err(|e| e.to_string())
 }
 
 fn normalize_npc_display_name(raw: &str) -> String {
@@ -1574,7 +1577,7 @@ fn filesystem_npc_names(app: &AppHandle) -> Result<Vec<String>, String> {
 
 #[tauri::command]
 fn npc_list(app: AppHandle) -> Result<Vec<Npc>, String> {
-    let mut npcs = read_npcs()?;
+    let mut npcs = read_npcs(&app)?;
     let mut seen: HashSet<String> = npcs
         .iter()
         .map(|npc| npc.name.to_ascii_lowercase())
@@ -1780,21 +1783,21 @@ except Exception as exc:
 }
 
 #[tauri::command]
-fn npc_save(npc: Npc) -> Result<(), String> {
-    let mut npcs = read_npcs()?;
+fn npc_save(app: AppHandle, npc: Npc) -> Result<(), String> {
+    let mut npcs = read_npcs(&app)?;
     if let Some(existing) = npcs.iter_mut().find(|n| n.name == npc.name) {
         *existing = npc;
     } else {
         npcs.push(npc);
     }
-    write_npcs(&npcs)
+    write_npcs(&app, &npcs)
 }
 
 #[tauri::command]
-fn npc_delete(name: String) -> Result<(), String> {
-    let mut npcs = read_npcs()?;
+fn npc_delete(app: AppHandle, name: String) -> Result<(), String> {
+    let mut npcs = read_npcs(&app)?;
     npcs.retain(|n| n.name != name);
-    write_npcs(&npcs)
+    write_npcs(&app, &npcs)
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -3643,10 +3646,114 @@ async fn npc_create(
         None
     }
 
-    let effective_name = if use_random_name {
+    let initial_name = if use_random_name {
         extract_title(&content).unwrap_or_else(|| "New_NPC".to_string())
     } else {
         name.clone()
+    };
+
+    // Ensure frontmatter exists and enforce NPC metadata + sane title
+    fn ensure_npc_metadata(src: &str, npc_name: &str) -> String {
+        match parse_frontmatter(src) {
+            Ok((mut mapping, body, _raw)) => {
+                // Set required keys
+                upsert_frontmatter_string(&mut mapping, "type", Some("npc"));
+                upsert_frontmatter_string(&mut mapping, "name", Some(npc_name));
+                upsert_frontmatter_string(&mut mapping, "title", Some(npc_name));
+
+                // Build a simple, single-line frontmatter block the UI parser understands
+                let mut front = String::new();
+                let mut push_kv = |k: &str, v: String| {
+                    if v.trim().is_empty() { return; }
+                    front.push_str(k);
+                    front.push_str(": ");
+                    front.push_str(&v);
+                    front.push('\n');
+                };
+                // Required first
+                push_kv("title", npc_name.to_string());
+                push_kv("name", npc_name.to_string());
+                push_kv("type", "npc".to_string());
+                // Helpful extras if present and scalar
+                let scalar = |key: &str| -> Option<String> {
+                    let k = YamlValue::String(key.to_string());
+                    mapping.get(&k).and_then(|v| match v {
+                        YamlValue::String(s) => Some(s.clone()),
+                        YamlValue::Number(n) => Some(n.to_string()),
+                        YamlValue::Bool(b) => Some(if *b { "true" } else { "false" }.to_string()),
+                        _ => None,
+                    })
+                };
+                for key in [
+                    "region","location","role","occupation","faction","race","gender","age","alignment",
+                    "residence","voice","attitude","archetype","goals","fears","motives","secrets",
+                ] {
+                    if let Some(val) = scalar(key) { push_kv(key, val); }
+                }
+
+                // Replace first markdown H1 with the NPC name to avoid template titles
+                let mut rebuilt = String::new();
+                rebuilt.push_str("---\n");
+                rebuilt.push_str(&front);
+                rebuilt.push_str("---\n");
+                // Build body with corrected heading and strip template banners/inline frontmatter remnants
+                let mut scan_lines: Vec<&str> = body.split('\n').collect();
+                // Drop leading lines that look like template banners or one-line frontmatter
+                let mut start_idx = 0usize;
+                while start_idx < scan_lines.len() {
+                    let lt = scan_lines[start_idx].trim();
+                    let low = lt.to_ascii_lowercase();
+                    let is_banner = low.contains("npc template") || low.contains("ultimate npc template") || lt.starts_with('📜');
+                    let is_inline_fm = lt.starts_with("---") && lt.ends_with("---") && !lt.contains('\n');
+                    if lt.is_empty() || is_banner || is_inline_fm {
+                        start_idx += 1;
+                        continue;
+                    }
+                    break;
+                }
+                let cleaned_body = scan_lines[start_idx..].join("\n");
+                let mut body_lines: Vec<&str> = cleaned_body.split('\n').collect();
+                let mut replaced = false;
+                for i in 0..body_lines.len() {
+                    let line_trim = body_lines[i].trim_start();
+                    if line_trim.starts_with('#') {
+                        body_lines[i] = ""; // placeholder; we'll reconstruct below
+                        let mut out = String::new();
+                        out.push_str("# ");
+                        out.push_str(npc_name);
+                        // Append the remainder of the original body after this line
+                        let tail = body_lines[i + 1..].join("\n");
+                        let mut final_body = out;
+                        final_body.push('\n');
+                        final_body.push_str(&tail);
+                        rebuilt.push_str(&final_body);
+                        replaced = true;
+                        break;
+                    }
+                }
+                if !replaced {
+                    // Prepend heading when no existing H1 was found
+                    let mut out = String::new();
+                    out.push_str("# ");
+                    out.push_str(npc_name);
+                    out.push('\n');
+                    out.push_str(&cleaned_body);
+                    rebuilt.push_str(&out);
+                }
+                rebuilt
+            }
+            Err(_) => src.to_string(),
+        }
+    }
+    content = ensure_npc_metadata(&content, &initial_name);
+
+    // Re-extract the final NPC name from updated content/frontmatter
+    let effective_name = match parse_frontmatter(&content) {
+        Ok((mapping, _body, _raw)) => {
+            let key = |k: &str| mapping.get(&YamlValue::String(k.to_string())).and_then(|v| v.as_str().map(|s| s.to_string()));
+            key("name").or_else(|| key("title")).unwrap_or_else(|| initial_name.clone())
+        }
+        Err(_) => extract_title(&content).unwrap_or_else(|| initial_name.clone()),
     };
 
     // Safe filename and unique path
@@ -4990,9 +5097,21 @@ fn list_piper(app: AppHandle) -> Result<Value, String> {
         })
         .unwrap_or_else(|| {
             let mut fallback = Vec::new();
-            if let Ok(text) = fs::read_to_string("data/voices.json") {
-                if let Ok(map) = serde_json::from_str::<serde_json::Map<String, Value>>(&text) {
-                    fallback.extend(map.keys().cloned());
+            // Prefer voices.json under the app data directory
+            if let Ok(appdir) = app.path().app_data_dir() {
+                let app_path = appdir.join("voices.json");
+                if let Ok(text) = fs::read_to_string(&app_path) {
+                    if let Ok(map) = serde_json::from_str::<serde_json::Map<String, Value>>(&text) {
+                        fallback.extend(map.keys().cloned());
+                    }
+                }
+            }
+            // Back-compat: check legacy repo-relative path if present
+            if fallback.is_empty() {
+                if let Ok(text) = fs::read_to_string("data/voices.json") {
+                    if let Ok(map) = serde_json::from_str::<serde_json::Map<String, Value>>(&text) {
+                        fallback.extend(map.keys().cloned());
+                    }
                 }
             }
             if fallback.is_empty() {
@@ -5116,10 +5235,11 @@ fn discover_piper_voices() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-fn add_piper_voice(name: String, voice: String, tags: String) -> Result<(), String> {
-    let path = Path::new("data/voices.json");
+fn add_piper_voice(app: AppHandle, name: String, voice: String, tags: String) -> Result<(), String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let path = dir.join("voices.json");
     let mut map: serde_json::Map<String, Value> = if path.exists() {
-        let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
+        let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
         serde_json::from_str(&text).unwrap_or_default()
     } else {
         serde_json::Map::new()
@@ -5139,17 +5259,18 @@ fn add_piper_voice(name: String, voice: String, tags: String) -> Result<(), Stri
         }),
     );
     let text = serde_json::to_string_pretty(&map).map_err(|e| e.to_string())?;
-    fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
-    fs::write(path, text).map_err(|e| e.to_string())
+    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    fs::write(&path, text).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn list_piper_profiles() -> Result<Vec<PiperProfile>, String> {
-    let path = Path::new("data/voices.json");
+fn list_piper_profiles(app: AppHandle) -> Result<Vec<PiperProfile>, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let path = dir.join("voices.json");
     if !path.exists() {
         return Ok(Vec::new());
     }
-    let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let map: serde_json::Map<String, Value> = serde_json::from_str(&text).unwrap_or_default();
     let mut profiles = Vec::new();
     for (name, v) in map {
@@ -5177,10 +5298,11 @@ fn list_piper_profiles() -> Result<Vec<PiperProfile>, String> {
 }
 
 #[tauri::command]
-fn update_piper_profile(original: String, name: String, tags: String) -> Result<(), String> {
-    let path = Path::new("data/voices.json");
+fn update_piper_profile(app: AppHandle, original: String, name: String, tags: String) -> Result<(), String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let path = dir.join("voices.json");
     let mut map: serde_json::Map<String, Value> = if path.exists() {
-        let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
+        let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
         serde_json::from_str(&text).unwrap_or_default()
     } else {
         serde_json::Map::new()
@@ -5194,31 +5316,33 @@ fn update_piper_profile(original: String, name: String, tags: String) -> Result<
     profile["tags"] = json!(tag_list);
     map.insert(name, profile);
     let text = serde_json::to_string_pretty(&map).map_err(|e| e.to_string())?;
-    fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
-    fs::write(path, text).map_err(|e| e.to_string())
+    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    fs::write(&path, text).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn remove_piper_profile(name: String) -> Result<(), String> {
-    let path = Path::new("data/voices.json");
+fn remove_piper_profile(app: AppHandle, name: String) -> Result<(), String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let path = dir.join("voices.json");
     let mut map: serde_json::Map<String, Value> = if path.exists() {
-        let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
+        let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
         serde_json::from_str(&text).unwrap_or_default()
     } else {
         serde_json::Map::new()
     };
     map.remove(&name);
     let text = serde_json::to_string_pretty(&map).map_err(|e| e.to_string())?;
-    fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
-    fs::write(path, text).map_err(|e| e.to_string())
+    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    fs::write(&path, text).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn piper_test(text: String, voice: String) -> Result<PathBuf, String> {
-    let base = Path::new("data/piper_tests");
-    fs::create_dir_all(base).map_err(|e| e.to_string())?;
+fn piper_test(app: AppHandle, text: String, voice: String) -> Result<PathBuf, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let base = dir.join("piper_tests");
+    fs::create_dir_all(&base).map_err(|e| e.to_string())?;
     let prefix = format!("{}_", voice);
-    let count = fs::read_dir(base)
+    let count = fs::read_dir(&base)
         .map_err(|e| e.to_string())?
         .filter(|entry| {
             entry
