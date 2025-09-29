@@ -101,6 +101,37 @@ export default function DndWorldPantheon() {
 
   const selected = useMemo(() => items.find((i) => i.path === activePath), [items, activePath]);
 
+  const extractGodSubtitle = (text) => {
+    const src = String(text || '');
+    // Try frontmatter block first
+    const fm = src.match(/^---\s*\r?\n([\s\S]*?)\r?\n---/);
+    if (fm) {
+      const body = fm[1];
+      const lines = body.split(/\r?\n/);
+      const kv = {};
+      for (const raw of lines) {
+        const m = raw.match(/^\s*([A-Za-z0-9_][A-Za-z0-9_\s-]*)\s*:\s*(.+)\s*$/);
+        if (m) {
+          const key = m[1].trim().toLowerCase().replace(/\s+/g, '_');
+          const val = m[2].trim();
+          if (val) kv[key] = val;
+        }
+      }
+      const keys = ['god_of', 'domain', 'domains', 'portfolio', 'aspects', 'sphere'];
+      for (const k of keys) {
+        if (kv[k]) return kv[k];
+      }
+    }
+    // Fallback: scan body text
+    const m1 = src.match(/\b(God|Goddess|Deity|Patron)\s+of\s+([^\n\r]+)/i);
+    if (m1) return m1[2].trim();
+    const m2 = src.match(/\bDomains?\s*:\s*([^\n\r]+)/i);
+    if (m2) return m2[1].trim();
+    const m3 = src.match(/\bPortfolio\s*:\s*([^\n\r]+)/i);
+    if (m3) return m3[1].trim();
+    return '';
+  };
+
   const openCreateModal = () => {
     if (creating) return;
     setNewName('');
@@ -203,12 +234,14 @@ export default function DndWorldPantheon() {
             {selected ? (
               <>
                 <header className="inbox-reader-header">
-                  <h2 className="inbox-reader-title">{selected.title || selected.name}</h2>
-                  <div className="inbox-reader-meta">
-                    <span>{selected.name}</span>
-                    <span>·</span>
-                    <time>{formatDate(selected.modified_ms)}</time>
-                  </div>
+                  <h2 className="inbox-reader-title">{
+                    (() => {
+                      const base = selected.title || selected.name || '';
+                      const sub = extractGodSubtitle(activeContent);
+                      return sub ? `${base} — God of ${sub.replace(/^God\s+of\s+/i,'')}` : base;
+                    })()
+                  }</h2>
+                  <div className="inbox-reader-meta"><span>{selected.name}</span><span>·</span><time>{formatDate(selected.modified_ms)}</time>{(() => { const sub = extractGodSubtitle(activeContent); return sub ? (<><span>·</span><span>God of {sub.replace(/^God\s+of\s+/i, "")}</span></>) : null; })()}</div>
                 </header>
                 <article className="inbox-reader-body">
                   {renderMarkdown(activeContent || 'Loading…')}
@@ -270,4 +303,12 @@ export default function DndWorldPantheon() {
     </>
   );
 }
+
+
+
+
+
+
+
+
 

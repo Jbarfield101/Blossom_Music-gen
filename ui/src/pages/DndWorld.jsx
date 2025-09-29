@@ -27,6 +27,12 @@ const sections = [
     title: 'Bank',
     description: 'Treasury planning tools and ledgers.',
   },
+  {
+    to: '/dnd/world/calendar',
+    icon: 'CalendarDays',
+    title: 'Campaign Calendar',
+    description: 'Track in-game days, months, and years.',
+  },
 ];
 
 export default function DndWorld() {

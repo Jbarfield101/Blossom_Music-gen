@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
-import { listInbox, readInbox } from '../api/inbox';
+import { listInbox, readInbox, createInbox, updateInbox, deleteInbox } from '../api/inbox';
 import './Dnd.css';
 import { renderMarkdown } from '../lib/markdown.jsx';
 
@@ -41,6 +41,14 @@ export default function DndInbox() {
   const [activeContent, setActiveContent] = useState('');
   const [usingPath, setUsingPath] = useState('');
   const [formatMarkdown, setFormatMarkdown] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newBody, setNewBody] = useState('');
+  const [createError, setCreateError] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [editBody, setEditBody] = useState('');
+  const [editError, setEditError] = useState('');
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -78,12 +86,15 @@ export default function DndInbox() {
   useEffect(() => {
     if (!activePath) {
       setActiveContent('');
+      setEditBody('');
+      setEditing(false);
       return;
     }
     (async () => {
       try {
         const text = await readInbox(activePath);
         setActiveContent(text || '');
+        setEditBody(text || '');
       } catch (e) {
         setActiveContent('Failed to load file.');
       }
@@ -102,6 +113,9 @@ export default function DndInbox() {
       <div className="inbox-controls">
         <button type="button" onClick={fetchItems} disabled={loading}>
           {loading ? 'Loading…' : 'Refresh'}
+        </button>
+        <button type="button" onClick={() => { if (!creating) { setShowCreate(true); setNewName(''); setNewBody(''); setCreateError(''); } }} disabled={loading || creating}>
+          New
         </button>
         {usingPath && (
           <span className="muted">Folder: {usingPath}</span>
@@ -137,24 +151,48 @@ export default function DndInbox() {
             <div className="muted">No files found in this folder.</div>
           )}
         </aside>
-        <section className="inbox-reader">
+                <section className="inbox-reader">
           {selected ? (
             <>
               <header className="inbox-reader-header">
                 <h2 className="inbox-reader-title">{selected.title || selected.name}</h2>
-                <div className="inbox-reader-meta">
+                <div className="inbox-reader-meta" style={{ gap: '0.75rem' }}>
                   <span>{selected.name}</span>
                   <span>·</span>
                   <time>{formatDate(selected.modified_ms)}</time>
+                  <span style={{ marginLeft: 'auto' }} />
+                  <button type="button" onClick={() => { setEditing((v) => !v); setEditError(''); setEditBody(activeContent || ''); }}>
+                    {editing ? 'Cancel' : 'Edit'}
+                  </button>
+                  <button type="button" onClick={async () => {
+                    if (!activePath) return;
+                    if (editing) {
+                      try { setEditError(''); await updateInbox(activePath, editBody); setEditing(false); setActiveContent(editBody); await fetchItems(); }
+                      catch (err) { setEditError(err?.message || String(err)); }
+                    } else {
+                      if (!confirm('Delete this file?')) return;
+                      try { await deleteInbox(activePath); setActivePath(''); await fetchItems(); }
+                      catch (err) { alert(err?.message || String(err)); }
+                    }
+                  }}>
+                    {editing ? 'Save' : 'Delete'}
+                  </button>
                 </div>
               </header>
               <article className="inbox-reader-body">
-                {/\.(md|mdx|markdown)$/i.test(selected.name || '') ? (
-                  (formatMarkdown ? renderMarkdown(activeContent) : (
+                {editing ? (
+                  <>
+                    <textarea rows={16} value={editBody} onChange={(e) => setEditBody(e.target.value)} />
+                    {editError && <div className="error">{editError}</div>}
+                  </>
+                ) : (
+                  (/\.(md|mdx|markdown)$/i.test(selected.name || '') ? (
+                    (formatMarkdown ? renderMarkdown(activeContent) : (
+                      <pre className="inbox-reader-content">{activeContent}</pre>
+                    ))
+                  ) : (
                     <pre className="inbox-reader-content">{activeContent}</pre>
                   ))
-                ) : (
-                  <pre className="inbox-reader-content">{activeContent}</pre>
                 )}
               </article>
             </>
@@ -163,6 +201,50 @@ export default function DndInbox() {
           )}
         </section>
       </div>
+      {showCreate && (
+        <div className="lightbox" onClick={() => { if (!creating) setShowCreate(false); }}>
+          <div className="lightbox-panel monster-create-panel" onClick={(e) => e.stopPropagation()}>
+            <h2>New Inbox Item</h2>
+            <form className="monster-create-form" onSubmit={async (e) => {
+              e.preventDefault();
+              if (creating) return;
+              const name = newName.trim();
+              if (!name) { setCreateError('Please enter a file name.'); return; }
+              try {
+                setCreating(true);
+                setCreateError('');
+                const path = await createInbox(name, newBody);
+                setShowCreate(false);
+                setNewName('');
+                setNewBody('');
+                await fetchItems();
+                if (path) setActivePath(path);
+              } catch (err) {
+                setCreateError(err?.message || String(err));
+              } finally {
+                setCreating(false);
+              }
+            }}>
+              <label>
+                File name
+                <input type="text" value={newName} onChange={(e) => { setNewName(e.target.value); if (createError) setCreateError(''); }} autoFocus disabled={creating} placeholder="e.g. Lead_on_the_Bandits" />
+              </label>
+              <label>
+                Content (optional)
+                <textarea rows={6} value={newBody} onChange={(e) => setNewBody(e.target.value)} disabled={creating} placeholder="# Title\n\nWrite your notes here." />
+              </label>
+              {createError && <div className="error">{createError}</div>}
+              <div className="monster-create-actions">
+                <button type="button" onClick={() => { if (!creating) setShowCreate(false); }} disabled={creating}>Cancel</button>
+                <button type="submit" disabled={creating}>{creating ? 'Creating.' : 'Create'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 }
+
+
+

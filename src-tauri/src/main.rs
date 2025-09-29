@@ -3513,9 +3513,8 @@ async fn npc_create(
                 '_'
             }
         })
-        .collect::<String>()
-        .trim()
-        .replace(' ', "_");
+        .collect::<String>();
+    fname = fname.trim().to_string();
     if fname.is_empty() {
         fname = "New_NPC".to_string();
     }
@@ -3660,9 +3659,8 @@ async fn npc_create(
                 '_'
             }
         })
-        .collect::<String>()
-        .trim()
-        .replace(' ', "_");
+        .collect::<String>();
+    fname = fname.trim().to_string();
     if fname.is_empty() {
         fname = "New_NPC".to_string();
     }
@@ -3687,6 +3685,24 @@ fn inbox_read(path: String) -> Result<String, String> {
         return Err("File not found".into());
     }
     fs::read_to_string(p).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn inbox_update(path: String, content: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if !p.exists() || !p.is_file() {
+        return Err("File not found".into());
+    }
+    fs::write(&p, content.as_bytes()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn inbox_delete(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if !p.exists() || !p.is_file() {
+        return Err("File not found".into());
+    }
+    fs::remove_file(&p).map_err(|e| e.to_string())
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -3829,6 +3845,42 @@ fn extract_sheet_string(sheet: &Value, path: &[&str]) -> Option<String> {
         Value::Bool(b) => Some(if *b { "true" } else { "false" }.to_string()),
         _ => None,
     }
+}
+
+#[tauri::command]
+fn inbox_create(app: AppHandle, name: String, content: Option<String>, base_path: Option<String>) -> Result<String, String> {
+    // Determine target directory: explicit base_path > vault/00_Inbox
+    let target_dir = if let Some(p) = base_path.filter(|s| !s.trim().is_empty()) {
+        PathBuf::from(p)
+    } else {
+        let store = settings_store(&app)?;
+        let vault = store
+            .get("vaultPath")
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .ok_or_else(|| "Vault path not set. Choose it in Settings.".to_string())?;
+        PathBuf::from(vault).join("00_Inbox")
+    };
+    if !target_dir.exists() {
+        fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
+    }
+    // Build a safe filename
+    let mut fname = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' })
+        .collect::<String>()
+        .trim()
+        .replace(' ', "_");
+    if fname.is_empty() { fname = "New_Note".to_string(); }
+    let mut target = target_dir.join(format!("{}.md", fname));
+    let mut counter = 2u32;
+    while target.exists() {
+        target = target_dir.join(format!("{}_{}.md", fname, counter));
+        counter += 1;
+        if counter > 9999 { break; }
+    }
+    let body = content.unwrap_or_default();
+    fs::write(&target, body.as_bytes()).map_err(|e| e.to_string())?;
+    Ok(target.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -5182,7 +5234,10 @@ fn piper_test(text: String, voice: String) -> Result<PathBuf, String> {
         .count();
     let file = base.join(format!("{}_{:03}.mp3", voice, count + 1));
 
-    let tmp = NamedTempFile::new().map_err(|e| e.to_string())?;
+    let tmp = tempfile::Builder::new()
+        .suffix(".wav")
+        .tempfile()
+        .map_err(|e| e.to_string())?;
     let tmp_path = tmp.into_temp_path();
     let wav_path = tmp_path.to_path_buf();
     // Resolve voice id to a concrete model path if it matches a bundled voice.
@@ -5250,13 +5305,21 @@ fn piper_test(text: String, voice: String) -> Result<PathBuf, String> {
         }
     }
 
+    // Ensure ffmpeg input path ends with .wav as some temp paths have no extension on Windows
+    let mut wav_str_for_ffmpeg = wav_path.to_string_lossy().to_string();
+    if !wav_str_for_ffmpeg.to_lowercase().ends_with(".wav") {
+        wav_str_for_ffmpeg.push_str(".wav");
+    }
     let py_script = format!(
         r#"
 import soundfile as sf
 from mouth.tts import TTSEngine
 engine = TTSEngine()
 audio = engine.synthesize({text:?}, voice={voice:?})
-sf.write({wav:?}, audio, 22050)
+wav_out = {wav:?}
+if not str(wav_out).lower().endswith('.wav'):
+    wav_out = str(wav_out) + '.wav'
+sf.write(wav_out, audio, 22050, format="WAV")
 "#,
         text = text,
         voice = voice_to_use,
@@ -5271,7 +5334,7 @@ sf.write({wav:?}, audio, 22050)
     if !status.success() {
         return Err("piper synthesis failed".into());
     }
-    let wav_str = wav_path.to_string_lossy().to_string();
+    let wav_str = wav_str_for_ffmpeg;
     let out_str = file.to_string_lossy().to_string();
     let status = Command::new("ffmpeg")
         .args(["-y", "-i", &wav_str, &out_str])
@@ -6594,6 +6657,9 @@ fn main() {
             list_styles,
             inbox_list,
             inbox_read,
+            inbox_update,
+            inbox_delete,
+            inbox_create,
             dir_list,
             race_create,
             player_create,

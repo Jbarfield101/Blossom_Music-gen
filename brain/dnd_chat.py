@@ -8,10 +8,10 @@ from . import dialogue, prompt_router
 import service_api
 
 
-_ALLOWED_CATEGORIES: Final[frozenset[str]] = frozenset({"lore", "npc"})
+_ALLOWED_CATEGORIES: Final[frozenset[str]] = frozenset({"lore", "npc", "rules"})
 REFUSAL_MESSAGE: Final[str] = (
-    "I'm only able to discuss our Dungeons & Dragons world, its lore, and its NPCs. "
-    "Try asking about the campaign setting, locations, or characters."
+    "I'm focused on your Dungeons & Dragons campaign — lore, NPCs, and table rules. "
+    "Ask about the setting, locations, characters, or rules in your world."
 )
 
 

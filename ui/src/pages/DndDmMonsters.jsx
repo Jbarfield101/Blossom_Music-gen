@@ -131,7 +131,11 @@ export default function DndDmMonsters() {
       dismissCreateModal();
       await fetchItems();
     } catch (e) {
-      setCreateError(e?.message || 'Failed to create monster.');
+      const msg = e?.message || String(e);
+      const hint = /Failed to read template/i.test(msg)
+        ? '\nHint: Place the monster template under \\_Templates\\ or set your Vault path in Settings.'
+        : '';
+      setCreateError(`${msg}${hint}`);
     } finally {
       setCreating(false);
     }

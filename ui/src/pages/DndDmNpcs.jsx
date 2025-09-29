@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
 import { getConfig } from '../api/config';
 import { listDir } from '../api/dir';
-import { readInbox } from '../api/inbox';
+import { readInbox, deleteInbox } from '../api/inbox';
 import { readFileBytes } from '../api/files';
 import { createNpc } from '../api/npcs';
 import { loadEstablishments } from '../api/establishments';
@@ -35,6 +35,10 @@ function sanitizeChip(s) {
 
 export default function DndDmNpcs() {
   const [items, setItems] = useState([]);
+  const [filterText, setFilterText] = useState('');
+  const [filterType, setFilterType] = useState('');
+  const [filterLocation, setFilterLocation] = useState('');
+  const [sortOrder, setSortOrder] = useState('az');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [usingPath, setUsingPath] = useState('');
@@ -46,6 +50,7 @@ export default function DndDmNpcs() {
   const [metaNotice, setMetaNotice] = useState('');
   const [metaDismissed, setMetaDismissed] = useState(false);
   const [locations, setLocations] = useState({});
+  const [typeMap, setTypeMap] = useState({});
   const [portraitIndex, setPortraitIndex] = useState({});
   const [portraitUrls, setPortraitUrls] = useState({});
   const [showCreate, setShowCreate] = useState(false);
@@ -63,6 +68,7 @@ export default function DndDmNpcs() {
   const [establishmentsLoading, setEstablishmentsLoading] = useState(false);
   const [establishmentsError, setEstablishmentsError] = useState('');
   const [establishmentsLoaded, setEstablishmentsLoaded] = useState(false);
+  const [establishmentsRoot, setEstablishmentsRoot] = useState('');
 
   const establishmentOptions = useMemo(() => {
     if (!Array.isArray(establishments) || establishments.length === 0) return [];
@@ -197,14 +203,14 @@ export default function DndDmNpcs() {
 
   useEffect(() => { fetchItems(); }, [fetchItems]);
 
-  // Build region options by crawling directories under NPC root
+  // Build region options by crawling directories under Regions (exclude Establishments)
   useEffect(() => {
     (async () => {
       try {
         const vault = await getConfig('vaultPath');
         const base = (typeof vault === 'string' && vault)
-          ? `${vault}\\\\20_DM\\\\NPC`.replace(/\\\\/g, '\\\\')
-          : 'D:\\Documents\\DreadHaven\\20_DM\\NPC';
+          ? `${vault}\\\\10_World\\\\Regions`.replace(/\\\\/g, '\\\\')
+          : 'D:\\Documents\\DreadHaven\\10_World\\Regions';
         const stack = [base];
         const seen = new Set();
         const dirs = new Set();
@@ -216,8 +222,8 @@ export default function DndDmNpcs() {
           try { entries = await listDir(dir); } catch { entries = []; }
           for (const e of entries) {
             if (e.is_dir) {
+              if ((e.name || '').toLowerCase() === 'establishments') continue;
               stack.push(e.path);
-              // add relative path as option
               const rel = relLocation(base, `${e.path}/dummy`);
               if (rel) dirs.add(rel);
             }
@@ -231,27 +237,54 @@ export default function DndDmNpcs() {
     })();
   }, []);
 
+  // Load establishments scoped to the selected region (faster, clearer)
   useEffect(() => {
     if (!showCreate) return;
-    if (establishmentsLoaded || establishmentsLoading) return;
+    // Only load when creating a Shopkeeper
+    if (selPurpose !== 'Shopkeeper') return;
     let cancelled = false;
     setEstablishmentsLoading(true);
     setEstablishmentsError('');
     (async () => {
       try {
-        const result = await loadEstablishments();
-        if (cancelled) return;
-        const list = Array.isArray(result?.items) ? result.items : [];
-        const simplified = list.map((entry) => ({
-          path: entry.path || '',
-          title: entry.title || entry.name || '',
-          name: entry.name || '',
-          group: entry.group || '',
-          region: entry.region || '',
-          location: entry.location || '',
-        })).filter((entry) => entry.path);
-        setEstablishments(simplified);
-        setEstablishmentsLoaded(true);
+        // Determine Regions root
+        const vault = await getConfig('vaultPath');
+        const regionsRoot = (typeof vault === 'string' && vault)
+          ? `${vault}\\10_World\\Regions`
+          : 'D:\\Documents\\DreadHaven\\10_World\\Regions';
+        // Resolve region path
+        const regionPath = selRegion
+          ? `${regionsRoot}\\${selRegion.replace(/\\/g,'/').replace(/\/+/, '').replace(/\//g,'\\')}`
+          : regionsRoot;
+        const estPath = `${regionPath}\\Establishments`;
+        setEstablishmentsRoot(estPath);
+
+        // Crawl Establishments folder recursively for markdown files
+        const stack = [estPath];
+        const seen = new Set();
+        const acc = [];
+        while (stack.length) {
+          const dir = stack.pop();
+          if (!dir) continue;
+          const key = dir.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          let entries = [];
+          try { entries = await listDir(dir); } catch { entries = []; }
+          for (const e of entries) {
+            if (!e) continue;
+            if (e.is_dir) { stack.push(e.path); continue; }
+            if (!/\.(md|mdx|markdown)$/i.test(e.name || '')) continue;
+            const title = String(e.name || '').replace(/\.[^.]+$/, '');
+            acc.push({ path: e.path, title, name: e.name, group: selRegion || '', region: selRegion || '', location: '' });
+          }
+        }
+        if (!cancelled) {
+          // Sort by title
+          acc.sort((a,b)=> String(a.title).localeCompare(String(b.title)));
+          setEstablishments(acc);
+          setEstablishmentsLoaded(true);
+        }
       } catch (err) {
         if (!cancelled) {
           console.error(err);
@@ -259,13 +292,11 @@ export default function DndDmNpcs() {
           setEstablishmentsError(err?.message || String(err));
         }
       } finally {
-        if (!cancelled) {
-          setEstablishmentsLoading(false);
-        }
+        if (!cancelled) setEstablishmentsLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [showCreate, establishmentsLoaded, establishmentsLoading]);
+  }, [showCreate, selPurpose, selRegion]);
 
   useEffect(() => {
     if (selPurpose !== 'Shopkeeper') {
@@ -372,19 +403,27 @@ export default function DndDmNpcs() {
           const src = String(text || '');
           const fm = src.match(/^---\n([\s\S]*?)\n---/);
           let loc = '';
+          let typ = '';
           if (fm) {
             const body = fm[1];
             const line = body.split(/\r?\n/).find((l) => /^\s*location\s*:/i.test(l));
             if (line) loc = line.split(':').slice(1).join(':').trim();
+            const tline = body.split(/\r?\n/).find((l) => /^(purpose|occupation|role|job|profession|type)\s*:/i.test(l));
+            if (tline) typ = tline.split(':').slice(1).join(':').trim();
           }
           if (!loc) {
             const m = src.match(/\bLocation\s*:\s*([^\n\r]+)/i);
             if (m) loc = m[1].trim();
           }
+          if (!typ) {
+            const m2 = src.match(/\b(Purpose|Occupation|Role|Job|Profession|Type)\s*:\s*([^\n\r]+)/i);
+            if (m2) typ = m2[2].trim();
+          }
           if (!loc) {
             loc = relLocation(usingPath, it.path);
           }
           setLocations((prev) => ({ ...prev, [it.path]: sanitizeChip(loc) }));
+          if (typ) setTypeMap((prev) => ({ ...prev, [it.path]: sanitizeChip(typ) }));
         } catch {/* ignore */}
       }
     })();
@@ -392,6 +431,60 @@ export default function DndDmNpcs() {
   }, [items, usingPath]);
 
   const selected = useMemo(() => items.find((i) => i.path === activePath), [items, activePath]);
+
+  const derivedTitle = useMemo(() => {
+    const meta = activeMeta || {};
+    if (meta.title) return sanitizeChip(meta.title);
+    if (meta.name) return sanitizeChip(meta.name);
+    const src = String(activeContent || '');
+    // First markdown H1 heading
+    const h1 = src.match(/^\s*#\s+([^\r\n]+)$/m);
+    if (h1 && h1[1]) return sanitizeChip(h1[1]);
+    const nm = src.match(/\b(?:NPC\s+Name|Name)\s*:\s*([^\r\n]+)/i);
+    if (nm && nm[1]) return sanitizeChip(nm[1]);
+    return String(selected?.title || selected?.name || '');
+  }, [activeMeta, activeContent, selected]);
+
+  const typeOptions = useMemo(() => {
+    const vals = Object.values(typeMap).map((v) => sanitizeChip(v)).filter(Boolean);
+    return Array.from(new Set(vals)).sort((a,b)=>a.localeCompare(b));
+  }, [typeMap]);
+
+  const locationOptions = useMemo(() => {
+    const vals = Object.values(locations).map((v) => sanitizeChip(v)).filter(Boolean);
+    return Array.from(new Set(vals)).sort((a,b)=>a.localeCompare(b));
+  }, [locations]);
+
+  const visibleItems = useMemo(() => {
+    const q = filterText.trim().toLowerCase();
+    let arr = items.filter((it) => {
+      const title = String(it.title || it.name || '').toLowerCase();
+      const loc = String(locations[it.path] || '').toLowerCase();
+      const textHit = !q || title.includes(q) || loc.includes(q);
+      if (!textHit) return false;
+      if (filterType) {
+        const t = String(typeMap[it.path] || '').toLowerCase();
+        if (t !== filterType.toLowerCase()) return false;
+      }
+      if (filterLocation) {
+        const l = String(loc || '').toLowerCase();
+        if (l !== filterLocation.toLowerCase()) return false;
+      }
+      return true;
+    });
+    const out = arr.slice();
+    if (sortOrder === 'recent') {
+      out.sort((a, b) => Number(b.modified_ms || 0) - Number(a.modified_ms || 0));
+    } else if (sortOrder === 'za') {
+      out.sort((a, b) => String(b.title || b.name || '').localeCompare(String(a.title || a.name || '')));
+    } else {
+      out.sort((a, b) => String(a.title || a.name || '').localeCompare(String(b.title || b.name || '')));
+    }
+    return out;
+  }, [items, filterText, filterType, filterLocation, sortOrder, locations, typeMap]);
+
+  // Back-compat alias to avoid any lingering references during hot reloads
+  const filteredItems = visibleItems;
 
   const metadataChips = useMemo(() => {
     const meta = activeMeta || {};
@@ -531,6 +624,41 @@ export default function DndDmNpcs() {
       <BackButton />
       <h1>Dungeons & Dragons · NPCs</h1>
       <div className="pantheon-controls">
+      <div className="inbox-controls" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        <input
+          type="text"
+          placeholder="Search NPCs or location..."
+          value={filterText}
+          onChange={(e) => setFilterText(e.target.value)}
+          style={{ width: '280px' }}
+        />
+        <label>
+          Sort
+          <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}>
+            <option value="az">A → Z</option>
+            <option value="za">Z → A</option>
+            <option value="recent">Recents</option>
+          </select>
+        </label>
+        <label>
+          Type
+          <select value={filterType} onChange={(e) => setFilterType(e.target.value)}>
+            <option value="">(all types)</option>
+            {typeOptions.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Location
+          <select value={filterLocation} onChange={(e) => setFilterLocation(e.target.value)}>
+            <option value="">(all locations)</option>
+            {locationOptions.map((l) => (
+              <option key={l} value={l}>{l}</option>
+            ))}
+          </select>
+        </label>
+      </div>
         <button type="button" onClick={fetchItems} disabled={loading}>
           {loading ? 'Loading.' : 'Refresh'}
         </button>
@@ -542,7 +670,7 @@ export default function DndDmNpcs() {
       </div>
 
       <section className="pantheon-grid">
-        {items.map((item) => (
+        {visibleItems.map((item) => (
           <button
             key={item.path}
             className="pantheon-card"
@@ -563,7 +691,7 @@ export default function DndDmNpcs() {
             <div className="pantheon-card-meta">Location: {locations[item.path] || relLocation(usingPath, item.path) || '-'}</div>
           </button>
         ))}
-        {!loading && items.length === 0 && (
+        {!loading && visibleItems.length === 0 && (
           <div className="muted">No NPC files found.</div>
         )}
       </section>
@@ -584,8 +712,8 @@ export default function DndDmNpcs() {
                     <div className="npc-portrait placeholder">?</div>
                   )}
                   <div className="npc-header-main">
-                    <h2 className="npc-name">{selected.title || selected.name}</h2>
-                    <div className="inbox-reader-meta">
+                    <h2 className="npc-name">{derivedTitle}</h2>
+                    <div className="inbox-reader-meta" style={{ gap: "0.5rem" }}>
                       <span>{selected.name}</span>
                       {locationLabel && (
                         <>
@@ -593,7 +721,7 @@ export default function DndDmNpcs() {
                           <span>{locationLabel}</span>
                         </>
                       )}
-                    </div>
+                    <span style={{ marginLeft: "auto" }} /><button type="button" className="danger" onClick={async () => { if (!selected?.path) return; const ok = confirm(`Delete NPC file?\n\n${selected.path}`); if (!ok) return; try { await deleteInbox(selected.path); setModalOpen(false); setActivePath(""); await fetchItems(); } catch (err) { alert(err?.message || String(err)); } }}>Delete</button></div>
                     {metadataChips.length > 0 && (
                       <div className="npc-chips">
                         {metadataChips.map((chip) => (
@@ -695,6 +823,9 @@ export default function DndDmNpcs() {
                     Connect this shopkeeper to the storefront they manage. Select an existing establishment to
                     embed its reference in the new NPC note.
                   </p>
+                  {establishmentsRoot && (
+                    <p className="muted">Scanning: {establishmentsRoot}</p>
+                  )}
                   <label>
                     Establishment Name
                     <input
@@ -724,7 +855,7 @@ export default function DndDmNpcs() {
                       }}
                       disabled={creating || establishmentsLoading}
                     >
-                      <option value="">{establishmentsLoading ? 'Loading establishments…' : 'Select an establishment…'}</option>
+                      <option value="">Select an establishment</option>
                       {establishmentOptions.map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
@@ -761,3 +892,8 @@ export default function DndDmNpcs() {
     </>
   );
 }
+
+
+
+
+

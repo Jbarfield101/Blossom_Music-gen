@@ -73,7 +73,8 @@ export default function DndDiscord() {
   const [stopping, setStopping] = useState(false);
   const [logs, setLogs] = useState([]);
   const [tokenSources, setTokenSources] = useState([]);
-  const [showBotControls, setShowBotControls] = useState(true);
+  const [showBotControls, setShowBotControls] = useState(false);
+  const [compact, setCompact] = useState(true);
   const [actOpen, setActOpen] = useState(false);
   const [actRequest, setActRequest] = useState(null);
   const [actNpc, setActNpc] = useState('');
@@ -446,12 +447,16 @@ export default function DndDiscord() {
     <>
       <BackButton />
       <h1>Dungeons &amp; Dragons &middot; Discord</h1>
-      <div className="discord-status-bar muted" style={{ marginTop: '0.25rem' }}>
-        Status: {botStatus || (botPid ? `Running (PID ${botPid})` : 'Idle')}
+      <div className="discord-status-bar muted" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.25rem' }}>
+        <span>Status: {botStatus || (botPid ? `Running (PID ${botPid})` : 'Idle')}</span>
+        <label style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+          <input type="checkbox" checked={compact} onChange={(e) => setCompact(e.target.checked)} />
+          Compact view
+        </label>
       </div>
       <main
         className="dashboard discord-dashboard"
-        style={{ display: 'grid', gap: 'var(--space-lg)', marginTop: 'var(--space-lg)' }}
+        style={{ display: 'grid', gap: 'var(--space-lg)', marginTop: 'var(--space-lg)', gridTemplateColumns: compact ? '1fr' : '1fr 1fr' }}
       >
         <section className="dnd-surface" aria-labelledby="discord-bot-controls-heading">
           <div className="section-head">
@@ -489,7 +494,7 @@ export default function DndDiscord() {
                 <button type="button" onClick={handleDetectTokens}>Check Token</button>
                 <button type="button" onClick={handleResync}>Re-sync Commands</button>
               </div>
-              {logs.length > 0 && (
+              {!compact && logs.length > 0 && (
                 <pre className="inbox-reader" style={{ maxHeight: 240, overflow: 'auto' }}>
                   {logs.join('\n')}
                 </pre>
@@ -588,6 +593,7 @@ export default function DndDiscord() {
           )}
         </section>
 
+        {!compact && (
         <section className="dnd-surface" aria-labelledby="commands-help-heading">
           <div className="section-head">
             <div>
@@ -619,6 +625,7 @@ export default function DndDiscord() {
             </ul>
           )}
         </section>
+        )}
       </main>
 
       {actOpen && (
