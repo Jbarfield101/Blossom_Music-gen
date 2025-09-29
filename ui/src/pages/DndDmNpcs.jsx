@@ -674,7 +674,6 @@ const establishmentOptions = useMemo(() => {
         {usingPath && <span className="muted">Folder: {usingPath}</span>}
         {error && <span className="error">{error}</span>}
       </div>
-      </div>
 
       <section className="pantheon-grid">
         {visibleItems.map((item) => (
