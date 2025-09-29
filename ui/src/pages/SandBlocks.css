@@ -1,0 +1,167 @@
+.sand-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  align-items: center;
+  padding: clamp(var(--space-md), 3vw, var(--space-xl));
+}
+
+.sand-game-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  align-items: stretch;
+  width: min(960px, 100%);
+  margin: 0 auto;
+  padding: clamp(var(--space-md), 3vw, var(--space-xl));
+  background: var(--card-bg);
+  border: 2px solid var(--accent);
+  border-radius: var(--space-md);
+  box-shadow: var(--card-shadow);
+}
+
+.sand-game-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  text-align: center;
+}
+
+.sand-game-header h1 {
+  margin: 0;
+  font-size: clamp(1.75rem, 3vw, 2.5rem);
+  color: var(--text);
+}
+
+.sand-game-subtitle {
+  margin: 0;
+  font-size: clamp(0.95rem, 2vw, 1.1rem);
+  color: rgba(148, 163, 184, 0.85);
+}
+
+.sand-game-hud {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-md);
+  align-items: stretch;
+}
+
+.sand-game-scoreboard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  border-radius: var(--space-sm);
+  background: rgba(15, 23, 42, 0.85);
+  color: var(--text);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.sand-game-scoreboard span {
+  display: block;
+  padding: var(--space-xs);
+  border-radius: var(--space-xs);
+  background: rgba(255, 255, 255, 0.06);
+  text-align: center;
+}
+
+.sand-game-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.sand-button {
+  padding: var(--space-sm) var(--space-md);
+  border: 2px solid var(--accent);
+  border-radius: var(--space-xs);
+  background: var(--button-bg);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.1s ease;
+}
+
+.sand-button:hover {
+  background: var(--button-hover-bg);
+}
+
+.sand-button:active {
+  transform: translateY(1px);
+}
+
+.sand-game-board {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.sand-game-canvas {
+  width: min(100%, 720px);
+  height: auto;
+  border: 2px solid var(--accent);
+  border-radius: var(--space-sm);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.45);
+  background: var(--panel-bg);
+  image-rendering: pixelated;
+}
+
+.sand-game-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-lg);
+  background: var(--overlay-bg);
+  border-radius: var(--space-sm);
+  text-align: center;
+  z-index: 2;
+}
+
+.sand-game-overlay-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  align-items: center;
+  color: var(--text);
+}
+
+.sand-game-overlay-title {
+  margin: 0;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: 700;
+}
+
+.sand-game-overlay-text {
+  margin: 0;
+  font-size: clamp(1.05rem, 2.5vw, 1.25rem);
+  font-weight: 600;
+}
+
+.sand-game-overlay-hint {
+  margin: 0;
+  font-size: 0.95rem;
+  opacity: 0.8;
+}
+
+@media (max-width: 768px) {
+  .sand-game-container {
+    padding: clamp(var(--space-sm), 4vw, var(--space-lg));
+  }
+
+  .sand-game-hud {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .sand-game-scoreboard {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

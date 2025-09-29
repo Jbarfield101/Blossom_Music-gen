@@ -8,6 +8,12 @@ export default function Games() {
       <h1>Games</h1>
       <main className="dashboard">
         <Card to="/games/rain-blocks" icon="Blocks" title="Rain Blocks" />
+        <Card
+          to="/games/sand-blocks"
+          icon="Waves"
+          title="Sand Blocks"
+          caption="Experiment with falling sand"
+        />
         <Card to="/games/brick-breaker" icon="Gamepad2" title="Brick Breaker" />
         <Card to="/games/snake" icon="Worm" title="Snake" />
       </main>
