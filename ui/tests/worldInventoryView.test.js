@@ -460,6 +460,16 @@ function findFormByField(root, text) {
   );
 }
 
+function findTextareaByPlaceholder(root, text) {
+  return findElement(
+    root,
+    (node) =>
+      node.nodeType === 1 &&
+      node.tagName === 'TEXTAREA' &&
+      node.getAttribute('placeholder') === text
+  );
+}
+
 function fireEvent(target, type, overrides = {}) {
   if (!target) {
     throw new Error(`Unable to fire ${type} event on undefined target`);
@@ -643,6 +653,103 @@ test('moving an item updates assignment through the API', async () => {
     locationId: 'location-1',
   });
   assert.equal(ownerSelect.value, 'owner-2');
+  await cleanup();
+});
+
+test('updating charges persists via the API', async () => {
+  const { api, calls } = createFakeApi();
+  const { container, render, cleanup } = renderWithApi(api);
+  await render();
+  const chargesForm = findFormByField(container, 'Recharge');
+  assert.ok(chargesForm, 'charges form should be present');
+  const currentInput = findInputByLabel(chargesForm, 'Current');
+  const maximumInput = findInputByLabel(chargesForm, 'Maximum');
+  const rechargeInput = findInputByLabel(chargesForm, 'Recharge');
+  assert.ok(currentInput && maximumInput && rechargeInput, 'charges inputs should render');
+  await act(async () => {
+    currentInput.value = '1';
+    fireEvent(currentInput, 'input');
+    maximumInput.value = '4';
+    fireEvent(maximumInput, 'input');
+    rechargeInput.value = 'dusk';
+    fireEvent(rechargeInput, 'input');
+    await Promise.resolve();
+  });
+  const updateButton = findButtonByText(chargesForm, 'Update');
+  await act(async () => {
+    fireEvent(updateButton, 'click');
+    fireEvent(chargesForm, 'submit');
+    await Promise.resolve();
+  });
+  assert.equal(calls.updateItem.length, 1, 'updateItem should be called once for charges');
+  assert.deepEqual(calls.updateItem[0][1], { charges: { current: 1, maximum: 4, recharge: 'dusk' } });
+  await cleanup();
+});
+
+test('updating durability persists via the API', async () => {
+  const { api, calls } = createFakeApi();
+  const { container, render, cleanup } = renderWithApi(api);
+  await render();
+  const durabilityForm = findFormByField(container, 'Status');
+  assert.ok(durabilityForm, 'durability form should be present');
+  const currentInput = findInputByLabel(durabilityForm, 'Current');
+  const maximumInput = findInputByLabel(durabilityForm, 'Maximum');
+  const statusInput = findInputByLabel(durabilityForm, 'Status');
+  const notesTextarea = findTextareaByLabel(durabilityForm, 'Notes');
+  assert.ok(currentInput && maximumInput && statusInput && notesTextarea, 'durability inputs should render');
+  await act(async () => {
+    currentInput.value = '2';
+    fireEvent(currentInput, 'input');
+    maximumInput.value = '5';
+    fireEvent(maximumInput, 'input');
+    statusInput.value = 'tarnished';
+    fireEvent(statusInput, 'input');
+    notesTextarea.value = 'Slight dent on the guard';
+    fireEvent(notesTextarea, 'input');
+    await Promise.resolve();
+  });
+  const updateButton = findButtonByText(durabilityForm, 'Update');
+  await act(async () => {
+    fireEvent(updateButton, 'click');
+    fireEvent(durabilityForm, 'submit');
+    await Promise.resolve();
+  });
+  assert.equal(calls.updateItem.length, 1, 'updateItem should be called once for durability');
+  assert.deepEqual(calls.updateItem[0][1], {
+    durability: {
+      current: 2,
+      maximum: 5,
+      state: 'tarnished',
+      notes: 'Slight dent on the guard',
+    },
+  });
+  await cleanup();
+});
+
+test('saving an origin note persists via the API', async () => {
+  const { api, calls } = createFakeApi();
+  const { container, render, cleanup } = renderWithApi(api);
+  await render();
+  const originTextarea = findTextareaByPlaceholder(
+    container,
+    'Recorded origin or acquisition notes'
+  );
+  assert.ok(originTextarea, 'origin textarea should render');
+  await act(async () => {
+    originTextarea.value = 'Recovered from the Verdant Archives';
+    fireEvent(originTextarea, 'change');
+    await Promise.resolve();
+  });
+  const saveButton = findButtonByText(container, 'Save origin');
+  assert.ok(saveButton, 'origin save button should render');
+  await act(async () => {
+    fireEvent(saveButton, 'click');
+    await Promise.resolve();
+  });
+  assert.equal(calls.updateItem.length, 1, 'updateItem should be called once');
+  assert.deepEqual(calls.updateItem[0][1], {
+    provenance: { origin: 'Recovered from the Verdant Archives' },
+  });
   await cleanup();
 });
 

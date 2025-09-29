@@ -1,6 +1,7 @@
 import { createContext, createElement, useContext, useEffect, useMemo, useReducer } from 'react';
 import {
   fetchWorldInventorySnapshot,
+  createWorldInventoryItem,
   persistWorldInventoryItem,
   moveWorldInventoryItem,
   createWorldInventoryLedgerEntry,
@@ -562,6 +563,7 @@ const WorldInventoryContext = createContext(null);
 
 const defaultApi = {
   fetchSnapshot: fetchWorldInventorySnapshot,
+  createItem: createWorldInventoryItem,
   updateItem: persistWorldInventoryItem,
   moveItem: moveWorldInventoryItem,
   createLedgerEntry: createWorldInventoryLedgerEntry,
@@ -680,6 +682,8 @@ export function WorldInventoryProvider({ children, api: apiOverride }) {
           throw error;
         }
       },
+      createItem: (payload) =>
+        wrapMutation('__create__', () => api.createItem(payload), { select: true }),
       selectItem: (itemId) => dispatch({ type: 'selectItem', itemId }),
       setFilters: (filters) => dispatch({ type: 'setFilters', filters }),
       updateItem: (itemId, changes) =>

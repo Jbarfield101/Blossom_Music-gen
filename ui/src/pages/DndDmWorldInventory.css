@@ -59,6 +59,44 @@
   align-self: flex-start;
 }
 
+.wi-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.wi-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.wi-create-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-md);
+}
+
+.wi-create-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+
+.wi-create-actions button {
+  min-width: 120px;
+}
+
+.wi-create-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .wi-filter-panel {
   display: flex;
   flex-direction: column;
