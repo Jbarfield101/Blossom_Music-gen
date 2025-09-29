@@ -260,6 +260,29 @@ export default function BrickBreaker() {
     };
   }, [startNewGame]);
 
+  // Mouse control for the paddle
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return undefined;
+
+    const handlePointerMove = (event) => {
+      if (statusRef.current !== 'running') return;
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const mouseX = (event.clientX - rect.left) * scaleX;
+      const paddle = paddleRef.current;
+      const maxPaddleX = CANVAS_WIDTH - paddle.width;
+      paddle.x = Math.max(0, Math.min(maxPaddleX, mouseX - paddle.width / 2));
+    };
+
+    canvas.addEventListener('pointermove', handlePointerMove);
+    canvas.addEventListener('mousemove', handlePointerMove);
+    return () => {
+      canvas.removeEventListener('pointermove', handlePointerMove);
+      canvas.removeEventListener('mousemove', handlePointerMove);
+    };
+  }, []);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) {
@@ -565,6 +588,9 @@ export default function BrickBreaker() {
                     Final score: {score}
                   </p>
                 )}
+                <p className="brick-breaker-overlay-hint">
+                  Move the mouse to control the paddle.
+                </p>
                 <button
                   type="button"
                   className="brick-breaker-overlay-button"

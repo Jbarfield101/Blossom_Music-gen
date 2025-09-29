@@ -156,7 +156,7 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
                 or os.environ.get("TRANSFORMERS_OFFLINE") == "1"
             )
 
-            def _build_pipe(use_safetensors: bool = True):
+            def _build_pipe(use_safetensors: bool = True, model_id: Optional[str] = None):
                 model_kwargs = {
                     # The pipeline now expects safetensor preferences within model_kwargs.
                     "use_safetensors": use_safetensors,
@@ -166,10 +166,11 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
                 if offline:
                     model_kwargs["local_files_only"] = True
                 if torch_dtype is not None and device == 0:
-                    model_kwargs["torch_dtype"] = torch_dtype
+                    # transformers >= 4.44 prefers the 'dtype' kwarg
+                    model_kwargs["dtype"] = torch_dtype
 
                 pipeline_kwargs = {
-                    "model": normalized_name,
+                    "model": model_id or normalized_name,
                     "device": device,
                     "trust_remote_code": True,
                     "model_kwargs": model_kwargs,
@@ -181,21 +182,52 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
                 return "safetensor" in text
 
             pipe = None
-            safetensors_allowed = normalized_name not in BIN_ONLY_MODELS
+            # Try the requested model first; for the melody variant, provide
+            # pragmatic fallbacks to commonly available text-only checkpoints.
+            candidate_ids = [normalized_name]
+            if normalized_name == "facebook/musicgen-melody":
+                # Allow an override via env if the user has a specific fork.
+                override = os.environ.get("MUSICGEN_MELODY_ID")
+                if override and override not in candidate_ids:
+                    candidate_ids.append(override)
+                # Known widely available checkpoints as last-resort fallbacks.
+                for alt in ("facebook/musicgen-large", "facebook/musicgen-medium", "facebook/musicgen-small"):
+                    if alt not in candidate_ids:
+                        candidate_ids.append(alt)
 
-            if safetensors_allowed:
+            last_exc: Optional[Exception] = None
+            for candidate in candidate_ids:
+                safetensors_allowed = candidate not in BIN_ONLY_MODELS
                 try:
-                    pipe = _build_pipe(True)
+                    if safetensors_allowed:
+                        try:
+                            pipe = _build_pipe(True, model_id=candidate)
+                        except Exception as exc:
+                            last_exc = exc
+                            if _should_retry_without_safetensors(exc):
+                                logger.warning(
+                                    "Safetensor weights unavailable for %s; retrying with legacy format.",
+                                    candidate,
+                                )
+                            else:
+                                raise
+                    if pipe is None:
+                        pipe = _build_pipe(False, model_id=candidate)
+                    # Success
+                    if candidate != normalized_name:
+                        logger.warning(
+                            "Fell back from %s to %s. Melody conditioning may be ignored on fallback.",
+                            normalized_name,
+                            candidate,
+                        )
+                    break
                 except Exception as exc:
-                    if not _should_retry_without_safetensors(exc):
-                        raise
-                    logger.warning(
-                        "Safetensor weights unavailable for %s; retrying with legacy format.",
-                        normalized_name,
-                    )
-
-            if pipe is None:
-                pipe = _build_pipe(False)
+                    last_exc = exc
+                    pipe = None
+                    logger.debug("Candidate model %s failed: %s", candidate, exc)
+                    continue
+            if pipe is None and last_exc is not None:
+                raise last_exc
             # Patch ambiguous text config in newer Transformers MusicGen variants
             try:
                 model = getattr(pipe, "model", None)
