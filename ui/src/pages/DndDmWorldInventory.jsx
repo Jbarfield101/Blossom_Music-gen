@@ -1,5 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
+import ChargesForm from '../components/inventory/ChargesForm.jsx';
+import DurabilityForm from '../components/inventory/DurabilityForm.jsx';
+import OriginForm from '../components/inventory/OriginForm.jsx';
+import PlacementForm from '../components/inventory/PlacementForm.jsx';
 import {
   WorldInventoryProvider,
   useWorldInventory,
@@ -384,16 +388,6 @@ function ProvenanceLedger({ item, pending, onCreate, onUpdate, onDelete }) {
 }
 
 function WorldInventoryDetail({ item, lookups, pending, actions }) {
-  const [chargesForm, setChargesForm] = useState({ current: 0, maximum: 0, recharge: '' });
-  const [durabilityForm, setDurabilityForm] = useState({ current: 0, maximum: 0, state: '', notes: '' });
-  const [origin, setOrigin] = useState('');
-
-  useEffect(() => {
-    setChargesForm({ ...item.charges });
-    setDurabilityForm({ ...item.durability });
-    setOrigin(item.provenance.origin || '');
-  }, [item.id, item.charges, item.durability, item.provenance.origin]);
-
   const ownerOptions = useMemo(
     () => lookups.owners.allIds.map((id) => lookups.owners.byId[id]).filter(Boolean),
     [lookups.owners]
@@ -407,27 +401,12 @@ function WorldInventoryDetail({ item, lookups, pending, actions }) {
     [lookups.locations]
   );
 
-  const handleChargesChange = (event) => {
-    const { name, value } = event.target;
-    setChargesForm((prev) => ({ ...prev, [name]: name === 'recharge' ? value : Number(value) }));
+  const submitCharges = async (changes) => {
+    await actions.adjustCharges(item.id, changes);
   };
 
-  const handleDurabilityChange = (event) => {
-    const { name, value } = event.target;
-    setDurabilityForm((prev) => ({
-      ...prev,
-      [name]: name === 'state' || name === 'notes' ? value : Number(value),
-    }));
-  };
-
-  const submitCharges = async (event) => {
-    event.preventDefault();
-    await actions.adjustCharges(item.id, chargesForm);
-  };
-
-  const submitDurability = async (event) => {
-    event.preventDefault();
-    await actions.adjustDurability(item.id, durabilityForm);
+  const submitDurability = async (changes) => {
+    await actions.adjustDurability(item.id, changes);
   };
 
   const handleMoveChange = async (field, value) => {
@@ -438,9 +417,8 @@ function WorldInventoryDetail({ item, lookups, pending, actions }) {
     });
   };
 
-  const updateOrigin = async (event) => {
-    event.preventDefault();
-    await actions.updateItem(item.id, { provenance: { origin } });
+  const updateOrigin = async (value) => {
+    await actions.updateItem(item.id, { provenance: { origin: value } });
   };
 
   return (
@@ -466,165 +444,26 @@ function WorldInventoryDetail({ item, lookups, pending, actions }) {
       {item.notes && <p className="wi-detail-notes">{item.notes}</p>}
 
       <div className="wi-detail-grid">
-        <form className="wi-panel" onSubmit={submitCharges}>
-          <div className="wi-panel-header">
-            <h3>Charges</h3>
-            <button type="submit" disabled={pending}>
-              Update
-            </button>
-          </div>
-          <label>
-            <span>Current</span>
-            <input
-              type="number"
-              min="0"
-              name="current"
-              value={chargesForm.current}
-              onChange={handleChargesChange}
-              disabled={pending}
-            />
-          </label>
-          <label>
-            <span>Maximum</span>
-            <input
-              type="number"
-              min="0"
-              name="maximum"
-              value={chargesForm.maximum}
-              onChange={handleChargesChange}
-              disabled={pending}
-            />
-          </label>
-          <label>
-            <span>Recharge</span>
-            <input
-              type="text"
-              name="recharge"
-              value={chargesForm.recharge}
-              onChange={handleChargesChange}
-              disabled={pending}
-            />
-          </label>
-        </form>
-
-        <form className="wi-panel" onSubmit={submitDurability}>
-          <div className="wi-panel-header">
-            <h3>Durability</h3>
-            <button type="submit" disabled={pending}>
-              Update
-            </button>
-          </div>
-          <label>
-            <span>Current</span>
-            <input
-              type="number"
-              min="0"
-              name="current"
-              value={durabilityForm.current}
-              onChange={handleDurabilityChange}
-              disabled={pending}
-            />
-          </label>
-          <label>
-            <span>Maximum</span>
-            <input
-              type="number"
-              min="0"
-              name="maximum"
-              value={durabilityForm.maximum}
-              onChange={handleDurabilityChange}
-              disabled={pending}
-            />
-          </label>
-          <label>
-            <span>Status</span>
-            <input
-              type="text"
-              name="state"
-              value={durabilityForm.state}
-              onChange={handleDurabilityChange}
-              disabled={pending}
-            />
-          </label>
-          <label>
-            <span>Notes</span>
-            <textarea
-              name="notes"
-              value={durabilityForm.notes}
-              rows={3}
-              onChange={handleDurabilityChange}
-              disabled={pending}
-            />
-          </label>
-        </form>
+        <ChargesForm values={item.charges} pending={pending} onSubmit={submitCharges} />
+        <DurabilityForm values={item.durability} pending={pending} onSubmit={submitDurability} />
       </div>
 
-      <section className="wi-panel">
-        <div className="wi-panel-header">
-          <h3>Ownership & Placement</h3>
-        </div>
-        <label>
-          <span>Owner</span>
-          <select
-            value={item.ownerId}
-            onChange={(event) => handleMoveChange('ownerId', event.target.value)}
-            disabled={pending}
-          >
-            <option value="">Unassigned</option>
-            {ownerOptions.map((owner) => (
-              <option key={owner.id} value={owner.id}>
-                {owner.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Container</span>
-          <select
-            value={item.containerId}
-            onChange={(event) => handleMoveChange('containerId', event.target.value)}
-            disabled={pending}
-          >
-            <option value="">Unassigned</option>
-            {containerOptions.map((container) => (
-              <option key={container.id} value={container.id}>
-                {container.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Location</span>
-          <select
-            value={item.locationId}
-            onChange={(event) => handleMoveChange('locationId', event.target.value)}
-            disabled={pending}
-          >
-            <option value="">Unassigned</option>
-            {locationOptions.map((location) => (
-              <option key={location.id} value={location.id}>
-                {location.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      </section>
+      <PlacementForm
+        ownerId={item.ownerId}
+        containerId={item.containerId}
+        locationId={item.locationId}
+        ownerOptions={ownerOptions}
+        containerOptions={containerOptions}
+        locationOptions={locationOptions}
+        pending={pending}
+        onChange={handleMoveChange}
+      />
 
-      <section className="wi-panel">
-        <div className="wi-panel-header">
-          <h3>Origin</h3>
-          <button type="button" onClick={updateOrigin} disabled={pending}>
-            Save origin
-          </button>
-        </div>
-        <textarea
-          value={origin}
-          onChange={(event) => setOrigin(event.target.value)}
-          placeholder="Recorded origin or acquisition notes"
-          rows={3}
-          disabled={pending}
-        />
-      </section>
+      <OriginForm
+        origin={item.provenance.origin || ''}
+        pending={pending}
+        onSubmit={updateOrigin}
+      />
 
       <ProvenanceLedger
         item={item}
