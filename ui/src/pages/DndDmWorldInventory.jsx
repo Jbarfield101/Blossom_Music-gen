@@ -12,6 +12,24 @@ import {
 import './Dnd.css';
 import './DndDmWorldInventory.css';
 
+const DEFAULT_RARITIES = ['common', 'uncommon', 'rare', 'very rare', 'legendary', 'artifact'];
+
+function createInitialNewItemForm() {
+  return {
+    name: '',
+    type: '',
+    rarity: DEFAULT_RARITIES[0],
+    tags: '',
+    ownerId: '',
+    containerId: '',
+    locationId: '',
+    description: '',
+    notes: '',
+    weight: '',
+    attunementRequired: false,
+  };
+}
+
 function highlightMatches(value, query) {
   const text = value ?? '';
   const search = (query ?? '').trim();
@@ -184,6 +202,180 @@ function WorldInventoryFilters({ facets, filters, onFiltersChange }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function WorldInventoryCreateForm({
+  form,
+  errors,
+  pending,
+  ownerOptions,
+  containerOptions,
+  locationOptions,
+  onChange,
+  onSubmit,
+  onCancel,
+}) {
+  const handleChange = (event) => {
+    const { name, value, type, checked } = event.target;
+    onChange(name, type === 'checkbox' ? checked : value);
+  };
+
+  return (
+    <form className="wi-create-form" onSubmit={onSubmit}>
+      <div className="wi-create-grid">
+        <label>
+          <span>Name *</span>
+          <input
+            name="name"
+            type="text"
+            value={form.name}
+            onChange={handleChange}
+            disabled={pending}
+            placeholder="Ex: Bag of Holding"
+          />
+        </label>
+        <label>
+          <span>Type *</span>
+          <input
+            name="type"
+            type="text"
+            value={form.type}
+            onChange={handleChange}
+            disabled={pending}
+            placeholder="Ex: Wondrous item"
+          />
+        </label>
+        <label>
+          <span>Rarity *</span>
+          <input
+            name="rarity"
+            type="text"
+            list="wi-rarity-options"
+            value={form.rarity}
+            onChange={handleChange}
+            disabled={pending}
+            placeholder="Ex: uncommon"
+          />
+          <datalist id="wi-rarity-options">
+            {DEFAULT_RARITIES.map((rarity) => (
+              <option key={rarity} value={rarity} />
+            ))}
+          </datalist>
+        </label>
+        <label>
+          <span>Tags</span>
+          <input
+            name="tags"
+            type="text"
+            value={form.tags}
+            onChange={handleChange}
+            disabled={pending}
+            placeholder="Comma separated"
+          />
+        </label>
+        <label>
+          <span>Owner</span>
+          <select
+            name="ownerId"
+            value={form.ownerId}
+            onChange={handleChange}
+            disabled={pending}
+          >
+            <option value="">Unassigned</option>
+            {ownerOptions.map((owner) => (
+              <option key={owner.id} value={owner.id}>
+                {owner.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Container</span>
+          <select
+            name="containerId"
+            value={form.containerId}
+            onChange={handleChange}
+            disabled={pending}
+          >
+            <option value="">Unassigned</option>
+            {containerOptions.map((container) => (
+              <option key={container.id} value={container.id}>
+                {container.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Location</span>
+          <select
+            name="locationId"
+            value={form.locationId}
+            onChange={handleChange}
+            disabled={pending}
+          >
+            <option value="">Unassigned</option>
+            {locationOptions.map((location) => (
+              <option key={location.id} value={location.id}>
+                {location.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span>Weight (lbs)</span>
+          <input
+            name="weight"
+            type="number"
+            min="0"
+            step="0.1"
+            value={form.weight}
+            onChange={handleChange}
+            disabled={pending}
+          />
+        </label>
+      </div>
+      <label>
+        <span>Description</span>
+        <textarea
+          name="description"
+          rows={3}
+          value={form.description}
+          onChange={handleChange}
+          disabled={pending}
+          placeholder="What makes this item special?"
+        />
+      </label>
+      <label>
+        <span>Notes</span>
+        <textarea
+          name="notes"
+          rows={2}
+          value={form.notes}
+          onChange={handleChange}
+          disabled={pending}
+        />
+      </label>
+      <label className="wi-create-checkbox">
+        <input
+          name="attunementRequired"
+          type="checkbox"
+          checked={form.attunementRequired}
+          onChange={handleChange}
+          disabled={pending}
+        />
+        <span>Requires attunement</span>
+      </label>
+      {errors.length > 0 && <p className="wi-error">{errors.join(' ')}</p>}
+      <div className="wi-create-actions">
+        <button type="submit" disabled={pending}>
+          {pending ? 'Creating…' : 'Create item'}
+        </button>
+        <button type="button" onClick={onCancel} disabled={pending}>
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -508,6 +700,10 @@ export function WorldInventoryView() {
   const { loading, error, items, owners, containers, locations, filters, selectedItemId, pendingItems } =
     state;
 
+  const [isCreating, setIsCreating] = useState(false);
+  const [newItemForm, setNewItemForm] = useState(() => createInitialNewItemForm());
+  const [createErrors, setCreateErrors] = useState([]);
+
   const facets = useMemo(() => computeFacets(items), [items]);
 
   const filteredItems = useMemo(
@@ -515,15 +711,128 @@ export function WorldInventoryView() {
     [items, filters, owners, containers, locations]
   );
 
+  const ownerOptions = useMemo(
+    () => owners.allIds.map((id) => owners.byId[id]).filter(Boolean),
+    [owners]
+  );
+  const containerOptions = useMemo(
+    () => containers.allIds.map((id) => containers.byId[id]).filter(Boolean),
+    [containers]
+  );
+  const locationOptions = useMemo(
+    () => locations.allIds.map((id) => locations.byId[id]).filter(Boolean),
+    [locations]
+  );
+
   const selectedItem = selectedItemId ? items.byId[selectedItemId] : null;
   const pending = selectedItem ? Boolean(pendingItems[selectedItem.id]) : false;
+  const createPending = Boolean(pendingItems.__create__);
+
+  const resetCreateForm = () => {
+    setNewItemForm(createInitialNewItemForm());
+    setCreateErrors([]);
+  };
+
+  const closeCreate = () => {
+    setIsCreating(false);
+    resetCreateForm();
+  };
+
+  const handleToggleCreate = () => {
+    if (isCreating) {
+      closeCreate();
+    } else {
+      resetCreateForm();
+      setIsCreating(true);
+    }
+  };
+
+  const handleCreateChange = (field, value) => {
+    setNewItemForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleCreateSubmit = async (event) => {
+    event.preventDefault();
+    const trimmedName = newItemForm.name.trim();
+    const trimmedType = newItemForm.type.trim();
+    const trimmedRarity = newItemForm.rarity.trim();
+    const errors = [];
+    if (!trimmedName) {
+      errors.push('Name is required.');
+    }
+    if (!trimmedType) {
+      errors.push('Type is required.');
+    }
+    if (!trimmedRarity) {
+      errors.push('Rarity is required.');
+    }
+    if (errors.length > 0) {
+      setCreateErrors(errors);
+      return;
+    }
+
+    const tags = newItemForm.tags
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter((tag) => tag.length > 0);
+    const payload = {
+      name: trimmedName,
+      type: trimmedType,
+      rarity: trimmedRarity,
+      tags,
+      ownerId: newItemForm.ownerId,
+      containerId: newItemForm.containerId,
+      locationId: newItemForm.locationId,
+      description: newItemForm.description.trim(),
+      notes: newItemForm.notes.trim(),
+      attunement: {
+        required: Boolean(newItemForm.attunementRequired),
+        restrictions: [],
+        notes: '',
+        attunedTo: [],
+      },
+    };
+    if (newItemForm.weight !== '') {
+      const weightValue = Number(newItemForm.weight);
+      if (Number.isFinite(weightValue)) {
+        payload.weight = weightValue;
+      }
+    }
+
+    try {
+      await actions.createItem(payload);
+      closeCreate();
+    } catch (createError) {
+      console.warn('Unable to create item', createError);
+      setCreateErrors([]);
+    }
+  };
 
   return (
     <main className="world-inventory-layout">
       <section className="wi-panel">
         <div className="wi-panel-header">
           <h2>Items</h2>
+          <div className="wi-panel-actions">
+            {createPending && <span className="wi-status">Creating…</span>}
+            <button type="button" onClick={handleToggleCreate} disabled={createPending}>
+              {isCreating ? 'Close' : 'New Item'}
+            </button>
+          </div>
         </div>
+        {isCreating && (
+          <WorldInventoryCreateForm
+            form={newItemForm}
+            errors={createErrors}
+            pending={createPending}
+            ownerOptions={ownerOptions}
+            containerOptions={containerOptions}
+            locationOptions={locationOptions}
+            onChange={handleCreateChange}
+            onSubmit={handleCreateSubmit}
+            onCancel={closeCreate}
+          />
+        )}
         <WorldInventoryFilters facets={facets} filters={filters} onFiltersChange={actions.setFilters} />
         {loading && !state.loaded && <p className="wi-status">Loading inventory…</p>}
         {error && <p className="wi-error">{error}</p>}
