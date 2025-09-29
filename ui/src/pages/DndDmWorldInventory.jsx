@@ -12,6 +12,30 @@ import {
 import './Dnd.css';
 import './DndDmWorldInventory.css';
 
+function highlightMatches(value, query) {
+  const text = value ?? '';
+  const search = (query ?? '').trim();
+  if (!search) {
+    return String(text);
+  }
+  const escaped = search.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+  if (!escaped) {
+    return String(text);
+  }
+  const regex = new RegExp(`(${escaped})`, 'ig');
+  const parts = String(text).split(regex);
+  if (parts.length === 1) {
+    return parts[0];
+  }
+  return parts.map((part, index) =>
+    index % 2 === 1 ? (
+      <mark key={`match-${index}`}>{part}</mark>
+    ) : (
+      <React.Fragment key={`text-${index}`}>{part}</React.Fragment>
+    )
+  );
+}
+
 function computeFacets(itemsCollection) {
   const tagMap = new Map();
   const rarityMap = new Map();
@@ -163,7 +187,7 @@ function WorldInventoryFilters({ facets, filters, onFiltersChange }) {
   );
 }
 
-function WorldInventoryItemList({ items, selectedId, onSelect, lookups }) {
+function WorldInventoryItemList({ items, selectedId, onSelect, lookups, searchTerm }) {
   if (items.length === 0) {
     return <p className="wi-empty">No items match the current filters.</p>;
   }
@@ -173,6 +197,9 @@ function WorldInventoryItemList({ items, selectedId, onSelect, lookups }) {
         const owner = lookups.owners.byId[item.ownerId];
         const container = lookups.containers.byId[item.containerId];
         const location = lookups.locations.byId[item.locationId];
+        const ownerLabel = owner ? `Owner: ${owner.name}` : '';
+        const containerLabel = container ? `Container: ${container.name}` : '';
+        const locationLabel = location ? `Location: ${location.name}` : '';
         return (
           <li key={item.id}>
             <button
@@ -181,19 +208,19 @@ function WorldInventoryItemList({ items, selectedId, onSelect, lookups }) {
               onClick={() => onSelect(item.id)}
             >
               <div className="wi-item-header">
-                <span className="wi-item-name">{item.name}</span>
-                <span className="wi-item-rarity">{item.rarity}</span>
+                <span className="wi-item-name">{highlightMatches(item.name, searchTerm)}</span>
+                <span className="wi-item-rarity">{highlightMatches(item.rarity ?? '', searchTerm)}</span>
               </div>
               <div className="wi-item-sub">
-                {item.type && <span>{item.type}</span>}
-                {owner && <span>Owner: {owner.name}</span>}
-                {container && <span>Container: {container.name}</span>}
-                {location && <span>Location: {location.name}</span>}
+                {item.type && <span>{highlightMatches(item.type, searchTerm)}</span>}
+                {owner && <span>{highlightMatches(ownerLabel, searchTerm)}</span>}
+                {container && <span>{highlightMatches(containerLabel, searchTerm)}</span>}
+                {location && <span>{highlightMatches(locationLabel, searchTerm)}</span>}
               </div>
               <div className="wi-item-tags">
                 {item.tags.map((tag) => (
                   <span key={tag} className="wi-tag">
-                    {tag}
+                    {highlightMatches(tag, searchTerm)}
                   </span>
                 ))}
               </div>
@@ -505,6 +532,7 @@ export function WorldInventoryView() {
           selectedId={selectedItemId}
           onSelect={actions.selectItem}
           lookups={{ owners, containers, locations }}
+          searchTerm={filters.search}
         />
       </section>
       <section className="wi-detail-column">
