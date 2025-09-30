@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import BackButton from '../components/BackButton.jsx';
 import CharacterSheetSection from '../components/CharacterSheetSection.jsx';
 import AbilityScoreInputs from '../components/AbilityScoreInputs.jsx';
+import PrimaryButton from '../components/PrimaryButton.jsx';
 import { createPlayer } from '../api/players';
 import { serializeCharacterSheet, buildDerivedStats, createEmptyPlayerSheet, playerSheetReducer } from '../lib/playerSheet.js';
 import './Dnd.css';
@@ -321,9 +322,9 @@ export default function DndDmPlayerCreate() {
               <button type="button" onClick={next}>Next</button>
             )}
             {step === 3 && (
-              <button type="button" onClick={finish} disabled={saving}>
-                {saving ? 'Creating…' : 'Create Character'}
-              </button>
+              <PrimaryButton type="button" onClick={finish} loading={saving} loadingText="Generating…">
+                Generate Character
+              </PrimaryButton>
             )}
           </div>
         </div>

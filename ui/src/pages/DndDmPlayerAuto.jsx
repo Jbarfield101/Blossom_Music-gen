@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
+import PrimaryButton from '../components/PrimaryButton.jsx';
 import { createPlayer } from '../api/players';
 import { createEmptyPlayerSheet, serializeCharacterSheet } from '../lib/playerSheet.js';
 import './Dnd.css';
@@ -96,9 +97,9 @@ export default function DndDmPlayerAuto() {
             <input type="number" min={1} max={20} value={level} onChange={(e) => setLevel(e.target.value)} />
           </label>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button type="submit" disabled={creating}>
-              {creating ? (<><span className="spinner" aria-label="loading" /> Creating…</>) : 'Create with Blossom'}
-            </button>
+            <PrimaryButton type="submit" loading={creating} loadingText="Generating…">
+              Generate Character
+            </PrimaryButton>
           </div>
         </form>
       </section>

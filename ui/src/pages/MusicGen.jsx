@@ -6,6 +6,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { Store } from "@tauri-apps/plugin-store";
 import BackButton from "../components/BackButton.jsx";
 import JobQueuePanel from "../components/JobQueuePanel.jsx";
+import PrimaryButton from "../components/PrimaryButton.jsx";
 import { useJobQueue } from "../lib/useJobQueue.js";
 import { useSharedState, DEFAULT_MUSICGEN_FORM } from "../lib/sharedState.jsx";
 
@@ -1049,9 +1050,8 @@ export default function MusicGen() {
           <div className="mb-md">
             <div style={{ marginBottom: "0.25rem" }}>Melody Reference</div>
             <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
-              <button
+              <PrimaryButton
                 type="button"
-                className="p-sm"
                 onClick={async () => {
                   try {
                     const res = await open({
@@ -1084,10 +1084,9 @@ export default function MusicGen() {
                     setFormError("Failed to open the file picker. Please try again.");
                   }
                 }}
-                style={{ background: "var(--button-bg)", color: "var(--text)" }}
               >
                 {melodyPath ? "Change Clip" : "Choose Clip"}
-              </button>
+              </PrimaryButton>
               {melodyPath ? (
                 <span style={{ fontSize: "0.9rem", wordBreak: "break-all" }}>
                   {melodyFileName}
@@ -1096,17 +1095,15 @@ export default function MusicGen() {
                 <span style={{ fontSize: "0.9rem", opacity: 0.7 }}>No clip selected</span>
               )}
               {melodyPath && (
-                <button
+                <PrimaryButton
                   type="button"
-                  className="p-sm"
                   onClick={() => {
                     setMelodyPath("");
                     setFormError("Select a melody clip before generating with the melody model.");
                   }}
-                  style={{ background: "var(--button-bg)", color: "var(--text)" }}
                 >
                   Clear
-                </button>
+                </PrimaryButton>
               )}
             </div>
             <div style={{ marginTop: "0.25rem", fontSize: "0.85rem", opacity: 0.7 }}>
@@ -1157,9 +1154,8 @@ export default function MusicGen() {
               placeholder="Default (App Data directory)"
               style={{ flex: 1 }}
             />
-            <button
+            <PrimaryButton
               type="button"
-              className="p-sm"
               onClick={async () => {
                 try {
                   setOutputDirError("");
@@ -1186,22 +1182,19 @@ export default function MusicGen() {
                   setOutputDirError("Failed to open the folder picker. Please try again.");
                 }
               }}
-              style={{ background: "var(--button-bg)", color: "var(--text)" }}
             >
               Browse…
-            </button>
+            </PrimaryButton>
             {outputDir && (
-              <button
+              <PrimaryButton
                 type="button"
-                className="p-sm"
                 onClick={() => {
                   outputDirDirtyRef.current = true;
                   setOutputDir("");
                 }}
-                style={{ background: "var(--button-bg)", color: "var(--text)" }}
               >
                 Use Default
-              </button>
+              </PrimaryButton>
             )}
           </div>
           {outputDirError && (
@@ -1238,16 +1231,15 @@ export default function MusicGen() {
             Use FP16 on GPU (lower VRAM)
           </label>
         </div>
-        <button
+        <PrimaryButton
           type="submit"
-          disabled={
-            generating || (modelName === "melody" && !melodyPath)
-          }
-          className="mt-md p-sm"
-          style={{ background: "var(--button-bg)", color: "var(--text)" }}
+          className="mt-md"
+          disabled={modelName === "melody" && !melodyPath}
+          loading={generating}
+          loadingText="Generating…"
         >
           Generate
-        </button>
+        </PrimaryButton>
         <div id="progress-placeholder" className="mt-md mb-md" style={{ display: "grid", gap: "0.5rem" }}>
           {generating ? (
             <div style={{ display: "grid", gap: "0.5rem" }}>
@@ -1273,14 +1265,9 @@ export default function MusicGen() {
                 <div style={{ color: "var(--accent)", fontSize: "0.9rem" }}>{fallbackMsg}</div>
               )}
               <div>
-                <button
-                  type="button"
-                  className="p-sm"
-                  onClick={cancelJob}
-                  style={{ background: "var(--button-bg)", color: "var(--text)" }}
-                >
+                <PrimaryButton type="button" onClick={cancelJob}>
                   Cancel Job
-                </button>
+                </PrimaryButton>
               </div>
             </div>
           ) : (
@@ -1301,9 +1288,8 @@ export default function MusicGen() {
         </div>
       </form>
       <div className="mt-sm" style={{ background: "var(--card-bg)", padding: "var(--space-sm)" }}>
-        <button
+        <PrimaryButton
           type="button"
-          className="p-sm"
           onClick={async () => {
             try {
               const info = await invoke("musicgen_env");
@@ -1313,10 +1299,9 @@ export default function MusicGen() {
               setEnvInfo({ error: String(e) });
             }
           }}
-          style={{ background: "var(--button-bg)", color: "var(--text)" }}
         >
           Check Environment
-        </button>
+        </PrimaryButton>
         {envInfo && (
           <div className="mt-sm" style={{ fontSize: "0.9rem", opacity: 0.9 }}>
             <div>Device: {envInfo.device?.toUpperCase?.() || ""}</div>
@@ -1345,14 +1330,9 @@ export default function MusicGen() {
             <div key={idx} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
               <audio src={a.url} controls />
               <span style={{ fontSize: "0.9rem" }}>{a.name || `Track ${idx + 1}`}</span>
-              <button
-                type="button"
-                className="p-sm"
-                onClick={() => download(a, idx)}
-                style={{ background: "var(--button-bg)", color: "var(--text)" }}
-              >
+              <PrimaryButton type="button" onClick={() => download(a, idx)}>
                 Download
-              </button>
+              </PrimaryButton>
             </div>
           ))}
         </div>
