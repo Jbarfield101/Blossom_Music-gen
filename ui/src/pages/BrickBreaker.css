@@ -66,6 +66,46 @@
     rgba(15, 23, 42, 0.9);
 }
 
+.brick-breaker-milestone {
+  position: absolute;
+  top: var(--space-md);
+  right: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--space-xs);
+  border: 1px solid rgba(56, 189, 248, 0.45);
+  background: rgba(15, 23, 42, 0.92);
+  color: var(--text);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  pointer-events: none;
+  z-index: 3;
+  animation: brick-breaker-toast-in 160ms ease-out;
+}
+
+.brick-breaker-milestone strong {
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+.brick-breaker-milestone span {
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+
+@keyframes brick-breaker-toast-in {
+  from {
+    transform: translateY(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
 .brick-breaker-overlay {
   position: absolute;
   inset: 0;

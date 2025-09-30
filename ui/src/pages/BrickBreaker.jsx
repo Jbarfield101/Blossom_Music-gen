@@ -16,6 +16,9 @@ const BALL_MAX_SPEED = 12.5;
 
 const BRICK_HEIGHT = 26;
 
+const LIFE_MILESTONE_STEP = 1500;
+const MILESTONE_TOAST_DURATION = 2600;
+
 const BRICK_PALETTES = [
   ['#bae6fd', '#38bdf8', '#0ea5e9'],
   ['#fbcfe8', '#f472b6', '#db2777'],
@@ -113,9 +116,53 @@ export default function BrickBreaker() {
   const [lives, setLives] = useState(3);
   const [level, setLevel] = useState(1);
   const [gameStatus, setGameStatus] = useState('idle');
+  const [nextLifeThreshold, setNextLifeThreshold] = useState(
+    LIFE_MILESTONE_STEP
+  );
+  const [milestonePopup, setMilestonePopup] = useState({
+    visible: false,
+    message: '',
+    detail: '',
+  });
+
+  const nextLifeThresholdRef = useRef(LIFE_MILESTONE_STEP);
+  const milestoneTimeoutRef = useRef(null);
 
   statusRef.current = gameStatus;
   levelRef.current = level;
+
+  useEffect(() => {
+    nextLifeThresholdRef.current = nextLifeThreshold;
+  }, [nextLifeThreshold]);
+
+  const hideMilestonePopup = useCallback(() => {
+    if (milestoneTimeoutRef.current) {
+      clearTimeout(milestoneTimeoutRef.current);
+      milestoneTimeoutRef.current = null;
+    }
+    setMilestonePopup({ visible: false, message: '', detail: '' });
+  }, []);
+
+  const showMilestoneNotification = useCallback(
+    (lifeCount, newScore) => {
+      hideMilestonePopup();
+
+      const lifeLabel = lifeCount > 1 ? `${lifeCount} Lives` : '1 Life';
+      setMilestonePopup({
+        visible: true,
+        message: `Extra ${lifeLabel}!`,
+        detail: `Score reached ${newScore.toLocaleString()}.`,
+      });
+
+      if (typeof window !== 'undefined') {
+        milestoneTimeoutRef.current = window.setTimeout(() => {
+          setMilestonePopup({ visible: false, message: '', detail: '' });
+          milestoneTimeoutRef.current = null;
+        }, MILESTONE_TOAST_DURATION);
+      }
+    },
+    [hideMilestonePopup]
+  );
 
   const prepareLevel = useCallback((levelNumber) => {
     const paddle = paddleRef.current;
@@ -144,14 +191,17 @@ export default function BrickBreaker() {
   }, []);
 
   const startNewGame = useCallback(() => {
+    hideMilestonePopup();
     bricksRef.current = generateBricks(1);
     keysRef.current = { left: false, right: false };
     setScore(0);
     setLives(3);
     setLevel(1);
+    setNextLifeThreshold(LIFE_MILESTONE_STEP);
+    nextLifeThresholdRef.current = LIFE_MILESTONE_STEP;
     prepareLevel(1);
     setGameStatus('ready');
-  }, [prepareLevel]);
+  }, [hideMilestonePopup, prepareLevel]);
 
   const updateHighScoreFromStorage = useCallback(() => {
     if (typeof window === 'undefined') {
@@ -474,7 +524,25 @@ export default function BrickBreaker() {
         }
 
         const points = 50 + brickStrengthBefore * 20 + levelRef.current * 10;
-        setScore((prev) => prev + points);
+        setScore((prevScore) => {
+          const newScore = prevScore + points;
+          const currentThreshold = nextLifeThresholdRef.current;
+
+          if (newScore >= currentThreshold) {
+            const thresholdsCrossed =
+              Math.floor((newScore - currentThreshold) / LIFE_MILESTONE_STEP) + 1;
+            const updatedThreshold =
+              currentThreshold + LIFE_MILESTONE_STEP * thresholdsCrossed;
+
+            setNextLifeThreshold(updatedThreshold);
+            nextLifeThresholdRef.current = updatedThreshold;
+
+            setLives((prevLives) => prevLives + thresholdsCrossed);
+            showMilestoneNotification(thresholdsCrossed, newScore);
+          }
+
+          return newScore;
+        });
 
         const boostedSpeed = Math.min(
           ball.speed * 1.02 + levelRef.current * 0.05,
@@ -498,6 +566,9 @@ export default function BrickBreaker() {
               setGameStatus('gameover');
             }
             prepareLevel(1);
+            hideMilestonePopup();
+            setNextLifeThreshold(LIFE_MILESTONE_STEP);
+            nextLifeThresholdRef.current = LIFE_MILESTONE_STEP;
           } else {
             prepareLevel(levelRef.current);
             setGameStatus('ready');
@@ -531,7 +602,15 @@ export default function BrickBreaker() {
         window.cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [prepareLevel]);
+  }, [hideMilestonePopup, prepareLevel, showMilestoneNotification]);
+
+  useEffect(() => {
+    return () => {
+      if (milestoneTimeoutRef.current) {
+        clearTimeout(milestoneTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const overlayTitle = (() => {
     if (gameStatus === 'idle') {
@@ -617,6 +696,16 @@ export default function BrickBreaker() {
             width={CANVAS_WIDTH}
             height={CANVAS_HEIGHT}
           />
+          {milestonePopup.visible && (
+            <div
+              className="brick-breaker-milestone"
+              role="status"
+              aria-live="polite"
+            >
+              <strong>{milestonePopup.message}</strong>
+              {milestonePopup.detail ? <span>{milestonePopup.detail}</span> : null}
+            </div>
+          )}
           {showOverlay && (
             <div className="brick-breaker-overlay" role="status">
               <div className="brick-breaker-overlay-content">
