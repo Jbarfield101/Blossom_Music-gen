@@ -520,15 +520,37 @@ export default function DndDiscord() {
     (async () => {
       try {
         // Resolve portrait base
+        const joinPortraitPath = (...parts) => {
+          const segments = [];
+          parts.forEach((part, index) => {
+            const value = String(part ?? '').replaceAll('\\', '/');
+            if (!value) return;
+            const trimmed =
+              index === 0
+                ? value.replace(/[/]+$/, '')
+                : value.replace(/^[/]+/, '').replace(/[/]+$/, '');
+            if (trimmed) segments.push(trimmed);
+          });
+          return segments.join('/');
+        };
+        const toSystemPath = (path) => {
+          const str = String(path || '');
+          return /^[A-Za-z]:/.test(str) ? str.replaceAll('/', '\\') : str;
+        };
+
         let base = '';
         try {
           const v = await getConfig('vaultPath');
           const vStr = typeof v === 'string' ? v : '';
-          if (vStr) base = `${vStr}\\30_Assets\\Images\\NPC_Portraits`;
+          if (vStr) {
+            base = joinPortraitPath(vStr, '30_Assets', 'Images', 'NPC_Portraits');
+          }
         } catch {}
-        if (!base) base = 'D:\\Documents\\DreadHaven\\30_Assets\\Images\\NPC_Portraits';
+        if (!base) {
+          base = joinPortraitPath('D:/Documents/DreadHaven', '30_Assets', 'Images', 'NPC_Portraits');
+        }
         let entries = [];
-        try { entries = await listDir(base); } catch { entries = []; }
+        try { entries = await listDir(toSystemPath(base)); } catch { entries = []; }
         const norm = (s) => String(s||'').replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g,'_');
         const target = norm(name);
         let matchPath = '';
