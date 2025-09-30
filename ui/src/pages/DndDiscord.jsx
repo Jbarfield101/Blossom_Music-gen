@@ -815,7 +815,7 @@ export default function DndDiscord() {
             {/* Whisper transcript bar */}
       <div style={{ position: 'fixed', left: 12, right: 12, bottom: 44, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 8px', fontSize: 13, maxHeight: 120, overflow: 'auto' }}>
         {whisperLogs.length === 0 ? (
-          <span className=\"muted\">Waiting for speech…</span>
+          <span className="muted">Waiting for speech…</span>
         ) : (
           whisperLogs.slice(-10).map((l, i) => (
             <div key={i} style={{ opacity: l.final ? 1 : 0.8 }}>{l.text}</div>
@@ -911,12 +911,39 @@ export default function DndDiscord() {
         </div>
       )}
       {elKeyPresent && elUsage.limit > 0 && (
-      {portraitUrl && (
-        <img alt="NPC portrait" src={portraitUrl} style={{ position: 'fixed', left: 12, bottom: 44, width: 128, height: 128, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)' }} />
-      )}
-        <div style={{ position: 'fixed', left: 12, bottom: 12, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 8px', fontSize: 12, opacity: 0.9 }}>
-          ElevenLabs: {elUsage.used.toLocaleString()} / {elUsage.limit.toLocaleString()} ({elUsage.percent}%)
-        </div>
+        <>
+          {portraitUrl && (
+            <img
+              alt="NPC portrait"
+              src={portraitUrl}
+              style={{
+                position: 'fixed',
+                left: 12,
+                bottom: 44,
+                width: 128,
+                height: 128,
+                objectFit: 'cover',
+                borderRadius: 6,
+                border: '1px solid var(--border)',
+              }}
+            />
+          )}
+          <div
+            style={{
+              position: 'fixed',
+              left: 12,
+              bottom: 12,
+              background: 'var(--panel)',
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              padding: '6px 8px',
+              fontSize: 12,
+              opacity: 0.9,
+            }}
+          >
+            ElevenLabs: {elUsage.used.toLocaleString()} / {elUsage.limit.toLocaleString()} ({elUsage.percent}%)
+          </div>
+        </>
       )}
     </>
   );
