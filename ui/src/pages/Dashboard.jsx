@@ -22,6 +22,7 @@ export default function Dashboard() {
   }, []);
   const items = [
     { to: '/musicgen', icon: 'Music', title: 'Sound Lab' },
+    { to: '/calendar', icon: 'CalendarDays', title: 'Calendar' },
     { to: '/dnd', icon: 'Dice5', title: 'Dungeons & Dragons' },
     { to: '/games', icon: 'Gamepad2', title: 'Games' },
     { to: '/tools', icon: 'Wrench', title: 'Tools' },
