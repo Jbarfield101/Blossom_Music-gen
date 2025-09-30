@@ -1,0 +1,81 @@
+.chat-message {
+  position: relative;
+  margin-bottom: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  background: var(--card-muted-bg, rgba(255, 255, 255, 0.04));
+  animation: chatMessageEnter 200ms ease-out;
+  animation-fill-mode: backwards;
+}
+
+.chat-message:last-child {
+  margin-bottom: 0;
+}
+
+.chat-message--user {
+  background: transparent;
+}
+
+.chat-message--assistant {
+  padding-left: 1rem;
+  animation-name: chatMessageEnter, chatMessageAssistantSlide;
+  animation-duration: 200ms, 260ms;
+  animation-timing-function: ease-out;
+  animation-fill-mode: backwards;
+}
+
+.chat-message--assistant::before {
+  content: "";
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 8px;
+  width: 4px;
+  border-radius: 999px;
+  background: var(--accent, #7c5cff);
+  transform-origin: left center;
+  animation: chatMessageAccentReveal 260ms ease-out;
+  animation-fill-mode: backwards;
+}
+
+.chat-message__role {
+  font-weight: 600;
+  opacity: 0.8;
+  margin-bottom: 0.2rem;
+}
+
+.chat-message__content {
+  white-space: pre-wrap;
+  line-height: 1.45;
+}
+
+@keyframes chatMessageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes chatMessageAssistantSlide {
+  from {
+    transform: translateX(6px);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes chatMessageAccentReveal {
+  from {
+    opacity: 0;
+    transform: scaleX(0);
+  }
+  to {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}

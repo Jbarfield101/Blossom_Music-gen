@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import BackButton from "../components/BackButton.jsx";
+import "./GeneralChat.css";
 
 export default function GeneralChat() {
   const [modelOptions, setModelOptions] = useState([]);
@@ -14,13 +15,21 @@ export default function GeneralChat() {
   const [persona, setPersona] = useState("");
   const listRef = useRef(null);
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     const el = listRef.current;
     if (!el) return;
     requestAnimationFrame(() => {
       el.scrollTop = el.scrollHeight;
     });
-  };
+  }, []);
+
+  const appendMessage = useCallback(
+    (message) => {
+      setMessages((prev) => prev.concat(message));
+      scrollToBottom();
+    },
+    [scrollToBottom]
+  );
 
   useEffect(() => {
     const loadModels = async () => {
@@ -75,7 +84,7 @@ export default function GeneralChat() {
     setMissingModel("");
     setStatus("");
     setPending(true);
-    setMessages((prev) => prev.concat([{ role: "user", content: prompt }]));
+    appendMessage({ role: "user", content: prompt });
     setInput("");
     try {
       const system = persona
@@ -83,7 +92,7 @@ export default function GeneralChat() {
         : `You are Blossom, a helpful on-device AI assistant named Blossom. Be concise, friendly, and proactive.`;
       const reply = await invoke("generate_llm", { prompt, system });
       const text = typeof reply === "string" ? reply : String(reply || "");
-      setMessages((prev) => prev.concat([{ role: "assistant", content: text }]))
+      appendMessage({ role: "assistant", content: text });
     } catch (e) {
       const err = e instanceof Error ? e.message : String(e);
       const m = /model '([^']+)' not found/i.exec(err) || /model\s+([^\s]+)\s+not\s+found/i.exec(err);
@@ -92,16 +101,16 @@ export default function GeneralChat() {
         setMissingModel(name);
         setStatus(`Model '${name}' not found. Click Install to pull it.`);
       }
-      setMessages((prev) => prev.concat([{ role: "assistant", content: `Error: ${err}` }]))
+      appendMessage({ role: "assistant", content: `Error: ${err}` });
     } finally {
       setPending(false);
       scrollToBottom();
     }
-  }, [input, pending]);
+  }, [appendMessage, input, pending, persona, scrollToBottom]);
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages.length]);
+  }, [messages, scrollToBottom]);
 
   const onSubmit = (e) => {
     e.preventDefault();
@@ -176,11 +185,11 @@ export default function GeneralChat() {
           <div style={{ opacity: 0.7 }}>Start a conversation with the model.</div>
         ) : (
           messages.map((m, i) => (
-            <div key={i} style={{ marginBottom: "0.5rem" }}>
-              <div style={{ fontWeight: 600, opacity: 0.8 }}>
+            <div key={i} className={`chat-message chat-message--${m.role}`}>
+              <div className="chat-message__role">
                 {m.role === "user" ? "You" : "Blossom"}
               </div>
-              <div style={{ whiteSpace: "pre-wrap" }}>{m.content}</div>
+              <div className="chat-message__content">{m.content}</div>
             </div>
           ))
         )}
