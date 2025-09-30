@@ -19,12 +19,11 @@ export default function DndDmQuestGenerator() {
   const difficultyOptions = useMemo(() => DEFAULT_DIFFICULTIES, []);
   const environmentOptions = useMemo(() => DEFAULT_ENVIRONMENTS, []);
 
-  const systemMessage =
-    'You are Blossom, a concise Dungeons & Dragons quest designer. Reply with: '\
-    + "1) A titled synopsis (2-3 tight paragraphs max). " \
-    + '2) A short bullet list of player-facing quest hooks. '\
-    + '3) Explicit objectives / success conditions. '\
-    + 'Keep tone evocative yet efficient. Assume D&D 5e baseline.';
+  const systemMessage = `You are Blossom, a concise Dungeons & Dragons quest designer. Reply with:
+1) A titled synopsis (2-3 tight paragraphs max).
+2) A short bullet list of player-facing quest hooks.
+3) Explicit objectives / success conditions.
+Keep tone evocative yet efficient. Assume D&D 5e baseline.`;
 
   const buildPrompt = useCallback(() => {
     const lines = [
