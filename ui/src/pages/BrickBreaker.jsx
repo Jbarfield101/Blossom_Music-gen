@@ -134,8 +134,8 @@ export default function BrickBreaker() {
     const speed = Math.min(baseSpeed, BALL_MAX_SPEED);
 
     ballRef.current = {
-      x: CANVAS_WIDTH / 2,
-      y: CANVAS_HEIGHT - 72,
+      x: paddle.x + clampedWidth / 2,
+      y: paddle.y - BALL_RADIUS - 1,
       radius: BALL_RADIUS,
       speed,
       dx: Math.cos(angle) * speed * direction,
@@ -150,7 +150,7 @@ export default function BrickBreaker() {
     setLives(3);
     setLevel(1);
     prepareLevel(1);
-    setGameStatus('running');
+    setGameStatus('ready');
   }, [prepareLevel]);
 
   const updateHighScoreFromStorage = useCallback(() => {
@@ -235,6 +235,8 @@ export default function BrickBreaker() {
           setGameStatus('paused');
         } else if (status === 'paused') {
           setGameStatus('running');
+        } else if (status === 'ready') {
+          setGameStatus('running');
         } else {
           startNewGame();
         }
@@ -266,7 +268,11 @@ export default function BrickBreaker() {
     if (!canvas) return undefined;
 
     const handlePointerMove = (event) => {
-      if (statusRef.current !== 'running') return;
+      if (
+        statusRef.current !== 'running' &&
+        statusRef.current !== 'ready'
+      )
+        return;
       const rect = canvas.getBoundingClientRect();
       const scaleX = canvas.width / rect.width;
       const mouseX = (event.clientX - rect.left) * scaleX;
@@ -280,6 +286,27 @@ export default function BrickBreaker() {
     return () => {
       canvas.removeEventListener('pointermove', handlePointerMove);
       canvas.removeEventListener('mousemove', handlePointerMove);
+    };
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      return undefined;
+    }
+
+    const handleLaunch = () => {
+      if (statusRef.current === 'ready') {
+        setGameStatus('running');
+      }
+    };
+
+    canvas.addEventListener('pointerdown', handleLaunch);
+    canvas.addEventListener('click', handleLaunch);
+
+    return () => {
+      canvas.removeEventListener('pointerdown', handleLaunch);
+      canvas.removeEventListener('click', handleLaunch);
     };
   }, []);
 
@@ -325,6 +352,10 @@ export default function BrickBreaker() {
       context.strokeRect(paddle.x, paddle.y, paddle.width, paddle.height);
 
       const ball = ballRef.current;
+      if (statusRef.current === 'ready') {
+        ball.x = paddle.x + paddle.width / 2;
+        ball.y = paddle.y - ball.radius - 1;
+      }
       context.beginPath();
       context.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
       context.closePath();
@@ -338,18 +369,25 @@ export default function BrickBreaker() {
     const updateGame = () => {
       const paddle = paddleRef.current;
       const ball = ballRef.current;
+      const status = statusRef.current;
 
       const effectiveSpeed = PADDLE_SPEED + levelRef.current * 0.15;
-      if (keysRef.current.left) {
-        paddle.x -= effectiveSpeed;
-      }
+      if (status === 'running' || status === 'ready') {
+        if (keysRef.current.left) {
+          paddle.x -= effectiveSpeed;
+        }
 
-      if (keysRef.current.right) {
-        paddle.x += effectiveSpeed;
+        if (keysRef.current.right) {
+          paddle.x += effectiveSpeed;
+        }
       }
 
       const maxPaddleX = CANVAS_WIDTH - paddle.width;
       paddle.x = Math.max(0, Math.min(maxPaddleX, paddle.x));
+
+      if (status !== 'running') {
+        return;
+      }
 
       ball.x += ball.dx;
       ball.y += ball.dy;
@@ -462,6 +500,7 @@ export default function BrickBreaker() {
             prepareLevel(1);
           } else {
             prepareLevel(levelRef.current);
+            setGameStatus('ready');
           }
           return Math.max(0, nextLives);
         });
@@ -474,13 +513,12 @@ export default function BrickBreaker() {
           prepareLevel(nextLevel);
           return nextLevel;
         });
+        setGameStatus('ready');
       }
     };
 
     const frame = () => {
-      if (statusRef.current === 'running') {
-        updateGame();
-      }
+      updateGame();
 
       drawScene();
       animationRef.current = window.requestAnimationFrame(frame);
@@ -527,7 +565,8 @@ export default function BrickBreaker() {
     return '';
   })();
 
-  const showOverlay = gameStatus !== 'running';
+  const showOverlay =
+    gameStatus === 'idle' || gameStatus === 'paused' || gameStatus === 'gameover';
 
   const buttonLabel = (() => {
     if (gameStatus === 'paused') {
