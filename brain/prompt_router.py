@@ -19,7 +19,20 @@ def classify(message: str) -> Category:
     """
     text = message.lower()
 
+    location_terms = r"(?:city|town|village|kingdom|empire|realm|nation|settlement|capital)"
+    pantheon_terms = r"(?:pantheon|god|gods|deity|deities)"
+
     if re.search(r"\bnpc\b|hello|hi|hey|greet|talk to", text):
+        return "npc"
+    if re.search(r"\bwho\s+(?:is|was|are)\b|\bwho's\b", text):
+        return "npc"
+    if re.search(rf"\btell me about\b.*\b(?:{location_terms}|{pantheon_terms})\b", text):
+        return "lore"
+    if re.search(r"\bwhere\s+(?:is|are)\b", text):
+        return "lore"
+    if re.search(rf"\b(?:{location_terms}|{pantheon_terms})\b", text):
+        return "lore"
+    if re.search(r"\btell me about\b", text):
         return "npc"
     if re.search(r"\brules?\b|must|should|policy|guideline", text):
         return "rules"
