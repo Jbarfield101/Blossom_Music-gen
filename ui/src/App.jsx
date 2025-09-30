@@ -20,6 +20,7 @@ import DndDmQuestsFaction from './pages/DndDmQuestsFaction.jsx';
 import DndDmQuestsMain from './pages/DndDmQuestsMain.jsx';
 import DndDmQuestsPersonal from './pages/DndDmQuestsPersonal.jsx';
 import DndDmQuestsSide from './pages/DndDmQuestsSide.jsx';
+import DndDmQuestGenerator from './pages/DndDmQuestGenerator.jsx';
 import DndDmEstablishments from './pages/DndDmEstablishments.jsx';
 import DndDmTagManager from './pages/DndDmTagManager.jsx';
 import DndVoiceLabs from './pages/DndVoiceLabs.jsx';
@@ -299,6 +300,10 @@ export default function App() {
         <Route path="/dnd/dungeon-master/quests/main" element={<DndDmQuestsMain />} />
         <Route path="/dnd/dungeon-master/quests/personal" element={<DndDmQuestsPersonal />} />
         <Route path="/dnd/dungeon-master/quests/side" element={<DndDmQuestsSide />} />
+        <Route
+          path="/dnd/dungeon-master/quests/generator"
+          element={<DndDmQuestGenerator />}
+        />
         <Route path="/dnd/dungeon-master/establishments" element={<DndDmEstablishments />} />
         <Route path="/dnd/dungeon-master/tag-manager" element={<DndDmTagManager />} />
         <Route path="/dnd/dungeon-master/world-inventory" element={<DndDmWorldInventory />} />
