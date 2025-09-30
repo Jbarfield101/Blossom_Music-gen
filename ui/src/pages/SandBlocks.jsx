@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
 import './SandBlocks.css';
 
-const CELL_SIZE = 6;
+const CELL_SIZE = 16;
 const GRID_WIDTH = 120;
 const GRID_HEIGHT = 80;
 const CANVAS_WIDTH = GRID_WIDTH * CELL_SIZE;
