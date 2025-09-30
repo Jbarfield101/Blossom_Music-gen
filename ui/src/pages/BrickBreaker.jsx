@@ -18,6 +18,7 @@ const BRICK_HEIGHT = 26;
 
 const LIFE_MILESTONE_STEP = 1500;
 const MILESTONE_TOAST_DURATION = 2600;
+const LEVEL_INTRO_DURATION = 2000;
 
 const BRICK_PALETTES = [
   ['#bae6fd', '#38bdf8', '#0ea5e9'],
@@ -127,6 +128,7 @@ export default function BrickBreaker() {
 
   const nextLifeThresholdRef = useRef(LIFE_MILESTONE_STEP);
   const milestoneTimeoutRef = useRef(null);
+  const levelIntroTimeoutRef = useRef(null);
 
   statusRef.current = gameStatus;
   levelRef.current = level;
@@ -190,6 +192,35 @@ export default function BrickBreaker() {
     };
   }, []);
 
+  const confirmLevelIntro = useCallback(() => {
+    if (statusRef.current !== 'level-intro') {
+      return;
+    }
+
+    keysRef.current = { left: false, right: false };
+    if (levelIntroTimeoutRef.current) {
+      clearTimeout(levelIntroTimeoutRef.current);
+      levelIntroTimeoutRef.current = null;
+    }
+    statusRef.current = 'ready';
+    setGameStatus('ready');
+  }, []);
+
+  const proceedToNextLevel = useCallback(() => {
+    if (statusRef.current !== 'level-complete') {
+      return;
+    }
+
+    const nextLevelNumber = levelRef.current + 1;
+    bricksRef.current = generateBricks(nextLevelNumber);
+    prepareLevel(nextLevelNumber);
+    keysRef.current = { left: false, right: false };
+    setLevel(nextLevelNumber);
+    levelRef.current = nextLevelNumber;
+    statusRef.current = 'level-intro';
+    setGameStatus('level-intro');
+  }, [prepareLevel]);
+
   const startNewGame = useCallback(() => {
     hideMilestonePopup();
     bricksRef.current = generateBricks(1);
@@ -197,10 +228,12 @@ export default function BrickBreaker() {
     setScore(0);
     setLives(3);
     setLevel(1);
+    levelRef.current = 1;
     setNextLifeThreshold(LIFE_MILESTONE_STEP);
     nextLifeThresholdRef.current = LIFE_MILESTONE_STEP;
     prepareLevel(1);
-    setGameStatus('ready');
+    statusRef.current = 'level-intro';
+    setGameStatus('level-intro');
   }, [hideMilestonePopup, prepareLevel]);
 
   const updateHighScoreFromStorage = useCallback(() => {
@@ -261,6 +294,39 @@ export default function BrickBreaker() {
   }, [prepareLevel]);
 
   useEffect(() => {
+    if (gameStatus !== 'level-intro') {
+      if (levelIntroTimeoutRef.current) {
+        clearTimeout(levelIntroTimeoutRef.current);
+        levelIntroTimeoutRef.current = null;
+      }
+      return undefined;
+    }
+
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    if (levelIntroTimeoutRef.current) {
+      clearTimeout(levelIntroTimeoutRef.current);
+    }
+
+    levelIntroTimeoutRef.current = window.setTimeout(() => {
+      if (statusRef.current === 'level-intro') {
+        statusRef.current = 'ready';
+        setGameStatus('ready');
+      }
+      levelIntroTimeoutRef.current = null;
+    }, LEVEL_INTRO_DURATION);
+
+    return () => {
+      if (levelIntroTimeoutRef.current) {
+        clearTimeout(levelIntroTimeoutRef.current);
+        levelIntroTimeoutRef.current = null;
+      }
+    };
+  }, [gameStatus]);
+
+  useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.defaultPrevented) {
         return;
@@ -287,6 +353,10 @@ export default function BrickBreaker() {
           setGameStatus('running');
         } else if (status === 'ready') {
           setGameStatus('running');
+        } else if (status === 'level-intro') {
+          confirmLevelIntro();
+        } else if (status === 'level-complete') {
+          proceedToNextLevel();
         } else {
           startNewGame();
         }
@@ -310,7 +380,7 @@ export default function BrickBreaker() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [startNewGame]);
+  }, [confirmLevelIntro, proceedToNextLevel, startNewGame]);
 
   // Mouse control for the paddle
   useEffect(() => {
@@ -577,14 +647,11 @@ export default function BrickBreaker() {
         });
       }
 
-      if (statusRef.current !== 'gameover' && bricks.length === 0) {
-        setLevel((prevLevel) => {
-          const nextLevel = prevLevel + 1;
-          bricksRef.current = generateBricks(nextLevel);
-          prepareLevel(nextLevel);
-          return nextLevel;
-        });
-        setGameStatus('ready');
+      if (status !== 'gameover' && status !== 'level-complete' && bricks.length === 0) {
+        keysRef.current.left = false;
+        keysRef.current.right = false;
+        statusRef.current = 'level-complete';
+        setGameStatus('level-complete');
       }
     };
 
@@ -609,6 +676,9 @@ export default function BrickBreaker() {
       if (milestoneTimeoutRef.current) {
         clearTimeout(milestoneTimeoutRef.current);
       }
+      if (levelIntroTimeoutRef.current) {
+        clearTimeout(levelIntroTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -619,6 +689,14 @@ export default function BrickBreaker() {
 
     if (gameStatus === 'paused') {
       return 'Paused';
+    }
+
+    if (gameStatus === 'level-intro') {
+      return `Level ${level} Start`;
+    }
+
+    if (gameStatus === 'level-complete') {
+      return `Level ${level} Completed`;
     }
 
     if (gameStatus === 'gameover') {
@@ -637,6 +715,14 @@ export default function BrickBreaker() {
       return 'Press space or resume to keep smashing bricks.';
     }
 
+    if (gameStatus === 'level-intro') {
+      return `Level ${level} begins shortly. Press Begin to get into position early or wait for the auto-launch.`;
+    }
+
+    if (gameStatus === 'level-complete') {
+      return `Level ${level} cleared! Take a breath before diving into level ${level + 1}.`;
+    }
+
     if (gameStatus === 'gameover') {
       return 'All lives lost. Ready for another run?';
     }
@@ -645,7 +731,11 @@ export default function BrickBreaker() {
   })();
 
   const showOverlay =
-    gameStatus === 'idle' || gameStatus === 'paused' || gameStatus === 'gameover';
+    gameStatus === 'idle' ||
+    gameStatus === 'paused' ||
+    gameStatus === 'gameover' ||
+    gameStatus === 'level-intro' ||
+    gameStatus === 'level-complete';
 
   const buttonLabel = (() => {
     if (gameStatus === 'paused') {
@@ -656,21 +746,46 @@ export default function BrickBreaker() {
       return 'Play Again';
     }
 
+    if (gameStatus === 'level-intro') {
+      return 'Begin Level';
+    }
+
+    if (gameStatus === 'level-complete') {
+      return 'Next Level';
+    }
+
     return 'Start';
   })();
 
-  const spaceAction =
-    gameStatus === 'paused'
-      ? 'resume'
-      : gameStatus === 'running'
-        ? 'pause'
-        : 'start';
+  const spaceAction = (() => {
+    if (gameStatus === 'paused') {
+      return 'resume';
+    }
+
+    if (gameStatus === 'running') {
+      return 'pause';
+    }
+
+    if (gameStatus === 'level-intro') {
+      return 'begin the level';
+    }
+
+    if (gameStatus === 'level-complete') {
+      return 'continue';
+    }
+
+    return 'start';
+  })();
 
   const handlePrimaryAction = () => {
     if (gameStatus === 'running') {
       setGameStatus('paused');
     } else if (gameStatus === 'paused') {
       setGameStatus('running');
+    } else if (gameStatus === 'level-intro') {
+      confirmLevelIntro();
+    } else if (gameStatus === 'level-complete') {
+      proceedToNextLevel();
     } else {
       startNewGame();
     }
@@ -714,6 +829,16 @@ export default function BrickBreaker() {
                 {gameStatus === 'gameover' && (
                   <p className="brick-breaker-overlay-score">
                     Final score: {score}
+                  </p>
+                )}
+                {gameStatus === 'level-intro' && (
+                  <p className="brick-breaker-overlay-hint">
+                    Level starts automatically in a moment or press Begin to take control now.
+                  </p>
+                )}
+                {gameStatus === 'level-complete' && (
+                  <p className="brick-breaker-overlay-hint">
+                    Next up: Level {level + 1}
                   </p>
                 )}
                 <p className="brick-breaker-overlay-hint">
