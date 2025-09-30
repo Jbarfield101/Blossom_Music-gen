@@ -76,3 +76,146 @@ header {
   cursor: pointer;
 }
 
+
+.skip-link {
+  position: absolute;
+  left: -999px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.skip-link:focus {
+  left: var(--space-md);
+  top: var(--space-md);
+  width: auto;
+  height: auto;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--card-bg);
+  color: var(--text);
+  border-radius: 999px;
+  box-shadow: var(--card-shadow);
+  z-index: 10000;
+}
+
+.app-layout {
+  display: flex;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.main-nav {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  min-width: 220px;
+  max-width: 260px;
+  width: 20vw;
+  padding: var(--space-lg) var(--space-md);
+  box-sizing: border-box;
+  background: var(--card-bg);
+  box-shadow: var(--topbar-shadow);
+  border-right: 1px solid color-mix(in srgb, var(--text) 20%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.main-nav__brand {
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+
+.main-nav__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.main-nav__link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0.65rem 0.85rem;
+  border-radius: 0.75rem;
+  text-decoration: none;
+  color: inherit;
+  font-weight: 600;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.main-nav__link:is(:hover, :focus-visible) {
+  background: var(--card-hover-bg);
+}
+
+.main-nav__link.is-active {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  color: var(--accent);
+}
+
+.main-nav__text {
+  line-height: 1.2;
+}
+
+.app-layout__content {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-lg);
+  overflow-y: auto;
+}
+
+@media (max-width: 960px) {
+  .app-layout {
+    flex-direction: column;
+  }
+
+  .main-nav {
+    position: sticky;
+    width: 100%;
+    max-width: 100%;
+    min-width: auto;
+    top: 0;
+    z-index: 10;
+    border-right: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--text) 20%, transparent);
+    padding: var(--space-md);
+  }
+
+  .main-nav__list {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+  }
+
+  .main-nav__item {
+    flex: 0 0 auto;
+  }
+
+  .main-nav__link {
+    border-radius: 999px;
+    white-space: nowrap;
+    padding: 0.5rem 0.9rem;
+  }
+
+  .app-layout__content {
+    padding: var(--space-md);
+  }
+}
+
+@media (max-width: 600px) {
+  .main-nav__brand {
+    display: none;
+  }
+}

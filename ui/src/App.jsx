@@ -1,4 +1,5 @@
 import { Routes, Route } from 'react-router-dom';
+import AppLayout from './components/AppLayout.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Dnd from './pages/Dnd.jsx';
 import DndChat from './pages/DndChat.jsx';
@@ -261,89 +262,91 @@ export default function App() {
         <UserSelectorOverlay onClose={() => setNeedsUser(false)} />
       )}
       <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/musicgen" element={<SoundLab />}>
-          <Route path="musicgen" element={<MusicGen />} />
-          <Route path="algorithmic" element={<AlgorithmicGenerator />} />
+        <Route element={<AppLayout />}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/musicgen" element={<SoundLab />}>
+            <Route path="musicgen" element={<MusicGen />} />
+            <Route path="algorithmic" element={<AlgorithmicGenerator />} />
+          </Route>
+          <Route path="/dnd" element={<Dnd />} />
+          <Route path="/dnd/inbox" element={<DndInbox />} />
+          <Route path="/dnd/world" element={<DndWorld />} />
+          <Route path="/dnd/world/bank" element={<DndWorldBank />} />
+          <Route path="/dnd/world/bank/economy" element={<DndWorldBankEconomy />} />
+          <Route path="/dnd/world/bank/transactions" element={<DndWorldBankTransactions />} />
+          <Route path="/dnd/world/pantheon" element={<DndWorldPantheon />} />
+          <Route path="/dnd/world/regions" element={<DndWorldRegions />} />
+          <Route path="/dnd/world/factions" element={<DndWorldFactions />} />
+          <Route path="/dnd/world/calendar" element={<DndWorldCalendar />} />
+          <Route path="/dnd/lore/secrets" element={<DndLoreSecrets />} />
+          <Route path="/dnd/lore/journal" element={<DndLoreJournal />} />
+          <Route path="/dnd/lore/stories" element={<DndLoreStories />} />
+          <Route path="/dnd/lore/notes" element={<DndLoreNotes />} />
+          <Route path="/dnd/lore/relations" element={<DndLorePlayerRelations />} />
+          <Route path="/dnd/lore/spellbook" element={<DndLoreSpellBook />} />
+          <Route path="/dnd/lore/races" element={<DndLoreRaces />} />
+          <Route path="/dnd/lore/classes" element={<DndLoreClasses />} />
+          <Route path="/dnd/lore/rules" element={<DndLoreRules />} />
+          <Route path="/dnd/lore/background-rules" element={<DndLoreBackgroundRules />} />
+          <Route path="/dnd/tasks" element={<DndTasks />} />
+          <Route path="/dnd/dungeon-master" element={<DndDungeonMaster />} />
+          <Route path="/dnd/dungeon-master/events" element={<DndDmEvents />} />
+          <Route path="/dnd/dungeon-master/monsters" element={<DndDmMonsters />} />
+          <Route path="/dnd/dungeon-master/npcs" element={<DndDmNpcs />} />
+          <Route path="/dnd/dungeon-master/players" element={<DndDmPlayersHome />} />
+          <Route path="/dnd/dungeon-master/players/sheet" element={<DndDmPlayers />} />
+          <Route path="/dnd/dungeon-master/players/new" element={<DndDmPlayerCreate />} />
+          <Route path="/dnd/dungeon-master/players/auto" element={<DndDmPlayerAuto />} />
+          <Route path="/dnd/dungeon-master/quests" element={<DndDmQuests />} />
+          <Route path="/dnd/dungeon-master/quests/faction" element={<DndDmQuestsFaction />} />
+          <Route path="/dnd/dungeon-master/quests/main" element={<DndDmQuestsMain />} />
+          <Route path="/dnd/dungeon-master/quests/personal" element={<DndDmQuestsPersonal />} />
+          <Route path="/dnd/dungeon-master/quests/side" element={<DndDmQuestsSide />} />
+          <Route
+            path="/dnd/dungeon-master/quests/generator"
+            element={<DndDmQuestGenerator />}
+          />
+          <Route path="/dnd/dungeon-master/establishments" element={<DndDmEstablishments />} />
+          <Route path="/dnd/dungeon-master/tag-manager" element={<DndDmTagManager />} />
+          <Route path="/dnd/dungeon-master/world-inventory" element={<DndDmWorldInventory />} />
+          <Route path="/dnd/assets" element={<DndAssets />} />
+          <Route path="/dnd/lore" element={<DndLore />} />
+          <Route path="/dnd/piper" element={<DndVoiceLabs />} />
+          <Route path="/dnd/piper/piper" element={<DndPiperOnly />} />
+          <Route path="/dnd/piper/eleven" element={<DndElevenLabs />} />
+          <Route path="/tools/voices" element={<DndVoiceLabs />} />
+          <Route path="/tools/voices/piper" element={<DndPiperOnly />} />
+          <Route path="/tools/voices/eleven" element={<DndElevenLabs />} />
+          <Route path="/tools/voices/manage" element={<ManageVoices />} />
+          <Route path="/dnd/discord" element={<DndDiscord />} />
+          <Route path="/dnd/chat" element={<DndChat />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/settings/users" element={<SettingsUsers />} />
+          <Route path="/settings/vault" element={<SettingsVault />} />
+          <Route path="/settings/discord" element={<SettingsDiscord />} />
+          <Route path="/settings/appearance" element={<SettingsAppearance />} />
+          <Route path="/settings/models" element={<SettingsModels />} />
+          <Route path="/settings/devices" element={<SettingsDevices />} />
+          <Route path="/settings/hotwords" element={<SettingsHotwords />} />
+          <Route path="/settings/backup" element={<SettingsBackup />} />
+          <Route path="/settings/advanced" element={<SettingsAdvanced />} />
+          <Route path="/profiles" element={<Profiles />} />
+          <Route path="/train" element={<Train />} />
+          <Route path="/tools" element={<Tools />} />
+          <Route path="/tools/whisper" element={<WhisperOutput />} />
+          <Route path="/calendar" element={<Calendar />} />
+          <Route path="/chat" element={<GeneralChat />} />
+          <Route path="/queue" element={<Queue />} />
+          <Route path="/fusion" element={<Fusion />} />
+          <Route path="/loopmaker" element={<LoopMaker />} />
+          <Route path="/beatmaker" element={<BeatMaker />} />
+          <Route path="/album" element={<AlbumMaker />} />
+          <Route path="/games" element={<Games />} />
+          <Route path="/games/rain-blocks" element={<RainBlocks />} />
+          <Route path="/games/sand-blocks" element={<SandBlocks />} />
+          <Route path="/games/brick-breaker" element={<BrickBreaker />} />
+          <Route path="/games/snake" element={<Snake />} />
         </Route>
-        <Route path="/dnd" element={<Dnd />} />
-        <Route path="/dnd/inbox" element={<DndInbox />} />
-        <Route path="/dnd/world" element={<DndWorld />} />
-        <Route path="/dnd/world/bank" element={<DndWorldBank />} />
-        <Route path="/dnd/world/bank/economy" element={<DndWorldBankEconomy />} />
-        <Route path="/dnd/world/bank/transactions" element={<DndWorldBankTransactions />} />
-        <Route path="/dnd/world/pantheon" element={<DndWorldPantheon />} />
-        <Route path="/dnd/world/regions" element={<DndWorldRegions />} />
-        <Route path="/dnd/world/factions" element={<DndWorldFactions />} />
-        <Route path="/dnd/world/calendar" element={<DndWorldCalendar />} />
-        <Route path="/dnd/lore/secrets" element={<DndLoreSecrets />} />
-        <Route path="/dnd/lore/journal" element={<DndLoreJournal />} />
-        <Route path="/dnd/lore/stories" element={<DndLoreStories />} />
-        <Route path="/dnd/lore/notes" element={<DndLoreNotes />} />
-        <Route path="/dnd/lore/relations" element={<DndLorePlayerRelations />} />
-        <Route path="/dnd/lore/spellbook" element={<DndLoreSpellBook />} />
-        <Route path="/dnd/lore/races" element={<DndLoreRaces />} />
-        <Route path="/dnd/lore/classes" element={<DndLoreClasses />} />
-        <Route path="/dnd/lore/rules" element={<DndLoreRules />} />
-        <Route path="/dnd/lore/background-rules" element={<DndLoreBackgroundRules />} />
-        <Route path="/dnd/tasks" element={<DndTasks />} />
-        <Route path="/dnd/dungeon-master" element={<DndDungeonMaster />} />
-        <Route path="/dnd/dungeon-master/events" element={<DndDmEvents />} />
-        <Route path="/dnd/dungeon-master/monsters" element={<DndDmMonsters />} />
-        <Route path="/dnd/dungeon-master/npcs" element={<DndDmNpcs />} />
-        <Route path="/dnd/dungeon-master/players" element={<DndDmPlayersHome />} />
-        <Route path="/dnd/dungeon-master/players/sheet" element={<DndDmPlayers />} />
-        <Route path="/dnd/dungeon-master/players/new" element={<DndDmPlayerCreate />} />
-        <Route path="/dnd/dungeon-master/players/auto" element={<DndDmPlayerAuto />} />
-        <Route path="/dnd/dungeon-master/quests" element={<DndDmQuests />} />
-        <Route path="/dnd/dungeon-master/quests/faction" element={<DndDmQuestsFaction />} />
-        <Route path="/dnd/dungeon-master/quests/main" element={<DndDmQuestsMain />} />
-        <Route path="/dnd/dungeon-master/quests/personal" element={<DndDmQuestsPersonal />} />
-        <Route path="/dnd/dungeon-master/quests/side" element={<DndDmQuestsSide />} />
-        <Route
-          path="/dnd/dungeon-master/quests/generator"
-          element={<DndDmQuestGenerator />}
-        />
-        <Route path="/dnd/dungeon-master/establishments" element={<DndDmEstablishments />} />
-        <Route path="/dnd/dungeon-master/tag-manager" element={<DndDmTagManager />} />
-        <Route path="/dnd/dungeon-master/world-inventory" element={<DndDmWorldInventory />} />
-        <Route path="/dnd/assets" element={<DndAssets />} />
-        <Route path="/dnd/lore" element={<DndLore />} />
-        <Route path="/dnd/piper" element={<DndVoiceLabs />} />
-        <Route path="/dnd/piper/piper" element={<DndPiperOnly />} />
-        <Route path="/dnd/piper/eleven" element={<DndElevenLabs />} />
-        <Route path="/tools/voices" element={<DndVoiceLabs />} />
-        <Route path="/tools/voices/piper" element={<DndPiperOnly />} />
-        <Route path="/tools/voices/eleven" element={<DndElevenLabs />} />
-        <Route path="/tools/voices/manage" element={<ManageVoices />} />
-        <Route path="/dnd/discord" element={<DndDiscord />} />
-        <Route path="/dnd/chat" element={<DndChat />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/settings/users" element={<SettingsUsers />} />
-        <Route path="/settings/vault" element={<SettingsVault />} />
-        <Route path="/settings/discord" element={<SettingsDiscord />} />
-        <Route path="/settings/appearance" element={<SettingsAppearance />} />
-        <Route path="/settings/models" element={<SettingsModels />} />
-        <Route path="/settings/devices" element={<SettingsDevices />} />
-        <Route path="/settings/hotwords" element={<SettingsHotwords />} />
-        <Route path="/settings/backup" element={<SettingsBackup />} />
-        <Route path="/settings/advanced" element={<SettingsAdvanced />} />
-        <Route path="/profiles" element={<Profiles />} />
-        <Route path="/train" element={<Train />} />
-        <Route path="/tools" element={<Tools />} />
-        <Route path="/tools/whisper" element={<WhisperOutput />} />
-        <Route path="/calendar" element={<Calendar />} />
-        <Route path="/chat" element={<GeneralChat />} />
-        <Route path="/queue" element={<Queue />} />
-        <Route path="/fusion" element={<Fusion />} />
-        <Route path="/loopmaker" element={<LoopMaker />} />
-        <Route path="/beatmaker" element={<BeatMaker />} />
-        <Route path="/album" element={<AlbumMaker />} />
-        <Route path="/games" element={<Games />} />
-        <Route path="/games/rain-blocks" element={<RainBlocks />} />
-        <Route path="/games/sand-blocks" element={<SandBlocks />} />
-        <Route path="/games/brick-breaker" element={<BrickBreaker />} />
-        <Route path="/games/snake" element={<Snake />} />
       </Routes>
     </>
   );
