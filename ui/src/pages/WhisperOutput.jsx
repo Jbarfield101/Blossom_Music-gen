@@ -10,6 +10,7 @@ export default function WhisperOutput() {
   const [available, setAvailable] = useState([]);
   const [logs, setLogs] = useState([]);
   const unlistenRef = useRef(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     (async () => {
@@ -62,13 +63,22 @@ export default function WhisperOutput() {
 
   const handleStart = useCallback(async () => {
     const idNum = Number(channelId);
-    if (!Number.isFinite(idNum) || idNum <= 0) return;
+    if (!Number.isFinite(idNum) || idNum <= 0) {
+      const msg = 'Enter a valid Discord voice channel ID or click "Use active bot channel" after the bot has joined a channel.';
+      setError(msg);
+      setLogs((prev) => prev.concat([{ text: msg, final: true, speaker: 'system', t: Date.now() }]));
+      return;
+    }
     try {
       await invoke('set_whisper', { model });
       await invoke('discord_listen_start', { channelId: idNum });
       setRunning(true);
+      setError('');
     } catch (err) {
-      setLogs((prev) => prev.concat([{ text: String(err?.message || err), final: true, speaker: 'system', t: Date.now() }]));
+      const msg = String(err?.message || err);
+      setError(msg);
+      setRunning(false);
+      setLogs((prev) => prev.concat([{ text: msg, final: true, speaker: 'system', t: Date.now() }]));
     }
   }, [channelId, model]);
 
@@ -117,11 +127,14 @@ export default function WhisperOutput() {
             </select>
           </label>
           {!running ? (
-            <button type="button" onClick={handleStart}>Start Listening</button>
+            <button type="button" onClick={handleStart} disabled={!channelId || !Number.isFinite(Number(channelId)) || Number(channelId) <= 0}>Start Listening</button>
           ) : (
             <button type="button" onClick={handleStop}>Stop</button>
           )}
         </div>
+        {error ? (
+          <div className="warning">{error}</div>
+        ) : null}
         <div className="inbox-reader" style={{ maxHeight: 360, overflow: 'auto' }}>
           {logs.length === 0 ? (
             <div className="muted">No transcript yet.</div>

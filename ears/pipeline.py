@@ -28,7 +28,14 @@ from config.discord_token import get_token
 try:  # pragma: no cover - optional dependency
     from .hotword import list_hotwords
 
-    _HOTWORD_ACTIVE = any(list_hotwords().values())
+    # If no hotword models are present, default to active so the
+    # transcription pipeline works out-of-the-box. When models exist,
+    # require at least one to be enabled.
+    try:
+        _cfg = list_hotwords()
+        _HOTWORD_ACTIVE = True if not _cfg else any(_cfg.values())
+    except Exception:
+        _HOTWORD_ACTIVE = True
 except Exception:  # pragma: no cover - if hotword module unavailable
     _HOTWORD_ACTIVE = True
 

@@ -269,6 +269,15 @@ asyncio.run(main())
 "#, model = model, channel = channel_id);
 
     let mut cmd = python_command();
+    // Inject selected Discord token (from UI settings) so the listener can authenticate
+    {
+        let settings = read_discord_settings();
+        if let Some(name) = settings.currentToken.as_ref() {
+            if let Some(tok) = settings.tokens.get(name) {
+                cmd.env("DISCORD_TOKEN", tok);
+            }
+        }
+    }
     // Ensure relative imports resolve
     cmd.current_dir(project_root())
         .env("PYTHONPATH", project_root())
@@ -299,6 +308,8 @@ asyncio.run(main())
                     if let Ok(val) = serde_json::from_str::<Value>(&line) {
                         if let Some(obj) = val.get("whisper") {
                             let _ = app_for_thread.emit("whisper::segment", obj.clone());
+                        } else if let Some(err) = val.get("whisper_error") {
+                            let _ = app_for_thread.emit("whisper::error", err.clone());
                         }
                     }
                 }
@@ -309,9 +320,12 @@ asyncio.run(main())
         let logs_arc = discord_listen_logs().clone();
         tauri::async_runtime::spawn(async move {
             if let Some(err) = stderr { for line in std::io::BufReader::new(err).lines().flatten() {
+                let tagged = format!("[stderr] {}", line);
                 let mut logs = logs_arc.lock().unwrap();
-                logs.push(format!("[stderr] {}", line));
+                logs.push(tagged.clone());
                 if logs.len() > 1000 { let drain = logs.len() - 1000; logs.drain(0..drain); }
+                // Emit stderr lines to the UI for debugging
+                let _ = app.emit("whisper::stderr", json!({"line": tagged}));
             }}
         });
     }
@@ -1480,6 +1494,16 @@ fn read_npcs(app: &AppHandle) -> Result<Vec<Npc>, String> {
     let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let npcs = serde_json::from_str(&text).map_err(|e| e.to_string())?;
     Ok(npcs)
+}
+
+#[tauri::command]
+fn discord_listen_logs_tail(lines: Option<usize>) -> Result<Vec<String>, String> {
+    let count = lines.unwrap_or(100).min(1000);
+    let logs = discord_listen_logs().lock().unwrap();
+    let n = logs.len();
+    if n == 0 { return Ok(Vec::new()); }
+    let start = if n > count { n - count } else { 0 };
+    Ok(logs[start..].to_vec())
 }
 
 fn write_npcs(app: &AppHandle, npcs: &[Npc]) -> Result<(), String> {
@@ -6856,6 +6880,7 @@ fn main() {
             resolve_resource,
             list_bundled_voices,
             commands::read_file_bytes,
+            discord_listen_logs_tail,
             album_concat,
             list_llm,
             set_llm,

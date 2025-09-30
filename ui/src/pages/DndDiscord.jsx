@@ -77,6 +77,7 @@ export default function DndDiscord() {
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [logs, setLogs] = useState([]);
+  const [listenLogs, setListenLogs] = useState([]);
   const [tokenSources, setTokenSources] = useState([]);
   const [showBotControls, setShowBotControls] = useState(false);
   const [compact, setCompact] = useState(true);
@@ -366,13 +367,16 @@ export default function DndDiscord() {
   // Whisper listener and 4s debounce to generate + speak
   useEffect(() => {
     let unlisten;
+    let unlistenErr;
+    let unlistenStderr;
     (async () => {
       try {
         unlisten = await listen('whisper::segment', (event) => {
           const p = event?.payload || {};
           const text = typeof p?.text === 'string' ? p.text : '';
           if (!text) return;
-          setWhisperLogs((prev) => prev.concat([{ text, final: !!p.is_final, t: Date.now() }]).slice(-500));
+          const speaker = typeof p?.speaker === 'string' && p.speaker.trim() ? p.speaker.trim() : 'unknown';
+          setWhisperLogs((prev) => prev.concat([{ text, speaker, final: !!p.is_final, t: Date.now() }]).slice(-500));
           lastPartRef.current = Date.now();
           if (p.is_final) {
             utterRef.current = (utterRef.current + ' ' + text).trim();
@@ -412,12 +416,27 @@ export default function DndDiscord() {
             }
           }, 4200);
         });
+        // Also capture errors and stderr lines from the listener
+        unlistenErr = await listen('whisper::error', (event) => {
+          try {
+            const msg = typeof event?.payload === 'string' ? event.payload : JSON.stringify(event?.payload);
+            setListenLogs((prev) => prev.concat([`[error] ${msg}`]).slice(-800));
+          } catch {}
+        });
+        unlistenStderr = await listen('whisper::stderr', (event) => {
+          try {
+            const line = String(event?.payload?.line || '');
+            if (line) setListenLogs((prev) => prev.concat([line]).slice(-800));
+          } catch {}
+        });
       } catch (e) {
         console.warn('whisper listener error', e);
       }
     })();
     return () => {
       if (typeof unlisten === 'function') unlisten();
+      if (typeof unlistenErr === 'function') unlistenErr();
+      if (typeof unlistenStderr === 'function') unlistenStderr();
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [actNpc, npcs]);
@@ -581,6 +600,15 @@ export default function DndDiscord() {
     }
   }, []);
 
+  const handleFetchListenLogs = useCallback(async () => {
+    try {
+      const lines = await invoke('discord_listen_logs_tail', { lines: 200 });
+      setListenLogs(Array.isArray(lines) ? lines : []);
+    } catch (err) {
+      console.error('Failed to fetch listener logs', err);
+    }
+  }, []);
+
   const handleDetectTokens = useCallback(async () => {
     try {
       const det = await invoke('discord_detect_token_sources');
@@ -691,6 +719,7 @@ export default function DndDiscord() {
               <button type="button" onClick={async () => { try { await invoke('discord_listen_stop'); } catch {}; setListening(false); }} disabled={!listening}>Stop Listen</button>
               <button type="button" onClick={handleCheckStatus}>Check Status</button>
               <button type="button" onClick={handleFetchLogs}>View Logs</button>
+              <button type="button" onClick={handleFetchListenLogs}>View Listen Logs</button>
             </div>
           </div>
           {showBotControls && (
@@ -705,6 +734,11 @@ export default function DndDiscord() {
               {!compact && logs.length > 0 && (
                 <pre className="inbox-reader" style={{ maxHeight: 240, overflow: 'auto' }}>
                   {logs.join('\n')}
+                </pre>
+              )}
+              {!compact && listenLogs.length > 0 && (
+                <pre className="inbox-reader" style={{ maxHeight: 240, overflow: 'auto', marginTop: '0.5rem' }}>
+                  {listenLogs.join('\n')}
                 </pre>
               )}
             </div>
@@ -750,8 +784,12 @@ export default function DndDiscord() {
         {whisperLogs.length === 0 ? (
           <span className="muted">Waiting for speech…</span>
         ) : (
-          whisperLogs.slice(-10).map((l, i) => (
-            <div key={i} style={{ opacity: l.final ? 1 : 0.8 }}>{l.text}</div>
+          whisperLogs.slice(-12).map((l, i) => (
+            <div key={i} style={{ opacity: l.final ? 1 : 0.8 }}>
+              <span className="muted">[{l.speaker || 'unknown'}] </span>
+              <span>{l.text}</span>
+              {l.final ? <span className="muted"> • final</span> : null}
+            </div>
           ))
         )}
       </div>      {/* Status chip */}
