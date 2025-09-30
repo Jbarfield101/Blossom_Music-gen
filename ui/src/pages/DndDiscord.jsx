@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { Store } from '@tauri-apps/plugin-store';
+import { writeTextFile } from '@tauri-apps/plugin-fs';
 
 import BackButton from '../components/BackButton.jsx';
 import { listNpcs, saveNpc } from '../api/npcs.js';
 import { listPiperVoices } from '../lib/piperVoices';
+import { listDir } from '../api/dir';
+import { readFileBytes } from '../api/files';
+import { getConfig } from '../api/config';
 import './Dnd.css';
 
 const PROVIDERS = [
@@ -80,6 +85,15 @@ export default function DndDiscord() {
   const [actNpc, setActNpc] = useState('');
   const [actProvider, setActProvider] = useState('piper');
   const [actVoice, setActVoice] = useState('');
+  const [elUsage, setElUsage] = useState({ used: 0, limit: 0, percent: 0 });
+  const [elKeyPresent, setElKeyPresent] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [whisperLogs, setWhisperLogs] = useState([]);
+  const lastPartRef = useRef(0);
+  const utterRef = useRef('');
+  const debounceRef = useRef(null);
+  const speakingRef = useRef(false);
+  const [portraitUrl, setPortraitUrl] = useState('');
 
   const computeSelections = useCallback((items, piperOpts, elevenOpts) => {
     const piperSet = new Set(piperOpts.map((opt) => opt.value));
@@ -313,9 +327,100 @@ export default function DndDiscord() {
     };
   }, [computeSelections, loadElevenVoices, loadPiperVoices]);
 
+  // Prepopulate act modal provider/voice when NPC changes
+  useEffect(() => {
+    const sel = npcSelections[actNpc];
+    if (!sel) return;
+    setActProvider(sel.provider || 'piper');
+    setActVoice(sel.voice || '');
+  }, [actNpc, npcSelections]);
+
   useEffect(() => {
     loadCommands();
   }, [loadCommands]);
+
+  // ElevenLabs usage widget
+  useEffect(() => {
+    (async () => {
+      try {
+        const store = await Store.load('secrets.json');
+        const key = await store.get('elevenlabs.apiKey');
+        const apiKey = typeof key === 'string' ? key.trim() : '';
+        setElKeyPresent(!!apiKey);
+        if (!apiKey) return;
+        const res = await fetch('https://api.elevenlabs.io/v1/user/subscription', {
+          headers: { 'xi-api-key': apiKey, 'accept': 'application/json' },
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        const data = await res.json();
+        const used = Number(data?.character_count || 0);
+        const limit = Number(data?.character_limit || 0);
+        const percent = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
+        setElUsage({ used, limit, percent });
+      } catch {
+        // ignore
+      }
+    })();
+  }, []);
+
+  // Whisper listener and 4s debounce to generate + speak
+  useEffect(() => {
+    let unlisten;
+    (async () => {
+      try {
+        unlisten = await listen('whisper::segment', (event) => {
+          const p = event?.payload || {};
+          const text = typeof p?.text === 'string' ? p.text : '';
+          if (!text) return;
+          setWhisperLogs((prev) => prev.concat([{ text, final: !!p.is_final, t: Date.now() }]).slice(-500));
+          lastPartRef.current = Date.now();
+          if (p.is_final) {
+            utterRef.current = (utterRef.current + ' ' + text).trim();
+          }
+          if (debounceRef.current) clearTimeout(debounceRef.current);
+          debounceRef.current = setTimeout(async () => {
+            const now = Date.now();
+            if (now - lastPartRef.current >= 4000) {
+              const utter = utterRef.current.trim();
+              utterRef.current = '';
+              if (!utter || speakingRef.current) return;
+              speakingRef.current = true;
+              try {
+                const npc = npcs.find((n) => n.name === actNpc);
+                const sys = [
+                  npc?.name ? You are , a D&D NPC. : 'You are a D&D NPC.',
+                  npc?.description ? Description:  : '',
+                  npc?.prompt || '',
+                  'Respond in character, concise but vivid.',
+                ].filter(Boolean).join('\n');
+                const reply = await invoke('generate_llm', { prompt: utter, system: sys });
+                const payload = { action: 'say', text: String(reply || ''), nonce: `${Date.now()}` };
+                try {
+                  const bytes = await invoke('read_file_bytes', { path: 'data/discord_status.json' });
+                  if (Array.isArray(bytes) && bytes.length) {
+                    const tx = new TextDecoder('utf-8').decode(new Uint8Array(bytes));
+                    const st = JSON.parse(tx || '{}');
+                    if (st && st.channel_id) payload.channel_id = st.channel_id;
+                  }
+                } catch {}
+                await writeTextFile('data/discord_tts.json', JSON.stringify(payload, null, 2));
+              } catch (e) {
+                console.error('Auto-reply failed', e);
+              } finally {
+                speakingRef.current = false;
+              }
+            }
+          }, 4200);
+        });
+      } catch (e) {
+        console.warn('whisper listener error', e);
+      }
+    })();
+    return () => {
+      if (typeof unlisten === 'function') unlisten();
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [actNpc, npcs]);
 
   // Listen for /act events from the bot
   useEffect(() => {
@@ -386,6 +491,64 @@ export default function DndDiscord() {
       console.error('Failed to query bot status', err);
     }
   }, []);
+
+  // Auto-start listening when bot is in a voice channel (poll bot status file)
+  useEffect(() => {
+    const timer = setInterval(async () => {
+      if (autoStartRef.current || listening) return;
+      try {
+        const bytes = await invoke('read_file_bytes', { path: 'data/discord_status.json' });
+        if (!Array.isArray(bytes) || !bytes.length) return;
+        const tx = new TextDecoder('utf-8').decode(new Uint8Array(bytes));
+        const st = JSON.parse(tx || '{}');
+        const channelId = Number(st?.channel_id || 0);
+        if (Number.isFinite(channelId) && channelId > 0) {
+          await invoke('discord_listen_start', { channelId });
+          setListening(true);
+          autoStartRef.current = true;
+        }
+      } catch {}
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [listening]);
+
+  // Load NPC portrait for the selected actor
+  useEffect(() => {
+    let cancelled = false;
+    const name = (actNpc || '').trim();
+    if (!name) { setPortraitUrl(''); return () => {}; }
+    (async () => {
+      try {
+        // Resolve portrait base
+        let base = '';
+        try {
+          const v = await getConfig('vaultPath');
+          const vStr = typeof v === 'string' ? v : '';
+          if (vStr) base = `${vStr}\\30_Assets\\Images\\NPC_Portraits`;
+        } catch {}
+        if (!base) base = 'D:\\Documents\\DreadHaven\\30_Assets\\Images\\NPC_Portraits';
+        let entries = [];
+        try { entries = await listDir(base); } catch { entries = []; }
+        const norm = (s) => String(s||'').replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g,'_');
+        const target = norm(name);
+        let matchPath = '';
+        for (const e of entries) {
+          if (e.is_dir) continue;
+          const nm = norm(e.name||'');
+          if (nm === target) { matchPath = e.path; break; }
+        }
+        if (!matchPath) { setPortraitUrl(''); return; }
+        const bytes = await readFileBytes(matchPath);
+        if (cancelled) return;
+        const ext = (matchPath.split('.').pop()||'').toLowerCase();
+        const mime = ext==='png'?'image/png': ext==='jpg'||ext==='jpeg'?'image/jpeg': ext==='gif'?'image/gif': ext==='webp'?'image/webp':'application/octet-stream';
+        const blob = new Blob([new Uint8Array(bytes)], { type: mime });
+        const url = URL.createObjectURL(blob);
+        setPortraitUrl(url);
+      } catch { setPortraitUrl(''); }
+    })();
+    return () => { cancelled = true; };
+  }, [actNpc]);
 
   const handleFetchLogs = useCallback(async () => {
     try {
@@ -481,6 +644,29 @@ export default function DndDiscord() {
               <button type="button" onClick={handleStopBot} disabled={stopping}>
                 {stopping ? 'Stopping.' : 'Stop Bot'}
               </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    let channelId = 0;
+                    try {
+                      const bytes = await invoke('read_file_bytes', { path: 'data/discord_status.json' });
+                      if (Array.isArray(bytes) && bytes.length) {
+                        const tx = new TextDecoder('utf-8').decode(new Uint8Array(bytes));
+                        const st = JSON.parse(tx || '{}');
+                        if (st && st.channel_id) channelId = Number(st.channel_id);
+                      }
+                    } catch {}
+                    if (!Number.isFinite(channelId) || channelId <= 0) throw new Error('No active voice channel. Use /join first.');
+                    await invoke('discord_listen_start', { channelId });
+                    setListening(true);
+                  } catch (e) { console.error(e); setListening(false); }
+                }}
+                disabled={listening}
+              >
+                Start Listen
+              </button>
+              <button type="button" onClick={async () => { try { await invoke('discord_listen_stop'); } catch {}; setListening(false); }} disabled={!listening}>Stop Listen</button>
               <button type="button" onClick={handleCheckStatus}>Check Status</button>
               <button type="button" onClick={handleFetchLogs}>View Logs</button>
             </div>
@@ -626,7 +812,21 @@ export default function DndDiscord() {
           )}
         </section>
         )}
-      </main>
+            {/* Whisper transcript bar */}
+      <div style={{ position: 'fixed', left: 12, right: 12, bottom: 44, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 8px', fontSize: 13, maxHeight: 120, overflow: 'auto' }}>
+        {whisperLogs.length === 0 ? (
+          <span className=\"muted\">Waiting for speech…</span>
+        ) : (
+          whisperLogs.slice(-10).map((l, i) => (
+            <div key={i} style={{ opacity: l.final ? 1 : 0.8 }}>{l.text}</div>
+          ))
+        )}
+      </div>      {/* Status chip */}
+      <div style={{ position: 'fixed', right: 12, top: 12, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 999, padding: '4px 10px', fontSize: 12, display: 'inline-flex', gap: 8, alignItems: 'center' }}>
+        <span>NPC: {actNpc || '—'}</span>
+        <span>Voice: {actProvider}/{actVoice || '—'}</span>
+        <span style={{ opacity: 0.8 }}>{listening ? 'Listening' : 'Idle'}</span>
+      </div></main>
 
       {actOpen && (
         <div className="dnd-modal-backdrop" role="dialog" aria-modal="true" aria-label="Select NPC and voice">
@@ -671,17 +871,61 @@ export default function DndDiscord() {
               <button
                 type="button"
                 disabled={!actNpc || !actVoice}
-                onClick={() => {
-                  console.log('Act selection', { npc: actNpc, provider: actProvider, voice: actVoice, request: actRequest });
-                  setActOpen(false);
+                onClick={async () => {
+                  try {
+                    const payload = {
+                      action: 'takeover',
+                      npc: actNpc,
+                      provider: actProvider,
+                      profile: actVoice,
+                      guild_id: actRequest?.guild_id || null,
+                      channel_id: actRequest?.channel_id || null,
+                      nonce: `${Date.now()}`,
+                    };
+                    // Fallback: if no channel_id provided by /act, use active bot channel from status file
+                    if (!payload.channel_id) {
+                      try {
+                        const bytes = await invoke('read_file_bytes', { path: 'data/discord_status.json' });
+                        if (Array.isArray(bytes) && bytes.length) {
+                          const text = new TextDecoder('utf-8').decode(new Uint8Array(bytes));
+                          const data = JSON.parse(text || '{}');
+                          if (data && data.channel_id) {
+                            payload.channel_id = data.channel_id;
+                            payload.guild_id = payload.guild_id || data.guild_id || null;
+                          }
+                        }
+                      } catch {}
+                    }
+                    await writeTextFile('data/discord_persona.json', JSON.stringify(payload, null, 2));
+                  } catch (err) {
+                    console.error('Failed to write takeover file', err);
+                  } finally {
+                    setActOpen(false);
+                  }
                 }}
               >
-                Confirm
+                Take Over
               </button>
             </div>
           </div>
         </div>
       )}
+      {elKeyPresent && elUsage.limit > 0 && (
+      {portraitUrl && (
+        <img alt="NPC portrait" src={portraitUrl} style={{ position: 'fixed', left: 12, bottom: 44, width: 128, height: 128, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)' }} />
+      )}
+        <div style={{ position: 'fixed', left: 12, bottom: 12, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, padding: '6px 8px', fontSize: 12, opacity: 0.9 }}>
+          ElevenLabs: {elUsage.used.toLocaleString()} / {elUsage.limit.toLocaleString()} ({elUsage.percent}%)
+        </div>
+      )}
     </>
   );
 }
+
+
+
+
+
+
+
+

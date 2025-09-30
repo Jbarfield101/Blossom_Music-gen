@@ -83,6 +83,126 @@ class SlashTTSBot(commands.Bot):
         # Avoid clobbering discord.Client.voice_clients property
         self._guild_voice_map: Dict[int, discord.VoiceClient] = {}
         self.permissions = self._load_permissions()
+        # Current persona voice profile name (registry key)
+        self.current_profile: str = ""
+
+    # ---- Persona management -------------------------------------------------
+    def _persona_path(self) -> str:
+        # Control file for UI-driven persona/takeover (simple file-based IPC)
+        return os.path.join("data", "discord_persona.json")
+
+    def _status_path(self) -> str:
+        # Status file the UI can read to discover current voice channel
+        return os.path.join("data", "discord_status.json")
+
+    def _write_status(self, guild_id: Optional[int], channel_id: Optional[int]) -> None:
+        try:
+            os.makedirs("data", exist_ok=True)
+            payload = {
+                "guild_id": int(guild_id) if guild_id else None,
+                "channel_id": int(channel_id) if channel_id else None,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            with open(self._status_path(), "w", encoding="utf-8") as f:
+                json.dump(payload, f)
+        except Exception:
+            pass
+
+    def _tts_path(self) -> str:
+        return os.path.join("data", "discord_tts.json")
+
+    async def _handle_tts_request(self, data: dict) -> None:
+        text = str(data.get("text") or "").strip()
+        if not text:
+            return
+        # Try to get an active voice client
+        vc: Optional[discord.VoiceClient] = None
+        try:
+            if self._guild_voice_map:
+                vc = next(iter(self._guild_voice_map.values()))
+        except Exception:
+            vc = None
+        # Optionally join a channel if specified
+        if (vc is None or not vc.is_connected()) and data.get("channel_id"):
+            try:
+                chan = self.get_channel(int(data["channel_id"])) or await self.fetch_channel(int(data["channel_id"]))
+                if hasattr(chan, "connect"):
+                    v = await chan.connect(self_deaf=True, reconnect=True)  # type: ignore[arg-type]
+                    if getattr(chan, "guild", None):
+                        self._set_guild_vc(chan.guild, v)  # type: ignore[arg-type]
+                        vc = v
+                        try:
+                            gid = getattr(chan, "guild", None)
+                            gid_val = getattr(gid, "id", None) if gid else None
+                            self._write_status(gid_val, getattr(chan, "id", None))
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+        if vc is None or not vc.is_connected():
+            return
+        # Speak using current persona if set
+        try:
+            await self.speak(vc, text)
+        except Exception:
+            pass
+
+    def _read_persona_file(self) -> Optional[dict]:
+        path = self._persona_path()
+        if not os.path.exists(path):
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return None
+
+    async def _watch_persona(self) -> None:
+        """Poll control files for persona/tts requests."""
+        last_nonce = None
+        last_tts = None
+        while True:
+            try:
+                data = self._read_persona_file() or {}
+                nonce = data.get("nonce")
+                if data.get("action") == "takeover" and nonce and nonce != last_nonce:
+                    profile = str(data.get("profile") or "").strip()
+                    channel_id = data.get("channel_id")
+                    # Apply profile
+                    if profile:
+                        self.current_profile = profile
+                    # Join voice channel if provided
+                    if channel_id:
+                        try:
+                            chan = self.get_channel(int(channel_id)) or await self.fetch_channel(int(channel_id))
+                            if hasattr(chan, "connect"):
+                                vc = await chan.connect(self_deaf=True, reconnect=True)  # type: ignore[arg-type]
+                                if getattr(chan, "guild", None):
+                                    self._set_guild_vc(chan.guild, vc)  # type: ignore[arg-type]
+                                    try:
+                                        gid = getattr(chan, "guild", None)
+                                        gid_val = getattr(gid, "id", None) if gid else None
+                                        cid_val = getattr(chan, "id", None)
+                                        self._write_status(gid_val, cid_val)
+                                    except Exception:
+                                        pass
+                        except Exception:
+                            pass
+                    last_nonce = nonce
+            except Exception:
+                pass
+            # TTS control file
+            try:
+                if os.path.exists(self._tts_path()):
+                    with open(self._tts_path(), "r", encoding="utf-8") as f:
+                        tdata = json.load(f)
+                    tnonce = tdata.get("nonce")
+                    if tnonce and tnonce != last_tts:
+                        last_tts = tnonce
+                        await self._handle_tts_request(tdata)
+            except Exception:
+                pass
+            await asyncio.sleep(1.0)
 
     def _load_permissions(self) -> Dict[str, Dict[str, List[int]]]:
         """Load simple permissions from config/discord.yaml if present.
@@ -221,11 +341,24 @@ class SlashTTSBot(commands.Bot):
         vc = await target.connect(self_deaf=True, reconnect=True)
         if interaction.guild:
             self._set_guild_vc(interaction.guild, vc)
+            try:
+                gid = getattr(interaction.guild, "id", None)
+                cid = getattr(target, "id", None)
+                self._write_status(gid, cid)
+            except Exception:
+                pass
         return vc
 
     async def speak(self, vc: discord.VoiceClient, text: str) -> None:
         ensure_opus_loaded()
-        audio = self.engine.synthesize(text)
+        # Resolve profile from current persona if set
+        profile = None
+        try:
+            if self.current_profile:
+                profile = self.engine.registry.get_profile(self.current_profile)
+        except Exception:
+            profile = None
+        audio = self.engine.synthesize(text, profile)
         audio48 = _resample_to_48k(audio, self.input_rate)
 
         if np is not None:
@@ -257,6 +390,11 @@ async def on_ready() -> None:
     try:
         # Set a simple presence and perform per-guild sync for immediacy
         await bot.change_presence(activity=discord.Game(name="Blossom DM"))
+    except Exception:
+        pass
+    # Start persona watcher
+    try:
+        bot.loop.create_task(bot._watch_persona())
     except Exception:
         pass
     try:
@@ -334,6 +472,11 @@ async def leave(interaction: discord.Interaction) -> None:
     finally:
         if interaction.guild:
             bot._set_guild_vc(interaction.guild, None)
+        try:
+            gid = getattr(interaction.guild, "id", None)
+            bot._write_status(gid, None)
+        except Exception:
+            pass
     await interaction.response.send_message("Left the voice channel.")
 
 
@@ -359,6 +502,35 @@ async def say(interaction: discord.Interaction, text: str) -> None:
         await interaction.followup.send("Done.", ephemeral=True)
     except Exception as e:
         await interaction.followup.send(f"Failed to speak: {e}", ephemeral=True)
+
+
+@bot.tree.command(description="Set persona voice by profile name")
+@app_commands.describe(profile="Voice profile name (from Manage Voices / registry)")
+async def persona(interaction: discord.Interaction, profile: str) -> None:
+    if not bot._is_allowed(interaction, "act"):
+        await interaction.response.send_message("You are not allowed to use this command here.", ephemeral=True)
+        return
+    bot.current_profile = (profile or "").strip()
+    if not bot.current_profile:
+        await interaction.response.send_message("Persona cleared.", ephemeral=True)
+    else:
+        await interaction.response.send_message(f"Persona set to: {bot.current_profile}", ephemeral=True)
+
+
+@bot.tree.command(description="Take over: set persona and join your voice channel")
+@app_commands.describe(profile="Voice profile name (from Manage Voices / registry)")
+async def takeover(interaction: discord.Interaction, profile: str) -> None:
+    if not bot._is_allowed(interaction, "act"):
+        await interaction.response.send_message("You are not allowed to use this command here.", ephemeral=True)
+        return
+    try:
+        bot.current_profile = (profile or "").strip()
+        vc = await bot.join(interaction, None)
+        await interaction.response.send_message(
+            f"Taking over as {bot.current_profile or 'narrator'} in {vc.channel.mention}", ephemeral=True
+        )
+    except Exception as e:
+        await interaction.response.send_message(f"Takeover failed: {e}", ephemeral=True)
 
 
 @bot.tree.command(description="Open UI to choose an NPC and voice")

@@ -20,6 +20,17 @@ export default function WhisperOutput() {
         setAvailable(opts);
         setModel(sel || (opts[0] || ''));
       } catch {}
+      // Prefill voice channel from bot status if available
+      try {
+        const bytes = await invoke('read_file_bytes', { path: 'data/discord_status.json' });
+        if (Array.isArray(bytes) && bytes.length) {
+          const text = new TextDecoder('utf-8').decode(new Uint8Array(bytes));
+          const data = JSON.parse(text || '{}');
+          if (data && data.channel_id) {
+            setChannelId(String(data.channel_id));
+          }
+        }
+      } catch {}
     })();
   }, []);
 
@@ -80,6 +91,23 @@ export default function WhisperOutput() {
             <span>Voice Channel ID</span>
             <input type="text" value={channelId} onChange={(e) => setChannelId(e.target.value)} placeholder="e.g. 123456789012345678" />
           </label>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const bytes = await invoke('read_file_bytes', { path: 'data/discord_status.json' });
+                if (Array.isArray(bytes) && bytes.length) {
+                  const text = new TextDecoder('utf-8').decode(new Uint8Array(bytes));
+                  const data = JSON.parse(text || '{}');
+                  if (data && data.channel_id) {
+                    setChannelId(String(data.channel_id));
+                  }
+                }
+              } catch {}
+            }}
+          >
+            Use active bot channel
+          </button>
           <label>
             <span>Whisper Model</span>
             <select value={model} onChange={(e) => setModel(e.target.value)}>
@@ -111,4 +139,3 @@ export default function WhisperOutput() {
     </>
   );
 }
-

@@ -5,7 +5,7 @@ import { getConfig } from '../api/config';
 import { listDir } from '../api/dir';
 import { readInbox, deleteInbox } from '../api/inbox';
 import { readFileBytes } from '../api/files';
-import { createNpc, saveNpc } from '../api/npcs';
+import { createNpc, saveNpc, listNpcs } from '../api/npcs';
 import { loadEstablishments } from '../api/establishments';
 import { renderMarkdown } from '../lib/markdown.jsx';
 import './Dnd.css';
@@ -71,11 +71,17 @@ export default function DndDmNpcs() {
   const [establishmentsLoading, setEstablishmentsLoading] = useState(false);
   const [establishmentsError, setEstablishmentsError] = useState('');
   const [establishmentsLoaded, setEstablishmentsLoaded] = useState(false);
-  
+
   const [voiceProvider, setVoiceProvider] = useState('piper');
   const [voiceValue, setVoiceValue] = useState('');
   const [voiceOptions, setVoiceOptions] = useState({ piper: [], elevenlabs: [] });
   const [voiceLoading, setVoiceLoading] = useState({ piper: false, elevenlabs: false });
+  // Voice selection for the NPC details popup
+  const [npcList, setNpcList] = useState([]);
+  const [cardVoiceProvider, setCardVoiceProvider] = useState('piper');
+  const [cardVoiceValue, setCardVoiceValue] = useState('');
+  const [cardVoiceSaving, setCardVoiceSaving] = useState(false);
+  const [cardVoiceStatus, setCardVoiceStatus] = useState('');
 const establishmentOptions = useMemo(() => {
     if (!Array.isArray(establishments) || establishments.length === 0) return [];
     return establishments.map((entry) => {
@@ -625,6 +631,115 @@ const establishmentOptions = useMemo(() => {
     }
   }, [metaNotice]);
 
+  // Load NPCs for existing voice mappings
+  useEffect(() => {
+    (async () => {
+      try {
+        const list = await listNpcs();
+        setNpcList(Array.isArray(list) ? list : []);
+      } catch {
+        setNpcList([]);
+      }
+    })();
+  }, []);
+
+  // Helper: decode provider from stored voice string
+  const decodeVoiceValue = useCallback((value) => {
+    if (typeof value !== 'string') return { provider: 'piper', voice: '' };
+    const trimmed = value.trim();
+    if (!trimmed) return { provider: 'piper', voice: '' };
+    const m = trimmed.match(/^(elevenlabs|piper):(.+)$/i);
+    if (m) return { provider: m[1].toLowerCase(), voice: m[2].trim() };
+    return { provider: 'piper', voice: trimmed };
+  }, []);
+
+  // When selecting an NPC, prefill its voice selection
+  useEffect(() => {
+    if (!selected) {
+      setCardVoiceProvider('piper');
+      setCardVoiceValue('');
+      setCardVoiceStatus('');
+      return;
+    }
+    const baseName = titleFromName(selected?.name || selected?.title || '');
+    const record = npcList.find((n) => (n?.name || '').toLowerCase() === (baseName || '').toLowerCase());
+    const decoded = decodeVoiceValue(record?.voice || activeMeta?.voice || '');
+    setCardVoiceProvider(decoded.provider || 'piper');
+    setCardVoiceValue(decoded.voice || '');
+    setCardVoiceStatus('');
+    // Heuristic: if value is unprefixed and matches a saved ElevenLabs profile name, switch provider
+    (async () => {
+      const val = (decoded.voice || '').trim();
+      if (!val) return;
+      const [piperOpts, elevenOpts] = await Promise.all([
+        ensureVoiceOptions('piper'),
+        ensureVoiceOptions('elevenlabs'),
+      ]);
+      const inPiper = piperOpts.some((o) => o.value === val);
+      const inEleven = elevenOpts.some((o) => o.value === val);
+      if (!inPiper && inEleven) {
+        setCardVoiceProvider('elevenlabs');
+      }
+    })();
+  }, [selected, npcList, activeMeta?.voice, decodeVoiceValue]);
+
+  const ensureVoiceOptions = useCallback(async (provider) => {
+    if (provider === 'piper') {
+      if (voiceOptions.piper.length > 0) return voiceOptions.piper;
+      setVoiceLoading((prev) => ({ ...prev, piper: true }));
+      try {
+        const list = await listPiperVoices();
+        const options = Array.isArray(list)
+          ? list.map((voice) => ({ value: voice.id, label: voice.label || voice.id }))
+          : [];
+        setVoiceOptions((prev) => ({ ...prev, piper: options }));
+        return options;
+      } finally {
+        setVoiceLoading((prev) => ({ ...prev, piper: false }));
+      }
+    } else if (provider === 'elevenlabs') {
+      if (voiceOptions.elevenlabs.length > 0) return voiceOptions.elevenlabs;
+      setVoiceLoading((prev) => ({ ...prev, elevenlabs: true }));
+      try {
+        const list = await invoke('list_piper_profiles');
+        const items = Array.isArray(list) ? list : [];
+        const options = items
+          .map((it) => ({ value: it?.name || '', label: it?.voice_id ? `${it.name} (${it.voice_id})` : (it?.name || '') }))
+          .filter((o) => o.value);
+        setVoiceOptions((prev) => ({ ...prev, elevenlabs: options }));
+        return options;
+      } finally {
+        setVoiceLoading((prev) => ({ ...prev, elevenlabs: false }));
+      }
+    }
+    return [];
+  }, [voiceOptions.elevenlabs.length, voiceOptions.piper.length]);
+
+  const persistCardVoice = useCallback(async (provider, value) => {
+    if (!selected) return;
+    const npcName = titleFromName(selected?.name || selected?.title || '');
+    let voice = String(value || '').trim();
+    setCardVoiceSaving(true);
+    setCardVoiceStatus('');
+    try {
+      await saveNpc({ name: npcName, description: '', prompt: '', voice });
+      setCardVoiceStatus(voice ? 'Saved' : 'Cleared');
+      // reflect in local cache
+      setNpcList((prev) => {
+        const idx = prev.findIndex((n) => (n?.name || '').toLowerCase() === npcName.toLowerCase());
+        const next = [...prev];
+        if (idx >= 0) next[idx] = { ...next[idx], voice };
+        else next.push({ name: npcName, description: '', prompt: '', voice });
+        return next;
+      });
+      setTimeout(() => setCardVoiceStatus(''), 1500);
+    } catch (err) {
+      setCardVoiceStatus(err?.message || 'Failed to save');
+    } finally {
+      setCardVoiceSaving(false);
+    }
+  }, [selected]);
+
   return (
     <div>
       <BackButton />
@@ -737,6 +852,51 @@ const establishmentOptions = useMemo(() => {
                     )}
                   </div>
                 </header>
+                <section className="npc-voice-config" style={{ marginTop: '0.5rem' }}>
+                  <fieldset className="npc-voice-selector" style={{ display: 'grid', gap: '0.5rem' }}>
+                    <legend>Voice</legend>
+                    <label>
+                      Provider
+                      <select
+                        value={cardVoiceProvider}
+                        onChange={async (e) => {
+                          const provider = e.target.value;
+                          setCardVoiceProvider(provider);
+                          // load options and reset voice if current not in new set
+                          const options = await ensureVoiceOptions(provider);
+                          setCardVoiceValue((prev) => (options.some((o) => o.value === prev) ? prev : ''));
+                        }}
+                        disabled={cardVoiceSaving}
+                      >
+                        <option value="piper">Piper (local)</option>
+                        <option value="elevenlabs">ElevenLabs</option>
+                      </select>
+                    </label>
+                    <label>
+                      Voice
+                      <select
+                        value={cardVoiceValue}
+                        onChange={async (e) => {
+                          const value = e.target.value;
+                          setCardVoiceValue(value);
+                          await persistCardVoice(cardVoiceProvider, value);
+                        }}
+                        onFocus={() => ensureVoiceOptions(cardVoiceProvider)}
+                        disabled={cardVoiceSaving || (cardVoiceProvider === 'piper' ? voiceLoading.piper : voiceLoading.elevenlabs)}
+                      >
+                        <option value="">(none)</option>
+                        {(cardVoiceProvider === 'piper' ? voiceOptions.piper : voiceOptions.elevenlabs).map((opt) => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
+                      {cardVoiceStatus && (
+                        <span className={/failed|error/i.test(cardVoiceStatus) ? 'error' : 'muted'} style={{ marginLeft: '0.5rem' }}>
+                          {cardVoiceStatus}
+                        </span>
+                      )}
+                    </label>
+                  </fieldset>
+                </section>
                 {metaNotice && !metaDismissed && (
                   <div className="npc-banner">
                     <span>{metaNotice}</span>
@@ -790,9 +950,7 @@ const establishmentOptions = useMemo(() => {
                   const npcName = titleFromName(file);
                   let vv = String(voiceValue || '').trim();
                   if (vv) {
-                    if (voiceProvider === 'elevenlabs' && !/^elevenlabs:/i.test(vv)) {
-                      vv = `elevenlabs:${vv}`;
-                    }
+                    // Save ElevenLabs by profile name (managed in profiles list)
                     await saveNpc({ name: npcName, description: '', prompt: '', voice: vv });
                   }
                 } catch (_) {}
