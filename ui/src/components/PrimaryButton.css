@@ -1,0 +1,54 @@
+.primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  padding: calc(var(--space-sm) * 0.9) calc(var(--space-md) * 1.1);
+  font-family: var(--font);
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text);
+  background: var(--button-bg);
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease,
+    transform 0.2s ease, opacity 0.2s ease;
+  text-decoration: none;
+}
+
+.primary-button:hover:not(:disabled),
+.primary-button:focus-visible:not(:disabled) {
+  background: var(--button-hover-bg);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.18);
+  transform: translateY(-1px);
+}
+
+.primary-button:focus-visible {
+  outline-offset: 4px;
+}
+
+.primary-button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+.primary-button__spinner {
+  width: 1em;
+  height: 1em;
+}
+
+.primary-button[data-loading="true"] {
+  cursor: progress;
+}
+
+.primary-button[data-loading="true"] .primary-button__label {
+  pointer-events: none;
+}
+
+.primary-button.is-loading {
+  pointer-events: none;
+}
