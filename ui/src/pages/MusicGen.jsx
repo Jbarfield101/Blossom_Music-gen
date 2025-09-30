@@ -9,6 +9,7 @@ import JobQueuePanel from "../components/JobQueuePanel.jsx";
 import PrimaryButton from "../components/PrimaryButton.jsx";
 import { useJobQueue } from "../lib/useJobQueue.js";
 import { useSharedState, DEFAULT_MUSICGEN_FORM } from "../lib/sharedState.jsx";
+import "./MusicGen.css";
 
 const MODEL_OPTIONS = [
   { value: "small", label: "MusicGen Small" },
@@ -959,13 +960,14 @@ export default function MusicGen() {
   return (
     <>
       <BackButton />
-      <h1 className="mb-md">Sound Lab</h1>
-      <JobQueuePanel queue={queue} onCancel={cancelFromQueue} activeId={jobId || undefined} />
-      <form
-        onSubmit={generate}
-        className="p-md"
-        style={{ background: "var(--card-bg)", color: "var(--text)" }}
-      >
+      <main className="sound-lab-page">
+        <h1 className="mb-md">Sound Lab</h1>
+        <JobQueuePanel queue={queue} onCancel={cancelFromQueue} activeId={jobId || undefined} />
+        <form
+          onSubmit={generate}
+          className="p-md"
+          style={{ background: "var(--card-bg)", color: "var(--text)" }}
+        >
         <label className="mb-md" style={{ display: "block" }}>
           Name (optional)
           <input
@@ -1231,121 +1233,122 @@ export default function MusicGen() {
             Use FP16 on GPU (lower VRAM)
           </label>
         </div>
-        <PrimaryButton
-          type="submit"
-          className="mt-md"
-          disabled={modelName === "melody" && !melodyPath}
-          loading={generating}
-          loadingText="Generating…"
-        >
-          Generate
-        </PrimaryButton>
-        <div id="progress-placeholder" className="mt-md mb-md" style={{ display: "grid", gap: "0.5rem" }}>
-          {generating ? (
-            <div style={{ display: "grid", gap: "0.5rem" }}>
-              <progress value={Math.max(0, Math.min(100, progress || 0))} max="100" />
-              <div style={{ fontSize: "0.95rem" }}>
-                {stage ? stage.charAt(0).toUpperCase() + stage.slice(1) : "Queued"}
-                {statusMessage ? ` – ${statusMessage}` : ""}
-              </div>
-              {typeof queuePosition === "number" && (
-                <div style={{ fontSize: "0.9rem", opacity: 0.8 }}>
-                  Queue position: {queuePosition + 1}
+          <PrimaryButton
+            type="submit"
+            className="mt-md"
+            disabled={modelName === "melody" && !melodyPath}
+            loading={generating}
+            loadingText="Generating…"
+          >
+            Generate
+          </PrimaryButton>
+          <div id="progress-placeholder" className="mt-md mb-md" style={{ display: "grid", gap: "0.5rem" }}>
+            {generating ? (
+              <div style={{ display: "grid", gap: "0.5rem" }}>
+                <progress value={Math.max(0, Math.min(100, progress || 0))} max="100" />
+                <div style={{ fontSize: "0.95rem" }}>
+                  {stage ? stage.charAt(0).toUpperCase() + stage.slice(1) : "Queued"}
+                  {statusMessage ? ` – ${statusMessage}` : ""}
                 </div>
-              )}
-              {typeof queueEtaSeconds === "number" && (
-                <div style={{ fontSize: "0.9rem", opacity: 0.8 }}>
-                  Estimated start: {formatSeconds(queueEtaSeconds)}
-                </div>
-              )}
-              <div style={{ fontSize: "0.9rem", opacity: 0.9 }}>
-                {device ? `Device: ${device.toUpperCase()}` : "Detecting device..."}
-              </div>
-              {fallbackMsg && (
-                <div style={{ color: "var(--accent)", fontSize: "0.9rem" }}>{fallbackMsg}</div>
-              )}
-              <div>
-                <PrimaryButton type="button" onClick={cancelJob}>
-                  Cancel Job
-                </PrimaryButton>
-              </div>
-            </div>
-          ) : (
-            <>
-              {statusMessage && (
-                <div style={{ fontSize: "0.95rem" }}>{statusMessage}</div>
-              )}
-              {device && (
-                <div style={{ fontSize: "0.9rem", opacity: 0.8 }}>
-                  Device: {device.toUpperCase()}
-                </div>
-              )}
-              {fallbackMsg && (
-                <div style={{ color: "var(--accent)", fontSize: "0.9rem" }}>{fallbackMsg}</div>
-              )}
-            </>
-          )}
-        </div>
-      </form>
-      <div className="mt-sm" style={{ background: "var(--card-bg)", padding: "var(--space-sm)" }}>
-        <PrimaryButton
-          type="button"
-          onClick={async () => {
-            try {
-              const info = await invoke("musicgen_env");
-              setEnvInfo(info);
-              if (info?.device) setDevice(info.device);
-            } catch (e) {
-              setEnvInfo({ error: String(e) });
-            }
-          }}
-        >
-          Check Environment
-        </PrimaryButton>
-        {envInfo && (
-          <div className="mt-sm" style={{ fontSize: "0.9rem", opacity: 0.9 }}>
-            <div>Device: {envInfo.device?.toUpperCase?.() || ""}</div>
-            {envInfo.cuda_available && (
-              <>
-                <div>GPU: {envInfo.name || "Unknown"}</div>
-                <div>
-                  CUDA: {envInfo.cuda_version || "Unknown"} • Torch: {envInfo.torch || ""}
-                </div>
-                {(envInfo.total_mem != null) && (
-                  <div>
-                    VRAM: {Math.round(envInfo.total_mem / (1024 ** 3))} GB total, {Math.round(envInfo.free_mem / (1024 ** 3))} GB free
+                {typeof queuePosition === "number" && (
+                  <div style={{ fontSize: "0.9rem", opacity: 0.8 }}>
+                    Queue position: {queuePosition + 1}
                   </div>
+                )}
+                {typeof queueEtaSeconds === "number" && (
+                  <div style={{ fontSize: "0.9rem", opacity: 0.8 }}>
+                    Estimated start: {formatSeconds(queueEtaSeconds)}
+                  </div>
+                )}
+                <div style={{ fontSize: "0.9rem", opacity: 0.9 }}>
+                  {device ? `Device: ${device.toUpperCase()}` : "Detecting device..."}
+                </div>
+                {fallbackMsg && (
+                  <div style={{ color: "var(--accent)", fontSize: "0.9rem" }}>{fallbackMsg}</div>
+                )}
+                <div>
+                  <PrimaryButton type="button" onClick={cancelJob}>
+                    Cancel Job
+                  </PrimaryButton>
+                </div>
+              </div>
+            ) : (
+              <>
+                {statusMessage && (
+                  <div style={{ fontSize: "0.95rem" }}>{statusMessage}</div>
+                )}
+                {device && (
+                  <div style={{ fontSize: "0.9rem", opacity: 0.8 }}>
+                    Device: {device.toUpperCase()}
+                  </div>
+                )}
+                {fallbackMsg && (
+                  <div style={{ color: "var(--accent)", fontSize: "0.9rem" }}>{fallbackMsg}</div>
                 )}
               </>
             )}
-            {envInfo.error && (
-              <div style={{ color: "var(--accent)" }}>Error: {envInfo.error}</div>
-            )}
+          </div>
+        </form>
+        <div className="mt-sm" style={{ background: "var(--card-bg)", padding: "var(--space-sm)" }}>
+          <PrimaryButton
+            type="button"
+            onClick={async () => {
+              try {
+                const info = await invoke("musicgen_env");
+                setEnvInfo(info);
+                if (info?.device) setDevice(info.device);
+              } catch (e) {
+                setEnvInfo({ error: String(e) });
+              }
+            }}
+          >
+            Check Environment
+          </PrimaryButton>
+          {envInfo && (
+            <div className="mt-sm" style={{ fontSize: "0.9rem", opacity: 0.9 }}>
+              <div>Device: {envInfo.device?.toUpperCase?.() || ""}</div>
+              {envInfo.cuda_available && (
+                <>
+                  <div>GPU: {envInfo.name || "Unknown"}</div>
+                  <div>
+                    CUDA: {envInfo.cuda_version || "Unknown"} • Torch: {envInfo.torch || ""}
+                  </div>
+                  {(envInfo.total_mem != null) && (
+                    <div>
+                      VRAM: {Math.round(envInfo.total_mem / (1024 ** 3))} GB total, {Math.round(envInfo.free_mem / (1024 ** 3))} GB free
+                    </div>
+                  )}
+                </>
+              )}
+              {envInfo.error && (
+                <div style={{ color: "var(--accent)" }}>Error: {envInfo.error}</div>
+              )}
+            </div>
+          )}
+        </div>
+        {audios?.length > 0 && (
+          <div className="mt-sm" style={{ display: "grid", gap: "0.5rem" }}>
+            {audios.map((a, idx) => (
+              <div key={idx} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <audio src={a.url} controls />
+                <span style={{ fontSize: "0.9rem" }}>{a.name || `Track ${idx + 1}`}</span>
+                <PrimaryButton type="button" onClick={() => download(a, idx)}>
+                  Download
+                </PrimaryButton>
+              </div>
+            ))}
           </div>
         )}
-      </div>
-      {audios?.length > 0 && (
-        <div className="mt-sm" style={{ display: "grid", gap: "0.5rem" }}>
-          {audios.map((a, idx) => (
-            <div key={idx} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <audio src={a.url} controls />
-              <span style={{ fontSize: "0.9rem" }}>{a.name || `Track ${idx + 1}`}</span>
-              <PrimaryButton type="button" onClick={() => download(a, idx)}>
-                Download
-              </PrimaryButton>
-            </div>
-          ))}
-        </div>
-      )}
-      {error && (
-        <div
-          className="mt-md"
-          role="alert"
-          style={{ color: "var(--accent)", background: "var(--card-bg)", padding: "var(--space-sm)" }}
-        >
-          <strong>Something went wrong:</strong> {error}
-        </div>
-      )}
+        {error && (
+          <div
+            className="mt-md"
+            role="alert"
+            style={{ color: "var(--accent)", background: "var(--card-bg)", padding: "var(--space-sm)" }}
+          >
+            <strong>Something went wrong:</strong> {error}
+          </div>
+        )}
+      </main>
     </>
   );
 }
