@@ -29,6 +29,21 @@ const BRICK_PALETTES = [
   ['#ddd6fe', '#a855f7', '#7c3aed'],
 ];
 
+function createBall(x, y, speed, angleRadians) {
+  return {
+    x,
+    y,
+    radius: BALL_RADIUS,
+    speed,
+    dx: Math.cos(angleRadians) * speed,
+    dy: Math.sin(angleRadians) * speed,
+  };
+}
+
+function createBallFromVerticalOffset(x, y, speed, offsetRadians) {
+  return createBall(x, y, speed, -Math.PI / 2 + offsetRadians);
+}
+
 function generateBricks(level) {
   const minRows = 3;
   const maxRows = Math.min(5 + Math.floor(level / 2), 8);
@@ -84,6 +99,9 @@ function generateBricks(level) {
     return generateBricks(level);
   }
 
+  const multiBallIndex = Math.floor(Math.random() * bricks.length);
+  bricks[multiBallIndex].hasMultiBallPowerUp = true;
+
   return bricks;
 }
 
@@ -101,14 +119,7 @@ export default function BrickBreaker() {
     y: CANVAS_HEIGHT - 48,
   });
 
-  const ballRef = useRef({
-    x: CANVAS_WIDTH / 2,
-    y: CANVAS_HEIGHT - 80,
-    radius: BALL_RADIUS,
-    speed: BALL_BASE_SPEED,
-    dx: BALL_BASE_SPEED * (Math.random() < 0.5 ? -0.7 : 0.7),
-    dy: -BALL_BASE_SPEED,
-  });
+  const ballsRef = useRef([]);
 
   const bricksRef = useRef(generateBricks(1));
 
@@ -178,18 +189,16 @@ export default function BrickBreaker() {
     paddle.y = CANVAS_HEIGHT - 48;
 
     const baseSpeed = BALL_BASE_SPEED + (levelNumber - 1) * 0.35;
-    const angle = (Math.random() * Math.PI) / 3 + Math.PI / 6;
-    const direction = Math.random() < 0.5 ? -1 : 1;
     const speed = Math.min(baseSpeed, BALL_MAX_SPEED);
-
-    ballRef.current = {
-      x: paddle.x + clampedWidth / 2,
-      y: paddle.y - BALL_RADIUS - 1,
-      radius: BALL_RADIUS,
-      speed,
-      dx: Math.cos(angle) * speed * direction,
-      dy: -Math.abs(Math.sin(angle) * speed),
-    };
+    const offset = (Math.random() - 0.5) * (Math.PI / 3);
+    ballsRef.current = [
+      createBallFromVerticalOffset(
+        paddle.x + clampedWidth / 2,
+        paddle.y - BALL_RADIUS - 1,
+        speed,
+        offset
+      ),
+    ];
   }, []);
 
   const confirmLevelIntro = useCallback(() => {
@@ -471,25 +480,30 @@ export default function BrickBreaker() {
       context.lineWidth = 2;
       context.strokeRect(paddle.x, paddle.y, paddle.width, paddle.height);
 
-      const ball = ballRef.current;
-      if (statusRef.current === 'ready') {
-        ball.x = paddle.x + paddle.width / 2;
-        ball.y = paddle.y - ball.radius - 1;
+      const balls = ballsRef.current;
+      if (statusRef.current === 'ready' && balls.length > 0) {
+        const anchorBall = balls[0];
+        anchorBall.x = paddle.x + paddle.width / 2;
+        anchorBall.y = paddle.y - anchorBall.radius - 1;
       }
-      context.beginPath();
-      context.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
-      context.closePath();
-      context.fillStyle = '#f8fafc';
-      context.fill();
-      context.lineWidth = 2;
-      context.strokeStyle = '#38bdf8';
-      context.stroke();
+
+      for (let i = 0; i < balls.length; i += 1) {
+        const ball = balls[i];
+        context.beginPath();
+        context.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+        context.closePath();
+        context.fillStyle = '#f8fafc';
+        context.fill();
+        context.lineWidth = 2;
+        context.strokeStyle = '#38bdf8';
+        context.stroke();
+      }
     };
 
     const updateGame = () => {
       const paddle = paddleRef.current;
-      const ball = ballRef.current;
       const status = statusRef.current;
+      const balls = ballsRef.current;
 
       const effectiveSpeed = PADDLE_SPEED + levelRef.current * 0.15;
       if (status === 'running' || status === 'ready') {
@@ -509,124 +523,154 @@ export default function BrickBreaker() {
         return;
       }
 
-      ball.x += ball.dx;
-      ball.y += ball.dy;
-
-      if (ball.x + ball.radius >= CANVAS_WIDTH) {
-        ball.x = CANVAS_WIDTH - ball.radius - 1;
-        ball.dx = -Math.abs(ball.dx);
-      } else if (ball.x - ball.radius <= 0) {
-        ball.x = ball.radius + 1;
-        ball.dx = Math.abs(ball.dx);
-      }
-
-      if (ball.y - ball.radius <= 0) {
-        ball.y = ball.radius + 1;
-        ball.dy = Math.abs(ball.dy);
-      }
-
-      if (
-        ball.dy > 0 &&
-        ball.y + ball.radius >= paddle.y &&
-        ball.y + ball.radius <= paddle.y + paddle.height + 4 &&
-        ball.x >= paddle.x &&
-        ball.x <= paddle.x + paddle.width
-      ) {
-        const paddleCenter = paddle.x + paddle.width / 2;
-        const distanceFromCenter = ball.x - paddleCenter;
-        const normalized = distanceFromCenter / (paddle.width / 2);
-        const maxBounceAngle = (75 * Math.PI) / 180;
-        const bounceAngle = normalized * maxBounceAngle;
-        const newSpeed = Math.min(
-          ball.speed + 0.25,
-          BALL_MAX_SPEED + levelRef.current * 0.3
-        );
-        ball.speed = newSpeed;
-        ball.dx = Math.sin(bounceAngle) * newSpeed;
-        ball.dy = -Math.cos(bounceAngle) * newSpeed;
-        ball.y = paddle.y - ball.radius - 1;
-      }
-
       const bricks = bricksRef.current;
-      for (let i = 0; i < bricks.length; i += 1) {
-        const brick = bricks[i];
-        if (
-          ball.x + ball.radius < brick.x ||
-          ball.x - ball.radius > brick.x + brick.width ||
-          ball.y + ball.radius < brick.y ||
-          ball.y - ball.radius > brick.y + brick.height
-        ) {
-          continue;
+      const remainingBalls = [];
+      const spawnedBalls = [];
+
+      for (let ballIndex = 0; ballIndex < balls.length; ballIndex += 1) {
+        const ball = balls[ballIndex];
+
+        ball.x += ball.dx;
+        ball.y += ball.dy;
+
+        if (ball.x + ball.radius >= CANVAS_WIDTH) {
+          ball.x = CANVAS_WIDTH - ball.radius - 1;
+          ball.dx = -Math.abs(ball.dx);
+        } else if (ball.x - ball.radius <= 0) {
+          ball.x = ball.radius + 1;
+          ball.dx = Math.abs(ball.dx);
         }
 
-        const overlapLeft = ball.x + ball.radius - brick.x;
-        const overlapRight =
-          brick.x + brick.width - (ball.x - ball.radius);
-        const overlapTop = ball.y + ball.radius - brick.y;
-        const overlapBottom =
-          brick.y + brick.height - (ball.y - ball.radius);
-        const minOverlap = Math.min(
-          overlapLeft,
-          overlapRight,
-          overlapTop,
-          overlapBottom
-        );
-
-        if (minOverlap === overlapLeft) {
-          ball.x = brick.x - ball.radius - 1;
-          ball.dx = -Math.abs(ball.dx);
-        } else if (minOverlap === overlapRight) {
-          ball.x = brick.x + brick.width + ball.radius + 1;
-          ball.dx = Math.abs(ball.dx);
-        } else if (minOverlap === overlapTop) {
-          ball.y = brick.y - ball.radius - 1;
-          ball.dy = -Math.abs(ball.dy);
-        } else {
-          ball.y = brick.y + brick.height + ball.radius + 1;
+        if (ball.y - ball.radius <= 0) {
+          ball.y = ball.radius + 1;
           ball.dy = Math.abs(ball.dy);
         }
 
-        const brickStrengthBefore = brick.strength;
-        brick.strength -= 1;
-        if (brick.strength <= 0) {
-          bricks.splice(i, 1);
-          i -= 1;
+        if (
+          ball.dy > 0 &&
+          ball.y + ball.radius >= paddle.y &&
+          ball.y + ball.radius <= paddle.y + paddle.height + 4 &&
+          ball.x >= paddle.x &&
+          ball.x <= paddle.x + paddle.width
+        ) {
+          const paddleCenter = paddle.x + paddle.width / 2;
+          const distanceFromCenter = ball.x - paddleCenter;
+          const normalized = distanceFromCenter / (paddle.width / 2);
+          const maxBounceAngle = (75 * Math.PI) / 180;
+          const bounceAngle = normalized * maxBounceAngle;
+          const newSpeed = Math.min(
+            ball.speed + 0.25,
+            BALL_MAX_SPEED + levelRef.current * 0.3
+          );
+          ball.speed = newSpeed;
+          ball.dx = Math.sin(bounceAngle) * newSpeed;
+          ball.dy = -Math.cos(bounceAngle) * newSpeed;
+          ball.y = paddle.y - ball.radius - 1;
         }
 
-        const points = 50 + brickStrengthBefore * 20 + levelRef.current * 10;
-        setScore((prevScore) => {
-          const newScore = prevScore + points;
-          const currentThreshold = nextLifeThresholdRef.current;
-
-          if (newScore >= currentThreshold) {
-            const thresholdsCrossed =
-              Math.floor((newScore - currentThreshold) / LIFE_MILESTONE_STEP) + 1;
-            const updatedThreshold =
-              currentThreshold + LIFE_MILESTONE_STEP * thresholdsCrossed;
-
-            setNextLifeThreshold(updatedThreshold);
-            nextLifeThresholdRef.current = updatedThreshold;
-
-            setLives((prevLives) => prevLives + thresholdsCrossed);
-            showMilestoneNotification(thresholdsCrossed, newScore);
+        for (let i = 0; i < bricks.length; i += 1) {
+          const brick = bricks[i];
+          if (
+            ball.x + ball.radius < brick.x ||
+            ball.x - ball.radius > brick.x + brick.width ||
+            ball.y + ball.radius < brick.y ||
+            ball.y - ball.radius > brick.y + brick.height
+          ) {
+            continue;
           }
 
-          return newScore;
-        });
+          const overlapLeft = ball.x + ball.radius - brick.x;
+          const overlapRight =
+            brick.x + brick.width - (ball.x - ball.radius);
+          const overlapTop = ball.y + ball.radius - brick.y;
+          const overlapBottom =
+            brick.y + brick.height - (ball.y - ball.radius);
+          const minOverlap = Math.min(
+            overlapLeft,
+            overlapRight,
+            overlapTop,
+            overlapBottom
+          );
 
-        const boostedSpeed = Math.min(
-          ball.speed * 1.02 + levelRef.current * 0.05,
-          BALL_MAX_SPEED + levelRef.current * 0.4
-        );
-        const angleAfter = Math.atan2(ball.dy, ball.dx);
-        ball.speed = boostedSpeed;
-        ball.dx = Math.cos(angleAfter) * boostedSpeed;
-        ball.dy = Math.sin(angleAfter) * boostedSpeed;
+          if (minOverlap === overlapLeft) {
+            ball.x = brick.x - ball.radius - 1;
+            ball.dx = -Math.abs(ball.dx);
+          } else if (minOverlap === overlapRight) {
+            ball.x = brick.x + brick.width + ball.radius + 1;
+            ball.dx = Math.abs(ball.dx);
+          } else if (minOverlap === overlapTop) {
+            ball.y = brick.y - ball.radius - 1;
+            ball.dy = -Math.abs(ball.dy);
+          } else {
+            ball.y = brick.y + brick.height + ball.radius + 1;
+            ball.dy = Math.abs(ball.dy);
+          }
 
-        break;
+          const brickStrengthBefore = brick.strength;
+          brick.strength -= 1;
+          const destroyedBrick = brick.strength <= 0 ? brick : null;
+          if (destroyedBrick) {
+            bricks.splice(i, 1);
+            i -= 1;
+          }
+
+          const points = 50 + brickStrengthBefore * 20 + levelRef.current * 10;
+          setScore((prevScore) => {
+            const newScore = prevScore + points;
+            const currentThreshold = nextLifeThresholdRef.current;
+
+            if (newScore >= currentThreshold) {
+              const thresholdsCrossed =
+                Math.floor((newScore - currentThreshold) / LIFE_MILESTONE_STEP) + 1;
+              const updatedThreshold =
+                currentThreshold + LIFE_MILESTONE_STEP * thresholdsCrossed;
+
+              setNextLifeThreshold(updatedThreshold);
+              nextLifeThresholdRef.current = updatedThreshold;
+
+              setLives((prevLives) => prevLives + thresholdsCrossed);
+              showMilestoneNotification(thresholdsCrossed, newScore);
+            }
+
+            return newScore;
+          });
+
+          const boostedSpeed = Math.min(
+            ball.speed * 1.02 + levelRef.current * 0.05,
+            BALL_MAX_SPEED + levelRef.current * 0.4
+          );
+          const angleAfter = Math.atan2(ball.dy, ball.dx);
+          ball.speed = boostedSpeed;
+          ball.dx = Math.cos(angleAfter) * boostedSpeed;
+          ball.dy = Math.sin(angleAfter) * boostedSpeed;
+
+          if (destroyedBrick?.hasMultiBallPowerUp) {
+            const spawnSpeed = Math.min(
+              Math.max(ball.speed * 0.9, BALL_BASE_SPEED + levelRef.current * 0.15),
+              BALL_MAX_SPEED + levelRef.current * 0.4
+            );
+            const spawnOffsets = [-0.45, 0, 0.45];
+            for (let s = 0; s < spawnOffsets.length; s += 1) {
+              spawnedBalls.push(
+                createBallFromVerticalOffset(ball.x, ball.y, spawnSpeed, spawnOffsets[s])
+              );
+            }
+          }
+
+          break;
+        }
+
+        if (ball.y - ball.radius <= CANVAS_HEIGHT) {
+          remainingBalls.push(ball);
+        }
       }
 
-      if (ball.y - ball.radius > CANVAS_HEIGHT) {
+      if (spawnedBalls.length > 0) {
+        remainingBalls.push(...spawnedBalls);
+      }
+
+      if (remainingBalls.length === 0) {
+        ballsRef.current = remainingBalls;
         keysRef.current.left = false;
         keysRef.current.right = false;
         setLives((prevLives) => {
@@ -645,7 +689,10 @@ export default function BrickBreaker() {
           }
           return Math.max(0, nextLives);
         });
+        return;
       }
+
+      ballsRef.current = remainingBalls;
 
       if (status !== 'gameover' && status !== 'level-complete' && bricks.length === 0) {
         keysRef.current.left = false;
