@@ -8,6 +8,7 @@ const GRID_HEIGHT = 80;
 const CANVAS_WIDTH = GRID_WIDTH * CELL_SIZE;
 const CANVAS_HEIGHT = GRID_HEIGHT * CELL_SIZE;
 const SPAWN_INTERVAL = 2000;
+const DROP_INTERVAL = 450;
 const SPAWN_WARNING_ROW = 10;
 const WALL_INDICATOR_WIDTH = 4;
 const POINTS_PER_GRAIN = 10;
@@ -98,6 +99,44 @@ const SHAPES = BASE_SHAPES.map((shape) => {
   };
 });
 
+const getNormalizedRotation = (rotation) => ((rotation % 4) + 4) % 4;
+
+const rotateCell = (shape, rotation, x, y) => {
+  const normalized = getNormalizedRotation(rotation);
+  switch (normalized) {
+    case 1:
+      return [shape.height - 1 - y, x];
+    case 2:
+      return [shape.width - 1 - x, shape.height - 1 - y];
+    case 3:
+      return [y, shape.width - 1 - x];
+    default:
+      return [x, y];
+  }
+};
+
+const getRotationInfo = (shape, rotation) => {
+  const rotated = shape.cells.map(([x, y]) => rotateCell(shape, rotation, x, y));
+  let minX = Infinity;
+  let minY = Infinity;
+  rotated.forEach(([x, y]) => {
+    if (x < minX) {
+      minX = x;
+    }
+    if (y < minY) {
+      minY = y;
+    }
+  });
+
+  const offsets = rotated.map(([x, y]) => [x - minX, y - minY]);
+  const xs = offsets.map(([x]) => x);
+  const ys = offsets.map(([, y]) => y);
+  const width = Math.max(...xs) + 1;
+  const height = Math.max(...ys) + 1;
+
+  return { offsets, width, height };
+};
+
 const createEmptyGrid = () =>
   Array.from({ length: GRID_HEIGHT }, () => Array(GRID_WIDTH).fill(0));
 
@@ -114,6 +153,7 @@ export default function SandBlocks() {
   const isRunningRef = useRef(false);
   const isGameOverRef = useRef(false);
   const lastSpawnTimeRef = useRef(0);
+  const lastDropTimeRef = useRef(0);
 
   const [isRunning, setIsRunning] = useState(false);
   const [isGameOver, setIsGameOver] = useState(false);
@@ -135,6 +175,14 @@ export default function SandBlocks() {
   });
   const [nextShape, setNextShape] = useState(() => randomShape());
   const nextShapeRef = useRef(nextShape);
+  const [activePiece, setActivePiece] = useState(null);
+  const activePieceRef = useRef(activePiece);
+  const pointerStateRef = useRef(null);
+
+  const updateActivePiece = useCallback((piece) => {
+    activePieceRef.current = piece;
+    setActivePiece(piece);
+  }, []);
 
   useEffect(() => {
     nextShapeRef.current = nextShape;
@@ -198,6 +246,30 @@ export default function SandBlocks() {
     ctx.lineTo(CANVAS_WIDTH, warningY);
     ctx.stroke();
     ctx.setLineDash([]);
+
+    const piece = activePieceRef.current;
+    if (piece) {
+      const { offsets } = getRotationInfo(piece.shape, piece.rotation);
+      offsets.forEach(([dx, dy]) => {
+        const x = piece.x + dx;
+        const y = piece.y + dy;
+        if (x < 0 || y < 0 || x >= GRID_WIDTH || y >= GRID_HEIGHT) {
+          return;
+        }
+
+        const paletteEntry = COLOR_PALETTE[piece.shape.color - 1] ?? COLOR_PALETTE[0];
+        const cellX = x * CELL_SIZE;
+        const cellY = y * CELL_SIZE;
+
+        ctx.fillStyle = paletteEntry.value;
+        ctx.fillRect(cellX, cellY, CELL_SIZE, CELL_SIZE);
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+        ctx.fillRect(cellX, cellY, CELL_SIZE, CELL_SIZE / 2);
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.18)';
+        ctx.fillRect(cellX, cellY + CELL_SIZE / 2, CELL_SIZE, CELL_SIZE / 2);
+      });
+    }
   }, []);
 
   const countGrains = useCallback(() => {
@@ -213,51 +285,86 @@ export default function SandBlocks() {
     setGrainCount(count);
   }, []);
 
-  const stepSimulation = useCallback(() => {
-    const currentGrid = gridRef.current;
-    const nextGrid = currentGrid.map((row) => row.slice());
-    let moved = false;
+  const canPlacePiece = useCallback((piece, offsetX = 0, offsetY = 0, rotationDelta = 0) => {
+    if (!piece) {
+      return false;
+    }
 
-    for (let y = GRID_HEIGHT - 2; y >= 0; y -= 1) {
-      for (let x = 0; x < GRID_WIDTH; x += 1) {
-        const cell = currentGrid[y][x];
-        if (cell === 0) {
-          continue;
-        }
+    const grid = gridRef.current;
+    const rotation = getNormalizedRotation(piece.rotation + rotationDelta);
+    const { offsets } = getRotationInfo(piece.shape, rotation);
+    const targetX = piece.x + offsetX;
+    const targetY = piece.y + offsetY;
 
-        const belowY = y + 1;
-        if (currentGrid[belowY][x] === 0) {
-          nextGrid[belowY][x] = cell;
-          nextGrid[y][x] = 0;
-          moved = true;
-          continue;
-        }
-
-        const candidates = [];
-        if (x > 0 && currentGrid[belowY][x - 1] === 0) {
-          candidates.push(x - 1);
-        }
-        if (x < GRID_WIDTH - 1 && currentGrid[belowY][x + 1] === 0) {
-          candidates.push(x + 1);
-        }
-
-        if (candidates.length === 0) {
-          continue;
-        }
-
-        const choice = candidates[Math.floor(Math.random() * candidates.length)];
-        nextGrid[belowY][choice] = cell;
-        nextGrid[y][x] = 0;
-        moved = true;
+    return offsets.every(([dx, dy]) => {
+      const x = targetX + dx;
+      const y = targetY + dy;
+      if (x < 0 || x >= GRID_WIDTH || y < 0 || y >= GRID_HEIGHT) {
+        return false;
       }
-    }
-
-    if (moved) {
-      gridRef.current = nextGrid;
-    }
-
-    return moved;
+      return grid[y][x] === 0;
+    });
   }, []);
+
+  const lockActivePiece = useCallback(
+    (piece, timestamp) => {
+      if (!piece) {
+        return;
+      }
+
+      const appliedTimestamp =
+        timestamp ?? (typeof window !== 'undefined' && window.performance
+          ? window.performance.now()
+          : Date.now());
+
+      const grid = gridRef.current.map((row) => row.slice());
+      const { offsets } = getRotationInfo(piece.shape, piece.rotation);
+      offsets.forEach(([dx, dy]) => {
+        const x = piece.x + dx;
+        const y = piece.y + dy;
+        if (x < 0 || x >= GRID_WIDTH || y < 0 || y >= GRID_HEIGHT) {
+          return;
+        }
+        grid[y][x] = piece.shape.color;
+      });
+
+      gridRef.current = grid;
+      updateActivePiece(null);
+      lastSpawnTimeRef.current = appliedTimestamp;
+      lastDropTimeRef.current = appliedTimestamp;
+      pointerStateRef.current = null;
+      countGrains();
+      drawGrid();
+    },
+    [countGrains, drawGrid, updateActivePiece]
+  );
+
+  const stepSimulation = useCallback(
+    (timestamp) => {
+      if (!isRunningRef.current || isGameOverRef.current) {
+        return;
+      }
+
+      const piece = activePieceRef.current;
+      if (!piece) {
+        return;
+      }
+
+      if (timestamp - lastDropTimeRef.current < DROP_INTERVAL) {
+        return;
+      }
+
+      if (canPlacePiece(piece, 0, 1, 0)) {
+        const moved = { ...piece, y: piece.y + 1 };
+        updateActivePiece(moved);
+      } else {
+        lockActivePiece(piece, timestamp);
+      }
+
+      lastDropTimeRef.current = timestamp;
+    },
+    [canPlacePiece, lockActivePiece, updateActivePiece]
+  );
 
   const clearBridges = useCallback(() => {
     const grid = gridRef.current;
@@ -347,41 +454,41 @@ export default function SandBlocks() {
         return;
       }
 
-      const spawnX = Math.floor((GRID_WIDTH - shape.width) / 2);
-      const placements = shape.cells.map(([dx, dy]) => ({
-        x: spawnX + dx,
-        y: dy,
-      }));
+      const rotation = 0;
+      const { width } = getRotationInfo(shape, rotation);
+      const spawnX = Math.floor((GRID_WIDTH - width) / 2);
+      const piece = {
+        shape,
+        x: spawnX,
+        y: 0,
+        rotation,
+      };
 
-      const grid = gridRef.current;
-      const blocked = placements.some(
-        ({ x, y }) => x < 0 || x >= GRID_WIDTH || y < 0 || y >= GRID_HEIGHT || grid[y][x] !== 0
-      );
-
-      if (blocked) {
+      if (!canPlacePiece(piece)) {
         setIsGameOver(true);
         setIsRunning(false);
         return;
       }
 
-      placements.forEach(({ x, y }) => {
-        grid[y][x] = shape.color;
-      });
-      gridRef.current = grid;
-      countGrains();
+      updateActivePiece(piece);
       drawGrid();
 
       const upcoming = randomShape();
       nextShapeRef.current = upcoming;
       setNextShape(upcoming);
       lastSpawnTimeRef.current = timestamp;
+      lastDropTimeRef.current = timestamp;
     },
-    [countGrains, drawGrid]
+    [canPlacePiece, drawGrid, updateActivePiece]
   );
 
   const maybeSpawnShape = useCallback(
     (timestamp) => {
       if (!isRunningRef.current || isGameOverRef.current) {
+        return;
+      }
+
+      if (activePieceRef.current) {
         return;
       }
 
@@ -394,15 +501,248 @@ export default function SandBlocks() {
     [spawnShape]
   );
 
+  const attemptMovePiece = useCallback(
+    (deltaX) => {
+      const piece = activePieceRef.current;
+      if (!piece || deltaX === 0) {
+        return;
+      }
+
+      const direction = deltaX > 0 ? 1 : -1;
+      let remaining = Math.abs(deltaX);
+      let currentPiece = piece;
+      let moved = false;
+
+      while (remaining > 0) {
+        if (!canPlacePiece(currentPiece, direction, 0, 0)) {
+          break;
+        }
+        currentPiece = { ...currentPiece, x: currentPiece.x + direction };
+        remaining -= 1;
+        moved = true;
+      }
+
+      if (moved) {
+        updateActivePiece(currentPiece);
+      }
+    },
+    [canPlacePiece, updateActivePiece]
+  );
+
+  const attemptRotatePiece = useCallback(() => {
+    const piece = activePieceRef.current;
+    if (!piece) {
+      return;
+    }
+
+    if (!canPlacePiece(piece, 0, 0, 1)) {
+      return;
+    }
+
+    const rotation = getNormalizedRotation(piece.rotation + 1);
+    updateActivePiece({ ...piece, rotation });
+  }, [canPlacePiece, updateActivePiece]);
+
+  const attemptSoftDrop = useCallback(() => {
+    const piece = activePieceRef.current;
+    if (!piece) {
+      return;
+    }
+
+    if (canPlacePiece(piece, 0, 1, 0)) {
+      const moved = { ...piece, y: piece.y + 1 };
+      updateActivePiece(moved);
+      const now =
+        typeof window !== 'undefined' && window.performance
+          ? window.performance.now()
+          : Date.now();
+      lastDropTimeRef.current = now;
+    } else {
+      lockActivePiece(piece);
+    }
+  }, [canPlacePiece, lockActivePiece, updateActivePiece]);
+
+  const handlePointerDown = useCallback((event) => {
+    if (!isRunningRef.current || isGameOverRef.current || event.button > 0) {
+      return;
+    }
+
+    const canvas = canvasRef.current;
+    const piece = activePieceRef.current;
+    if (!canvas || !piece) {
+      return;
+    }
+
+    event.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    pointerStateRef.current = {
+      id: event.pointerId,
+      startX: x,
+      originX: piece.x,
+      moved: false,
+    };
+
+    if (canvas.setPointerCapture) {
+      try {
+        canvas.setPointerCapture(event.pointerId);
+      } catch {
+        // Ignore pointer capture failures.
+      }
+    }
+  }, []);
+
+  const handlePointerMove = useCallback(
+    (event) => {
+      if (!isRunningRef.current || isGameOverRef.current) {
+        return;
+      }
+
+      const state = pointerStateRef.current;
+      if (!state || state.id !== event.pointerId) {
+        return;
+      }
+
+      const canvas = canvasRef.current;
+      const piece = activePieceRef.current;
+      if (!canvas || !piece) {
+        return;
+      }
+
+      const rect = canvas.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const delta = x - state.startX;
+      const deltaCells = Math.round(delta / CELL_SIZE);
+      if (deltaCells === 0) {
+        return;
+      }
+
+      event.preventDefault();
+      const desiredX = state.originX + deltaCells;
+      const moveDelta = desiredX - piece.x;
+      if (moveDelta !== 0) {
+        attemptMovePiece(moveDelta);
+        if (pointerStateRef.current) {
+          pointerStateRef.current.moved = true;
+        }
+      }
+    },
+    [attemptMovePiece]
+  );
+
+  const clearPointerState = useCallback((event) => {
+    const canvas = canvasRef.current;
+    const state = pointerStateRef.current;
+    if (state && event && state.id !== event.pointerId) {
+      return;
+    }
+
+    pointerStateRef.current = null;
+    if (canvas && event && canvas.releasePointerCapture) {
+      try {
+        canvas.releasePointerCapture(event.pointerId);
+      } catch {
+        // Ignore failures.
+      }
+    }
+  }, []);
+
+  const handlePointerUp = useCallback(
+    (event) => {
+      const state = pointerStateRef.current;
+      if (
+        state &&
+        state.id === event.pointerId &&
+        !state.moved &&
+        isRunningRef.current &&
+        !isGameOverRef.current &&
+        event.type === 'pointerup'
+      ) {
+        const canvas = canvasRef.current;
+        const piece = activePieceRef.current;
+        if (canvas && piece) {
+          const rect = canvas.getBoundingClientRect();
+          const x = event.clientX - rect.left;
+          if (Math.abs(x - state.startX) < CELL_SIZE / 2) {
+            attemptRotatePiece();
+          }
+        }
+      }
+
+      clearPointerState(event);
+    },
+    [attemptRotatePiece, clearPointerState]
+  );
+
+  const handlePointerCancel = useCallback(
+    (event) => {
+      clearPointerState(event);
+    },
+    [clearPointerState]
+  );
+
+  useEffect(() => {
+    if (!isRunning || isGameOver) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event) => {
+      if (!isRunningRef.current || isGameOverRef.current) {
+        return;
+      }
+
+      let handled = false;
+      switch (event.key) {
+        case 'ArrowLeft':
+        case 'a':
+        case 'A':
+          attemptMovePiece(-1);
+          handled = true;
+          break;
+        case 'ArrowRight':
+        case 'd':
+        case 'D':
+          attemptMovePiece(1);
+          handled = true;
+          break;
+        case 'ArrowUp':
+        case 'w':
+        case 'W':
+        case ' ': // Spacebar
+        case 'Spacebar':
+          attemptRotatePiece();
+          handled = true;
+          break;
+        case 'ArrowDown':
+        case 's':
+        case 'S':
+          attemptSoftDrop();
+          handled = true;
+          break;
+        default:
+          break;
+      }
+
+      if (handled) {
+        event.preventDefault();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [attemptMovePiece, attemptRotatePiece, attemptSoftDrop, isGameOver, isRunning]);
+
   const updateAnimation = useCallback(
     (timestamp) => {
       if (!isRunningRef.current || isGameOverRef.current) {
         return;
       }
 
-      stepSimulation();
-      clearBridges();
       maybeSpawnShape(timestamp);
+      stepSimulation(timestamp);
+      clearBridges();
       drawGrid();
 
       animationFrameRef.current = window.requestAnimationFrame(updateAnimation);
@@ -428,7 +768,7 @@ export default function SandBlocks() {
 
   useEffect(() => {
     drawGrid();
-  }, [drawGrid]);
+  }, [activePiece, drawGrid]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -444,10 +784,13 @@ export default function SandBlocks() {
 
   const resetBoard = useCallback(() => {
     gridRef.current = createEmptyGrid();
+    updateActivePiece(null);
+    pointerStateRef.current = null;
     drawGrid();
     countGrains();
     lastSpawnTimeRef.current = 0;
-  }, [countGrains, drawGrid]);
+    lastDropTimeRef.current = 0;
+  }, [countGrains, drawGrid, updateActivePiece]);
 
   const handleStart = useCallback(() => {
     if (isGameOver) {
@@ -591,6 +934,11 @@ export default function SandBlocks() {
             className="sand-game-canvas"
             width={CANVAS_WIDTH}
             height={CANVAS_HEIGHT}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerCancel}
+            onPointerLeave={handlePointerUp}
           />
           {(!isRunning || isGameOver) && (
             <div className="sand-game-overlay">
