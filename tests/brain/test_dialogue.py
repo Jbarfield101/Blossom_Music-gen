@@ -173,7 +173,7 @@ def test_lore_injection(tmp_path, monkeypatch):
     captured = _patch_common(monkeypatch, tmp_path, chunks)
 
     out = dialogue.respond("Tell me some lore about dragons")
-    assert "Relevant notes:" in out.narration
+    assert "Relevant notes (your campaign):" in out.narration
     assert "- Dragons are ancient creatures." in out.narration
     assert captured["prompt"] == out.narration
 
@@ -203,7 +203,7 @@ def test_npc_injection(tmp_path, monkeypatch):
     captured = _patch_common(monkeypatch, tmp_path, chunks)
 
     out = dialogue.respond("Hello, what do I know about the king?")
-    assert "Relevant notes:" in out.narration
+    assert "Relevant notes (your campaign):" in out.narration
     assert "- King Arthur" in out.narration
     assert captured["prompt"] == out.narration
 
@@ -225,6 +225,54 @@ def test_no_notes_fallback(tmp_path, monkeypatch):
 
     msg = "Tell me some lore about dragons"
     out = dialogue.respond(msg)
-    assert msg in out.narration
-    assert "Relevant notes:" not in out.narration
-    assert captured["prompt"] == out.narration
+    assert isinstance(out, str)
+    expected = "No matching lore found in your campaign notes for: Tell me some lore about dragons"
+    assert out == expected
+    assert "Relevant notes" not in out
+
+
+def test_dialogue_handles_common_queries(tmp_path, monkeypatch):
+    chunks = [
+        {
+            "id": "npc_arannis",
+            "path": "npcs/arannis.md",
+            "heading": "Arannis",
+            "content": "- Arannis Silverwind\n- Elven ranger of Emberfell\n- Scout for the Emberfell guard",
+            "vector_id": 0,
+            "tags": ["npc"],
+            "vector": np.array([1.0, 0.0], dtype="float32"),
+        },
+        {
+            "id": "lore_emberfell",
+            "path": "lore/emberfell.md",
+            "heading": "Emberfell",
+            "content": "Emberfell is a bustling city built atop magma vents.\nIts markets never sleep.",
+            "vector_id": 1,
+            "tags": ["lore"],
+            "vector": np.array([0.0, 1.0], dtype="float32"),
+        },
+        {
+            "id": "lore_pantheon",
+            "path": "lore/pantheon.md",
+            "heading": "Pantheon",
+            "content": "The Emberfell pantheon is ruled by a triad of flame gods.\nThey guard the city's forges.",
+            "vector_id": 2,
+            "tags": ["lore"],
+            "vector": np.array([0.5, 0.5], dtype="float32"),
+        },
+    ]
+    _build_vault(tmp_path, chunks)
+    captured = _patch_common(monkeypatch, tmp_path, chunks)
+
+    cases = [
+        ("Who is Arannis?", "- Arannis Silverwind"),
+        ("Tell me about the city of Emberfell", "- Emberfell is a bustling city built atop magma vents."),
+        ("What gods rule the pantheon?", "- The Emberfell pantheon is ruled by a triad of flame gods."),
+    ]
+
+    for prompt, expected in cases:
+        out = dialogue.respond(prompt)
+        assert not isinstance(out, str)
+        assert "Relevant notes (your campaign):" in out.narration
+        assert expected in out.narration
+        assert captured["prompt"] == out.narration

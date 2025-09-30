@@ -22,3 +22,15 @@ def test_classify_lore():
 
 def test_classify_note():
     assert classify("Note to self: buy milk.") == "note"
+
+
+def test_classify_who_is_npc():
+    assert classify("Who is Arannis?") == "npc"
+
+
+def test_classify_city_lore():
+    assert classify("Tell me about the city of Emberfell") == "lore"
+
+
+def test_classify_pantheon_lore():
+    assert classify("What gods rule the pantheon?") == "lore"
