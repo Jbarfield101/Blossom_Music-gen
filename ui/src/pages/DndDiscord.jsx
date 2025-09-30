@@ -388,8 +388,8 @@ export default function DndDiscord() {
               try {
                 const npc = npcs.find((n) => n.name === actNpc);
                 const sys = [
-                  npc?.name ? You are , a D&D NPC. : 'You are a D&D NPC.',
-                  npc?.description ? Description:  : '',
+                  npc?.name ? `You are ${npc.name}, a D&D NPC.` : 'You are a D&D NPC.',
+                  npc?.description ? `Description: ${npc.description}` : '',
                   npc?.prompt || '',
                   'Respond in character, concise but vivid.',
                 ].filter(Boolean).join('\n');
