@@ -13,6 +13,7 @@ const SPAWN_WARNING_ROW = 10;
 const WALL_INDICATOR_WIDTH = 4;
 const POINTS_PER_GRAIN = 10;
 const STORAGE_KEY = 'sandBlocksHighScore';
+const QUEUE_LENGTH = 3;
 
 const COLOR_PALETTE = [
   { name: 'Sunburst', value: '#fbbf24' },
@@ -173,8 +174,12 @@ export default function SandBlocks() {
       return 0;
     }
   });
-  const [nextShape, setNextShape] = useState(() => randomShape());
-  const nextShapeRef = useRef(nextShape);
+  const [nextShapeQueue, setNextShapeQueue] = useState(() =>
+    Array.from({ length: QUEUE_LENGTH }, () => randomShape())
+  );
+  const nextShapeQueueRef = useRef(nextShapeQueue);
+  const [selectedPreviewIndex, setSelectedPreviewIndex] = useState(0);
+  const selectedPreviewIndexRef = useRef(selectedPreviewIndex);
   const [activePiece, setActivePiece] = useState(null);
   const activePieceRef = useRef(activePiece);
   const pointerStateRef = useRef(null);
@@ -185,8 +190,12 @@ export default function SandBlocks() {
   }, []);
 
   useEffect(() => {
-    nextShapeRef.current = nextShape;
-  }, [nextShape]);
+    nextShapeQueueRef.current = nextShapeQueue;
+  }, [nextShapeQueue]);
+
+  useEffect(() => {
+    selectedPreviewIndexRef.current = selectedPreviewIndex;
+  }, [selectedPreviewIndex]);
 
   useEffect(() => {
     isRunningRef.current = isRunning;
@@ -449,10 +458,16 @@ export default function SandBlocks() {
 
   const spawnShape = useCallback(
     (timestamp) => {
-      const shape = nextShapeRef.current;
-      if (!shape) {
+      const queue = nextShapeQueueRef.current;
+      if (!queue || queue.length === 0) {
         return;
       }
+
+      const selectedIndex = Math.min(
+        selectedPreviewIndexRef.current,
+        queue.length - 1
+      );
+      const shape = queue[selectedIndex];
 
       const rotation = 0;
       const { width } = getRotationInfo(shape, rotation);
@@ -473,9 +488,15 @@ export default function SandBlocks() {
       updateActivePiece(piece);
       drawGrid();
 
-      const upcoming = randomShape();
-      nextShapeRef.current = upcoming;
-      setNextShape(upcoming);
+      const replenishedQueue = [
+        ...queue.slice(0, selectedIndex),
+        ...queue.slice(selectedIndex + 1),
+        randomShape(),
+      ];
+      nextShapeQueueRef.current = replenishedQueue;
+      setNextShapeQueue(replenishedQueue);
+      selectedPreviewIndexRef.current = 0;
+      setSelectedPreviewIndex(0);
       lastSpawnTimeRef.current = timestamp;
       lastDropTimeRef.current = timestamp;
     },
@@ -809,9 +830,11 @@ export default function SandBlocks() {
     resetBoard();
     setScore(0);
     setBridgesCleared(0);
-    const upcoming = randomShape();
-    nextShapeRef.current = upcoming;
-    setNextShape(upcoming);
+    const upcoming = Array.from({ length: QUEUE_LENGTH }, () => randomShape());
+    nextShapeQueueRef.current = upcoming;
+    setNextShapeQueue(upcoming);
+    selectedPreviewIndexRef.current = 0;
+    setSelectedPreviewIndex(0);
   }, [resetBoard]);
 
   const handlePlayAgain = useCallback(() => {
@@ -819,25 +842,44 @@ export default function SandBlocks() {
     setIsRunning(true);
   }, [handleReset]);
 
-  const previewMatrix = useMemo(() => {
-    const matrix = Array.from({ length: 4 }, () => Array(4).fill(0));
-    if (!nextShape) {
-      return matrix;
+  const handleSelectQueuedShape = useCallback((index) => {
+    selectedPreviewIndexRef.current = index;
+    setSelectedPreviewIndex(index);
+  }, []);
+
+  useEffect(() => {
+    if (selectedPreviewIndex >= nextShapeQueue.length) {
+      selectedPreviewIndexRef.current = 0;
+      setSelectedPreviewIndex(0);
     }
+  }, [nextShapeQueue, selectedPreviewIndex]);
 
-    const offsetX = Math.floor((4 - nextShape.width) / 2);
-    const offsetY = Math.floor((4 - nextShape.height) / 2);
-
-    nextShape.cells.forEach(([dx, dy]) => {
-      const px = dx + offsetX;
-      const py = dy + offsetY;
-      if (px >= 0 && px < 4 && py >= 0 && py < 4) {
-        matrix[py][px] = nextShape.color;
+  const previewCards = useMemo(() => {
+    const createMatrix = (shape) => {
+      const matrix = Array.from({ length: 4 }, () => Array(4).fill(0));
+      if (!shape) {
+        return matrix;
       }
-    });
 
-    return matrix;
-  }, [nextShape]);
+      const offsetX = Math.floor((4 - shape.width) / 2);
+      const offsetY = Math.floor((4 - shape.height) / 2);
+
+      shape.cells.forEach(([dx, dy]) => {
+        const px = dx + offsetX;
+        const py = dy + offsetY;
+        if (px >= 0 && px < 4 && py >= 0 && py < 4) {
+          matrix[py][px] = shape.color;
+        }
+      });
+
+      return matrix;
+    };
+
+    return nextShapeQueue.map((shape) => ({
+      shape,
+      matrix: createMatrix(shape),
+    }));
+  }, [nextShapeQueue]);
 
   const statusLabel = isGameOver
     ? 'Game Over'
@@ -850,8 +892,6 @@ export default function SandBlocks() {
     : isRunning
     ? 'sand-score-badge running'
     : 'sand-score-badge paused';
-
-  const nextColor = COLOR_PALETTE[nextShape?.color - 1];
 
   return (
     <div className="sand-page">
@@ -894,24 +934,51 @@ export default function SandBlocks() {
           </div>
 
           <div className="sand-game-preview">
-            <span className="sand-preview-title">Next</span>
-            <div className="sand-preview-grid">
-              {previewMatrix.map((row, rowIndex) =>
-                row.map((value, columnIndex) => {
-                  const key = `${rowIndex}-${columnIndex}`;
-                  const paletteEntry = COLOR_PALETTE[value - 1];
-                  const style = value
-                    ? { backgroundColor: paletteEntry?.value }
-                    : undefined;
-                  const cellClass = value
-                    ? 'sand-preview-cell'
-                    : 'sand-preview-cell empty';
-                  return <div key={key} className={cellClass} style={style} />;
-                })
-              )}
+            <span className="sand-preview-title">Upcoming Queue</span>
+            <div className="sand-preview-queue">
+              {previewCards.map(({ shape, matrix }, index) => {
+                const paletteEntry = COLOR_PALETTE[shape?.color - 1];
+                const isSelected = index === selectedPreviewIndex;
+                const label = shape
+                  ? `${paletteEntry?.name ?? 'Unknown'} ${shape.name}`
+                  : 'Empty';
+
+                return (
+                  <button
+                    key={shape?.name ? `${shape.name}-${index}` : index}
+                    type="button"
+                    onClick={() => handleSelectQueuedShape(index)}
+                    className={`sand-preview-card${
+                      isSelected ? ' selected' : ''
+                    }`}
+                    aria-pressed={isSelected}
+                    aria-label={`Select queued shape ${index + 1}: ${label}`}
+                  >
+                    <span className="sand-preview-order">#{index + 1}</span>
+                    <div className="sand-preview-grid">
+                      {matrix.map((row, rowIndex) =>
+                        row.map((value, columnIndex) => {
+                          const key = `${index}-${rowIndex}-${columnIndex}`;
+                          const cellPalette = COLOR_PALETTE[value - 1];
+                          const style = value
+                            ? { backgroundColor: cellPalette?.value }
+                            : undefined;
+                          const cellClass = value
+                            ? 'sand-preview-cell'
+                            : 'sand-preview-cell empty';
+                          return (
+                            <div key={key} className={cellClass} style={style} />
+                          );
+                        })
+                      )}
+                    </div>
+                    <span className="sand-preview-label">{label}</span>
+                  </button>
+                );
+              })}
             </div>
-            <span className="sand-preview-label">
-              {nextColor ? `${nextColor.name} ${nextShape.name}` : nextShape.name}
+            <span className="sand-preview-helper">
+              Tap a card to choose which block will drop next.
             </span>
           </div>
         </div>
