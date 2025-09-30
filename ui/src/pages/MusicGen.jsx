@@ -1143,7 +1143,7 @@ export default function MusicGen() {
         </label>
         <div className="mb-md">
           <div style={{ marginBottom: "0.25rem" }}>Output Folder</div>
-          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+          <div className="output-folder-row">
             <input
               type="text"
               value={outputDir}
@@ -1154,7 +1154,6 @@ export default function MusicGen() {
               }}
               className="p-sm"
               placeholder="Default (App Data directory)"
-              style={{ flex: 1 }}
             />
             <PrimaryButton
               type="button"
@@ -1213,8 +1212,8 @@ export default function MusicGen() {
           />
           Force CPU
         </label>
-        <div className="mb-md" style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+        <div className="mb-md hardware-options">
+          <label className="hardware-toggle">
             <input
               type="checkbox"
               checked={forceGpu}
@@ -1223,7 +1222,7 @@ export default function MusicGen() {
             />
             Force GPU
           </label>
-          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <label className="hardware-toggle">
             <input
               type="checkbox"
               checked={useFp16}
