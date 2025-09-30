@@ -17,8 +17,11 @@ from config.obsidian import get_vault
 from notes.embedding import DEFAULT_INDEX_PATH
 from notes.watchdog import DEFAULT_DB_PATH
 from notes.search import search_chunks
+import os
 from notes.chunker import ensure_chunk_tables
 from notes.parser import parse_note, NoteParseError
+from brain.constants import DEFAULT_DREADHAVEN_ROOT, BANNED_TERMS
+import re
 
 
 CHUNK_DB_NOT_READY_MESSAGE = (
@@ -40,7 +43,11 @@ def _paths() -> tuple[Path, Path, Path]:
 
     vault = get_vault()
     if vault is None:
-        raise RuntimeError("Obsidian vault has not been selected")
+        # Fallback to default DreadHaven path when no vault configured
+        if DEFAULT_DREADHAVEN_ROOT.exists():
+            vault = DEFAULT_DREADHAVEN_ROOT
+        else:
+            raise RuntimeError("Obsidian vault has not been selected")
     vault = vault.resolve()
     db_path = vault / DEFAULT_DB_PATH
     index_path = vault / DEFAULT_INDEX_PATH
@@ -88,43 +95,147 @@ def search(query: str, tags: List[str] | None = None) -> List[Dict[str, Any]]:
         ``score`` (Euclidean distance where smaller is better).
     """
 
-    _, db_path, index_path = _paths()
-    _ensure_chunks_db_ready(db_path)
-    normalized_tags = [tag.lower() for tag in tags] if tags else None
-    results = search_chunks(
-        query, db_path, index_path, tags=normalized_tags, top_k=5
-    )
-    if not results:
-        return []
-
-    chunk_ids = [cid for cid, _ in results]
-    placeholders = ",".join("?" * len(chunk_ids))
-    conn = sqlite3.connect(db_path)
     try:
-        ensure_chunk_tables(conn)
-        rows = conn.execute(
-            f"SELECT id, path, heading, content FROM chunks WHERE id IN ({placeholders})",
-            chunk_ids,
-        ).fetchall()
-    finally:
-        conn.close()
-
-    meta = {row[0]: row[1:] for row in rows}
-    output: List[Dict[str, Any]] = []
-    for cid, dist in results:
-        info = meta.get(cid)
-        if info is None:
-            continue
-        path, heading, content = info
-        output.append(
-            {
-                "path": path,
-                "heading": heading,
-                "content": content,
-                "score": dist,
-            }
+        _, db_path, index_path = _paths()
+        _ensure_chunks_db_ready(db_path)
+        normalized_tags = [tag.lower() for tag in tags] if tags else None
+        results = search_chunks(
+            query, db_path, index_path, tags=normalized_tags, top_k=5
         )
-    return output
+        if not results:
+            return []
+
+        chunk_ids = [cid for cid, _ in results]
+        placeholders = ",".join("?" * len(chunk_ids))
+        conn = sqlite3.connect(db_path)
+        try:
+            ensure_chunk_tables(conn)
+            rows = conn.execute(
+                f"SELECT id, path, heading, content FROM chunks WHERE id IN ({placeholders})",
+                chunk_ids,
+            ).fetchall()
+        finally:
+            conn.close()
+
+        meta = {row[0]: row[1:] for row in rows}
+        output: List[Dict[str, Any]] = []
+        for cid, dist in results:
+            info = meta.get(cid)
+            if info is None:
+                continue
+            path, heading, content = info
+            output.append(
+                {
+                    "path": path,
+                    "heading": heading,
+                    "content": content,
+                    "score": dist,
+                }
+            )
+        return output
+    except Exception:
+        # Fallback: naive filesystem search when chunks DB isn't ready
+        root, _, _ = _paths()
+        q = query.strip()
+        tokens = [t for t in q.replace("\n", " ").split() if len(t) >= 3] or [q]
+        patterns = [re.compile(rf"\b{re.escape(tok)}(?:[’']s)?\b", re.IGNORECASE) for tok in tokens]
+        results: List[Dict[str, Any]] = []
+        banned = [re.compile(re.escape(t), re.IGNORECASE) for t in BANNED_TERMS]
+        # Prefer exact filename matches under directories that look like god folders
+        name_candidates = re.findall(r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})*)\b", query)
+        if not name_candidates:
+            # Build candidates from significant tokens by title-casing
+            toks = [t for t in query.replace("\n"," ").split() if len(t) >= 3]
+            stop = {"the","a","an","about","tell","asked","ask","please","hi","hello","howdy","of","and","in","to","for","on","me","you"}
+            name_candidates = [t.capitalize() for t in toks if t.lower() not in stop and t.isalpha()]
+        preferred_dirs: list[Path] = []
+        for dirpath, _dirnames, _files in os.walk(root):
+            dp = dirpath.lower()
+            if any(h in dp for h in (h.lower() for h in GOD_DIR_HINTS)):
+                preferred_dirs.append(Path(dirpath))
+        seen = set()
+        for pd in preferred_dirs:
+                for nd in name_candidates:
+                    fname = f"{nd}.md"
+                    for wdir, _d, files in os.walk(pd):
+                        lower_files = {f.lower() for f in files}
+                        target = None
+                        if fname.lower() in lower_files:
+                            target = fname
+                        elif f"{nd}.markdown".lower() in lower_files:
+                            target = f"{nd}.markdown"
+                        if not target:
+                            continue
+                        p = Path(wdir) / target
+                        if p in seen:
+                            continue
+                        try:
+                            raw = p.read_text(encoding="utf-8", errors="ignore")
+                        except Exception:
+                            continue
+                        if any(bp.search(raw) for bp in banned):
+                            continue
+                        heading = None
+                        for line in raw.splitlines():
+                            if line.strip().startswith("# "):
+                                heading = line.strip()[2:].strip()
+                                break
+                        if not heading:
+                            heading = p.stem
+                        para = raw.strip().split("\n\n", 1)[0]
+                        results.append(
+                            {
+                                "path": str(p.relative_to(root)),
+                                "heading": heading,
+                                "content": para,
+                                "score": 0.0,
+                            }
+                        )
+                        seen.add(p)
+                        if len(results) >= 5:
+                            break
+                    if len(results) >= 5:
+                        break
+                if len(results) >= 5:
+                    break
+
+        # General recursive scan as a fallback (OR on significant tokens)
+        for dirpath, _dirnames, filenames in os.walk(root):
+            for fn in filenames:
+                if not fn.lower().endswith((".md", ".markdown", ".txt")):
+                    continue
+                path = Path(dirpath) / fn
+                try:
+                    raw = path.read_text(encoding="utf-8", errors="ignore")
+                except Exception:
+                    continue
+                if any(bp.search(raw) for bp in banned):
+                    continue
+                if any(p.search(raw) for p in patterns):
+                    # Build a small result
+                    # Heading: first H1 or file stem
+                    heading = None
+                    for line in raw.splitlines():
+                        if line.strip().startswith("# "):
+                            heading = line.strip()[2:].strip()
+                            break
+                    if not heading:
+                        heading = path.stem
+                    # Content: first paragraph
+                    para = raw.strip().split("\n\n", 1)[0]
+                    results.append(
+                        {
+                            "path": str(path.relative_to(root)),
+                            "heading": heading,
+                            "content": para,
+                            "score": 0.0,
+                        }
+                    )
+                    if len(results) >= 5:
+                        break
+            if len(results) >= 5:
+                break
+        return results
 
 
 def get_note(path: str) -> str:

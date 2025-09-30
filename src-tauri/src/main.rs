@@ -3991,6 +3991,53 @@ fn inbox_create(app: AppHandle, name: String, content: Option<String>, base_path
 }
 
 #[tauri::command]
+fn npc_save_portrait(app: AppHandle, name: String, filename: String, bytes: Vec<u8>) -> Result<String, String> {
+    let store = settings_store(&app).map_err(|e| e.to_string())?;
+    let vault = store
+        .get("vaultPath")
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
+    let base_dir = if let Some(ref v) = vault {
+        PathBuf::from(v).join("30_Assets").join("Images").join("NPC_Portraits")
+    } else {
+        PathBuf::from(r"D:\\Documents\\DreadHaven\\30_Assets\\Images\\NPC_Portraits")
+    };
+    if !base_dir.exists() { fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?; }
+    let ext = std::path::Path::new(&filename)
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("png");
+    let mut fname = name.chars().map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' }).collect::<String>();
+    fname = fname.trim().replace(' ', "_");
+    if fname.is_empty() { fname = "Portrait".into(); }
+    let target = base_dir.join(format!("{}.{}", fname, ext));
+    fs::write(&target, &bytes).map_err(|e| e.to_string())?;
+    Ok(target.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn god_save_portrait(app: AppHandle, name: String, filename: String, bytes: Vec<u8>) -> Result<String, String> {
+    let store = settings_store(&app).map_err(|e| e.to_string())?;
+    let vault = store
+        .get("vaultPath")
+        .and_then(|v| v.as_str().map(|s| s.to_string()));
+    let base_dir = if let Some(ref v) = vault {
+        PathBuf::from(v).join("30_Assets").join("Images").join("God_Portraits")
+    } else {
+        PathBuf::from(r"D:\\Documents\\DreadHaven\\30_Assets\\Images\\God_Portraits")
+    };
+    if !base_dir.exists() { fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?; }
+    let ext = std::path::Path::new(&filename)
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("png");
+    let mut fname = name.chars().map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' }).collect::<String>();
+    fname = fname.trim().replace(' ', "_");
+    if fname.is_empty() { fname = "Portrait".into(); }
+    let target = base_dir.join(format!("{}.{}", fname, ext));
+    fs::write(&target, &bytes).map_err(|e| e.to_string())?;
+    Ok(target.to_string_lossy().to_string())
+}
+#[tauri::command]
 fn race_create(
     app: AppHandle,
     name: String,
@@ -6862,6 +6909,8 @@ fn main() {
             discord_guild_remove,
             discord_guild_select,
             discord_detect_token_sources,
+            npc_save_portrait,
+            god_save_portrait,
             race_save_portrait,
             musiclang::list_musiclang_models,
             musiclang::download_model
