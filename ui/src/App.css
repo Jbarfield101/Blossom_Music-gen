@@ -121,17 +121,46 @@ header {
 
 .app-layout {
   display: flex;
+  flex-direction: column;
   min-height: 100vh;
   background: var(--bg);
   color: var(--text);
 }
 
+.app-layout__nav-toggle {
+  position: fixed;
+  top: var(--space-md);
+  left: var(--space-md);
+  z-index: 140;
+  padding: 0.5rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--text) 15%, transparent);
+  border-radius: 999px;
+  background: var(--card-bg);
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--topbar-shadow);
+}
+
+.app-layout__scrim {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 10, 20, 0.55);
+  z-index: 120;
+}
+
+.app-layout[data-nav-open='true'] .app-layout__scrim {
+  display: block;
+}
+
 .main-nav {
-  position: sticky;
+  position: fixed;
   top: 0;
-  align-self: stretch;
-  flex: 0 0 clamp(220px, 20vw, 260px);
-  min-height: 100vh;
+  left: 0;
+  width: clamp(240px, 80vw, 300px);
+  height: 100vh;
   padding: var(--space-lg) var(--space-md);
   box-sizing: border-box;
   background: var(--card-bg);
@@ -141,6 +170,30 @@ header {
   flex-direction: column;
   gap: var(--space-md);
   overflow-y: auto;
+  transform: translateX(-100%);
+  transition: transform 0.3s ease;
+  z-index: 130;
+}
+
+.main-nav.is-open,
+.app-layout[data-nav-open='true'] .main-nav {
+  transform: translateX(0);
+}
+
+.main-nav__close {
+  align-self: flex-end;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  background: none;
+  border: 1px solid transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.main-nav__close:is(:hover, :focus-visible) {
+  background: var(--card-hover-bg);
 }
 
 .main-nav__brand {
@@ -194,48 +247,37 @@ header {
   overflow-y: auto;
 }
 
-@media (max-width: 960px) {
+@media (max-width: 959.98px) {
+  .app-layout__content {
+    padding: var(--space-md);
+  }
+}
+
+@media (min-width: 960px) {
   .app-layout {
-    flex-direction: column;
+    flex-direction: row;
+  }
+
+  .app-layout__nav-toggle {
+    display: none;
+  }
+
+  .app-layout__scrim {
+    display: none !important;
   }
 
   .main-nav {
     position: sticky;
-    flex: none;
-    width: 100%;
-    max-width: 100%;
-    min-width: auto;
     top: 0;
-    z-index: 10;
-    align-self: auto;
-    min-height: auto;
-    max-height: none;
-    border-right: none;
-    border-bottom: 1px solid color-mix(in srgb, var(--text) 20%, transparent);
-    padding: var(--space-md);
-    overflow-y: visible;
+    align-self: stretch;
+    flex: 0 0 clamp(220px, 20vw, 260px);
+    min-height: 100vh;
+    transform: none;
+    transition: none;
   }
 
-  .main-nav__list {
-    flex-direction: row;
-    align-items: center;
-    gap: 0.5rem;
-    overflow-x: auto;
-    padding-bottom: 0.25rem;
-  }
-
-  .main-nav__item {
-    flex: 0 0 auto;
-  }
-
-  .main-nav__link {
-    border-radius: 999px;
-    white-space: nowrap;
-    padding: 0.5rem 0.9rem;
-  }
-
-  .app-layout__content {
-    padding: var(--space-md);
+  .main-nav__close {
+    display: none;
   }
 }
 
