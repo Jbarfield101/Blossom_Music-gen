@@ -7,6 +7,12 @@ const sections = [
   { to: '/dnd/dungeon-master/quests/main', icon: 'Swords', title: 'Main Quests', description: 'Primary storyline and key beats.' },
   { to: '/dnd/dungeon-master/quests/personal', icon: 'UserRound', title: 'Personal Quests', description: 'Character-driven goals and threads.' },
   { to: '/dnd/dungeon-master/quests/side', icon: 'ScrollText', title: 'Side Quests', description: 'Optional tasks and diversions.' },
+  {
+    to: '/dnd/dungeon-master/quests/generator',
+    icon: 'Sparkles',
+    title: 'Quest Generator',
+    description: 'AI-assisted synopsis creation for fresh adventures.',
+  },
 ];
 
 export default function DndDmQuests() {
