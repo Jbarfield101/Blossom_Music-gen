@@ -129,10 +129,9 @@ header {
 .main-nav {
   position: sticky;
   top: 0;
-  align-self: flex-start;
-  min-width: 220px;
-  max-width: 260px;
-  width: 20vw;
+  align-self: stretch;
+  flex: 0 0 clamp(220px, 20vw, 260px);
+  min-height: 100vh;
   padding: var(--space-lg) var(--space-md);
   box-sizing: border-box;
   background: var(--card-bg);
@@ -141,6 +140,7 @@ header {
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
+  overflow-y: auto;
 }
 
 .main-nav__brand {
@@ -201,14 +201,19 @@ header {
 
   .main-nav {
     position: sticky;
+    flex: none;
     width: 100%;
     max-width: 100%;
     min-width: auto;
     top: 0;
     z-index: 10;
+    align-self: auto;
+    min-height: auto;
+    max-height: none;
     border-right: none;
     border-bottom: 1px solid color-mix(in srgb, var(--text) 20%, transparent);
     padding: var(--space-md);
+    overflow-y: visible;
   }
 
   .main-nav__list {
