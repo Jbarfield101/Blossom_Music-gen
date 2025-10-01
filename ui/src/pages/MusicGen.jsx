@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
+import { fileSrc } from "../lib/paths.js";
 import { appDataDir } from "@tauri-apps/api/path";
 import { readFile, BaseDirectory } from "@tauri-apps/plugin-fs";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -212,7 +213,7 @@ export default function MusicGen() {
     if (typeof absPath !== "string" || !absPath) return "";
     // Prefer direct file URL to avoid large memory copies or fetch hangs.
     try {
-      const src = convertFileSrc(absPath);
+      const src = fileSrc(absPath);
       if (typeof src === "string" && src) return src;
     } catch {}
     return "";

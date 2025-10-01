@@ -15,6 +15,75 @@ pub struct GenResult {
     pub fallback_reason: Option<String>,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct RiffusionResult {
+    pub path: String,
+}
+
+#[tauri::command]
+pub async fn riffusion_generate(
+    app: AppHandle,
+    prompt: Option<String>,
+    negative: Option<String>,
+    seed: Option<i64>,
+    steps: Option<u32>,
+    guidance: Option<f32>,
+) -> Result<RiffusionResult, String> {
+    // Output directory under AppData
+    let out_base = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&out_base).map_err(|e| e.to_string())?;
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let out_path = out_base.join(format!("riffusion_{}.wav", ts));
+
+    // Build command to run the CLI
+    let mut args: Vec<String> = vec![
+        "-m".into(),
+        "blossom.audio.riffusion.cli_riffusion".into(),
+        "--outfile".into(),
+        out_path.to_string_lossy().to_string(),
+        "--tiles".into(),
+        "1".into(),
+        "--width".into(),
+        "512".into(),
+        "--height".into(),
+        "512".into(),
+        "--overlap".into(),
+        "32".into(),
+        "--sr".into(),
+        "22050".into(),
+        "--hs_freq".into(), "5000".into(),
+        "--hs_gain".into(), "2.0".into(),
+        "--lowcut".into(), "35".into(),
+        "--wet".into(), "0.12".into(),
+    ];
+    if let Some(s) = steps { args.push("--steps".into()); args.push(s.to_string()); }
+    if let Some(g) = guidance { args.push("--guidance".into()); args.push(format!("{}", g)); }
+    if let Some(n) = negative.clone() { args.push("--negative".into()); args.push(n); }
+    if let Some(sd) = seed { args.push("--seed".into()); args.push(sd.to_string()); }
+    // Prefer explicit prompt if provided; otherwise rely on preset default (piano)
+    if let Some(p) = prompt.clone() { args.push(p); }
+
+    let output = async_runtime::spawn_blocking(move || {
+        Command::new("python")
+            .current_dir("..")
+            .env("PYTHONPATH", "..")
+            .args(args)
+            .output()
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+
+    Ok(RiffusionResult { path: out_path.to_string_lossy().to_string() })
+}
+
 #[tauri::command]
 pub async fn generate_musicgen(
     app: AppHandle,

@@ -15,7 +15,12 @@ export default function AppLayout() {
   const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
   const showNav = normalizedPath !== '/';
   const [isDesktop, setIsDesktop] = useState(getIsDesktop);
-  const [isNavOpen, setIsNavOpen] = useState(() => showNav && getIsDesktop());
+  const [isNavOpen, setIsNavOpen] = useState(() => {
+    const stored = typeof window !== 'undefined' ? window.localStorage.getItem('navOpen') : null;
+    if (stored === 'true') return true;
+    if (stored === 'false') return false;
+    return showNav && getIsDesktop();
+  });
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -26,7 +31,6 @@ export default function AppLayout() {
 
     const handleChange = (event) => {
       setIsDesktop(event.matches);
-      setIsNavOpen(event.matches);
     };
 
     handleChange(mediaQuery);
@@ -38,10 +42,8 @@ export default function AppLayout() {
   useEffect(() => {
     if (!showNav) {
       setIsNavOpen(false);
-    } else if (isDesktop) {
-      setIsNavOpen(true);
     }
-  }, [showNav, isDesktop]);
+  }, [showNav]);
 
   useEffect(() => {
     if (!isDesktop) {
@@ -49,15 +51,16 @@ export default function AppLayout() {
     }
   }, [location.pathname, isDesktop]);
 
-  const closeNav = () => {
-    if (!isDesktop) {
-      setIsNavOpen(false);
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('navOpen', String(isNavOpen));
     }
+  }, [isNavOpen]);
+
+  const closeNav = () => {
+    setIsNavOpen(false);
   };
   const toggleNav = () => {
-    if (isDesktop) {
-      return;
-    }
     setIsNavOpen((prev) => !prev);
   };
 

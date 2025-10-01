@@ -36,7 +36,7 @@ mod commands;
 mod config;
 mod musiclang;
 mod util;
-use crate::commands::{album_concat, generate_musicgen, musicgen_env};
+use crate::commands::{album_concat, generate_musicgen, musicgen_env, riffusion_generate};
 use crate::util::list_from_dir;
 
 static DISCORD_BOT_CHILD: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
@@ -1149,6 +1149,14 @@ fn configure_python_command(cmd: &mut Command) {
     // Capture a debug copy before moving into env
     let pythonpath_dbg = pythonpath.to_string_lossy().to_string();
     cmd.env("PYTHONPATH", pythonpath);
+    // Map deprecated TRANSFORMERS_CACHE to HF_HOME to silence deprecation warning
+    if let Ok(cache) = env::var("TRANSFORMERS_CACHE") {
+        if !cache.trim().is_empty() {
+            cmd.env("HF_HOME", cache);
+        }
+        // Remove deprecated var to avoid deprecation warning downstream
+        cmd.env_remove("TRANSFORMERS_CACHE");
+    }
     if env::var("BLOSSOM_DEBUG").ok().as_deref() == Some("1") {
         eprintln!("[blossom] PYTHONPATH: {}", pythonpath_dbg);
     }
@@ -1179,6 +1187,7 @@ fn python_command() -> Command {
     // Resolution priority:
     // 1) BLOSSOM_PY (explicit override)
     // 2) VIRTUAL_ENV python (active venv)
+    // 2b) Project-local .venv under repo root
     // 3) Windows: py -3.10 -u (explicit 3.10)
     // 4) Fallback: python -u
     if let Ok(custom) = env::var("BLOSSOM_PY") {
@@ -1201,6 +1210,22 @@ fn python_command() -> Command {
         configure_python_command(&mut cmd);
         if env::var("BLOSSOM_DEBUG").ok().as_deref() == Some("1") {
             eprintln!("[blossom] using VIRTUAL_ENV interpreter");
+        }
+        return cmd;
+    }
+
+    // Project-local .venv fallback
+    let root = project_root();
+    #[cfg(target_os = "windows")]
+    let local_python = root.join(".venv").join("Scripts").join("python.exe");
+    #[cfg(not(target_os = "windows"))]
+    let local_python = root.join(".venv").join("bin").join("python");
+    if local_python.exists() {
+        let mut cmd = Command::new(local_python);
+        cmd.arg("-u");
+        configure_python_command(&mut cmd);
+        if env::var("BLOSSOM_DEBUG").ok().as_deref() == Some("1") {
+            eprintln!("[blossom] using project-local .venv interpreter");
         }
         return cmd;
     }
@@ -3818,6 +3843,34 @@ fn inbox_read(path: String) -> Result<String, String> {
     fs::read_to_string(p).map_err(|e| e.to_string())
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RiffusionJobRequest {
+    prompt: Option<String>,
+    negative: Option<String>,
+    preset: Option<String>,
+    seed: Option<i64>,
+    steps: Option<u32>,
+    guidance: Option<f32>,
+    duration: Option<f32>,
+    crossfade_secs: Option<f32>,
+    output_dir: Option<String>,
+    output_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RiffusionSoundscapeJobRequest {
+    preset: Option<String>,
+    duration: Option<f32>,
+    seed: Option<i64>,
+    steps: Option<u32>,
+    guidance: Option<f32>,
+    crossfade_secs: Option<f32>,
+    output_dir: Option<String>,
+    output_name: Option<String>,
+}
+
 #[tauri::command]
 fn inbox_update(path: String, content: String) -> Result<(), String> {
     let p = PathBuf::from(&path);
@@ -5977,6 +6030,170 @@ fn export_loop_video(
 }
 
 #[tauri::command]
+fn queue_riffusion_soundscape_job(
+    app: AppHandle,
+    registry: State<JobRegistry>,
+    options: RiffusionSoundscapeJobRequest,
+) -> Result<u64, String> {
+    let timestamp = Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    let default_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("jobs")
+        .join("riffscape")
+        .join(format!("riffscape-{}", timestamp));
+    let base_dir = options
+        .output_dir
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or(default_dir);
+    fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?;
+
+    let sanitize = |s: &str| -> String {
+        let mut out = String::new();
+        for ch in s.chars() { if ch.is_ascii_alphanumeric() || matches!(ch, '-'|'_'|' ') { out.push(ch); } else { out.push('_'); } }
+        let trimmed = out.trim().trim_matches('.').to_string();
+        if trimmed.is_empty() { "soundscape".to_string() } else { trimmed.chars().take(120).collect() }
+    };
+
+    let base_name_source = options
+        .output_name
+        .as_ref()
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| options.preset.clone().unwrap_or_else(|| "dark_ambience".into()));
+    let base_name = sanitize(&base_name_source);
+    let outfile = base_dir.join(format!("{}.wav", base_name));
+    let cover = base_dir.join(format!("{}.png", base_name));
+    let logf = base_dir.join(format!("{}.log", base_name));
+
+    // Artifact candidates: master, cover, directory. (Stem files will be registered at completion by pattern.)
+    let mut artifact_candidates = Vec::new();
+    artifact_candidates.push(JobArtifactCandidate { name: format!("{} (master)", base_name), path: outfile.clone() });
+    artifact_candidates.push(JobArtifactCandidate { name: format!("{} (cover)", base_name), path: cover.clone() });
+    artifact_candidates.push(JobArtifactCandidate { name: format!("{} (log)", base_name), path: logf.clone() });
+    artifact_candidates.push(JobArtifactCandidate { name: "Output Directory".into(), path: base_dir.clone() });
+
+    let mut args: Vec<String> = vec![
+        "-m".into(),
+        "blossom.audio.riffusion.cli_soundscape".into(),
+        "--outfile".into(), outfile.to_string_lossy().to_string(),
+    ];
+    if let Some(p) = options.preset.clone() { args.push("--preset".into()); args.push(p); }
+    if let Some(d) = options.duration { args.push("--duration".into()); args.push(format!("{}", d)); }
+    if let Some(s) = options.seed { args.push("--seed".into()); args.push(s.to_string()); }
+    if let Some(st) = options.steps { args.push("--steps".into()); args.push(st.to_string()); }
+    if let Some(g) = options.guidance { args.push("--guidance".into()); args.push(format!("{}", g)); }
+    if let Some(cf) = options.crossfade_secs { args.push("--crossfade_secs".into()); args.push(format!("{}", cf)); }
+
+    let label = format!("Riffusion Soundscape: {}", base_name);
+    let context = JobContext { kind: Some("riffusion_soundscape".into()), label: Some(label), artifact_candidates };
+    spawn_job_with_context(app, registry, args, context)
+}
+
+#[tauri::command]
+fn queue_riffusion_job(
+    app: AppHandle,
+    registry: State<JobRegistry>,
+    options: RiffusionJobRequest,
+) -> Result<u64, String> {
+    let timestamp = Utc::now().format("%Y%m%d-%H%M%S").to_string();
+    let default_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("jobs")
+        .join("riffusion")
+        .join(format!("riffusion-{}", timestamp));
+
+    let output_dir = options
+        .output_dir
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or(default_dir);
+    fs::create_dir_all(&output_dir).map_err(|e| e.to_string())?;
+
+    let sanitize = |s: &str| -> String {
+        let mut out = String::new();
+        for ch in s.chars() {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ' ') {
+                out.push(ch);
+            } else {
+                out.push('_');
+            }
+        }
+        let trimmed = out.trim().trim_matches('.').to_string();
+        if trimmed.is_empty() { "riffusion".to_string() } else { trimmed.chars().take(120).collect() }
+    };
+
+    let fallback_name = format!("riffusion-{}", timestamp);
+    let base_name_source = options
+        .output_name
+        .as_ref()
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.trim().to_string())
+        .or_else(|| options.prompt.as_ref().map(|p| p.trim().to_string()))
+        .unwrap_or(fallback_name);
+    let mut base_name = sanitize(&base_name_source);
+    if !base_name.to_lowercase().ends_with(".wav") {
+        base_name.push_str(".wav");
+    }
+    let outfile = output_dir.join(&base_name);
+    let meta_path = outfile.with_extension("json");
+    let cover_path = outfile.with_extension("png");
+    let log_path = outfile.with_extension("log");
+
+    let mut artifact_candidates = Vec::new();
+    artifact_candidates.push(JobArtifactCandidate { name: base_name.clone(), path: outfile.clone() });
+    artifact_candidates.push(JobArtifactCandidate { name: "Metadata JSON".into(), path: meta_path.clone() });
+    artifact_candidates.push(JobArtifactCandidate { name: "Cover Image".into(), path: cover_path.clone() });
+    artifact_candidates.push(JobArtifactCandidate { name: "Log".into(), path: log_path.clone() });
+    artifact_candidates.push(JobArtifactCandidate { name: "Output Directory".into(), path: output_dir.clone() });
+
+    // Build python -m blossom.audio.riffusion.cli_riffusion args
+    let mut args: Vec<String> = vec![
+        "-m".into(),
+        "blossom.audio.riffusion.cli_riffusion".into(),
+        "--outfile".into(), outfile.to_string_lossy().to_string(),
+        "--width".into(), "512".into(),
+        "--height".into(), "512".into(),
+        "--sr".into(), "22050".into(),
+    ];
+    if let Some(prompt) = options.prompt.as_ref().filter(|s| !s.trim().is_empty()) {
+        args.push(prompt.clone());
+    }
+    if let Some(neg) = options.negative.as_ref().filter(|s| !s.trim().is_empty()) { args.push("--negative".into()); args.push(neg.clone()); }
+    if let Some(pre) = options.preset.as_ref().filter(|s| !s.trim().is_empty()) { args.push("--preset".into()); args.push(pre.clone()); }
+    if let Some(seed) = options.seed { args.push("--seed".into()); args.push(seed.to_string()); }
+    if let Some(steps) = options.steps { args.push("--steps".into()); args.push(steps.to_string()); }
+    if let Some(g) = options.guidance { args.push("--guidance".into()); args.push(format!("{}", g)); }
+    if let Some(dur) = options.duration { args.push("--duration".into()); args.push(format!("{}", dur)); }
+    if let Some(cf) = options.crossfade_secs { args.push("--crossfade_secs".into()); args.push(format!("{}", cf)); }
+
+    let label_source = options
+        .output_name
+        .as_ref()
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.trim().to_string())
+        .or_else(|| options.prompt.as_ref().map(|p| {
+            let mut s: String = p.trim().chars().take(80).collect();
+            if p.trim().chars().count() > 80 { s.push('.'); }
+            s
+        }))
+        .unwrap_or_else(|| format!("Riffusion {}", timestamp));
+    let label: String = label_source.chars().take(120).collect();
+
+    let context = JobContext { kind: Some("riffusion".into()), label: Some(label), artifact_candidates };
+
+    // Use spawn_job_with_context with our args vector (python -m invocation handled inside job system)
+    spawn_job_with_context(app, registry, args, context)
+}
+#[tauri::command]
 fn job_state_from_registry(app: &AppHandle, registry: &JobRegistry, job_id: u64) -> JobState {
     let mut finalize_request: Option<(bool, Option<i32>)> = None;
     let mut state = JobState {
@@ -6908,6 +7125,9 @@ fn main() {
             register_job_artifacts,
             prune_job_history,
             queue_musicgen_job,
+            queue_riffusion_soundscape_job,
+            queue_riffusion_job,
+            riffusion_generate,
             queue_render_job,
             record_manual_job,
             discord_profile_get,

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { listPiperVoices } from '../lib/piperVoices';
 import { synthWithPiper } from '../lib/piperSynth';
-import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
+import { fileSrc } from '../lib/paths.js';
 import { BaseDirectory, readFile } from '@tauri-apps/plugin-fs';
 import { appDataDir } from '@tauri-apps/api/path';
 import BackButton from '../components/BackButton.jsx';
@@ -130,13 +131,13 @@ export default function DndPiperOnly() {
                     const blob = new Blob([data], { type: 'audio/wav' });
                     url = URL.createObjectURL(blob);
                   }
-                } catch {
-                  try {
-                    const bytes = await invoke('read_file_bytes', { path });
-                    const blob = new Blob([new Uint8Array(bytes)], { type: 'audio/wav' });
-                    url = URL.createObjectURL(blob);
                   } catch {
-                    url = convertFileSrc(path);
+                    try {
+                      const bytes = await invoke('read_file_bytes', { path });
+                      const blob = new Blob([new Uint8Array(bytes)], { type: 'audio/wav' });
+                      url = URL.createObjectURL(blob);
+                    } catch {
+                    url = fileSrc(path);
                   }
                 }
               }
@@ -154,7 +155,7 @@ export default function DndPiperOnly() {
           <div>
             <audio controls src={audioUrl} />
             <div>
-              <a href={audioUrl || (wavPath ? convertFileSrc(wavPath) : '')} download="piper.wav">
+              <a href={audioUrl || (wavPath ? fileSrc(wavPath) : '')} download="piper.wav">
                 Download
               </a>
             </div>

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { invoke, convertFileSrc } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
+import { fileSrc } from "../lib/paths.js";
 import BackButton from "../components/BackButton.jsx";
 import JobQueuePanel from "../components/JobQueuePanel.jsx";
 import { useJobQueue } from "../lib/useJobQueue.js";
@@ -244,7 +245,7 @@ export default function AlgorithmicGenerator() {
               const path = artifact.path || "";
               let href = "";
               try {
-                href = path ? convertFileSrc(path) : "";
+                href = path ? fileSrc(path) : "";
               } catch (err) {
                 console.warn("Unable to convert artifact path", err);
               }

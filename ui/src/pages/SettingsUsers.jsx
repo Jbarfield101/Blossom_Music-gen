@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Store } from '@tauri-apps/plugin-store';
 import { listPiperVoices } from '../lib/piperVoices';
 import { synthWithPiper } from '../lib/piperSynth';
-import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
+import { fileSrc } from '../lib/paths.js';
 import { BaseDirectory, readFile } from '@tauri-apps/plugin-fs';
 import { appDataDir } from '@tauri-apps/api/path';
 import { setPiper as apiSetPiper } from '../api/models';
@@ -218,7 +219,7 @@ export default function SettingsUsers() {
               <div style={{ marginTop: '0.5rem' }}>
                 <audio controls src={audioUrl} />
                 <div>
-                  <a href={audioUrl || (wavPath ? convertFileSrc(wavPath) : '')} download="piper.wav">
+                  <a href={audioUrl || (wavPath ? fileSrc(wavPath) : '')} download="piper.wav">
                     Download
                   </a>
                 </div>

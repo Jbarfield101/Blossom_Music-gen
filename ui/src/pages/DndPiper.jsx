@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Store } from '@tauri-apps/plugin-store';
 import { listPiperVoices } from '../lib/piperVoices';
 import { synthWithPiper } from '../lib/piperSynth';
-import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
+import { fileSrc } from '../lib/paths.js';
 import { BaseDirectory, readFile } from '@tauri-apps/plugin-fs';
 import { appDataDir } from '@tauri-apps/api/path';
 import BackButton from '../components/BackButton.jsx';
@@ -297,7 +298,7 @@ export default function DndPiper() {
                         const blob = new Blob([new Uint8Array(bytes)], { type: 'audio/wav' });
                         blobUrl = URL.createObjectURL(blob);
                       } catch {
-                        blobUrl = convertFileSrc(path);
+                        blobUrl = fileSrc(path);
                       }
                     }
                   }
@@ -316,7 +317,7 @@ export default function DndPiper() {
                 <audio controls src={piperAudio} />
                 <div>
                   <a
-                    href={piperAudio || (piperPath ? convertFileSrc(piperPath) : '')}
+                    href={piperAudio || (piperPath ? fileSrc(piperPath) : '')}
                     download="piper.wav"
                   >
                     Download

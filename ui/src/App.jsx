@@ -41,6 +41,7 @@ import SettingsBackup from './pages/SettingsBackup.jsx';
 import Train from './pages/Train.jsx';
 import Profiles from './pages/Profiles.jsx';
 import MusicGen from './pages/MusicGen.jsx';
+import Riffusion from './pages/Riffusion.jsx';
 import AlgorithmicGenerator from './pages/Generate.jsx';
 import DndWorldPantheon from './pages/DndWorldPantheon.jsx';
 import DndWorldRegions from './pages/DndWorldRegions.jsx';
@@ -81,7 +82,7 @@ import { useEffect, useRef, useState } from 'react';
 import { setPiper as apiSetPiper, listPiper as apiListPiper } from './api/models';
 import { synthWithPiper } from './lib/piperSynth';
 import { listPiperVoices as listBundledVoices } from './lib/piperVoices';
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { fileSrc } from './lib/paths.js';
 import { listPiperVoices } from './lib/piperVoices';
 
 function UserSelectorOverlay({ onClose }) {
@@ -243,7 +244,7 @@ export default function App() {
             if (!model || !config) { throw new Error('No piper voice available'); }
             // Synthesize locally to AppData to avoid touching watched src-tauri folders in dev
             const wavPath = await synthWithPiper(message, model, config, {});
-            const url = convertFileSrc(wavPath);
+            const url = fileSrc(wavPath);
             if (url) {
               const audio = new Audio(url);
               audio.volume = 1.0;
@@ -266,10 +267,11 @@ export default function App() {
         <Routes location={location} key={location.pathname}>
           <Route element={<AppLayout />}>
             <Route path="/" element={<Dashboard />} />
-            <Route path="/musicgen" element={<SoundLab />}>
-              <Route path="musicgen" element={<MusicGen />} />
-              <Route path="algorithmic" element={<AlgorithmicGenerator />} />
-            </Route>
+          <Route path="/musicgen" element={<SoundLab />}>
+            <Route path="musicgen" element={<MusicGen />} />
+            <Route path="riffusion" element={<Riffusion />} />
+            <Route path="algorithmic" element={<AlgorithmicGenerator />} />
+          </Route>
             <Route path="/dnd" element={<Dnd />} />
             <Route path="/dnd/inbox" element={<DndInbox />} />
             <Route path="/dnd/world" element={<DndWorld />} />

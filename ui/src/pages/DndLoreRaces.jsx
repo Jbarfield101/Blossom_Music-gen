@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core';
+import { fileSrc } from '../lib/paths.js';
 import { getConfig } from '../api/config';
 import BackButton from '../components/BackButton.jsx';
 import Card from '../components/Card.jsx';
@@ -60,7 +61,7 @@ export default function DndLoreRaces() {
     for (const path of candidates) {
       try {
         await invoke('read_file_bytes', { path });
-        return convertFileSrc(path);
+        return fileSrc(path);
       } catch {}
     }
     return '';

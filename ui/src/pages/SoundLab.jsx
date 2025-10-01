@@ -22,6 +22,13 @@ export default function SoundLab() {
           Launch the classic prompt-to-music workflow.
         </Card>
         <Card
+          to="/musicgen/riffusion"
+          icon="Music"
+          title="Riffusion Music Generation"
+        >
+          Generate music using spectral diffusion techniques.
+        </Card>
+        <Card
           to="/musicgen/algorithmic"
           icon="Cpu"
           title="Algorithmic Generator"
