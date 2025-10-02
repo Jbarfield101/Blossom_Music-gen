@@ -62,7 +62,14 @@ def image_to_mel(img: Image.Image, target_shape: Tuple[int, int] = (512, 512)) -
         raise ValueError("image_to_mel expects a 2D grayscale image")
 
     expected_mels = int(target_shape[0]) if target_shape else arr.shape[0]
-    if arr.shape[0] == expected_mels:
+    expected_time = int(target_shape[1]) if target_shape else arr.shape[1]
+
+    if arr.shape[0] == expected_mels and arr.shape[1] == expected_time:
+        mel_axes = arr
+    elif arr.shape[1] == expected_mels and arr.shape[0] == expected_time:
+        mel_axes = np.transpose(arr, (1, 0))
+    elif arr.shape[0] == expected_mels:
+        # Allow time dimension to differ when callers intentionally overspecify.
         mel_axes = arr
     elif arr.shape[1] == expected_mels:
         mel_axes = np.transpose(arr, (1, 0))

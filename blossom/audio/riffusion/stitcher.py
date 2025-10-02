@@ -69,9 +69,9 @@ def tiles_to_audio(
     """
     stitched = stitch_tiles_horizontally(tiles, overlap_px=overlap_px)
     mel_power = image_to_mel(stitched, target_shape=(cfg.n_mels, stitched.width))
-    if mel_power.shape[0] != cfg.n_mels:
+    if mel_power.shape[0] != cfg.n_mels or mel_power.shape[1] != stitched.width:
         raise ValueError(
-            f"Expected stitched mel to have {cfg.n_mels} bins; got {mel_power.shape}"
+            f"Expected stitched mel to have shape ({cfg.n_mels}, {stitched.width}); got {mel_power.shape}"
         )
     if (vocoder_name or '').lower() == 'hifigan':
         try:
