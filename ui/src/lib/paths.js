@@ -4,7 +4,7 @@ export function fileSrc(path) {
   if (!path || typeof path !== 'string') return '';
   try {
     const url = convertFileSrc(path);
-    if (typeof url === 'string' && url.startsWith('asset://')) return url;
+    if (typeof url === 'string' && url) return url;
     // Fallback: build asset URL manually (Windows-safe)
     const norm = path.replaceAll('\\', '/');
     return 'asset://localhost/' + encodeURI(norm);
