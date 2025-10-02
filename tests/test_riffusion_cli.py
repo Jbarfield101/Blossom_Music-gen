@@ -299,6 +299,8 @@ def test_riffusion_cli_hub_hifigan_cpu(monkeypatch, tmp_path, use_tiles):
         "--tiles",
         str(use_tiles),
         "--hub_hifigan",
+        "--vocoder",
+        "hifigan",
         "--outfile",
         str(outfile),
     ]
@@ -316,6 +318,108 @@ def test_riffusion_cli_hub_hifigan_cpu(monkeypatch, tmp_path, use_tiles):
     assert "vocoder: synthesizing audio (hub, device=cpu)" in log_text
     assert "vocoder_used: hifigan" in log_text
     assert "vocoder_used: griffinlim" not in log_text
+
+    assert outfile.exists()
+    assert outfile.with_suffix(".json").exists()
+
+
+def test_riffusion_cli_vocoder_griffinlim(monkeypatch, tmp_path):
+    """CLI should honor an explicit Griffin-Lim vocoder request."""
+
+    from blossom.audio.riffusion import cli_riffusion
+    from blossom.audio.riffusion import stitcher as stitcher_mod
+
+    class DummyTile:
+        width = 16
+
+        @staticmethod
+        def save(_path: str) -> None:
+            return None
+
+    class DummyPipe:
+        def __init__(self, cfg) -> None:
+            self.cfg = cfg
+
+        def generate_tile(self, **_kwargs):
+            return DummyTile()
+
+    monkeypatch.setattr(cli_riffusion, "RiffusionPipelineWrapper", DummyPipe)
+
+    def fake_stitch(tiles, overlap_px):
+        assert tiles
+        assert overlap_px >= 0
+        return SimpleNamespace(width=DummyTile.width)
+
+    monkeypatch.setattr(stitcher_mod, "stitch_tiles_horizontally", fake_stitch)
+
+    calls: dict[str, object] = {}
+
+    def fake_tiles_to_audio(
+        tiles,
+        cfg,
+        overlap_px,
+        griffinlim_iters,
+        gl_restarts,
+        vocoder_name=None,
+    ):
+        calls["vocoder"] = vocoder_name
+        calls["iters"] = griffinlim_iters
+        calls["restarts"] = gl_restarts
+        return np.zeros(8, dtype=np.float32)
+
+    monkeypatch.setattr(stitcher_mod, "tiles_to_audio", fake_tiles_to_audio)
+
+    def _should_not_call(*_args, **_kwargs):
+        raise AssertionError("HiFi-GAN path should be disabled")
+
+    monkeypatch.setattr(cli_riffusion, "hub_load_hifigan", _should_not_call)
+    monkeypatch.setattr(cli_riffusion, "load_hifigan", _should_not_call)
+
+    monkeypatch.setattr(
+        cli_riffusion,
+        "process_audio_chain",
+        lambda audio, _sr, chain, seed=None: audio,
+    )
+
+    def fake_write_metadata_json(outfile: Path, metadata):
+        meta_path = outfile.with_suffix(".json")
+        meta_path.write_text("{}", encoding="utf-8")
+        return meta_path
+
+    monkeypatch.setattr(cli_riffusion, "write_metadata_json", fake_write_metadata_json)
+
+    def fake_sf_write(path: str, data, sr, subtype):
+        Path(path).write_bytes(b"RIFF")
+
+    monkeypatch.setattr(cli_riffusion.sf, "write", fake_sf_write)
+
+    outfile = tmp_path / "riffusion_gl.wav"
+
+    argv = [
+        "python",
+        "--preset",
+        "piano",
+        "--tiles",
+        "1",
+        "--vocoder",
+        "griffinlim",
+        "--outfile",
+        str(outfile),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+
+    exit_code = cli_riffusion.main()
+
+    assert exit_code == 0
+    assert calls.get("vocoder") == "griffinlim"
+    assert calls.get("iters") == 128
+    assert calls.get("restarts") == 2
+
+    log_path = outfile.with_suffix(".log")
+    assert log_path.exists()
+    log_text = log_path.read_text(encoding="utf-8")
+    assert "vocoder_used: griffinlim" in log_text
+    assert "vocoder_used: hifigan" not in log_text
 
     assert outfile.exists()
     assert outfile.with_suffix(".json").exists()

@@ -100,6 +100,18 @@ def main() -> int:
     elif env_vocoder == "griffinlim":
         args.hub_hifigan = False
 
+    requested_vocoder = (args.vocoder or env_vocoder or "").strip().lower()
+    selected_vocoder = requested_vocoder if requested_vocoder in {"hifigan", "griffinlim"} else None
+    if selected_vocoder is None:
+        if args.hub_hifigan or (args.hifigan_repo and args.hifigan_ckpt):
+            selected_vocoder = "hifigan"
+        else:
+            selected_vocoder = "griffinlim"
+    if selected_vocoder == "griffinlim":
+        args.hub_hifigan = False
+
+    use_hifigan = selected_vocoder == "hifigan"
+
     # Prepare logfile path next to outfile
     log_path = args.outfile.with_suffix('.log')
     try:
@@ -178,7 +190,7 @@ def main() -> int:
     stitched = stitch_tiles_horizontally(tiles, overlap_px=overlap_px)
     # If HiFi-GAN is provided, synthesize via neural vocoder; else Griffin-Lim
     audio = None
-    if args.hub_hifigan:
+    if use_hifigan and args.hub_hifigan:
         emit("vocoder: loading hub HiFi-GAN")
         hub_device = "cpu"
         try:
@@ -219,7 +231,7 @@ def main() -> int:
             emit(f"vocoder: hub failed ({e}); falling back")
             audio = None
 
-    if audio is None and args.hifigan_repo and args.hifigan_ckpt:
+    if audio is None and use_hifigan and args.hifigan_repo and args.hifigan_ckpt:
         emit("vocoder: loading HiFi-GAN")
         try:
             gen, dev = load_hifigan(HiFiGANConfig(
@@ -266,6 +278,7 @@ def main() -> int:
             overlap_px=overlap_px,
             griffinlim_iters=max(1, int(args.gl_iters)),
             gl_restarts=max(1, int(args.gl_restarts)),
+            vocoder_name=selected_vocoder,
         )
         emit(f"invert_time: {time.time() - inv0:.3f}s")
         emit("vocoder_used: griffinlim")
