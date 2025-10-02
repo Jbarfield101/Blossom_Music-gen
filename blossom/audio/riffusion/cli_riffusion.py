@@ -183,10 +183,15 @@ def main() -> int:
         try:
             hifi, vsetup, deno = hub_load_hifigan(device="cuda")
             from .mel_codec import image_to_mel
-            mel_power512 = image_to_mel(stitched, target_shape=(cfg_mel.n_mels, stitched.width))
+            mel_power512 = image_to_mel(
+                stitched, target_shape=(cfg_mel.n_mels, stitched.width)
+            )
             assert (
                 mel_power512.shape[0] == cfg_mel.n_mels
             ), f"Hub HiFi-GAN expected {cfg_mel.n_mels} mel bins, got {mel_power512.shape}"
+            assert (
+                mel_power512.shape[1] == stitched.width
+            ), f"Hub HiFi-GAN expected time {stitched.width}, got {mel_power512.shape}"
             emit("vocoder: synthesizing audio (hub)")
             v0 = time.time()
             audio = hub_mel_to_audio(mel_power512, vsetup, hifi, denoiser=deno if args.hub_denoise > 0 else None, device="cuda")
@@ -207,10 +212,15 @@ def main() -> int:
             mel_power512 = mel512_power = None
             # Convert image->mel power (512) using our codec, then to 80-log-mel
             from .mel_codec import image_to_mel
-            mel_power512 = image_to_mel(stitched, target_shape=(cfg_mel.n_mels, stitched.width))
+            mel_power512 = image_to_mel(
+                stitched, target_shape=(cfg_mel.n_mels, stitched.width)
+            )
             assert (
                 mel_power512.shape[0] == cfg_mel.n_mels
             ), f"Local HiFi-GAN expected {cfg_mel.n_mels} mel bins, got {mel_power512.shape}"
+            assert (
+                mel_power512.shape[1] == stitched.width
+            ), f"Local HiFi-GAN expected time {stitched.width}, got {mel_power512.shape}"
             mel80_log = mel512_power_to_mel80_log(
                 mel_power512,
                 sr=cfg_mel.sample_rate,
