@@ -248,7 +248,7 @@ def test_riffusion_cli_hub_hifigan_cpu(monkeypatch, tmp_path, use_tiles):
     def fake_stitch(tiles, overlap_px):  # noqa: D401 - simple stub for stitching
         assert tiles  # ensure tiles were generated
         assert overlap_px >= 0
-        return SimpleNamespace(width=DummyTile.width)
+        return SimpleNamespace(width=DummyTile.width, height=512)
 
     monkeypatch.setattr(stitcher_mod, "stitch_tiles_horizontally", fake_stitch)
 
@@ -263,10 +263,11 @@ def test_riffusion_cli_hub_hifigan_cpu(monkeypatch, tmp_path, use_tiles):
         calls["load_device"] = device
         return object(), {"n_mel_channels": 80}, object()
 
-    def fake_hub_mel_to_audio(mel, vsetup, _hifi, denoiser=None, device: str = "cpu"):
+    def fake_hub_mel_to_audio(mel, cfg, vsetup, _hifi, denoiser=None, device: str = "cpu"):
         calls["mel_device"] = device
         calls["mel_shape"] = mel.shape
         calls["denoiser"] = denoiser
+        calls["mel_cfg_bins"] = getattr(cfg, "n_mels", None)
         return np.zeros(32, dtype=np.float32)
 
     monkeypatch.setattr(cli_riffusion, "hub_load_hifigan", fake_hub_load_hifigan)

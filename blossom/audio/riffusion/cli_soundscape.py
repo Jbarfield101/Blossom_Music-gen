@@ -10,15 +10,13 @@ import soundfile as sf
 from PIL import Image
 
 from .riffusion_pipeline import RiffusionPipelineWrapper, RiffusionConfig
-from .mel_codec import MelSpecConfig
+from .mel_codec import MelSpecConfig, project_mel_power
 from .stitcher import tiles_to_audio, stitch_tiles_horizontally
 from .presets import get_preset
 from .mix import StemConfig, mix_stems, bus_compressor, width_enhance, limiter_peak
-from .mel_codec import MelSpecConfig
 from .vocoder_hifigan import (
     HiFiGANConfig,
     load_hifigan,
-    mel512_power_to_mel80_log,
     hifigan_synthesize,
 )
 from blossom.audio.vocoders.hifigan import (
@@ -162,16 +160,24 @@ def main() -> int:
                 hifi, vsetup, deno = hub_load_hifigan(device="cuda")
                 from .mel_codec import image_to_mel
                 stitched = stitch_tiles_horizontally(tiles, overlap_px=overlap_px)
-                mel_power512 = image_to_mel(
-                    stitched, target_shape=(mel.n_mels, stitched.width)
+                src_bins = stitched.height
+                mel_power_src = image_to_mel(stitched, target_shape=(src_bins, stitched.width))
+                if src_bins == mel.n_mels:
+                    src_cfg = mel
+                else:
+                    default_cfg = MelSpecConfig()
+                    if src_bins == default_cfg.n_mels:
+                        src_cfg = default_cfg
+                    else:
+                        src_cfg = mel.copy_with(n_mels=src_bins)
+                audio = hub_mel_to_audio(
+                    mel_power_src,
+                    src_cfg,
+                    vsetup,
+                    hifi,
+                    denoiser=deno if args.hub_denoise > 0 else None,
+                    device="cuda",
                 )
-                assert (
-                    mel_power512.shape[0] == mel.n_mels
-                ), f"Hub HiFi-GAN expected {mel.n_mels} mel bins, got {mel_power512.shape}"
-                assert (
-                    mel_power512.shape[1] == stitched.width
-                ), f"Hub HiFi-GAN expected time {stitched.width}, got {mel_power512.shape}"
-                audio = hub_mel_to_audio(mel_power512, vsetup, hifi, denoiser=deno if args.hub_denoise > 0 else None, device="cuda")
                 emit("vocoder_used: hifigan")
             except Exception as e:
                 emit(f"vocoder: hub failed ({e}); falling back")
@@ -186,23 +192,31 @@ def main() -> int:
                 emit("vocoder: preparing 80-mel features")
                 from .mel_codec import image_to_mel
                 stitched = stitch_tiles_horizontally(tiles, overlap_px=overlap_px)
-                mel_power512 = image_to_mel(
-                    stitched, target_shape=(mel.n_mels, stitched.width)
+                src_bins = stitched.height
+                mel_power_src = image_to_mel(stitched, target_shape=(src_bins, stitched.width))
+                if src_bins == mel.n_mels:
+                    src_cfg = mel
+                else:
+                    default_cfg = MelSpecConfig()
+                    if src_bins == default_cfg.n_mels:
+                        src_cfg = default_cfg
+                    else:
+                        src_cfg = mel.copy_with(n_mels=src_bins)
+                target_template = MelSpecConfig.tacotron()
+                target_cfg = src_cfg.copy_with(
+                    n_mels=target_template.n_mels,
+                    f_min=target_template.f_min,
+                    f_max=target_template.f_max,
                 )
-                assert (
-                    mel_power512.shape[0] == mel.n_mels
-                ), f"Local HiFi-GAN expected {mel.n_mels} mel bins, got {mel_power512.shape}"
-                assert (
-                    mel_power512.shape[1] == stitched.width
-                ), f"Local HiFi-GAN expected time {stitched.width}, got {mel_power512.shape}"
-                mel80_log = mel512_power_to_mel80_log(
-                    mel_power512,
-                    sr=mel.sample_rate,
-                    n_fft=mel.n_fft,
-                    hop=mel.hop_length,
-                    fmin=mel.f_min,
-                    fmax=mel.f_max,
-                )
+                try:
+                    mel_power80 = project_mel_power(mel_power_src, src_cfg, target_cfg)
+                except RuntimeError:
+                    mel_power80 = image_to_mel(
+                        stitched, target_shape=(target_cfg.n_mels, stitched.width)
+                    )
+                mel80_log = np.log10(
+                    np.clip(np.sqrt(np.clip(mel_power80, 1e-10, None)), 1e-10, None)
+                ).astype(np.float32)
                 emit("vocoder: synthesizing audio")
                 audio = hifigan_synthesize(gen, dev, mel80_log)
                 emit("vocoder_used: hifigan-local")
