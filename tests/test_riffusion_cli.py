@@ -319,3 +319,112 @@ def test_riffusion_cli_hub_hifigan_cpu(monkeypatch, tmp_path, use_tiles):
 
     assert outfile.exists()
     assert outfile.with_suffix(".json").exists()
+
+
+def test_soundscape_cli_griffinlim_fallback(monkeypatch, tmp_path):
+    """Soundscape CLI should fall back to Griffin-Lim and emit status."""
+
+    from blossom.audio.riffusion import cli_soundscape
+
+    class DummyTile:
+        width = 8
+
+        @staticmethod
+        def save(_path: str) -> None:
+            return None
+
+    class DummyPipe:
+        def __init__(self, cfg) -> None:
+            self.cfg = cfg
+
+        def generate_tile(self, **_kwargs):
+            return DummyTile()
+
+    class DummyStereo:
+        def __init__(self, frames: int = 8) -> None:
+            self._frames = frames
+            self.data = [[0.0] * frames, [0.0] * frames]
+
+        @property
+        def T(self):  # pragma: no cover - simple passthrough
+            return self
+
+        def __iter__(self):
+            return iter(self.data)
+
+        def __getitem__(self, idx):
+            return self.data[idx]
+
+        def __len__(self):
+            return len(self.data)
+
+    monkeypatch.setattr(cli_soundscape, "RiffusionPipelineWrapper", DummyPipe)
+
+    stem = cli_soundscape.StemConfig(
+        name="piano",
+        prompt="calm",
+        negative="",
+        gain_db=0.0,
+        pan=0.0,
+        lowcut_hz=0.0,
+        highcut_hz=1000.0,
+    )
+
+    monkeypatch.setattr(cli_soundscape, "build_dark_ambience", lambda: [stem])
+
+    calls: dict[str, object] = {}
+
+    def fake_tiles_to_audio(tiles, cfg, overlap_px, griffinlim_iters, gl_restarts):
+        calls["tiles_len"] = len(tiles)
+        calls["gl_iters"] = griffinlim_iters
+        calls["gl_restarts"] = gl_restarts
+        return np.zeros(16, dtype=np.float32)
+
+    monkeypatch.setattr(cli_soundscape, "tiles_to_audio", fake_tiles_to_audio)
+
+    def fake_mix_stems(mono_stems, sr, sidechain_source=None):
+        calls["mix_sr"] = sr
+        stereo = [DummyStereo() for _ in mono_stems]
+        return DummyStereo(), stereo
+
+    monkeypatch.setattr(cli_soundscape, "mix_stems", fake_mix_stems)
+    monkeypatch.setattr(cli_soundscape, "bus_compressor", lambda audio, sr: audio)
+    monkeypatch.setattr(cli_soundscape, "width_enhance", lambda audio, amount: audio)
+    monkeypatch.setattr(cli_soundscape, "limiter_peak", lambda audio, target_dbfs: audio)
+
+    def fake_sf_write(path: str, data, sr: int, subtype: str):
+        Path(path).write_text("sound", encoding="utf-8")
+        calls["sf_sr"] = sr
+        calls["sf_subtype"] = subtype
+
+    monkeypatch.setattr(cli_soundscape.sf, "write", fake_sf_write)
+
+    outfile = tmp_path / "soundscape.wav"
+
+    argv = [
+        "python",
+        "--duration",
+        "0.5",
+        "--outfile",
+        str(outfile),
+    ]
+
+    monkeypatch.setattr(sys, "argv", argv)
+
+    exit_code = cli_soundscape.main()
+
+    assert exit_code == 0
+    assert calls.get("tiles_len") == 1
+    assert calls.get("gl_iters") == 128
+    assert calls.get("gl_restarts") == 2
+    assert calls.get("mix_sr") == 22050
+    assert calls.get("sf_sr") == 22050
+    assert calls.get("sf_subtype") == "PCM_16"
+
+    log_path = outfile.with_suffix(".log")
+    assert log_path.exists()
+    log_text = log_path.read_text(encoding="utf-8")
+    assert "vocoder_used: griffinlim" in log_text
+    assert "vocoder_used: hifigan" not in log_text
+
+    assert outfile.exists()

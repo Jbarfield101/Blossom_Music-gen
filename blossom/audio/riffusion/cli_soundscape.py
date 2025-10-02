@@ -209,8 +209,8 @@ def main() -> int:
             except Exception as e:
                 emit(f"vocoder: failed ({e}); falling back to Griffin-Lim")
         if audio is None:
-            audio = tiles_to_audio(
             emit("vocoder_used: griffinlim")
+            audio = tiles_to_audio(
                 tiles,
                 cfg=mel,
                 overlap_px=overlap_px,
