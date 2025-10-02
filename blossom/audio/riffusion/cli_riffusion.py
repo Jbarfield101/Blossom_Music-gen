@@ -257,14 +257,64 @@ def main() -> int:
         emit("audio_warn: empty/invalid audio after inversion; generating silence")
         est_len = int(max(1, round((total_tiles * seconds_per_tile) * out_sr)))
         audio = np.zeros(est_len, dtype=np.float32)
-    if audio.ndim > 1:
-        audio = audio.mean(axis=-1)
-    if audio.size == 0 or not np.isfinite(audio).all():
-        emit("audio_warn: empty/invalid audio after inversion; generating silence")
-        est_len = int(max(1, round((total_tiles * seconds_per_tile) * out_sr)))
-        audio = np.zeros(est_len, dtype=np.float32)
 
-    return 0
+    # Build the post-processing chain
+    chain = ChainSettings(
+        eq=EqSettings(
+            high_shelf_freq_hz=float(args.hs_freq),
+            high_shelf_gain_db=float(args.hs_gain),
+            lowcut_hz=float(args.lowcut),
+        ),
+        reverb=ReverbSettings(
+            wet=float(args.wet),
+        ),
+        dither=DitherSettings(),
+    )
+
+    if args.no_post:
+        emit("post: disabled")
+        audio_to_save = audio.astype(np.float32, copy=False)
+    else:
+        emit("post: processing chain")
+        audio_to_save = process_audio_chain(audio, out_sr, chain=chain, seed=args.seed)
+
+    audio_to_save = np.asarray(audio_to_save, dtype=np.float32)
+
+    emit("write: ensuring output directory")
+    try:
+        args.outfile.parent.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        emit(f"write_warn: failed to create directory ({exc})")
+
+    emit("write: saving audio")
+    sf.write(args.outfile.as_posix(), audio_to_save, out_sr, subtype='PCM_16')
+
+    metadata = {
+        "prompt": prompt,
+        "negative_prompt": negative,
+        "preset": args.preset,
+        "seed": args.seed,
+        "steps": args.steps,
+        "guidance": args.guidance,
+        "sample_rate": out_sr,
+    }
+    meta_path = write_metadata_json(args.outfile, metadata)
+
+    outfile_ok = args.outfile.exists()
+    meta_ok = Path(meta_path).exists()
+    if outfile_ok:
+        emit(f"Wrote {args.outfile} ({audio_to_save.size / out_sr:.2f}s)")
+    else:
+        emit("write_error: audio file missing after save attempt")
+    if meta_ok:
+        emit(f"Metadata: {meta_path}")
+    else:
+        emit("write_error: metadata file missing after save attempt")
+    emit(f"Log: {log_path.as_posix()}")
+
+    if outfile_ok and meta_ok:
+        return 0
+    return 1
 
 
 if __name__ == "__main__":
