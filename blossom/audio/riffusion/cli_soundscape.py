@@ -11,9 +11,20 @@ from PIL import Image
 
 from .riffusion_pipeline import RiffusionPipelineWrapper, RiffusionConfig
 from .mel_codec import MelSpecConfig
-from .stitcher import tiles_to_audio
+from .stitcher import tiles_to_audio, stitch_tiles_horizontally
 from .presets import get_preset
 from .mix import StemConfig, mix_stems, bus_compressor, width_enhance, limiter_peak
+from .mel_codec import MelSpecConfig
+from .vocoder_hifigan import (
+    HiFiGANConfig,
+    load_hifigan,
+    mel512_power_to_mel80_log,
+    hifigan_synthesize,
+)
+from blossom.audio.vocoders.hifigan import (
+    load_hifigan as hub_load_hifigan,
+    mel_to_audio_hifigan as hub_mel_to_audio,
+)
 
 
 def seconds_per_tile(width: int, mel: MelSpecConfig) -> float:
@@ -67,7 +78,22 @@ def main() -> int:
     p.add_argument("--crossfade_secs", type=float, default=0.35)
     p.add_argument("--outfile", type=Path, default=Path("soundscape.wav"))
     p.add_argument("--model", default=None)
+    # Additional quality toggles
+    p.add_argument("--gl_iters", type=int, default=128)
+    p.add_argument("--gl_restarts", type=int, default=2)
+    # HiFi-GAN
+    p.add_argument("--hifigan_repo", default=None)
+    p.add_argument("--hifigan_ckpt", default=None)
+    p.add_argument("--hifigan_config", default=None)
+    p.add_argument("--hub_hifigan", action="store_true")
+    p.add_argument("--hub_denoise", type=float, default=0.0)
     args = p.parse_args()
+    # Optional default via environment: RIFFUSION_DEFAULT_VOCODER=hifigan|griffinlim
+    env_vocoder = os.environ.get("RIFFUSION_DEFAULT_VOCODER", "").strip().lower()
+    if env_vocoder == "hifigan":
+        args.hub_hifigan = True
+    elif env_vocoder == "griffinlim":
+        args.hub_hifigan = False
 
     # Prepare master log path next to outfile
     log_path = args.outfile.with_suffix('.log')
@@ -130,7 +156,51 @@ def main() -> int:
             remaining = max(0.0, (total_units - done_units) * avg)
             percent = int(done_units * 100 // total_units)
             emit(f"riffscape: {percent}% stem {si+1}/{len(stems_cfg)} tile {i+1}/{tiles_count} ETA: {int(remaining)}s")
-        audio = tiles_to_audio(tiles, cfg=mel, overlap_px=overlap_px)
+        audio = None
+        if args.hub_hifigan:
+            try:
+                hifi, vsetup, deno = hub_load_hifigan(device="cuda")
+                from .mel_codec import image_to_mel
+                stitched = stitch_tiles_horizontally(tiles, overlap_px=overlap_px)
+                mel_power512 = image_to_mel(stitched, target_shape=(mel.n_mels, stitched.width))
+                audio = hub_mel_to_audio(mel_power512, vsetup, hifi, denoiser=deno if args.hub_denoise > 0 else None, device="cuda")
+                emit("vocoder_used: hifigan")
+            except Exception as e:
+                emit(f"vocoder: hub failed ({e}); falling back")
+                audio = None
+        if audio is None and args.hifigan_repo and args.hifigan_ckpt:
+            try:
+                gen, dev = load_hifigan(HiFiGANConfig(
+                    repo_dir=args.hifigan_repo,
+                    checkpoint_path=args.hifigan_ckpt,
+                    config_path=args.hifigan_config,
+                ))
+                emit("vocoder: preparing 80-mel features")
+                from .mel_codec import image_to_mel
+                stitched = stitch_tiles_horizontally(tiles, overlap_px=overlap_px)
+                mel_power512 = image_to_mel(stitched, target_shape=(mel.n_mels, stitched.width))
+                mel80_log = mel512_power_to_mel80_log(
+                    mel_power512,
+                    sr=mel.sample_rate,
+                    n_fft=mel.n_fft,
+                    hop=mel.hop_length,
+                    fmin=mel.f_min,
+                    fmax=mel.f_max,
+                )
+                emit("vocoder: synthesizing audio")
+                audio = hifigan_synthesize(gen, dev, mel80_log)
+                emit("vocoder_used: hifigan-local")
+            except Exception as e:
+                emit(f"vocoder: failed ({e}); falling back to Griffin-Lim")
+        if audio is None:
+            audio = tiles_to_audio(
+            emit("vocoder_used: griffinlim")
+                tiles,
+                cfg=mel,
+                overlap_px=overlap_px,
+                griffinlim_iters=max(1, int(args.gl_iters)),
+                gl_restarts=max(1, int(args.gl_restarts)),
+            )
         mono_stems.append((scfg, audio.astype(np.float32)))
 
     # Mixdown

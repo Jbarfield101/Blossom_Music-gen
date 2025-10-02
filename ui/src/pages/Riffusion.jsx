@@ -29,6 +29,7 @@ export default function Riffusion() {
   const [showLogs, setShowLogs] = useState(false);
   const [jobId, setJobId] = useState(null);
   const jobListenRef = useRef(null);
+  const pollTimerRef = useRef(null);
   const [mixing, setMixing] = useState(false);
   const [outputDir, setOutputDir] = useState('');
   const [outputName, setOutputName] = useState('');
@@ -68,6 +69,10 @@ export default function Riffusion() {
     if (jobListenRef.current) {
       jobListenRef.current();
       jobListenRef.current = null;
+    }
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
     }
   }, []);
 
@@ -122,6 +127,33 @@ export default function Riffusion() {
           }
         }
       });
+      // Also start a light poll to fetch logs/status in early stage before events arrive
+      if (!pollTimerRef.current) {
+        const poll = async () => {
+          if (!id) return;
+          try {
+            const details = await invoke('job_status', { jobId: id });
+            const stdoutLines = Array.isArray(details?.stdout) ? details.stdout : [];
+            const stderrLines = Array.isArray(details?.stderr) ? details.stderr : [];
+            const combined = [...stdoutLines, ...stderrLines];
+            if (combined.length) setConsoleText(combined.join('\n'));
+            const s = details?.status;
+            if (s && typeof s === 'string' && ['completed','error','cancelled'].includes(s)) {
+              clearInterval(pollTimerRef.current);
+              pollTimerRef.current = null;
+            }
+          } catch {}
+        };
+        pollTimerRef.current = setInterval(poll, 1500);
+        // Do an immediate poll once
+        try {
+          const details = await invoke('job_status', { jobId: id });
+          const stdoutLines = Array.isArray(details?.stdout) ? details.stdout : [];
+          const stderrLines = Array.isArray(details?.stderr) ? details.stderr : [];
+          const combined = [...stdoutLines, ...stderrLines];
+          if (combined.length) setConsoleText(combined.join('\n'));
+        } catch {}
+      }
     } catch (e2) {
       console.error('queue_riffusion_job failed', e2);
       setError(String(e2));
@@ -283,44 +315,46 @@ export default function Riffusion() {
               {status}
               {eta ? ` • ETA: ${eta}` : ''}
             </div>
-            {consoleText && (
-              <div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
-                  <button type="button" className="back-button" onClick={() => setShowLogs((v) => !v)}>
-                    {showLogs ? 'Hide Logs' : 'Show Full Logs'}
-                  </button>
-                  <button
-                    type="button"
-                    className="back-button"
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(consoleText);
-                      } catch (e) {
-                        console.warn('Clipboard write failed', e);
-                      }
-                    }}
-                  >
-                    Copy Logs
-                  </button>
-                </div>
-                {showLogs && (
-                  <pre
-                    style={{
-                      margin: 0,
-                      padding: '0.5rem',
-                      background: 'var(--card-hover-bg)',
-                      borderRadius: 6,
-                      maxHeight: 360,
-                      overflow: 'auto',
-                      fontSize: '0.8rem',
-                      lineHeight: 1.3,
-                    }}
-                  >
-                    {consoleText}
-                  </pre>
+            <div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                <button type="button" className="back-button" onClick={() => setShowLogs((v) => !v)} disabled={!consoleText}>
+                  {showLogs ? 'Hide Logs' : 'Show Full Logs'}
+                </button>
+                <button
+                  type="button"
+                  className="back-button"
+                  disabled={!consoleText}
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(consoleText || '');
+                    } catch (e) {
+                      console.warn('Clipboard write failed', e);
+                    }
+                  }}
+                >
+                  Copy Logs
+                </button>
+                {!consoleText && (
+                  <span className="muted" style={{ opacity: 0.8 }}>No logs yet</span>
                 )}
               </div>
-            )}
+              {showLogs && consoleText && (
+                <pre
+                  style={{
+                    margin: 0,
+                    padding: '0.5rem',
+                    background: 'var(--card-hover-bg)',
+                    borderRadius: 6,
+                    maxHeight: 360,
+                    overflow: 'auto',
+                    fontSize: '0.8rem',
+                    lineHeight: 1.3,
+                  }}
+                >
+                  {consoleText}
+                </pre>
+              )}
+            </div>
             {error && (
               <p className="card-caption" style={{ color: 'tomato' }}>{error}</p>
             )}

@@ -402,3 +402,22 @@ python discord_bot.py
 ## LLM Orchestrator
 
 Orchestrate local LLM responses with context pulled from an Obsidian vault. See [docs/orchestrator.md](docs/orchestrator.md) for setup and usage details.
+## Riffusion Vocoder (HiFi-GAN) – Setup
+
+By default Riffusion uses Griffin–Lim to invert spectrograms to audio. For much higher fidelity you can enable a neural vocoder:
+
+- Default vocoder: configurable via `default_vocoder` (hifigan|griffinlim).
+- HiFi‑GAN (hub): the app can load NVIDIA’s HiFi‑GAN from PyTorch Hub on first run, then reuse it from cache.
+
+Requirements
+- Internet access on first use (Hub download). Subsequent runs use the local cache (Torch Hub under your user cache directory) and do not re‑download.
+- CUDA recommended for real‑time or faster‑than‑real‑time synthesis on supported GPUs.
+
+How it works
+- The pipeline remaps Riffusion’s 512‑mel power spectrograms to ~80‑mel log features expected by many HiFi‑GAN checkpoints, then synthesizes audio.
+- If the hub model is unavailable (offline) the job logs a clear fallback and uses Griffin–Lim automatically.
+
+CLI examples
+```
+python -m blossom.audio.riffusion.cli_riffusion --preset piano --duration 12 --hub_hifigan --outfile out.wav
+```

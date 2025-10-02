@@ -65,30 +65,63 @@ def image_to_mel(img: Image.Image, target_shape: Tuple[int, int] = (512, 512)) -
     return mel_power.astype(np.float32)
 
 
-def mel_to_audio_griffin_lim(
-    mel_power: np.ndarray,
-    cfg: MelSpecConfig = MelSpecConfig(),
-    n_iter: int = 64,
-) -> np.ndarray:
-    """Invert mel power spectrogram to audio using Griffin-Lim.
-
-    Returns mono float32 waveform in [-1, 1].
-    """
-    if mel_power.ndim != 2:
-        raise ValueError("mel_power must be 2D [n_mels, time]")
-    y = librosa.feature.inverse.mel_to_audio(
-        M=mel_power,
+def _mel_loss(target_mel_power: np.ndarray, recon_audio: np.ndarray, cfg: MelSpecConfig) -> float:
+    S = librosa.feature.melspectrogram(
+        y=recon_audio,
         sr=cfg.sample_rate,
         n_fft=cfg.n_fft,
         hop_length=cfg.hop_length,
         win_length=cfg.win_length,
-        n_iter=n_iter,
+        n_mels=cfg.n_mels,
         fmin=cfg.f_min,
         fmax=cfg.f_max,
-        center=True,
         power=2.0,
+        center=True,
     )
-    y = np.asarray(y, dtype=np.float32)
+    # Compare in dB domain to de-emphasize large low-freq magnitudes
+    T = librosa.power_to_db(np.maximum(target_mel_power, 1e-12), ref=1.0)
+    R = librosa.power_to_db(np.maximum(S, 1e-12), ref=1.0)
+    return float(np.mean((T - R) ** 2))
+
+
+def mel_to_audio_griffin_lim(
+    mel_power: np.ndarray,
+    cfg: MelSpecConfig = MelSpecConfig(),
+    n_iter: int = 128,
+    restarts: int = 1,
+) -> np.ndarray:
+    """Invert mel power spectrogram to audio using Griffin-Lim with optional restarts.
+
+    Returns mono float32 waveform in [-1, 1]. Chooses the best of N restarts
+    by mel-spectrogram MSE in dB against the target mel.
+    """
+    if mel_power.ndim != 2:
+        raise ValueError("mel_power must be 2D [n_mels, time]")
+
+    best_audio = None
+    best_loss = float("inf")
+    for k in range(max(1, int(restarts))):
+        y = librosa.feature.inverse.mel_to_audio(
+            M=mel_power,
+            sr=cfg.sample_rate,
+            n_fft=cfg.n_fft,
+            hop_length=cfg.hop_length,
+            win_length=cfg.win_length,
+            n_iter=n_iter,
+            fmin=cfg.f_min,
+            fmax=cfg.f_max,
+            center=True,
+            power=2.0,
+            # Random init on k>0 gives diverse phase guesses
+            init="random" if k > 0 else None,
+        )
+        y = np.asarray(y, dtype=np.float32)
+        loss = _mel_loss(mel_power, y, cfg)
+        if loss < best_loss or best_audio is None:
+            best_loss = loss
+            best_audio = y
+
+    y = best_audio if best_audio is not None else np.zeros(1, dtype=np.float32)
     # Normalize softly to avoid clipping whilst preserving scale
     max_abs = float(np.max(np.abs(y)) or 1.0)
     if max_abs > 1.0:
