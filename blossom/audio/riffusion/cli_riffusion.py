@@ -180,8 +180,20 @@ def main() -> int:
     audio = None
     if args.hub_hifigan:
         emit("vocoder: loading hub HiFi-GAN")
+        hub_device = "cpu"
         try:
-            hifi, vsetup, deno = hub_load_hifigan(device="cuda")
+            import torch  # noqa: WPS433 (local import to avoid hard dependency at module load)
+
+            if torch.cuda.is_available():  # type: ignore[attr-defined]
+                hub_device = "cuda"
+            else:
+                mps_backend = getattr(getattr(torch, "backends", None), "mps", None)
+                if mps_backend is not None and mps_backend.is_available():
+                    hub_device = "mps"
+        except Exception:
+            hub_device = "cpu"
+        try:
+            hifi, vsetup, deno = hub_load_hifigan(device=hub_device)
             from .mel_codec import image_to_mel
             mel_power512 = image_to_mel(
                 stitched, target_shape=(cfg_mel.n_mels, stitched.width)
@@ -192,9 +204,15 @@ def main() -> int:
             assert (
                 mel_power512.shape[1] == stitched.width
             ), f"Hub HiFi-GAN expected time {stitched.width}, got {mel_power512.shape}"
-            emit("vocoder: synthesizing audio (hub)")
+            emit(f"vocoder: synthesizing audio (hub, device={hub_device})")
             v0 = time.time()
-            audio = hub_mel_to_audio(mel_power512, vsetup, hifi, denoiser=deno if args.hub_denoise > 0 else None, device="cuda")
+            audio = hub_mel_to_audio(
+                mel_power512,
+                vsetup,
+                hifi,
+                denoiser=deno if args.hub_denoise > 0 else None,
+                device=hub_device,
+            )
             emit(f"vocoder_time: {time.time() - v0:.3f}s")
         except Exception as e:
             emit(f"vocoder: hub failed ({e}); falling back")
