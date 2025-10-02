@@ -214,6 +214,7 @@ def main() -> int:
                 device=hub_device,
             )
             emit(f"vocoder_time: {time.time() - v0:.3f}s")
+            emit("vocoder_used: hifigan")
         except Exception as e:
             emit(f"vocoder: hub failed ({e}); falling back")
             audio = None
@@ -251,6 +252,7 @@ def main() -> int:
             v0 = time.time()
             audio = hifigan_synthesize(gen, dev, mel80_log)
             emit(f"vocoder_time: {time.time() - v0:.3f}s")
+            emit("vocoder_used: hifigan-local")
         except Exception as e:
             emit(f"vocoder: failed ({e}); falling back to Griffin-Lim")
 
