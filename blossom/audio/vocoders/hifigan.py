@@ -6,6 +6,8 @@ import numpy as np
 import torch
 import librosa
 
+from blossom.audio.riffusion.mel_codec import MelSpecConfig, project_mel_power
+
 _HIFI = None
 _SETUP = None
 _DENOISER = None
@@ -83,54 +85,76 @@ def synth_hifigan(
     return np.clip(audio, -1.0, 1.0)
 
 
+def _power_to_logmel(power: np.ndarray) -> np.ndarray:
+    mag = np.sqrt(np.clip(power, 1e-10, None)).astype(np.float32)
+    return np.log10(np.clip(mag, 1e-10, None)).astype(np.float32)
+
+
 def _prepare_mel_for_hifigan(
-    mel_power_512: np.ndarray,
-    sr_src: int = 22050,
-    fmin_src: float = 0.0,
-    fmax_src: float = 10000.0,
-    n_mels_src: int = 512,
+    mel_power: np.ndarray,
+    src_cfg: MelSpecConfig,
     n_mels_tgt: int = 80,
     fmin_tgt: float = 0.0,
     fmax_tgt: float = 8000.0,
 ) -> np.ndarray:
-    """Remap 512-bin mel power to target 80-bin log-mel via mel-axis interpolation.
+    """Project arbitrary mel power to Tacotron-style log-mel features for HiFi-GAN."""
 
-    - Input shape: [512, T] power mel
-    - Output shape: [n_mels_tgt, T] log mel (float32), NaN-free
-    """
-    if mel_power_512.ndim != 2:
-        raise ValueError("mel_power_512 must be 2D [n_mels, T]")
-    if mel_power_512.shape[0] != n_mels_src:
-        raise ValueError(f"expected {n_mels_src} mel bins, got {mel_power_512.shape[0]}")
+    if mel_power.ndim != 2:
+        raise ValueError("mel_power must be 2D [n_mels, T]")
 
-    eps = 1e-8
-    logmel_src = np.log(np.maximum(mel_power_512, eps)).astype(np.float32)  # [512, T]
+    src_bins = mel_power.shape[0]
+    if src_bins != src_cfg.n_mels:
+        src_cfg = src_cfg.copy_with(n_mels=src_bins)
 
-    # Build corresponding mel-frequency grids
-    f_src = librosa.mel_frequencies(n_mels=n_mels_src, fmin=fmin_src, fmax=fmax_src)
-    f_tgt = librosa.mel_frequencies(n_mels=n_mels_tgt, fmin=fmin_tgt, fmax=fmax_tgt)
+    target_cfg = src_cfg.copy_with(n_mels=n_mels_tgt, f_min=fmin_tgt, f_max=fmax_tgt)
+    src_fmin = float(src_cfg.f_min or 0.0)
+    tgt_fmin = float(fmin_tgt or 0.0)
+    src_fmax = float(src_cfg.f_max) if src_cfg.f_max is not None else None
+    tgt_fmax = float(fmax_tgt) if fmax_tgt is not None else None
 
-    T = logmel_src.shape[1]
-    logmel_tgt = np.empty((n_mels_tgt, T), dtype=np.float32)
-    for t in range(T):
-        # 1D interpolate along the mel axis for each time frame
-        logmel_tgt[:, t] = np.interp(f_tgt, f_src, logmel_src[:, t])
+    needs_projection = (
+        src_bins != n_mels_tgt
+        or abs(src_fmin - tgt_fmin) > 1e-6
+        or (
+            (src_fmax is not None and tgt_fmax is not None and abs(src_fmax - tgt_fmax) > 1e-6)
+            or (src_fmax is None and tgt_fmax is not None)
+            or (src_fmax is not None and tgt_fmax is None)
+        )
+    )
 
-    # Ensure no NaNs
-    logmel_tgt = np.nan_to_num(logmel_tgt, nan=0.0, neginf=-20.0, posinf=20.0).astype(np.float32)
-    return logmel_tgt
+    if needs_projection:
+        try:
+            mel_power = project_mel_power(mel_power, src_cfg, target_cfg)
+        except RuntimeError:
+            f_src = librosa.mel_frequencies(
+                n_mels=src_bins,
+                fmin=float(src_cfg.f_min),
+                fmax=None if src_cfg.f_max is None else float(src_cfg.f_max),
+            )
+            f_tgt = librosa.mel_frequencies(
+                n_mels=n_mels_tgt,
+                fmin=fmin_tgt,
+                fmax=fmax_tgt,
+            )
+            projected = np.empty((n_mels_tgt, mel_power.shape[1]), dtype=np.float32)
+            for t in range(mel_power.shape[1]):
+                projected[:, t] = np.interp(f_tgt, f_src, mel_power[:, t])
+            mel_power = projected
+
+    return _power_to_logmel(mel_power)
 
 
 def mel_to_audio_hifigan(
-    mel_power_512: np.ndarray,
+    mel_power: np.ndarray,
+    src_cfg: MelSpecConfig,
     vsetup: dict,
     hifigan,
     denoiser=None,
     device: str = "cuda",
 ) -> np.ndarray:
-    """Convert 512-bin power mel to waveform using NVIDIA HiFi-GAN.
+    """Convert mel power spectrograms to waveform using NVIDIA HiFi-GAN.
 
-    - mel_power_512: numpy array [512, T] power mel
+    - mel_power: numpy array [n_mels, T] power mel
     - vsetup: dict from hub (expects keys like 'n_mel_channels', 'mel_fmin', 'mel_fmax')
     - hifigan: generator module returned by load_hifigan
     - denoiser: optional denoiser module (set to None to skip)
@@ -141,7 +165,8 @@ def mel_to_audio_hifigan(
     fmax_tgt = float(vsetup.get('mel_fmax', 8000.0))
 
     mel_log80 = _prepare_mel_for_hifigan(
-        mel_power_512,
+        mel_power,
+        src_cfg,
         n_mels_tgt=nmel,
         fmin_tgt=fmin_tgt,
         fmax_tgt=fmax_tgt,

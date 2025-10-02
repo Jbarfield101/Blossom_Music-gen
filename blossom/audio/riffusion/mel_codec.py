@@ -1,11 +1,29 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Tuple
 
 import numpy as np
 from PIL import Image
 import librosa
+import importlib
+import sys
+
+
+_torch_module = sys.modules.get("torch")
+if _torch_module is not None:
+    torch = _torch_module
+else:
+    _torch_spec = importlib.util.find_spec("torch")
+    torch = importlib.import_module("torch") if _torch_spec is not None else None
+
+_torchaudio_module = sys.modules.get("torchaudio")
+if _torchaudio_module is not None:
+    torchaudio = _torchaudio_module
+else:
+    _torchaudio_spec = importlib.util.find_spec("torchaudio")
+    torchaudio = importlib.import_module("torchaudio") if _torchaudio_spec is not None else None
+_HAS_TORCHAUDIO = torch is not None and torchaudio is not None
 
 
 @dataclass
@@ -17,6 +35,23 @@ class MelSpecConfig:
     n_mels: int = 512
     f_min: float = 20.0
     f_max: float | None = 10000.0
+
+    @classmethod
+    def tacotron(cls) -> "MelSpecConfig":
+        """Return the canonical Tacotron/HiFi-GAN mel configuration (80 bins)."""
+        return cls(
+            sample_rate=22050,
+            n_fft=1024,
+            hop_length=256,
+            win_length=1024,
+            n_mels=80,
+            f_min=30.0,
+            f_max=8000.0,
+        )
+
+    def copy_with(self, **kwargs) -> "MelSpecConfig":
+        """Return a copy of this configuration with selected fields replaced."""
+        return replace(self, **kwargs)
 
 
 DB_MIN = -80.0
@@ -83,6 +118,51 @@ def image_to_mel(img: Image.Image, target_shape: Tuple[int, int] = (512, 512)) -
     mel_db = mel_norm * (DB_MAX - DB_MIN) + DB_MIN
     mel_power = librosa.db_to_power(mel_db)
     return mel_power.astype(np.float32)
+
+
+def project_mel_power(
+    mel_power: np.ndarray,
+    src: MelSpecConfig,
+    dst: MelSpecConfig,
+) -> np.ndarray:
+    """Project a mel power spectrogram onto a new mel configuration."""
+
+    if mel_power.ndim != 2:
+        raise ValueError("mel_power must be 2D [n_mels, time]")
+
+    src_bins = mel_power.shape[0]
+    if src_bins != src.n_mels:
+        src = src.copy_with(n_mels=src_bins)
+
+    if src.sample_rate != dst.sample_rate:
+        raise ValueError("Sample rates must match for mel projection")
+    if src.n_fft != dst.n_fft:
+        raise ValueError("FFT sizes must match for mel projection")
+
+    if not _HAS_TORCHAUDIO:
+        raise RuntimeError("torchaudio is required for mel projection")
+
+    n_stft = src.n_fft // 2 + 1
+    mel_t = torch.from_numpy(mel_power.astype(np.float32))
+    inv_transform = torchaudio.transforms.InverseMelScale(
+        n_stft=n_stft,
+        n_mels=src.n_mels,
+        sample_rate=src.sample_rate,
+        f_min=src.f_min,
+        f_max=src.f_max,
+        max_iter=0,
+    )
+    linear_power = inv_transform(mel_t)
+
+    mel_transform = torchaudio.transforms.MelScale(
+        n_mels=dst.n_mels,
+        sample_rate=dst.sample_rate,
+        f_min=dst.f_min,
+        f_max=dst.f_max,
+        n_stft=n_stft,
+    )
+    projected = mel_transform(linear_power)
+    return projected.detach().cpu().numpy().astype(np.float32)
 
 
 def _mel_loss(target_mel_power: np.ndarray, recon_audio: np.ndarray, cfg: MelSpecConfig) -> float:

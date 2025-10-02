@@ -5,7 +5,7 @@ from typing import List
 import numpy as np
 from PIL import Image
 
-from .mel_codec import image_to_mel, mel_to_audio_griffin_lim, MelSpecConfig
+from .mel_codec import image_to_mel, mel_to_audio_griffin_lim, MelSpecConfig, project_mel_power
 from blossom.audio.vocoders.hifigan import load_hifigan as hub_load_hifigan, mel_to_audio_hifigan as hub_mel_to_audio
 
 
@@ -63,22 +63,41 @@ def tiles_to_audio(
     gl_restarts: int = 1,
     vocoder_name: str | None = None,
 ) -> np.ndarray:
-    """Stitch tiles into one spectrogram image and invert to audio.
+    """Stitch tiles into one spectrogram image and invert to audio."""
 
-    Expects each tile to represent 512 mel bins by 512 time frames when resized.
-    """
     stitched = stitch_tiles_horizontally(tiles, overlap_px=overlap_px)
-    mel_power = image_to_mel(stitched, target_shape=(cfg.n_mels, stitched.width))
-    if mel_power.shape[0] != cfg.n_mels or mel_power.shape[1] != stitched.width:
-        raise ValueError(
-            f"Expected stitched mel to have shape ({cfg.n_mels}, {stitched.width}); got {mel_power.shape}"
-        )
+    src_bins = stitched.height
+    mel_power_src = image_to_mel(stitched, target_shape=(src_bins, stitched.width))
+
+    if src_bins == cfg.n_mels:
+        mel_power = mel_power_src
+        src_cfg = cfg
+    else:
+        default_cfg = MelSpecConfig()
+        if src_bins == default_cfg.n_mels:
+            src_cfg = default_cfg
+        else:
+            src_cfg = cfg.copy_with(n_mels=src_bins)
+        try:
+            mel_power = project_mel_power(mel_power_src, src_cfg, cfg)
+        except RuntimeError:
+            mel_power = image_to_mel(stitched, target_shape=(cfg.n_mels, stitched.width))
+
     if (vocoder_name or '').lower() == 'hifigan':
         try:
-            hifi, vsetup, deno = hub_load_hifigan(device='cuda' if hasattr(__import__('torch'), 'cuda') and __import__('torch').cuda.is_available() else 'cpu')
-            return hub_mel_to_audio(mel_power, vsetup, hifi, denoiser=deno, device=('cuda' if __import__('torch').cuda.is_available() else 'cpu'))
+            device = 'cuda' if hasattr(__import__('torch'), 'cuda') and __import__('torch').cuda.is_available() else 'cpu'
+            hifi, vsetup, deno = hub_load_hifigan(device=device)
+            return hub_mel_to_audio(
+                mel_power_src,
+                src_cfg,
+                vsetup,
+                hifi,
+                denoiser=deno,
+                device=device,
+            )
         except Exception:
             # Fallback to Griffin-Lim
             pass
+
     audio = mel_to_audio_griffin_lim(mel_power, cfg=cfg, n_iter=griffinlim_iters, restarts=gl_restarts)
     return audio
