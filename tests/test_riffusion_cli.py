@@ -314,6 +314,7 @@ def test_riffusion_cli_hub_hifigan_cpu(monkeypatch, tmp_path, use_tiles):
     assert log_path.exists()
     log_text = log_path.read_text(encoding="utf-8")
     assert "vocoder: synthesizing audio (hub, device=cpu)" in log_text
+    assert "vocoder_used: hifigan" in log_text
     assert "vocoder_used: griffinlim" not in log_text
 
     assert outfile.exists()
