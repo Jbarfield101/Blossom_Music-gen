@@ -69,6 +69,10 @@ def tiles_to_audio(
     """
     stitched = stitch_tiles_horizontally(tiles, overlap_px=overlap_px)
     mel_power = image_to_mel(stitched, target_shape=(cfg.n_mels, stitched.width))
+    if mel_power.shape[0] != cfg.n_mels:
+        raise ValueError(
+            f"Expected stitched mel to have {cfg.n_mels} bins; got {mel_power.shape}"
+        )
     if (vocoder_name or '').lower() == 'hifigan':
         try:
             hifi, vsetup, deno = hub_load_hifigan(device='cuda' if hasattr(__import__('torch'), 'cuda') and __import__('torch').cuda.is_available() else 'cpu')

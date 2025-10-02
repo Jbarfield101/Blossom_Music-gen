@@ -57,8 +57,21 @@ def image_to_mel(img: Image.Image, target_shape: Tuple[int, int] = (512, 512)) -
     if img.size != (target_shape[1], target_shape[0]):
         # PIL size is (W, H); we pass (W, H) where W=time, H=n_mels
         img = img.resize((target_shape[1], target_shape[0]), resample=Image.BICUBIC)
-    arr = np.asarray(img, dtype=np.float32)  # [time, n_mels]
-    arr = np.transpose(arr, (1, 0))  # [n_mels, time]
+    arr = np.asarray(img, dtype=np.float32)
+    if arr.ndim != 2:
+        raise ValueError("image_to_mel expects a 2D grayscale image")
+
+    expected_mels = int(target_shape[0]) if target_shape else arr.shape[0]
+    if arr.shape[0] == expected_mels:
+        mel_axes = arr
+    elif arr.shape[1] == expected_mels:
+        mel_axes = np.transpose(arr, (1, 0))
+    else:
+        raise ValueError(
+            f"image height/width {arr.shape} do not match expected mel bins {expected_mels}"
+        )
+
+    arr = mel_axes
     mel_norm = arr / 255.0
     mel_db = mel_norm * (DB_MAX - DB_MIN) + DB_MIN
     mel_power = librosa.db_to_power(mel_db)

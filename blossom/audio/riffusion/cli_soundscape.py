@@ -163,6 +163,9 @@ def main() -> int:
                 from .mel_codec import image_to_mel
                 stitched = stitch_tiles_horizontally(tiles, overlap_px=overlap_px)
                 mel_power512 = image_to_mel(stitched, target_shape=(mel.n_mels, stitched.width))
+                assert (
+                    mel_power512.shape[0] == mel.n_mels
+                ), f"Hub HiFi-GAN expected {mel.n_mels} mel bins, got {mel_power512.shape}"
                 audio = hub_mel_to_audio(mel_power512, vsetup, hifi, denoiser=deno if args.hub_denoise > 0 else None, device="cuda")
                 emit("vocoder_used: hifigan")
             except Exception as e:
@@ -179,6 +182,9 @@ def main() -> int:
                 from .mel_codec import image_to_mel
                 stitched = stitch_tiles_horizontally(tiles, overlap_px=overlap_px)
                 mel_power512 = image_to_mel(stitched, target_shape=(mel.n_mels, stitched.width))
+                assert (
+                    mel_power512.shape[0] == mel.n_mels
+                ), f"Local HiFi-GAN expected {mel.n_mels} mel bins, got {mel_power512.shape}"
                 mel80_log = mel512_power_to_mel80_log(
                     mel_power512,
                     sr=mel.sample_rate,
