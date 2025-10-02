@@ -247,3 +247,9 @@ def main() -> int:
         emit("audio_warn: empty/invalid audio after inversion; generating silence")
         est_len = int(max(1, round((total_tiles * seconds_per_tile) * out_sr)))
         audio = np.zeros(est_len, dtype=np.float32)
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
