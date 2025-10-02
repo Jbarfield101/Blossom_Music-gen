@@ -6082,6 +6082,9 @@ fn queue_riffusion_soundscape_job(
         "blossom.audio.riffusion.cli_soundscape".into(),
         "--outfile".into(), outfile.to_string_lossy().to_string(),
     ];
+    // Prefer HiFi-GAN output for soundscape renders as well; the CLI will
+    // revert to Griffin-Lim automatically if loading fails.
+    args.push("--hub_hifigan".into());
     if let Some(p) = options.preset.clone() { args.push("--preset".into()); args.push(p); }
     if let Some(d) = options.duration { args.push("--duration".into()); args.push(format!("{}", d)); }
     if let Some(s) = options.seed { args.push("--seed".into()); args.push(s.to_string()); }
@@ -6164,6 +6167,9 @@ fn queue_riffusion_job(
         "--height".into(), "512".into(),
         "--sr".into(), "22050".into(),
     ];
+    // Default to the higher-fidelity HiFi-GAN vocoder; the CLI will gracefully
+    // fall back to Griffin-Lim if it cannot be loaded on the current system.
+    args.push("--hub_hifigan".into());
     if let Some(prompt) = options.prompt.as_ref().filter(|s| !s.trim().is_empty()) {
         args.push(prompt.clone());
     }
