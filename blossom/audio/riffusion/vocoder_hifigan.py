@@ -78,14 +78,18 @@ def mel512_power_to_mel80_log(mel_power: np.ndarray, sr: int, n_fft: int, hop: i
         raise RuntimeError('PyTorch/torchaudio not available for conversion')
     n_stft = n_fft // 2 + 1
     mel_t = torch.from_numpy(mel_power.astype(np.float32))  # [512, T]
-    inv = torchaudio.transforms.InverseMelScale(
+    inverse_kwargs = dict(
         n_stft=n_stft,
         n_mels=mel_power.shape[0],
         sample_rate=sr,
         f_min=fmin,
         f_max=fmax,
-        max_iter=0,
-    )(mel_t)
+    )
+    try:
+        inv_transform = torchaudio.transforms.InverseMelScale(max_iter=0, **inverse_kwargs)
+    except TypeError:
+        inv_transform = torchaudio.transforms.InverseMelScale(**inverse_kwargs)
+    inv = inv_transform(mel_t)
     # inv is linear power [freq, time]
     # Build 80-mel filter and apply
     mel80_transform = torchaudio.transforms.MelScale(
