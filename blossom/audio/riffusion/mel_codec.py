@@ -144,14 +144,17 @@ def project_mel_power(
 
     n_stft = src.n_fft // 2 + 1
     mel_t = torch.from_numpy(mel_power.astype(np.float32))
-    inv_transform = torchaudio.transforms.InverseMelScale(
+    inverse_kwargs = dict(
         n_stft=n_stft,
         n_mels=src.n_mels,
         sample_rate=src.sample_rate,
         f_min=src.f_min,
         f_max=src.f_max,
-        max_iter=0,
     )
+    try:
+        inv_transform = torchaudio.transforms.InverseMelScale(max_iter=0, **inverse_kwargs)
+    except TypeError:
+        inv_transform = torchaudio.transforms.InverseMelScale(**inverse_kwargs)
     linear_power = inv_transform(mel_t)
 
     mel_transform = torchaudio.transforms.MelScale(
