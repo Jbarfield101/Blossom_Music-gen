@@ -408,6 +408,9 @@ By default Riffusion uses Griffin–Lim to invert spectrograms to audio. For muc
 
 - Default vocoder: configurable via `default_vocoder` (hifigan|griffinlim).
 - HiFi‑GAN (hub): the app can load NVIDIA’s HiFi‑GAN from PyTorch Hub on first run, then reuse it from cache.
+- See [docs/riffusion_audio_quality.md](docs/riffusion_audio_quality.md) for a deeper
+  guide to improving audio quality when you cannot use the neural vocoder or
+  want to further reduce metallic artifacts.
 
 Requirements
 - Internet access on first use (Hub download). Subsequent runs use the local cache (Torch Hub under your user cache directory) and do not re‑download.
