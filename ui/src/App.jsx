@@ -79,9 +79,8 @@ import { Store } from '@tauri-apps/plugin-store';
 import { useEffect, useRef, useState } from 'react';
 import { setPiper as apiSetPiper, listPiper as apiListPiper } from './api/models';
 import { synthWithPiper } from './lib/piperSynth';
-import { listPiperVoices as listBundledVoices } from './lib/piperVoices';
 import { fileSrc } from './lib/paths.js';
-import { listPiperVoices } from './lib/piperVoices';
+import { listPiperVoices, resolveVoiceResources } from './lib/piperVoices';
 
 function UserSelectorOverlay({ onClose }) {
   const [users, setUsers] = useState([]);
@@ -235,9 +234,12 @@ export default function App() {
             let model = '';
             let config = '';
             try {
-              const opts = await listBundledVoices();
-              const match = opts.find(v => v.id === (voice || '')) || opts[0];
-              if (match) { model = match.modelPath; config = match.configPath; }
+              const opts = await listPiperVoices();
+              const list = Array.isArray(opts) ? opts : [];
+              const match = list.find((v) => v.id === (voice || '')) || list[0];
+              const resolved = await resolveVoiceResources(match);
+              model = resolved.modelPath;
+              config = resolved.configPath;
             } catch {}
             if (!model || !config) { throw new Error('No piper voice available'); }
             // Synthesize locally to AppData to avoid touching watched src-tauri folders in dev
