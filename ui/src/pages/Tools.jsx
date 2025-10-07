@@ -22,7 +22,7 @@ export default function Tools() {
         <Card to="/loopmaker" icon="Repeat" title="Loop Maker">
           Video Loop Creator
         </Card>
-        <Card to="/beatmaker" icon="Waveform" title="Beat Maker">
+        <Card to="/beatmaker" icon="AudioWaveform" title="Beat Maker">
           Audio Loop Builder
         </Card>
         <Card to="/album" icon="Disc3" title="Album Maker">

@@ -16,7 +16,7 @@ export default function SoundLab() {
       <main className="dashboard">
         <Card
           to="/musicgen/musicgen"
-          icon="Waveform"
+          icon="AudioWaveform"
           title="MusicGen"
         >
           Launch the classic prompt-to-music workflow.
