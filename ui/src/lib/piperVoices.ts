@@ -99,3 +99,22 @@ export async function listPiperVoices(): Promise<PiperVoice[]> {
 
   return voices;
 }
+
+export async function resolveVoiceResources(
+  voice?: Pick<PiperVoice, "modelPath" | "configPath">
+): Promise<{ modelPath: string; configPath: string }> {
+  const resolvePath = async (path?: string) => {
+    if (!path) return "";
+    try {
+      const resolved = await invoke("resolve_resource", { path });
+      return typeof resolved === "string" && resolved ? resolved : path;
+    } catch {
+      return path ?? "";
+    }
+  };
+
+  const modelPath = await resolvePath(voice?.modelPath);
+  const configPath = await resolvePath(voice?.configPath);
+
+  return { modelPath, configPath };
+}

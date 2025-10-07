@@ -1,19 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Store } from '@tauri-apps/plugin-store';
-import { listPiperVoices } from '../lib/piperVoices';
+import { listPiperVoices, resolveVoiceResources } from '../lib/piperVoices';
 import { synthWithPiper } from '../lib/piperSynth';
 import { invoke } from '@tauri-apps/api/core';
 import { fileSrc } from '../lib/paths.js';
 import { BaseDirectory, readFile } from '@tauri-apps/plugin-fs';
 import { appDataDir } from '@tauri-apps/api/path';
 import { setPiper as apiSetPiper } from '../api/models';
-import { testPiper } from '../api/piper';
 import BackButton from '../components/BackButton.jsx';
 import './Settings.css';
 
 export default function SettingsUsers() {
   const [currentUser, setCurrentUser] = useState('');
-  const [voices, setVoices] = useState([]); // [{id,label}]
+  const [voices, setVoices] = useState([]); // PiperVoice[]
   const [userPrefs, setUserPrefs] = useState({ voice: '', audioGreeting: false, greetingText: '' });
   const [saving, setSaving] = useState(false);
   const [audioUrl, setAudioUrl] = useState('');
@@ -28,7 +27,7 @@ export default function SettingsUsers() {
           listPiperVoices(),
         ]);
         if (Array.isArray(vlist)) {
-          setVoices(vlist.map((v) => ({ id: v.id, label: v.label || v.id })));
+          setVoices(vlist.map((v) => ({ ...v, label: v.label || v.id })));
         }
         const cur = await store.get('currentUser');
         if (typeof cur === 'string') {
@@ -122,7 +121,7 @@ export default function SettingsUsers() {
                   >
                     <option value="">(system default)</option>
                     {voices.map((v) => (
-                      <option key={v.id} value={v.id}>{v.label}</option>
+                      <option key={v.id} value={v.id}>{v.label || v.id}</option>
                     ))}
                   </select>
                   <button type="button" onClick={async () => {
@@ -135,12 +134,7 @@ export default function SettingsUsers() {
                         setError('No voice available to test.');
                         return;
                       }
-                      let model = '';
-                      let config = '';
-                      try {
-                        model = await invoke('resolve_resource', { path: selected.modelPath });
-                        config = await invoke('resolve_resource', { path: selected.configPath });
-                      } catch {}
+                      const { modelPath: model, configPath: config } = await resolveVoiceResources(selected);
                       if (!model || !config) {
                         setError('Voice files not found. Please ensure voice models are installed.');
                         return;
