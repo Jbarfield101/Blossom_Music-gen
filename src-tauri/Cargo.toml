@@ -21,6 +21,7 @@ futures-sink = "0.3.31"
 tokio = { version = "1", features = ["time"] }
 serde_yaml = "0.9"
 walkdir = "2"
+base64 = "0.21"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
