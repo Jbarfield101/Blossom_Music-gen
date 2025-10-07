@@ -4,7 +4,7 @@ import Card from '../components/Card.jsx';
 import { listenToTagUpdates, updateSectionTags } from '../api/tags.js';
 import { TAG_SECTIONS } from '../lib/dndTags.js';
 import './Dnd.css';
-import { getConfig } from '../api/config';
+import { getDreadhavenRoot } from '../api/config';
 import { listDir } from '../api/dir';
 import { listInbox, readInbox } from '../api/inbox';
 import { listNpcs } from '../api/npcs';
@@ -225,13 +225,12 @@ export default function DndTasks() {
           setImageLoading(true);
           setImageLogs([]);
           try {
-            const vault = await getConfig('vaultPath');
-            const npcPortraitBase = (typeof vault === 'string' && vault)
-              ? `${vault}\\30_Assets\\Images\\NPC_Portraits`.replace(/\\/g, '\\\\')
-              : 'D\\\\Documents\\\\DreadHaven\\\\30_Assets\\\\Images\\\\NPC_Portraits'.replace(/\\/g, '\\\\');
-            const godPortraitBase = (typeof vault === 'string' && vault)
-              ? `${vault}\\30_Assets\\Images\\God_Portraits`.replace(/\\/g, '\\\\')
-              : 'D\\\\Documents\\\\DreadHaven\\\\30_Assets\\\\Images\\\\God_Portraits'.replace(/\\/g, '\\\\');
+            const vault = await getDreadhavenRoot();
+            const baseRoot = (typeof vault === 'string' && vault.trim())
+              ? vault.trim()
+              : 'D\\\\Documents\\\\DreadHaven';
+            const npcPortraitBase = `${baseRoot}\\30_Assets\\Images\\NPC_Portraits`.replace(/\\/g, '\\\\');
+            const godPortraitBase = `${baseRoot}\\30_Assets\\Images\\God_Portraits`.replace(/\\/g, '\\\\');
             pushImageLog('started', `Indexing portraits (NPC: ${npcPortraitBase}, God: ${godPortraitBase})`);
             const buildIndex = async (base) => {
               const idx = {};

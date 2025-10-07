@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
-import { getConfig } from '../api/config';
+import { getDreadhavenRoot } from '../api/config';
 import { listInbox, readInbox, deleteInbox } from '../api/inbox';
 import { listDir } from '../api/dir';
 import { readFileBytes } from '../api/files';
@@ -60,8 +60,8 @@ export default function DndWorldPantheon() {
     setLoading(true);
     setError('');
     try {
-      const vault = await getConfig('vaultPath');
-      const base = (typeof vault === 'string' && vault) ? `${vault}\\10_World\\Gods of the Realm` : '';
+      const vault = await getDreadhavenRoot();
+      const base = (typeof vault === 'string' && vault.trim()) ? `${vault.trim()}\\10_World\\Gods of the Realm` : '';
       if (base) {
         const list = await listInbox(base);
         setUsingPath(base);
@@ -110,9 +110,9 @@ export default function DndWorldPantheon() {
   useEffect(() => {
     (async () => {
       try {
-        const vault = await getConfig('vaultPath');
-        const base = (typeof vault === 'string' && vault)
-          ? `${vault}\\\\30_Assets\\\\Images\\\\God_Portraits`.replace(/\\\\/g, '\\\\')
+        const vault = await getDreadhavenRoot();
+        const base = (typeof vault === 'string' && vault.trim())
+          ? `${vault.trim()}\\\\30_Assets\\\\Images\\\\God_Portraits`.replace(/\\\\/g, '\\\\')
           : DEFAULT_GOD_PORTRAITS;
         // Recursively crawl portrait folders
         const stack = [base];

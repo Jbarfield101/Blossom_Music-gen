@@ -1,7 +1,7 @@
 import { listPiperVoices } from '../lib/piperVoices';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
-import { getConfig } from '../api/config';
+import { getDreadhavenRoot } from '../api/config';
 import { listDir } from '../api/dir';
 import { readInbox, deleteInbox } from '../api/inbox';
 import { readFileBytes } from '../api/files';
@@ -186,9 +186,9 @@ const establishmentOptions = useMemo(() => {
     setLoading(true);
     setError('');
     try {
-      const vault = await getConfig('vaultPath');
-      const base = (typeof vault === 'string' && vault)
-        ? `${vault}\\\\20_DM\\\\NPC`.replace(/\\\\/g, '\\\\')
+      const vault = await getDreadhavenRoot();
+      const base = (typeof vault === 'string' && vault.trim())
+        ? `${vault.trim()}\\\\20_DM\\\\NPC`.replace(/\\\\/g, '\\\\')
         : '';
       if (base) {
         const list = await crawl(base);
@@ -219,9 +219,9 @@ const establishmentOptions = useMemo(() => {
   useEffect(() => {
     (async () => {
       try {
-        const vault = await getConfig('vaultPath');
-        const base = (typeof vault === 'string' && vault)
-          ? `${vault}\\\\10_World\\\\Regions`.replace(/\\\\/g, '\\\\')
+        const vault = await getDreadhavenRoot();
+        const base = (typeof vault === 'string' && vault.trim())
+          ? `${vault.trim()}\\\\10_World\\\\Regions`.replace(/\\\\/g, '\\\\')
           : 'D:\\Documents\\DreadHaven\\10_World\\Regions';
         const stack = [base];
         const seen = new Set();
@@ -260,9 +260,9 @@ const establishmentOptions = useMemo(() => {
     (async () => {
       try {
         // Determine Regions root
-        const vault = await getConfig('vaultPath');
-        const regionsRoot = (typeof vault === 'string' && vault)
-          ? `${vault}\\10_World\\Regions`
+        const vault = await getDreadhavenRoot();
+        const regionsRoot = (typeof vault === 'string' && vault.trim())
+          ? `${vault.trim()}\\10_World\\Regions`
           : 'D:\\Documents\\DreadHaven\\10_World\\Regions';
         // Resolve region path
         const regionPath = selRegion
@@ -330,9 +330,9 @@ const establishmentOptions = useMemo(() => {
   useEffect(() => {
     (async () => {
       try {
-        const vault = await getConfig('vaultPath');
-        const base = (typeof vault === 'string' && vault)
-          ? `${vault}\\\\30_Assets\\\\Images\\\\NPC_Portraits`.replace(/\\\\/g, '\\\\')
+        const vault = await getDreadhavenRoot();
+        const base = (typeof vault === 'string' && vault.trim())
+          ? `${vault.trim()}\\\\30_Assets\\\\Images\\\\NPC_Portraits`.replace(/\\\\/g, '\\\\')
           : DEFAULT_PORTRAITS;
 
         // Recursively crawl portrait folders (images may be nested)

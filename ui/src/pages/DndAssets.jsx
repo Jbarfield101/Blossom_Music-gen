@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
 import Icon from '../components/Icon.jsx';
-import { getConfig } from '../api/config';
+import { getDreadhavenRoot } from '../api/config';
 import { listDir } from '../api/dir';
 import { readFileBytes, openPath } from '../api/files';
 import './Dnd.css';
@@ -37,9 +37,9 @@ export default function DndAssets() {
     setLoading(true);
     setError('');
     try {
-      const vault = await getConfig('vaultPath');
-      const base = (typeof vault === 'string' && vault)
-        ? `${vault}\\\\30_Assets`.replace(/\\\\/g, '\\\\')
+      const vault = await getDreadhavenRoot();
+      const base = (typeof vault === 'string' && vault.trim())
+        ? `${vault.trim()}\\\\30_Assets`.replace(/\\\\/g, '\\\\')
         : DEFAULT_ASSETS;
       setBasePath(base);
       setCurrentPath(base);

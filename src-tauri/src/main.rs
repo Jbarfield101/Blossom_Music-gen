@@ -40,6 +40,10 @@ mod util;
 use crate::commands::{album_concat, generate_musicgen, musicgen_env, riffusion_generate};
 use crate::util::list_from_dir;
 
+fn dreadhaven_root() -> PathBuf {
+    PathBuf::from(config::DEFAULT_DREADHAVEN_ROOT)
+}
+
 static DISCORD_BOT_CHILD: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
 static DISCORD_BOT_LOGS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
 static DISCORD_BOT_EXIT: OnceLock<Mutex<Option<i32>>> = OnceLock::new();
@@ -173,6 +177,11 @@ fn write_discord_settings(settings: &DiscordSettings) -> Result<(), String> {
 #[tauri::command]
 fn discord_settings_get() -> Result<DiscordSettings, String> {
     Ok(read_discord_settings())
+}
+
+#[tauri::command]
+fn get_dreadhaven_root() -> String {
+    config::DEFAULT_DREADHAVEN_ROOT.to_string()
 }
 
 #[tauri::command]
@@ -1661,22 +1670,10 @@ fn normalize_npc_display_name(raw: &str) -> String {
 
 fn filesystem_npc_names(app: &AppHandle) -> Result<Vec<String>, String> {
     let mut candidates: Vec<PathBuf> = Vec::new();
-    match settings_store(app) {
-        Ok(store) => {
-            if let Some(vault_path) = store
-                .get("vaultPath")
-                .and_then(|v| v.as_str().map(|s| s.to_string()))
-            {
-                let base = PathBuf::from(&vault_path);
-                let joined = join_relative_folder(&base, "20_DM/NPC");
-                if !candidates.iter().any(|p| p == &joined) {
-                    candidates.push(joined);
-                }
-            }
-        }
-        Err(err) => {
-            eprintln!("[blossom] npc_list: failed to read settings store: {}", err);
-        }
+    let base = dreadhaven_root();
+    let joined = join_relative_folder(&base, "20_DM/NPC");
+    if !candidates.iter().any(|p| p == &joined) {
+        candidates.push(joined);
     }
 
     if let Some(section) = tag_section_map().get("npcs") {
@@ -3210,21 +3207,7 @@ async fn update_section_tags(
 
     let mut candidates: Vec<PathBuf> = Vec::new();
 
-    if let Ok(store) = settings_store(&app) {
-        if let Some(path) = store
-            .get("vaultPath")
-            .and_then(|v| v.as_str().map(|s| s.trim().to_string()))
-            .filter(|s| !s.is_empty())
-        {
-            let base_path = PathBuf::from(&path);
-            let joined = join_relative_folder(&base_path, &section_cfg.relative_path);
-            if !candidates.iter().any(|p| p == &joined) {
-                candidates.push(joined);
-            }
-        }
-    }
-
-    let default_base = PathBuf::from(config::DEFAULT_DREADHAVEN_ROOT);
+    let default_base = dreadhaven_root();
     let default_candidate = join_relative_folder(&default_base, &section_cfg.relative_path);
     if !candidates.iter().any(|p| p == &default_candidate) {
         candidates.push(default_candidate);
@@ -3759,12 +3742,7 @@ fn inbox_list(app: AppHandle, path: Option<String>) -> Result<Vec<InboxItem>, St
     let base_dir = if let Some(p) = path.filter(|s| !s.trim().is_empty()) {
         PathBuf::from(p)
     } else {
-        let store = settings_store(&app)?;
-        let vault = store
-            .get("vaultPath")
-            .and_then(|v| v.as_str().map(|s| s.to_string()))
-            .ok_or_else(|| "Vault path not set. Choose it in Settings.".to_string())?;
-        PathBuf::from(vault).join("00_Inbox")
+        dreadhaven_root().join("00_Inbox")
     };
 
     if !base_dir.exists() {
@@ -3861,18 +3839,8 @@ async fn npc_create(
         &establishment_name
     );
     // Resolve NPC base directory
-    let store = settings_store(&app).map_err(|e| {
-        eprintln!("[blossom] npc_create: settings_store error: {}", e);
-        e
-    })?;
-    let vault = store
-        .get("vaultPath")
-        .and_then(|v| v.as_str().map(|s| s.to_string()));
-    let base_dir = if let Some(ref v) = vault {
-        PathBuf::from(v).join("20_DM").join("NPC")
-    } else {
-        PathBuf::from(r"D:\\Documents\\DreadHaven\\20_DM\\NPC")
-    };
+    let vault_root = dreadhaven_root();
+    let base_dir = vault_root.join("20_DM").join("NPC");
     if !base_dir.exists() {
         fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?;
     }
@@ -3934,15 +3902,11 @@ async fn npc_create(
         if p.is_absolute() {
             candidates.push(p);
         }
-        if let Some(v) = &vault {
-            candidates.push(PathBuf::from(v).join("_Templates").join(&s));
-            candidates.push(PathBuf::from(v).join(&s));
-        }
+        candidates.push(vault_root.join("_Templates").join(&s));
+        candidates.push(vault_root.join(&s));
     }
-    if let Some(v) = &vault {
-        candidates.push(PathBuf::from(v).join("_Templates").join("NPC Template.md"));
-        candidates.push(PathBuf::from(v).join("_Templates").join("NPC_Template.md"));
-    }
+    candidates.push(vault_root.join("_Templates").join("NPC Template.md"));
+    candidates.push(vault_root.join("_Templates").join("NPC_Template.md"));
     candidates.push(PathBuf::from(&default_template_a));
     candidates.push(PathBuf::from(&default_template_b));
     let mut template_text: Option<String> = None;
@@ -4406,12 +4370,7 @@ fn inbox_create(
     let target_dir = if let Some(p) = base_path.filter(|s| !s.trim().is_empty()) {
         PathBuf::from(p)
     } else {
-        let store = settings_store(&app)?;
-        let vault = store
-            .get("vaultPath")
-            .and_then(|v| v.as_str().map(|s| s.to_string()))
-            .ok_or_else(|| "Vault path not set. Choose it in Settings.".to_string())?;
-        PathBuf::from(vault).join("00_Inbox")
+        dreadhaven_root().join("00_Inbox")
     };
     if !target_dir.exists() {
         fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
@@ -4453,18 +4412,10 @@ fn npc_save_portrait(
     filename: String,
     bytes: Vec<u8>,
 ) -> Result<String, String> {
-    let store = settings_store(&app).map_err(|e| e.to_string())?;
-    let vault = store
-        .get("vaultPath")
-        .and_then(|v| v.as_str().map(|s| s.to_string()));
-    let base_dir = if let Some(ref v) = vault {
-        PathBuf::from(v)
-            .join("30_Assets")
-            .join("Images")
-            .join("NPC_Portraits")
-    } else {
-        PathBuf::from(r"D:\\Documents\\DreadHaven\\30_Assets\\Images\\NPC_Portraits")
-    };
+    let base_dir = dreadhaven_root()
+        .join("30_Assets")
+        .join("Images")
+        .join("NPC_Portraits");
     if !base_dir.exists() {
         fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?;
     }
@@ -4498,18 +4449,10 @@ fn god_save_portrait(
     filename: String,
     bytes: Vec<u8>,
 ) -> Result<String, String> {
-    let store = settings_store(&app).map_err(|e| e.to_string())?;
-    let vault = store
-        .get("vaultPath")
-        .and_then(|v| v.as_str().map(|s| s.to_string()));
-    let base_dir = if let Some(ref v) = vault {
-        PathBuf::from(v)
-            .join("30_Assets")
-            .join("Images")
-            .join("God_Portraits")
-    } else {
-        PathBuf::from(r"D:\\Documents\\DreadHaven\\30_Assets\\Images\\God_Portraits")
-    };
+    let base_dir = dreadhaven_root()
+        .join("30_Assets")
+        .join("Images")
+        .join("God_Portraits");
     if !base_dir.exists() {
         fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?;
     }
@@ -4549,16 +4492,9 @@ fn race_create(
         name, parent, directory, use_llm
     );
     // Resolve vault base
-    let store = settings_store(&app).map_err(|e| e.to_string())?;
-    let vault = store
-        .get("vaultPath")
-        .and_then(|v| v.as_str().map(|s| s.to_string()));
+    let vault_root = dreadhaven_root();
 
-    let base_dir = if let Some(ref v) = vault {
-        PathBuf::from(v).join("10_World").join("Races")
-    } else {
-        PathBuf::from(r"D:\\Documents\\DreadHaven\\10_World\\Races")
-    };
+    let base_dir = vault_root.join("10_World").join("Races");
     eprintln!("[races] base_dir='{}'", base_dir.to_string_lossy());
 
     let resolve_relative = |base: &PathBuf, raw: &str| {
@@ -4634,8 +4570,8 @@ fn race_create(
                 "[races] using template override file '{}'",
                 candidate.to_string_lossy()
             );
-        } else if let Some(ref v) = vault {
-            let rel = resolve_relative(&PathBuf::from(v), path);
+        } else {
+            let rel = resolve_relative(&vault_root, path);
             if rel.exists() && rel.is_file() {
                 template_body = fs::read_to_string(rel.clone()).ok();
                 eprintln!(
@@ -4731,18 +4667,10 @@ fn race_save_portrait(
     filename: String,
     bytes: Vec<u8>,
 ) -> Result<String, String> {
-    let store = settings_store(&app).map_err(|e| e.to_string())?;
-    let vault = store
-        .get("vaultPath")
-        .and_then(|v| v.as_str().map(|s| s.to_string()));
-    let base_dir = if let Some(ref v) = vault {
-        PathBuf::from(v)
-            .join("30_Assets")
-            .join("Images")
-            .join("Race_Portraits")
-    } else {
-        PathBuf::from(r"D:\\Documents\\DreadHaven\\30_Assets\\Images\\Race_Portraits")
-    };
+    let base_dir = dreadhaven_root()
+        .join("30_Assets")
+        .join("Images")
+        .join("Race_Portraits");
     if !base_dir.exists() {
         fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?;
     }
@@ -4800,9 +4728,6 @@ async fn player_create(
         eprintln!("[blossom] player_create: settings_store error: {}", e);
         e
     })?;
-    let vault = store
-        .get("vaultPath")
-        .and_then(|v| v.as_str().map(|s| s.to_string()));
     let config_template = store
         .get("dndPlayerTemplate")
         .and_then(|v| v.as_str().map(|s| s.to_string()));
@@ -4810,11 +4735,8 @@ async fn player_create(
         .get("dndPlayerDirectory")
         .and_then(|v| v.as_str().map(|s| s.to_string()));
 
-    let base_dir = if let Some(ref v) = vault {
-        PathBuf::from(v).join("20_DM").join("Players")
-    } else {
-        PathBuf::from(r"D:\\Documents\\DreadHaven\\20_DM\\Players")
-    };
+    let vault_root = dreadhaven_root();
+    let base_dir = vault_root.join("20_DM").join("Players");
 
     let resolve_relative = |base: &PathBuf, raw: &str| {
         let mut joined = base.clone();
@@ -4882,10 +4804,8 @@ async fn player_create(
         if pb.is_absolute() {
             template_candidates.push(pb.clone());
         }
-        if let Some(ref v) = vault {
-            template_candidates.push(PathBuf::from(v).join("_Templates").join(raw));
-            template_candidates.push(PathBuf::from(v).join(raw));
-        }
+        template_candidates.push(vault_root.join("_Templates").join(raw));
+        template_candidates.push(vault_root.join(raw));
         template_candidates.push(players_dir.join(raw));
     };
 
@@ -4895,18 +4815,16 @@ async fn player_create(
     if let Some(ref config_tpl) = config_template_norm {
         push_candidate(config_tpl);
     }
-    if let Some(ref v) = vault {
-        template_candidates.push(
-            PathBuf::from(v)
-                .join("_Templates")
-                .join("Player Character Template.md"),
-        );
-        template_candidates.push(
-            PathBuf::from(v)
-                .join("_Templates")
-                .join("PlayerCharacterTemplate.md"),
-        );
-    }
+    template_candidates.push(
+        vault_root
+            .join("_Templates")
+            .join("Player Character Template.md"),
+    );
+    template_candidates.push(
+        vault_root
+            .join("_Templates")
+            .join("PlayerCharacterTemplate.md"),
+    );
     template_candidates.push(PathBuf::from(
         r"D:\\Documents\\DreadHaven\\_Templates\\Player Character Template.md",
     ));
@@ -5078,19 +4996,8 @@ async fn monster_create(
     );
 
     // Determine Monsters directory
-    let store = settings_store(&app).map_err(|e| {
-        eprintln!("[blossom] monster_create: settings_store error: {}", e);
-        e
-    })?;
-    let vault = store
-        .get("vaultPath")
-        .and_then(|v| v.as_str().map(|s| s.to_string()));
-    eprintln!("[blossom] monster_create: vaultPath={:?}", vault);
-    let monsters_dir = if let Some(ref v) = vault {
-        PathBuf::from(v).join("20_DM").join("Monsters")
-    } else {
-        PathBuf::from(r"D:\\Documents\\DreadHaven\\20_DM\\Monsters")
-    };
+    let vault_root = dreadhaven_root();
+    let monsters_dir = vault_root.join("20_DM").join("Monsters");
     eprintln!(
         "[blossom] monster_create: monsters_dir='{}'",
         monsters_dir.to_string_lossy()
@@ -5131,10 +5038,8 @@ async fn monster_create(
         if p.is_absolute() {
             candidates.push(p);
         }
-        if let Some(v) = &vault {
-            candidates.push(PathBuf::from(v).join("_Templates").join(&s));
-            candidates.push(PathBuf::from(v).join(&s));
-        }
+        candidates.push(vault_root.join("_Templates").join(&s));
+        candidates.push(vault_root.join(&s));
     } else {
         candidates.push(PathBuf::from(&default_template));
     }
@@ -5262,20 +5167,9 @@ async fn god_create(
         name, template
     );
 
-    let store = settings_store(&app).map_err(|e| {
-        eprintln!("[blossom] god_create: settings_store error: {}", e);
-        e
-    })?;
-    let vault = store
-        .get("vaultPath")
-        .and_then(|v| v.as_str().map(|s| s.to_string()));
-    eprintln!("[blossom] god_create: vaultPath={:?}", vault);
+    let vault_root = dreadhaven_root();
 
-    let gods_dir = if let Some(ref v) = vault {
-        PathBuf::from(v).join("10_World").join("Gods of the Realm")
-    } else {
-        PathBuf::from(r"D:\\Documents\\DreadHaven\\10_World\\Gods of the Realm")
-    };
+    let gods_dir = vault_root.join("10_World").join("Gods of the Realm");
     eprintln!(
         "[blossom] god_create: gods_dir='{}'",
         gods_dir.to_string_lossy()
@@ -5309,10 +5203,8 @@ async fn god_create(
         if p.is_absolute() {
             candidates.push(p);
         }
-        if let Some(v) = &vault {
-            candidates.push(PathBuf::from(v).join("_Templates").join(&s));
-            candidates.push(PathBuf::from(v).join(&s));
-        }
+        candidates.push(vault_root.join("_Templates").join(&s));
+        candidates.push(vault_root.join(&s));
     } else {
         candidates.push(PathBuf::from(&default_template));
     }
@@ -5436,20 +5328,9 @@ async fn spell_create(
         name, template
     );
 
-    let store = settings_store(&app).map_err(|e| {
-        eprintln!("[blossom] spell_create: settings_store error: {}", e);
-        e
-    })?;
-    let vault = store
-        .get("vaultPath")
-        .and_then(|v| v.as_str().map(|s| s.to_string()));
-    eprintln!("[blossom] spell_create: vaultPath={:?}", vault);
+    let vault_root = dreadhaven_root();
 
-    let spells_dir = if let Some(ref v) = vault {
-        PathBuf::from(v).join("10_World").join("SpellBook")
-    } else {
-        PathBuf::from(r"D:\\Documents\\DreadHaven\\10_World\\SpellBook")
-    };
+    let spells_dir = vault_root.join("10_World").join("SpellBook");
     eprintln!(
         "[blossom] spell_create: spells_dir='{}'",
         spells_dir.to_string_lossy()
@@ -5489,16 +5370,13 @@ async fn spell_create(
         if p.is_absolute() && !candidates.contains(&p) {
             candidates.push(p.clone());
         }
-        if let Some(ref v) = vault {
-            let vault_path = PathBuf::from(v);
-            let templated = vault_path.join("_Templates").join(&s);
-            if !candidates.contains(&templated) {
-                candidates.push(templated);
-            }
-            let joined = vault_path.join(&s);
-            if !candidates.contains(&joined) {
-                candidates.push(joined);
-            }
+        let templated = vault_root.join("_Templates").join(&s);
+        if !candidates.contains(&templated) {
+            candidates.push(templated);
+        }
+        let joined = vault_root.join(&s);
+        if !candidates.contains(&joined) {
+            candidates.push(joined);
         }
         if !p.is_absolute() {
             let joined = default_template_dir.join(&s);
@@ -5511,20 +5389,17 @@ async fn spell_create(
             candidates.push(default_template_dir.join(first));
         }
     }
-    if let Some(ref v) = vault {
-        let vault_templates = PathBuf::from(v).join("_Templates");
-        for name in &default_template_names {
-            let cand = vault_templates.join(name);
-            if !candidates.contains(&cand) {
-                candidates.push(cand);
-            }
+    let vault_templates = vault_root.join("_Templates");
+    for name in &default_template_names {
+        let cand = vault_templates.join(name);
+        if !candidates.contains(&cand) {
+            candidates.push(cand);
         }
-        let vault_root = PathBuf::from(v);
-        for name in &default_template_names {
-            let cand = vault_root.join(name);
-            if !candidates.contains(&cand) {
-                candidates.push(cand);
-            }
+    }
+    for name in &default_template_names {
+        let cand = vault_root.join(name);
+        if !candidates.contains(&cand) {
+            candidates.push(cand);
         }
     }
     for name in &default_template_names {
@@ -7708,22 +7583,6 @@ fn discord_profile_set(guild_id: u64, channel_id: u64, profile: Value) -> Result
 }
 
 #[tauri::command]
-fn select_vault(path: String) -> Result<(), String> {
-    let mut cmd = python_command();
-    let status = cmd
-        .arg("-c")
-        .arg("import sys; from config.obsidian import select_vault; select_vault(sys.argv[1])")
-        .arg(&path)
-        .status()
-        .map_err(|e| e.to_string())?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err("Failed to select vault".into())
-    }
-}
-
-#[tauri::command]
 fn open_path(app: AppHandle, path: String) -> Result<(), String> {
     if let Ok(url) = Url::parse(&path) {
         // Use new tauri_plugin_opener API which requires an optional identifier
@@ -7942,9 +7801,9 @@ fn main() {
             record_manual_job,
             discord_profile_get,
             discord_profile_set,
-            select_vault,
             open_path,
             export_loop_video,
+            get_dreadhaven_root,
             config::get_config,
             config::set_config,
             config::export_settings,

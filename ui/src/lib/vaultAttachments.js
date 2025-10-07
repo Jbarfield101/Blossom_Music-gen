@@ -1,4 +1,4 @@
-import { getConfig } from '../api/config.js';
+import { getDreadhavenRoot } from '../api/config.js';
 import { readFileBytes } from '../api/files.js';
 
 const attachmentUrlCache = new Map();
@@ -126,8 +126,8 @@ function bytesToUrl(bytes, mime) {
 function getVaultPath() {
   if (!vaultPathPromise) {
     try {
-      const promise = Promise.resolve(getConfig('vaultPath'))
-        .then((value) => (typeof value === 'string' ? value : ''))
+      const promise = Promise.resolve(getDreadhavenRoot())
+        .then((value) => (typeof value === 'string' ? value.trim() : ''))
         .catch(() => '');
       vaultPathPromise = promise;
     } catch (err) {
