@@ -1008,12 +1008,23 @@ fn persistence_enabled() -> bool {
 }
 
 #[tauri::command]
-async fn generate_llm(prompt: String, system: Option<String>) -> Result<String, String> {
+async fn generate_llm(
+    prompt: String,
+    system: Option<String>,
+    temperature: Option<f64>,
+    seed: Option<i64>,
+) -> Result<String, String> {
     eprintln!(
         "[llm] generate_llm: prompt_len={}, system_present={}",
         prompt.len(),
         system.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false)
     );
+    if let Some(temp) = temperature {
+        eprintln!("[llm] temperature={:.3}", temp);
+    }
+    if let Some(seed_val) = seed {
+        eprintln!("[llm] seed={}", seed_val);
+    }
     let preview = prompt.chars().take(160).collect::<String>().replace('\n', " ");
     eprintln!("[llm] prompt_preview: {}", preview);
     async_runtime::spawn_blocking(move || -> Result<String, String> {
@@ -1026,6 +1037,9 @@ async fn generate_llm(prompt: String, system: Option<String>) -> Result<String, 
             .as_ref()
             .and_then(|s| serde_json::to_string(s).ok())
             .unwrap_or_else(|| "null".to_string());
+        let temperature_literal =
+            serde_json::to_string(&temperature).unwrap_or_else(|_| "null".to_string());
+        let seed_literal = serde_json::to_string(&seed).unwrap_or_else(|_| "null".to_string());
         let py = format!(
             r#"import os, json, requests, sys
 url = "http://localhost:11434/api/generate"
@@ -1034,6 +1048,21 @@ payload = {{"model": model, "prompt": {prompt}, "stream": False}}
 system = {system}
 if isinstance(system, str) and system.strip():
     payload["system"] = system
+temperature = {temperature}
+seed = {seed}
+options = payload.get("options") or {{}}
+if temperature is not None:
+    try:
+        options["temperature"] = float(temperature)
+    except (TypeError, ValueError):
+        pass
+if seed is not None:
+    try:
+        options["seed"] = int(seed)
+    except (TypeError, ValueError):
+        pass
+if options:
+    payload["options"] = options
 try:
     resp = requests.post(url, json=payload, timeout=60)
     resp.raise_for_status()
@@ -1050,6 +1079,8 @@ except Exception as e:
 "#,
             prompt = prompt_literal,
             system = system_literal,
+            temperature = temperature_literal,
+            seed = seed_literal,
         );
         let output = cmd
             .env("PYTHONIOENCODING", "utf-8")
@@ -3185,7 +3216,7 @@ Frontmatter:\n{frontmatter}\n---\nBody excerpt:\n{body}",
         );
 
         let system = "You return only compact JSON arrays of tags.";
-        let response = match generate_llm(prompt, Some(system.to_string())).await {
+        let response = match generate_llm(prompt, Some(system.to_string()), None, None).await {
             Ok(text) => text,
             Err(err) => {
                 failed_notes += 1;
@@ -3651,7 +3682,7 @@ async fn npc_create(
     };
     let system = Some(String::from("You are a helpful worldbuilding assistant. Produce clean, cohesive Markdown. Keep a grounded tone; avoid overpowered traits."));
     eprintln!("[blossom] npc_create: invoking LLM generation (ollama)");
-    let content = generate_llm(prompt, system).await?;
+    let content = generate_llm(prompt, system, None, None).await?;
     let mut content = strip_code_fence(&content).to_string();
 
     if establishment_path.is_some() || establishment_name.is_some() {
@@ -4219,7 +4250,9 @@ fn race_create(
         };
         let system = Some(String::from("You are a helpful worldbuilding assistant. Produce clean, cohesive Markdown and keep to the template headings."));
         eprintln!("[races] invoking LLM to fill template for '{}' (parent={:?})", name, parent);
-        let llm_content = tauri::async_runtime::block_on(async { generate_llm(prompt, system).await })
+        let llm_content = tauri::async_runtime::block_on(async {
+            generate_llm(prompt, system, None, None).await
+        })
             .map_err(|e| e.to_string())?;
         body = strip_code_fence(&llm_content).to_string();
         eprintln!("[races] LLM output len={} preview='{}'", body.len(), body.chars().take(100).collect::<String>().replace('\n', " "));
@@ -4527,7 +4560,7 @@ async fn player_create(
             "You polish Markdown for tabletop RPG characters. Preserve YAML frontmatter and mechanical blocks. Only elaborate narrative sections when appropriate."
         ));
         eprintln!("[blossom] player_create: invoking LLM prefill");
-        let llm_content = generate_llm(prompt, system).await?;
+        let llm_content = generate_llm(prompt, system, None, None).await?;
         strip_code_fence(&llm_content).to_string()
     } else {
         merged
@@ -4703,7 +4736,7 @@ async fn monster_create(
         "You are a meticulous editor that outputs only valid Markdown and YAML frontmatter.\nInclude typical D&D 5e fields: type, size, alignment, AC, HP, speed, abilities, skills, senses, languages, CR, traits, actions. No OGL text.\n"
     ));
     eprintln!("[blossom] monster_create: invoking LLM generation");
-    let content = match generate_llm(prompt, system).await {
+    let content = match generate_llm(prompt, system, None, None).await {
         Ok(c) => {
             eprintln!("[blossom] monster_create: LLM returned ({} bytes)", c.len());
             c
@@ -4878,7 +4911,7 @@ async fn god_create(
         "You are a meticulous loremaster producing only valid Markdown and YAML frontmatter for fantasy deities.\nDetail portfolios, relationships, worshippers, and church customs without duplicating headings.\n"
     ));
     eprintln!("[blossom] god_create: invoking LLM generation");
-    let content = match generate_llm(prompt, system).await {
+    let content = match generate_llm(prompt, system, None, None).await {
         Ok(c) => {
             eprintln!("[blossom] god_create: LLM returned ({} bytes)", c.len());
             c
@@ -5099,7 +5132,7 @@ async fn spell_create(
         "You are an arcane archivist who outputs only valid Markdown with YAML frontmatter describing D&D 5e spells.\nEnsure level, school, casting time, range, components, duration, saving throws, damage, and scaling are detailed without using OGL-restricted phrasing.\n"
     ));
     eprintln!("[blossom] spell_create: invoking LLM generation");
-    let content = match generate_llm(prompt, system).await {
+    let content = match generate_llm(prompt, system, None, None).await {
         Ok(c) => {
             eprintln!("[blossom] spell_create: LLM returned ({} bytes)", c.len());
             c

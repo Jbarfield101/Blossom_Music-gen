@@ -13,7 +13,9 @@ export default function Fusion() {
   const [error, setError] = useState('');
   const [includeNegative, setIncludeNegative] = useState(false);
   const [negativeResult, setNegativeResult] = useState('');
-  const [history, setHistory] = useState([]); // [{a,b,prompt,negative,ts}]
+  const [history, setHistory] = useState([]); // [{a,b,prompt,negative,candidates?,ts}]
+  const [promptCandidates, setPromptCandidates] = useState([]);
+  const [selectedCandidateIndex, setSelectedCandidateIndex] = useState(0);
 
   const HISTORY_KEY = 'blossom.fusion.history';
 
@@ -33,6 +35,13 @@ export default function Fusion() {
       localStorage.setItem(HISTORY_KEY, JSON.stringify(next.slice(0, 20)));
     } catch {}
   };
+
+  const randomSeed = useCallback(() => Math.floor(Math.random() * 1_000_000_000), []);
+
+  const randomTemperature = useCallback((min = 0.65, max = 0.95) => {
+    const value = min + Math.random() * (max - min);
+    return Number(value.toFixed(2));
+  }, []);
 
   const copyText = async (text) => {
     const str = String(text || '');
@@ -58,9 +67,11 @@ export default function Fusion() {
     try {
       const system = 'Return ONE short, creative concept for image generation. 1-4 words. No punctuation. No quotes. No numbering. Examples: "neon koi", "clockwork forest", "crystal dunes".';
       const prompt = 'Generate a random concept.';
-      let text = await invoke('generate_llm', { prompt, system });
+      const temperature = randomTemperature(0.75, 1.05);
+      const seed = randomSeed();
+      let text = await invoke('generate_llm', { prompt, system, temperature, seed });
       text = String(text || '').split('\n')[0].trim();
-      text = text.replace(/ ^ \\d+\\.\\s*/, '').replace(/ ^[ \\-\\s]+/, '');
+      text = text.replace(/^\d+\.\s*/, '').replace(/^[\-\s]+/, '');
       text = text.replace(/^"|"$/g, '');
       text = text.replace(/[.,;:!?]+$/g, '');
       setConcept(text);
@@ -69,7 +80,7 @@ export default function Fusion() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [randomSeed, randomTemperature]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -77,6 +88,8 @@ export default function Fusion() {
     const b = conceptB.trim();
     setError('');
     setNegativeResult('');
+    setPromptCandidates([]);
+    setSelectedCandidateIndex(0);
     if (!a && !b) {
       setFusionResult('Enter concepts to explore their fusion.');
       return;
@@ -93,8 +106,41 @@ export default function Fusion() {
         'avoid artist names and trademarks; do not mention the words "fusion" or "concept"; no lists; no quotes.'
       );
       const prompt = `Concept A: ${a}\nConcept B: ${b}\nWrite one coherent prompt.`;
-      const text = await invoke('generate_llm', { prompt, system });
-      const main = String(text || '').trim();
+      const candidateConfigs = Array.from({ length: 3 }, () => ({
+        temperature: randomTemperature(0.65, 0.95),
+        seed: randomSeed(),
+      }));
+      const candidateResults = [];
+      for (const config of candidateConfigs) {
+        try {
+          const response = await invoke('generate_llm', {
+            prompt,
+            system,
+            temperature: config.temperature,
+            seed: config.seed,
+          });
+          const cleaned = String(response || '').trim();
+          if (cleaned) {
+            candidateResults.push({ ...config, text: cleaned });
+          }
+        } catch (candidateError) {
+          console.error('fusion candidate failed', candidateError);
+        }
+      }
+      const uniqueCandidates = [];
+      const seen = new Set();
+      for (const candidate of candidateResults) {
+        const normalized = candidate.text;
+        if (!normalized || seen.has(normalized)) continue;
+        seen.add(normalized);
+        uniqueCandidates.push(candidate);
+      }
+      if (uniqueCandidates.length === 0) {
+        throw new Error('Failed to generate fusion prompt candidates.');
+      }
+      setPromptCandidates(uniqueCandidates);
+      setSelectedCandidateIndex(0);
+      const main = uniqueCandidates[0].text;
       setFusionResult(main);
 
       let negative = '';
@@ -105,12 +151,28 @@ export default function Fusion() {
           'Do not include quotes or explanations.'
         );
         const negPrompt = `Concept A: ${a}\nConcept B: ${b}\nNegative prompt only, single line.`;
-        const neg = await invoke('generate_llm', { prompt: negPrompt, system: negSystem });
+        const neg = await invoke('generate_llm', {
+          prompt: negPrompt,
+          system: negSystem,
+          temperature: randomTemperature(0.3, 0.55),
+          seed: randomSeed(),
+        });
         negative = String(neg || '').replace(/[\r\n]+/g, ' ').trim();
         setNegativeResult(negative);
       }
 
-      const entry = { a, b, prompt: main, negative, ts: Date.now() };
+      const entry = {
+        a,
+        b,
+        prompt: main,
+        negative,
+        candidates: uniqueCandidates.map((c) => ({
+          text: c.text,
+          temperature: c.temperature,
+          seed: c.seed,
+        })),
+        ts: Date.now(),
+      };
       const next = [entry, ...history].slice(0, 20);
       setHistory(next);
       persistHistory(next);
@@ -181,6 +243,51 @@ export default function Fusion() {
           <div style={{ display: 'grid', gap: '0.5rem' }}>
             <div>
               <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>Prompt</div>
+              {promptCandidates.length > 1 && (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '0.5rem',
+                    marginBottom: '0.4rem',
+                  }}
+                >
+                  {promptCandidates.map((candidate, idx) => {
+                    const isActive = idx === selectedCandidateIndex;
+                    const hasTemp = typeof candidate.temperature === 'number';
+                    const hasSeed = typeof candidate.seed === 'number';
+                    const tempLabel = hasTemp
+                      ? Number(candidate.temperature).toFixed(2)
+                      : undefined;
+                    return (
+                      <button
+                        key={`candidate-${idx}-${candidate.seed || idx}`}
+                        type="button"
+                        className="p-sm"
+                        style={{
+                          borderColor: isActive ? 'var(--accent)' : 'var(--border)',
+                          background: isActive ? 'var(--accent)' : 'transparent',
+                          color: isActive ? '#101010' : 'inherit',
+                        }}
+                        aria-pressed={isActive}
+                        onClick={() => {
+                          setSelectedCandidateIndex(idx);
+                          setFusionResult(candidate.text || '');
+                        }}
+                      >
+                        <div>Option {idx + 1}</div>
+                        {(hasTemp || hasSeed) && (
+                          <div style={{ fontSize: '0.7rem', opacity: 0.8 }}>
+                            {hasTemp ? `T=${tempLabel}` : ''}
+                            {hasTemp && hasSeed ? ' · ' : ''}
+                            {hasSeed ? `Seed ${candidate.seed}` : ''}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <textarea readOnly value={fusionResult} rows={5} style={{ width: '100%', resize: 'vertical' }} />
               <div style={{ marginTop: '0.25rem' }}>
                 <button type="button" className="p-sm" onClick={() => copyText(fusionResult)} disabled={!fusionResult}>Copy</button>
@@ -208,7 +315,31 @@ export default function Fusion() {
                   <strong>{h.a}</strong> + <strong>{h.b}</strong>
                 </div>
                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                  <button type="button" className="p-sm" onClick={() => { setConceptA(h.a); setConceptB(h.b); setFusionResult(h.prompt); setNegativeResult(h.negative || ''); }}>Load</button>
+                  <button
+                    type="button"
+                    className="p-sm"
+                    onClick={() => {
+                      setConceptA(h.a);
+                      setConceptB(h.b);
+                      const candidates = Array.isArray(h.candidates) && h.candidates.length > 0
+                        ? h.candidates.map((c) =>
+                            typeof c === 'string'
+                              ? { text: c }
+                              : {
+                                  text: c.text,
+                                  temperature: typeof c.temperature === 'number' ? c.temperature : undefined,
+                                  seed: typeof c.seed === 'number' ? c.seed : undefined,
+                                }
+                          )
+                        : [{ text: h.prompt }];
+                      setPromptCandidates(candidates);
+                      setSelectedCandidateIndex(0);
+                      setFusionResult((candidates[0] && candidates[0].text) || h.prompt || '');
+                      setNegativeResult(h.negative || '');
+                    }}
+                  >
+                    Load
+                  </button>
                   <button type="button" className="p-sm" onClick={() => copyText(h.prompt)} disabled={!h.prompt}>Copy prompt</button>
                   {h.negative && <button type="button" className="p-sm" onClick={() => copyText(h.negative)}>Copy negative</button>}
                 </div>
