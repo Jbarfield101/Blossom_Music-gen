@@ -66,6 +66,7 @@ export default function Queue() {
                   <th>ID</th>
                   <th>Status</th>
                   <th>Label</th>
+                  <th>Source</th>
                   <th>Created</th>
                   <th>Finished</th>
                 </tr>
@@ -76,6 +77,7 @@ export default function Queue() {
                     <td>{job.id}</td>
                     <td>{job.status}</td>
                     <td>{job.label || job.args?.[0] || ''}</td>
+                    <td>{job.source || '—'}</td>
                     <td>{formatTimestamp(job.created_at || job.createdAt)}</td>
                     <td>{formatTimestamp(job.finished_at || job.finishedAt)}</td>
                   </tr>

@@ -673,6 +673,7 @@ export default function BeatMaker() {
           const jobIdValue = await invoke('record_manual_job', {
             kind: 'beat-maker',
             label: downloadName,
+            source: 'Beat Maker',
             args: jobArgs,
             artifacts: [{ name: downloadName, path: savePath }],
             stdout: [`Saved to ${savePath}`],
@@ -766,6 +767,7 @@ export default function BeatMaker() {
       const jobIdValue = await invoke('record_manual_job', {
         kind: 'beat-maker',
         label: downloadName,
+        source: 'Beat Maker',
         args: jobArgs,
         stdout: ['Download started'],
       });
