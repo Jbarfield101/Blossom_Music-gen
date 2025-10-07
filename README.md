@@ -332,7 +332,9 @@ systems.
 Blossom stores sensitive keys (like ElevenLabs and Discord) in a Tauri Store file named `secrets.json` under your app data directory. You don’t need to commit this file.
 
 Quick start:
-- Use the UI (AI Voice Labs) to paste your ElevenLabs key. It will be saved to `secrets.json` automatically.
+- Visit **Settings → Discord** in the desktop app for a walkthrough on supplying your Discord bot token via
+  `secrets.json` or the `DISCORD_TOKEN` environment variable.
+- Use the AI Voice Labs screen to paste your ElevenLabs key. It will be saved to `secrets.json` automatically.
 - Or create a `secrets.json` file manually in the app’s data directory with this shape:
 
 ```
