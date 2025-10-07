@@ -54,17 +54,35 @@ pub async fn riffusion_generate(
         "32".into(),
         "--sr".into(),
         "22050".into(),
-        "--hs_freq".into(), "5000".into(),
-        "--hs_gain".into(), "2.0".into(),
-        "--lowcut".into(), "35".into(),
-        "--wet".into(), "0.12".into(),
+        "--hs_freq".into(),
+        "5000".into(),
+        "--hs_gain".into(),
+        "2.0".into(),
+        "--lowcut".into(),
+        "35".into(),
+        "--wet".into(),
+        "0.12".into(),
     ];
-    if let Some(s) = steps { args.push("--steps".into()); args.push(s.to_string()); }
-    if let Some(g) = guidance { args.push("--guidance".into()); args.push(format!("{}", g)); }
-    if let Some(n) = negative.clone() { args.push("--negative".into()); args.push(n); }
-    if let Some(sd) = seed { args.push("--seed".into()); args.push(sd.to_string()); }
+    if let Some(s) = steps {
+        args.push("--steps".into());
+        args.push(s.to_string());
+    }
+    if let Some(g) = guidance {
+        args.push("--guidance".into());
+        args.push(format!("{}", g));
+    }
+    if let Some(n) = negative.clone() {
+        args.push("--negative".into());
+        args.push(n);
+    }
+    if let Some(sd) = seed {
+        args.push("--seed".into());
+        args.push(sd.to_string());
+    }
     // Prefer explicit prompt if provided; otherwise rely on preset default (piano)
-    if let Some(p) = prompt.clone() { args.push(p); }
+    if let Some(p) = prompt.clone() {
+        args.push(p);
+    }
 
     let output = async_runtime::spawn_blocking(move || {
         Command::new("python")
@@ -81,7 +99,9 @@ pub async fn riffusion_generate(
         return Err(String::from_utf8_lossy(&output.stderr).to_string());
     }
 
-    Ok(RiffusionResult { path: out_path.to_string_lossy().to_string() })
+    Ok(RiffusionResult {
+        path: out_path.to_string_lossy().to_string(),
+    })
 }
 
 #[tauri::command]

@@ -3,7 +3,7 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     env, fs,
-    io::{BufRead, BufReader, ErrorKind},
+    io::{BufRead, BufReader, ErrorKind, Write},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{
@@ -21,8 +21,8 @@ use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 use tauri::path::BaseDirectory;
 use tauri::Emitter;
 use tauri::Manager;
-use tauri::{PhysicalPosition, PhysicalSize, Position, Size};
 use tauri::{async_runtime, AppHandle, Runtime, State};
+use tauri::{PhysicalPosition, PhysicalSize, Position, Size};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::init as fs_init;
 use tauri_plugin_opener::OpenerExt;
@@ -82,7 +82,10 @@ fn attach_discord_bot_loggers(child: &mut Child, app: &AppHandle) {
                                 logs.drain(0..drop);
                             }
                         }
-                        let _ = app_for_thread.emit("discord::bot_log", json!({"line": l.clone(), "stream": "stdout"}));
+                        let _ = app_for_thread.emit(
+                            "discord::bot_log",
+                            json!({"line": l.clone(), "stream": "stdout"}),
+                        );
                         if let Ok(val) = serde_json::from_str::<Value>(&l) {
                             if let Some(obj) = val.get("discord_act") {
                                 let _ = app_for_thread.emit("discord::act", obj.clone());
@@ -109,7 +112,8 @@ fn attach_discord_bot_loggers(child: &mut Child, app: &AppHandle) {
                                 logs.drain(0..drop);
                             }
                         }
-                        let _ = app_for_thread.emit("discord::bot_log", json!({"line": l, "stream": "stderr"}));
+                        let _ = app_for_thread
+                            .emit("discord::bot_log", json!({"line": l, "stream": "stderr"}));
                     }
                     Err(_) => break,
                 }
@@ -158,7 +162,9 @@ fn read_discord_settings() -> DiscordSettings {
 
 fn write_discord_settings(settings: &DiscordSettings) -> Result<(), String> {
     let path = discord_settings_path();
-    if let Some(dir) = path.parent() { std::fs::create_dir_all(dir).map_err(|e| e.to_string())?; }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
     let text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
     std::fs::write(&path, text).map_err(|e| e.to_string())
 }
@@ -172,7 +178,9 @@ fn discord_settings_get() -> Result<DiscordSettings, String> {
 fn discord_token_add(name: String, token: String) -> Result<DiscordSettings, String> {
     let mut s = read_discord_settings();
     s.tokens.insert(name.clone(), token);
-    if s.currentToken.is_none() { s.currentToken = Some(name); }
+    if s.currentToken.is_none() {
+        s.currentToken = Some(name);
+    }
     write_discord_settings(&s)?;
     Ok(s)
 }
@@ -192,7 +200,9 @@ fn discord_token_remove(name: String) -> Result<DiscordSettings, String> {
 #[tauri::command]
 fn discord_token_select(name: String) -> Result<DiscordSettings, String> {
     let mut s = read_discord_settings();
-    if s.tokens.contains_key(&name) { s.currentToken = Some(name); }
+    if s.tokens.contains_key(&name) {
+        s.currentToken = Some(name);
+    }
     write_discord_settings(&s)?;
     Ok(s)
 }
@@ -201,7 +211,9 @@ fn discord_token_select(name: String) -> Result<DiscordSettings, String> {
 fn discord_guild_add(name: String, id: u64) -> Result<DiscordSettings, String> {
     let mut s = read_discord_settings();
     s.guilds.insert(name.clone(), id);
-    if s.currentGuild.is_none() { s.currentGuild = Some(name); }
+    if s.currentGuild.is_none() {
+        s.currentGuild = Some(name);
+    }
     write_discord_settings(&s)?;
     Ok(s)
 }
@@ -221,13 +233,19 @@ fn discord_guild_remove(name: String) -> Result<DiscordSettings, String> {
 #[tauri::command]
 fn discord_guild_select(name: String) -> Result<DiscordSettings, String> {
     let mut s = read_discord_settings();
-    if s.guilds.contains_key(&name) { s.currentGuild = Some(name); }
+    if s.guilds.contains_key(&name) {
+        s.currentGuild = Some(name);
+    }
     write_discord_settings(&s)?;
     Ok(s)
 }
 
 #[derive(Serialize)]
-struct TokenSource { source: String, length: usize, path: String }
+struct TokenSource {
+    source: String,
+    length: usize,
+    path: String,
+}
 
 #[tauri::command]
 fn discord_detect_token_sources() -> Result<Vec<TokenSource>, String> {
@@ -237,17 +255,29 @@ fn discord_detect_token_sources() -> Result<Vec<TokenSource>, String> {
     if let Ok(text) = std::fs::read_to_string(&token_file) {
         let t = text.trim().to_string();
         if !t.is_empty() {
-            out.push(TokenSource { source: "discord_token.txt".into(), length: t.len(), path: token_file.to_string_lossy().to_string() });
+            out.push(TokenSource {
+                source: "discord_token.txt".into(),
+                length: t.len(),
+                path: token_file.to_string_lossy().to_string(),
+            });
         }
     }
     // secrets.json at repo root
     let secrets = project_root().join("secrets.json");
     if let Ok(text) = std::fs::read_to_string(&secrets) {
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
-            if let Some(tok) = val.get("discord").and_then(|d| d.get("botToken")).and_then(|v| v.as_str()) {
+            if let Some(tok) = val
+                .get("discord")
+                .and_then(|d| d.get("botToken"))
+                .and_then(|v| v.as_str())
+            {
                 let tok = tok.trim();
                 if !tok.is_empty() {
-                    out.push(TokenSource { source: "secrets.json".into(), length: tok.len(), path: secrets.to_string_lossy().to_string() });
+                    out.push(TokenSource {
+                        source: "secrets.json".into(),
+                        length: tok.len(),
+                        path: secrets.to_string_lossy().to_string(),
+                    });
                 }
             }
         }
@@ -258,7 +288,11 @@ fn discord_detect_token_sources() -> Result<Vec<TokenSource>, String> {
 #[tauri::command]
 fn discord_listen_status() -> Result<String, String> {
     let running = discord_listen_store().lock().unwrap().is_some();
-    Ok(if running { "running".into() } else { "stopped".into() })
+    Ok(if running {
+        "running".into()
+    } else {
+        "stopped".into()
+    })
 }
 
 #[tauri::command]
@@ -284,12 +318,16 @@ fn discord_listen_start(app: AppHandle, channel_id: u64) -> Result<u32, String> 
     }
     // Select Whisper model
     let model = models_store::<tauri::Wry>(&app)
-        .and_then(|s| Ok(s.get("whisper").and_then(|v| v.as_str().map(|s| s.to_string()))))
+        .and_then(|s| {
+            Ok(s.get("whisper")
+                .and_then(|v| v.as_str().map(|s| s.to_string())))
+        })
         .unwrap_or(None)
         .unwrap_or_else(|| "small".into());
 
     // Build Python snippet which runs ears.pipeline.run_bot and prints JSON lines for segments
-    let code = format!(r#"
+    let code = format!(
+        r#"
 import os, asyncio, json, sys
 from ears.pipeline import run_bot
 
@@ -318,7 +356,10 @@ async def main():
     await run_bot(None, CHANNEL, model_path=MODEL, part_callback=on_part, rate_limit=0.25)
 
 asyncio.run(main())
-"#, model = model, channel = channel_id);
+"#,
+        model = model,
+        channel = channel_id
+    );
 
     let mut cmd = python_command();
     // Inject selected Discord token (from UI settings) so the listener can authenticate
@@ -354,7 +395,10 @@ asyncio.run(main())
                     {
                         let mut logs = logs_arc.lock().unwrap();
                         logs.push(line.clone());
-                        if logs.len() > 1000 { let drain = logs.len() - 1000; logs.drain(0..drain); }
+                        if logs.len() > 1000 {
+                            let drain = logs.len() - 1000;
+                            logs.drain(0..drain);
+                        }
                     }
                     // Try to parse JSON whisper event
                     if let Ok(val) = serde_json::from_str::<Value>(&line) {
@@ -371,14 +415,19 @@ asyncio.run(main())
     {
         let logs_arc = discord_listen_logs().clone();
         tauri::async_runtime::spawn(async move {
-            if let Some(err) = stderr { for line in std::io::BufReader::new(err).lines().flatten() {
-                let tagged = format!("[stderr] {}", line);
-                let mut logs = logs_arc.lock().unwrap();
-                logs.push(tagged.clone());
-                if logs.len() > 1000 { let drain = logs.len() - 1000; logs.drain(0..drain); }
-                // Emit stderr lines to the UI for debugging
-                let _ = app.emit("whisper::stderr", json!({"line": tagged}));
-            }}
+            if let Some(err) = stderr {
+                for line in std::io::BufReader::new(err).lines().flatten() {
+                    let tagged = format!("[stderr] {}", line);
+                    let mut logs = logs_arc.lock().unwrap();
+                    logs.push(tagged.clone());
+                    if logs.len() > 1000 {
+                        let drain = logs.len() - 1000;
+                        logs.drain(0..drain);
+                    }
+                    // Emit stderr lines to the UI for debugging
+                    let _ = app.emit("whisper::stderr", json!({"line": tagged}));
+                }
+            }
         });
     }
 
@@ -423,7 +472,9 @@ fn discord_bot_start(app: tauri::AppHandle) -> Result<u32, String> {
                 cmd.env("DISCORD_GUILD_ID", gid.to_string());
             }
         }
-        cmd.arg("discord_bot.py").stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd.arg("discord_bot.py")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
         cmd.spawn().map_err(|e| e.to_string())
     };
 
@@ -445,9 +496,20 @@ fn discord_bot_start(app: tauri::AppHandle) -> Result<u32, String> {
         if let Ok(Some(status)) = c.try_wait() {
             let code = status.code().unwrap_or(-1);
             let logs = discord_bot_logs().lock().unwrap();
-            let tail: Vec<String> = logs.iter().rev().take(12).cloned().collect::<Vec<_>>().into_iter().rev().collect();
+            let tail: Vec<String> = logs
+                .iter()
+                .rev()
+                .take(12)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
             let joined = tail.join("\n");
-            return Err(format!("Discord bot exited immediately (code {}). Logs:\n{}", code, joined));
+            return Err(format!(
+                "Discord bot exited immediately (code {}). Logs:\n{}",
+                code, joined
+            ));
         }
     }
 
@@ -464,16 +526,24 @@ fn discord_bot_start(app: tauri::AppHandle) -> Result<u32, String> {
                         let mut guard = discord_bot_store().lock().unwrap();
                         if let Some(child) = guard.as_mut() {
                             match child.try_wait() {
-                                Ok(Some(status)) => { code_opt = status.code(); false }
+                                Ok(Some(status)) => {
+                                    code_opt = status.code();
+                                    false
+                                }
                                 Ok(None) => true,
-                                Err(_) => { code_opt = Some(-1); false }
+                                Err(_) => {
+                                    code_opt = Some(-1);
+                                    false
+                                }
                             }
                         } else {
                             // No child to watch
                             break;
                         }
                     };
-                    if !still_running { break; }
+                    if !still_running {
+                        break;
+                    }
                     // Allow stop() or app shutdown to proceed
                     std::thread::sleep(std::time::Duration::from_millis(1000));
                     // If keepalive disabled during wait and process still running, just continue polling;
@@ -550,7 +620,11 @@ fn discord_bot_status() -> Result<DiscordBotStatus, String> {
         }
     }
     let code = { *discord_bot_exit_code().lock().unwrap() };
-    Ok(DiscordBotStatus { running, pid, exit_code: code })
+    Ok(DiscordBotStatus {
+        running,
+        pid,
+        exit_code: code,
+    })
 }
 
 #[tauri::command]
@@ -1017,7 +1091,10 @@ async fn generate_llm(
     eprintln!(
         "[llm] generate_llm: prompt_len={}, system_present={}",
         prompt.len(),
-        system.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false)
+        system
+            .as_ref()
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false)
     );
     if let Some(temp) = temperature {
         eprintln!("[llm] temperature={:.3}", temp);
@@ -1025,7 +1102,11 @@ async fn generate_llm(
     if let Some(seed_val) = seed {
         eprintln!("[llm] seed={}", seed_val);
     }
-    let preview = prompt.chars().take(160).collect::<String>().replace('\n', " ");
+    let preview = prompt
+        .chars()
+        .take(160)
+        .collect::<String>()
+        .replace('\n', " ");
     eprintln!("[llm] prompt_preview: {}", preview);
     async_runtime::spawn_blocking(move || -> Result<String, String> {
         // Use the Python helper which streams from Ollama and concatenates the result
@@ -1092,7 +1173,11 @@ except Exception as e:
             return Err(String::from_utf8_lossy(&output.stderr).to_string());
         }
         let out = String::from_utf8_lossy(&output.stdout).to_string();
-        eprintln!("[llm] response_len={} preview='{}'", out.len(), out.chars().take(120).collect::<String>().replace('\n', " "));
+        eprintln!(
+            "[llm] response_len={} preview='{}'",
+            out.len(),
+            out.chars().take(120).collect::<String>().replace('\n', " ")
+        );
         Ok(out)
     })
     .await
@@ -1543,7 +1628,9 @@ fn discord_listen_logs_tail(lines: Option<usize>) -> Result<Vec<String>, String>
     let count = lines.unwrap_or(100).min(1000);
     let logs = discord_listen_logs().lock().unwrap();
     let n = logs.len();
-    if n == 0 { return Ok(Vec::new()); }
+    if n == 0 {
+        return Ok(Vec::new());
+    }
     let start = if n > count { n - count } else { 0 };
     Ok(logs[start..].to_vec())
 }
@@ -3742,7 +3829,9 @@ async fn npc_create(
                 // Build a simple, single-line frontmatter block the UI parser understands
                 let mut front = String::new();
                 let mut push_kv = |k: &str, v: String| {
-                    if v.trim().is_empty() { return; }
+                    if v.trim().is_empty() {
+                        return;
+                    }
                     front.push_str(k);
                     front.push_str(": ");
                     front.push_str(&v);
@@ -3763,10 +3852,27 @@ async fn npc_create(
                     })
                 };
                 for key in [
-                    "region","location","role","occupation","faction","race","gender","age","alignment",
-                    "residence","voice","attitude","archetype","goals","fears","motives","secrets",
+                    "region",
+                    "location",
+                    "role",
+                    "occupation",
+                    "faction",
+                    "race",
+                    "gender",
+                    "age",
+                    "alignment",
+                    "residence",
+                    "voice",
+                    "attitude",
+                    "archetype",
+                    "goals",
+                    "fears",
+                    "motives",
+                    "secrets",
                 ] {
-                    if let Some(val) = scalar(key) { push_kv(key, val); }
+                    if let Some(val) = scalar(key) {
+                        push_kv(key, val);
+                    }
                 }
 
                 // Replace first markdown H1 with the NPC name to avoid template titles
@@ -3781,8 +3887,11 @@ async fn npc_create(
                 while start_idx < scan_lines.len() {
                     let lt = scan_lines[start_idx].trim();
                     let low = lt.to_ascii_lowercase();
-                    let is_banner = low.contains("npc template") || low.contains("ultimate npc template") || lt.starts_with('📜');
-                    let is_inline_fm = lt.starts_with("---") && lt.ends_with("---") && !lt.contains('\n');
+                    let is_banner = low.contains("npc template")
+                        || low.contains("ultimate npc template")
+                        || lt.starts_with('📜');
+                    let is_inline_fm =
+                        lt.starts_with("---") && lt.ends_with("---") && !lt.contains('\n');
                     if lt.is_empty() || is_banner || is_inline_fm {
                         start_idx += 1;
                         continue;
@@ -3828,8 +3937,14 @@ async fn npc_create(
     // Re-extract the final NPC name from updated content/frontmatter
     let effective_name = match parse_frontmatter(&content) {
         Ok((mapping, _body, _raw)) => {
-            let key = |k: &str| mapping.get(&YamlValue::String(k.to_string())).and_then(|v| v.as_str().map(|s| s.to_string()));
-            key("name").or_else(|| key("title")).unwrap_or_else(|| initial_name.clone())
+            let key = |k: &str| {
+                mapping
+                    .get(&YamlValue::String(k.to_string()))
+                    .and_then(|v| v.as_str().map(|s| s.to_string()))
+            };
+            key("name")
+                .or_else(|| key("title"))
+                .unwrap_or_else(|| initial_name.clone())
         }
         Err(_) => extract_title(&content).unwrap_or_else(|| initial_name.clone()),
     };
@@ -4061,7 +4176,12 @@ fn extract_sheet_string(sheet: &Value, path: &[&str]) -> Option<String> {
 }
 
 #[tauri::command]
-fn inbox_create(app: AppHandle, name: String, content: Option<String>, base_path: Option<String>) -> Result<String, String> {
+fn inbox_create(
+    app: AppHandle,
+    name: String,
+    content: Option<String>,
+    base_path: Option<String>,
+) -> Result<String, String> {
     // Determine target directory: explicit base_path > vault/00_Inbox
     let target_dir = if let Some(p) = base_path.filter(|s| !s.trim().is_empty()) {
         PathBuf::from(p)
@@ -4079,17 +4199,27 @@ fn inbox_create(app: AppHandle, name: String, content: Option<String>, base_path
     // Build a safe filename
     let mut fname = name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect::<String>()
         .trim()
         .replace(' ', "_");
-    if fname.is_empty() { fname = "New_Note".to_string(); }
+    if fname.is_empty() {
+        fname = "New_Note".to_string();
+    }
     let mut target = target_dir.join(format!("{}.md", fname));
     let mut counter = 2u32;
     while target.exists() {
         target = target_dir.join(format!("{}_{}.md", fname, counter));
         counter += 1;
-        if counter > 9999 { break; }
+        if counter > 9999 {
+            break;
+        }
     }
     let body = content.unwrap_or_default();
     fs::write(&target, body.as_bytes()).map_err(|e| e.to_string())?;
@@ -4097,48 +4227,90 @@ fn inbox_create(app: AppHandle, name: String, content: Option<String>, base_path
 }
 
 #[tauri::command]
-fn npc_save_portrait(app: AppHandle, name: String, filename: String, bytes: Vec<u8>) -> Result<String, String> {
+fn npc_save_portrait(
+    app: AppHandle,
+    name: String,
+    filename: String,
+    bytes: Vec<u8>,
+) -> Result<String, String> {
     let store = settings_store(&app).map_err(|e| e.to_string())?;
     let vault = store
         .get("vaultPath")
         .and_then(|v| v.as_str().map(|s| s.to_string()));
     let base_dir = if let Some(ref v) = vault {
-        PathBuf::from(v).join("30_Assets").join("Images").join("NPC_Portraits")
+        PathBuf::from(v)
+            .join("30_Assets")
+            .join("Images")
+            .join("NPC_Portraits")
     } else {
         PathBuf::from(r"D:\\Documents\\DreadHaven\\30_Assets\\Images\\NPC_Portraits")
     };
-    if !base_dir.exists() { fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?; }
+    if !base_dir.exists() {
+        fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?;
+    }
     let ext = std::path::Path::new(&filename)
         .extension()
         .and_then(|s| s.to_str())
         .unwrap_or("png");
-    let mut fname = name.chars().map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' }).collect::<String>();
+    let mut fname = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
     fname = fname.trim().replace(' ', "_");
-    if fname.is_empty() { fname = "Portrait".into(); }
+    if fname.is_empty() {
+        fname = "Portrait".into();
+    }
     let target = base_dir.join(format!("{}.{}", fname, ext));
     fs::write(&target, &bytes).map_err(|e| e.to_string())?;
     Ok(target.to_string_lossy().to_string())
 }
 
 #[tauri::command]
-fn god_save_portrait(app: AppHandle, name: String, filename: String, bytes: Vec<u8>) -> Result<String, String> {
+fn god_save_portrait(
+    app: AppHandle,
+    name: String,
+    filename: String,
+    bytes: Vec<u8>,
+) -> Result<String, String> {
     let store = settings_store(&app).map_err(|e| e.to_string())?;
     let vault = store
         .get("vaultPath")
         .and_then(|v| v.as_str().map(|s| s.to_string()));
     let base_dir = if let Some(ref v) = vault {
-        PathBuf::from(v).join("30_Assets").join("Images").join("God_Portraits")
+        PathBuf::from(v)
+            .join("30_Assets")
+            .join("Images")
+            .join("God_Portraits")
     } else {
         PathBuf::from(r"D:\\Documents\\DreadHaven\\30_Assets\\Images\\God_Portraits")
     };
-    if !base_dir.exists() { fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?; }
+    if !base_dir.exists() {
+        fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?;
+    }
     let ext = std::path::Path::new(&filename)
         .extension()
         .and_then(|s| s.to_str())
         .unwrap_or("png");
-    let mut fname = name.chars().map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' }).collect::<String>();
+    let mut fname = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
     fname = fname.trim().replace(' ', "_");
-    if fname.is_empty() { fname = "Portrait".into(); }
+    if fname.is_empty() {
+        fname = "Portrait".into();
+    }
     let target = base_dir.join(format!("{}.{}", fname, ext));
     fs::write(&target, &bytes).map_err(|e| e.to_string())?;
     Ok(target.to_string_lossy().to_string())
@@ -4173,7 +4345,9 @@ fn race_create(
         let mut joined = base.clone();
         for part in raw.replace('\\', "/").split('/') {
             let trimmed = part.trim();
-            if trimmed.is_empty() { continue; }
+            if trimmed.is_empty() {
+                continue;
+            }
             joined.push(trimmed);
         }
         joined
@@ -4187,11 +4361,19 @@ fn race_create(
     fn sanitize_filename(input: &str) -> String {
         let mut out = input
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect::<String>()
             .trim()
             .replace(' ', "_");
-        if out.is_empty() { out = "New".into(); }
+        if out.is_empty() {
+            out = "New".into();
+        }
         out
     }
 
@@ -4204,9 +4386,17 @@ fn race_create(
 
     let mut target_dir = if let Some(ref override_path) = directory_override {
         let candidate = PathBuf::from(override_path);
-        if candidate.is_absolute() { candidate } else { resolve_relative(&base_dir, override_path) }
-    } else { base_dir.join(default_folder) };
-    if !target_dir.exists() { fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?; }
+        if candidate.is_absolute() {
+            candidate
+        } else {
+            resolve_relative(&base_dir, override_path)
+        }
+    } else {
+        base_dir.join(default_folder)
+    };
+    if !target_dir.exists() {
+        fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
+    }
     eprintln!("[races] target_dir='{}'", target_dir.to_string_lossy());
 
     // Determine template candidates
@@ -4220,10 +4410,19 @@ fn race_create(
         let candidate = PathBuf::from(path);
         if candidate.exists() && candidate.is_file() {
             template_body = fs::read_to_string(&candidate).ok();
-            eprintln!("[races] using template override file '{}'", candidate.to_string_lossy());
+            eprintln!(
+                "[races] using template override file '{}'",
+                candidate.to_string_lossy()
+            );
         } else if let Some(ref v) = vault {
             let rel = resolve_relative(&PathBuf::from(v), path);
-            if rel.exists() && rel.is_file() { template_body = fs::read_to_string(rel.clone()).ok(); eprintln!("[races] using template override (vault-relative) '{}'", rel.to_string_lossy()); }
+            if rel.exists() && rel.is_file() {
+                template_body = fs::read_to_string(rel.clone()).ok();
+                eprintln!(
+                    "[races] using template override (vault-relative) '{}'",
+                    rel.to_string_lossy()
+                );
+            }
         }
     }
     let mut body = String::new();
@@ -4249,13 +4448,23 @@ fn race_create(
             )
         };
         let system = Some(String::from("You are a helpful worldbuilding assistant. Produce clean, cohesive Markdown and keep to the template headings."));
-        eprintln!("[races] invoking LLM to fill template for '{}' (parent={:?})", name, parent);
+        eprintln!(
+            "[races] invoking LLM to fill template for '{}' (parent={:?})",
+            name, parent
+        );
         let llm_content = tauri::async_runtime::block_on(async {
             generate_llm(prompt, system, None, None).await
         })
-            .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?;
         body = strip_code_fence(&llm_content).to_string();
-        eprintln!("[races] LLM output len={} preview='{}'", body.len(), body.chars().take(100).collect::<String>().replace('\n', " "));
+        eprintln!(
+            "[races] LLM output len={} preview='{}'",
+            body.len(),
+            body.chars()
+                .take(100)
+                .collect::<String>()
+                .replace('\n', " ")
+        );
     } else if let Some(tpl) = template_body {
         body = tpl;
         eprintln!("[races] using template body without LLM for '{}'", name);
@@ -4267,18 +4476,30 @@ fn race_create(
     }
 
     // Sanitize filename and ensure uniqueness
-    let base_filename = if let Some(ref parent_name) = parent { sanitize_filename(&name) } else { sanitize_filename(&name) };
+    let base_filename = if let Some(ref parent_name) = parent {
+        sanitize_filename(&name)
+    } else {
+        sanitize_filename(&name)
+    };
     let mut fname = base_filename.clone();
-    if fname.is_empty() { fname = "New_Race".into(); }
+    if fname.is_empty() {
+        fname = "New_Race".into();
+    }
     let mut target = target_dir.join(format!("{}.md", fname));
     let mut counter = 2u32;
     while target.exists() {
         target = target_dir.join(format!("{}_{}.md", fname, counter));
         counter += 1;
-        if counter > 9999 { break; }
+        if counter > 9999 {
+            break;
+        }
     }
     fs::write(&target, body.as_bytes()).map_err(|e| e.to_string())?;
-    eprintln!("[races] wrote file '{}' ({} bytes)", target.to_string_lossy(), body.len());
+    eprintln!(
+        "[races] wrote file '{}' ({} bytes)",
+        target.to_string_lossy(),
+        body.len()
+    );
     Ok(target.to_string_lossy().to_string())
 }
 
@@ -4295,16 +4516,32 @@ fn race_save_portrait(
         .get("vaultPath")
         .and_then(|v| v.as_str().map(|s| s.to_string()));
     let base_dir = if let Some(ref v) = vault {
-        PathBuf::from(v).join("30_Assets").join("Images").join("Race_Portraits")
+        PathBuf::from(v)
+            .join("30_Assets")
+            .join("Images")
+            .join("Race_Portraits")
     } else {
         PathBuf::from(r"D:\\Documents\\DreadHaven\\30_Assets\\Images\\Race_Portraits")
     };
-    if !base_dir.exists() { fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?; }
+    if !base_dir.exists() {
+        fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?;
+    }
 
     fn sanitize(s: &str) -> String {
-        let mut out = s.chars().map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' }).collect::<String>();
+        let mut out = s
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect::<String>();
         out = out.trim().replace(' ', "_");
-        if out.is_empty() { out = "Portrait".into(); }
+        if out.is_empty() {
+            out = "Portrait".into();
+        }
         out
     }
     let race_clean = sanitize(&race);
@@ -5340,6 +5577,125 @@ fn set_piper(app: AppHandle, voice: String) -> Result<(), String> {
     Ok(())
 }
 
+fn resample_to_16k(samples: &[i16], sample_rate: u32) -> Vec<i16> {
+    if sample_rate == 16_000 || samples.is_empty() {
+        return samples.to_vec();
+    }
+    let src_rate = sample_rate as f64;
+    let ratio = 16_000f64 / src_rate;
+    let target_len = ((samples.len() as f64) * ratio).max(1.0).round() as usize;
+    let mut result = Vec::with_capacity(target_len);
+    for i in 0..target_len {
+        let src_pos = (i as f64) / ratio;
+        let idx = src_pos.floor() as usize;
+        let frac = src_pos - idx as f64;
+        let s0 = samples
+            .get(idx)
+            .copied()
+            .unwrap_or_else(|| *samples.last().unwrap_or(&0)) as f64;
+        let s1 = if idx + 1 < samples.len() {
+            samples[idx + 1] as f64
+        } else {
+            s0
+        };
+        let value = s0 + (s1 - s0) * frac;
+        let clamped = value.clamp(-32768.0, 32767.0);
+        result.push(clamped.round() as i16);
+    }
+    result
+}
+
+#[tauri::command]
+async fn transcribe_whisper(audio: Vec<u8>, sample_rate: Option<u32>) -> Result<String, String> {
+    if audio.is_empty() {
+        return Ok(String::new());
+    }
+    let sr = sample_rate.unwrap_or(16_000).clamp(8_000, 96_000);
+    let usable = audio.len() - (audio.len() % 2);
+    if usable == 0 {
+        return Ok(String::new());
+    }
+    let mut samples = Vec::with_capacity(usable / 2);
+    for chunk in audio[..usable].chunks_exact(2) {
+        samples.push(i16::from_le_bytes([chunk[0], chunk[1]]));
+    }
+    let pcm16 = if sr == 16_000 {
+        samples
+    } else {
+        resample_to_16k(&samples, sr)
+    };
+    if pcm16.is_empty() {
+        return Ok(String::new());
+    }
+    let mut bytes = Vec::with_capacity(pcm16.len() * 2);
+    for sample in &pcm16 {
+        bytes.extend_from_slice(&sample.to_le_bytes());
+    }
+    let mut tmp = NamedTempFile::new().map_err(|e| e.to_string())?;
+    tmp.write_all(&bytes).map_err(|e| e.to_string())?;
+    let temp_path = tmp.into_temp_path();
+    let path_string = temp_path.to_string_lossy().to_string();
+    let script = r#"
+import asyncio
+import json
+import sys
+
+from ears.whisper_service import WhisperService
+
+path = sys.argv[1]
+with open(path, "rb") as fh:
+    pcm = fh.read()
+
+async def main():
+    service = WhisperService()
+    parts = []
+    async for seg in service.transcribe(pcm):
+        if seg.is_final:
+            text = seg.text.strip()
+            if text:
+                parts.append(text)
+    print(json.dumps({"text": " ".join(parts).strip()}))
+
+asyncio.run(main())
+"#;
+
+    let output = async_runtime::spawn_blocking(move || {
+        let mut cmd = Command::new("python");
+        configure_python_command(&mut cmd);
+        cmd.args(["-c", script, &path_string]);
+        cmd.output()
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+
+    let _ = temp_path.close();
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let message = if stderr.is_empty() {
+            format!("Whisper transcription failed with status {}", output.status)
+        } else {
+            stderr
+        };
+        return Err(message);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if stdout.is_empty() {
+        return Ok(String::new());
+    }
+    let parsed: Value = serde_json::from_str(&stdout)
+        .map_err(|e| format!("Failed to parse Whisper output: {}\nstdout: {}", e, stdout))?;
+    let text = parsed
+        .get("text")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    Ok(text)
+}
+
 #[tauri::command]
 fn discover_piper_voices() -> Result<Vec<String>, String> {
     match Command::new("piper-voices").arg("--json").output() {
@@ -5390,7 +5746,12 @@ fn discover_piper_voices() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-fn add_piper_voice(app: AppHandle, name: String, voice: String, tags: String) -> Result<(), String> {
+fn add_piper_voice(
+    app: AppHandle,
+    name: String,
+    voice: String,
+    tags: String,
+) -> Result<(), String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let path = dir.join("voices.json");
     let mut map: serde_json::Map<String, Value> = if path.exists() {
@@ -5453,7 +5814,12 @@ fn list_piper_profiles(app: AppHandle) -> Result<Vec<PiperProfile>, String> {
 }
 
 #[tauri::command]
-fn update_piper_profile(app: AppHandle, original: String, name: String, tags: String) -> Result<(), String> {
+fn update_piper_profile(
+    app: AppHandle,
+    original: String,
+    name: String,
+    tags: String,
+) -> Result<(), String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let path = dir.join("voices.json");
     let mut map: serde_json::Map<String, Value> = if path.exists() {
@@ -5537,17 +5903,37 @@ fn piper_test(app: AppHandle, text: String, voice: String) -> Result<PathBuf, St
         'resolve_specific: for base in &roots {
             if let Ok(rd) = fs::read_dir(base) {
                 for entry in rd {
-                    let entry = match entry { Ok(e) => e, Err(_) => continue };
+                    let entry = match entry {
+                        Ok(e) => e,
+                        Err(_) => continue,
+                    };
                     let path = entry.path();
-                    if !path.is_dir() { continue; }
-                    let id = match path.file_name().and_then(|s| s.to_str()) { Some(s) => s.to_string(), None => continue };
-                    if id != voice { continue; }
+                    if !path.is_dir() {
+                        continue;
+                    }
+                    let id = match path.file_name().and_then(|s| s.to_str()) {
+                        Some(s) => s.to_string(),
+                        None => continue,
+                    };
+                    if id != voice {
+                        continue;
+                    }
                     let mut model_file: Option<String> = None;
                     if let Ok(files) = fs::read_dir(&path) {
                         for f in files.flatten() {
-                            if let Ok(ft) = f.file_type() { if !ft.is_file() { continue; } }
-                            let name = match f.file_name().to_str() { Some(s) => s.to_string(), None => continue };
-                            if name.to_lowercase().ends_with(".onnx") { model_file = Some(name); break; }
+                            if let Ok(ft) = f.file_type() {
+                                if !ft.is_file() {
+                                    continue;
+                                }
+                            }
+                            let name = match f.file_name().to_str() {
+                                Some(s) => s.to_string(),
+                                None => continue,
+                            };
+                            if name.to_lowercase().ends_with(".onnx") {
+                                model_file = Some(name);
+                                break;
+                            }
                         }
                     }
                     if let Some(model) = model_file {
@@ -5565,7 +5951,9 @@ fn piper_test(app: AppHandle, text: String, voice: String) -> Result<PathBuf, St
             if let Ok(rd) = fs::read_dir(base) {
                 for entry in rd.flatten() {
                     let path = entry.path();
-                    if !path.is_dir() { continue; }
+                    if !path.is_dir() {
+                        continue;
+                    }
                     if let Ok(files) = fs::read_dir(&path) {
                         for f in files.flatten() {
                             let fpath = f.path();
@@ -6085,9 +6473,19 @@ fn queue_riffusion_soundscape_job(
 
     let sanitize = |s: &str| -> String {
         let mut out = String::new();
-        for ch in s.chars() { if ch.is_ascii_alphanumeric() || matches!(ch, '-'|'_'|' ') { out.push(ch); } else { out.push('_'); } }
+        for ch in s.chars() {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ' ') {
+                out.push(ch);
+            } else {
+                out.push('_');
+            }
+        }
         let trimmed = out.trim().trim_matches('.').to_string();
-        if trimmed.is_empty() { "soundscape".to_string() } else { trimmed.chars().take(120).collect() }
+        if trimmed.is_empty() {
+            "soundscape".to_string()
+        } else {
+            trimmed.chars().take(120).collect()
+        }
     };
 
     let base_name_source = options
@@ -6095,7 +6493,12 @@ fn queue_riffusion_soundscape_job(
         .as_ref()
         .filter(|s| !s.trim().is_empty())
         .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| options.preset.clone().unwrap_or_else(|| "dark_ambience".into()));
+        .unwrap_or_else(|| {
+            options
+                .preset
+                .clone()
+                .unwrap_or_else(|| "dark_ambience".into())
+        });
     let base_name = sanitize(&base_name_source);
     let outfile = base_dir.join(format!("{}.wav", base_name));
     let cover = base_dir.join(format!("{}.png", base_name));
@@ -6103,28 +6506,63 @@ fn queue_riffusion_soundscape_job(
 
     // Artifact candidates: master, cover, directory. (Stem files will be registered at completion by pattern.)
     let mut artifact_candidates = Vec::new();
-    artifact_candidates.push(JobArtifactCandidate { name: format!("{} (master)", base_name), path: outfile.clone() });
-    artifact_candidates.push(JobArtifactCandidate { name: format!("{} (cover)", base_name), path: cover.clone() });
-    artifact_candidates.push(JobArtifactCandidate { name: format!("{} (log)", base_name), path: logf.clone() });
-    artifact_candidates.push(JobArtifactCandidate { name: "Output Directory".into(), path: base_dir.clone() });
+    artifact_candidates.push(JobArtifactCandidate {
+        name: format!("{} (master)", base_name),
+        path: outfile.clone(),
+    });
+    artifact_candidates.push(JobArtifactCandidate {
+        name: format!("{} (cover)", base_name),
+        path: cover.clone(),
+    });
+    artifact_candidates.push(JobArtifactCandidate {
+        name: format!("{} (log)", base_name),
+        path: logf.clone(),
+    });
+    artifact_candidates.push(JobArtifactCandidate {
+        name: "Output Directory".into(),
+        path: base_dir.clone(),
+    });
 
     let mut args: Vec<String> = vec![
         "-m".into(),
         "blossom.audio.riffusion.cli_soundscape".into(),
-        "--outfile".into(), outfile.to_string_lossy().to_string(),
+        "--outfile".into(),
+        outfile.to_string_lossy().to_string(),
     ];
     // Prefer HiFi-GAN output for soundscape renders as well; the CLI will
     // revert to Griffin-Lim automatically if loading fails.
     args.push("--hub_hifigan".into());
-    if let Some(p) = options.preset.clone() { args.push("--preset".into()); args.push(p); }
-    if let Some(d) = options.duration { args.push("--duration".into()); args.push(format!("{}", d)); }
-    if let Some(s) = options.seed { args.push("--seed".into()); args.push(s.to_string()); }
-    if let Some(st) = options.steps { args.push("--steps".into()); args.push(st.to_string()); }
-    if let Some(g) = options.guidance { args.push("--guidance".into()); args.push(format!("{}", g)); }
-    if let Some(cf) = options.crossfade_secs { args.push("--crossfade_secs".into()); args.push(format!("{}", cf)); }
+    if let Some(p) = options.preset.clone() {
+        args.push("--preset".into());
+        args.push(p);
+    }
+    if let Some(d) = options.duration {
+        args.push("--duration".into());
+        args.push(format!("{}", d));
+    }
+    if let Some(s) = options.seed {
+        args.push("--seed".into());
+        args.push(s.to_string());
+    }
+    if let Some(st) = options.steps {
+        args.push("--steps".into());
+        args.push(st.to_string());
+    }
+    if let Some(g) = options.guidance {
+        args.push("--guidance".into());
+        args.push(format!("{}", g));
+    }
+    if let Some(cf) = options.crossfade_secs {
+        args.push("--crossfade_secs".into());
+        args.push(format!("{}", cf));
+    }
 
     let label = format!("Riffusion Soundscape: {}", base_name);
-    let context = JobContext { kind: Some("riffusion_soundscape".into()), label: Some(label), artifact_candidates };
+    let context = JobContext {
+        kind: Some("riffusion_soundscape".into()),
+        label: Some(label),
+        artifact_candidates,
+    };
     spawn_job_with_context(app, registry, args, context)
 }
 
@@ -6162,7 +6600,11 @@ fn queue_riffusion_job(
             }
         }
         let trimmed = out.trim().trim_matches('.').to_string();
-        if trimmed.is_empty() { "riffusion".to_string() } else { trimmed.chars().take(120).collect() }
+        if trimmed.is_empty() {
+            "riffusion".to_string()
+        } else {
+            trimmed.chars().take(120).collect()
+        }
     };
 
     let fallback_name = format!("riffusion-{}", timestamp);
@@ -6183,20 +6625,39 @@ fn queue_riffusion_job(
     let log_path = outfile.with_extension("log");
 
     let mut artifact_candidates = Vec::new();
-    artifact_candidates.push(JobArtifactCandidate { name: base_name.clone(), path: outfile.clone() });
-    artifact_candidates.push(JobArtifactCandidate { name: "Metadata JSON".into(), path: meta_path.clone() });
-    artifact_candidates.push(JobArtifactCandidate { name: "Cover Image".into(), path: cover_path.clone() });
-    artifact_candidates.push(JobArtifactCandidate { name: "Log".into(), path: log_path.clone() });
-    artifact_candidates.push(JobArtifactCandidate { name: "Output Directory".into(), path: output_dir.clone() });
+    artifact_candidates.push(JobArtifactCandidate {
+        name: base_name.clone(),
+        path: outfile.clone(),
+    });
+    artifact_candidates.push(JobArtifactCandidate {
+        name: "Metadata JSON".into(),
+        path: meta_path.clone(),
+    });
+    artifact_candidates.push(JobArtifactCandidate {
+        name: "Cover Image".into(),
+        path: cover_path.clone(),
+    });
+    artifact_candidates.push(JobArtifactCandidate {
+        name: "Log".into(),
+        path: log_path.clone(),
+    });
+    artifact_candidates.push(JobArtifactCandidate {
+        name: "Output Directory".into(),
+        path: output_dir.clone(),
+    });
 
     // Build python -m blossom.audio.riffusion.cli_riffusion args
     let mut args: Vec<String> = vec![
         "-m".into(),
         "blossom.audio.riffusion.cli_riffusion".into(),
-        "--outfile".into(), outfile.to_string_lossy().to_string(),
-        "--width".into(), "512".into(),
-        "--height".into(), "512".into(),
-        "--sr".into(), "22050".into(),
+        "--outfile".into(),
+        outfile.to_string_lossy().to_string(),
+        "--width".into(),
+        "512".into(),
+        "--height".into(),
+        "512".into(),
+        "--sr".into(),
+        "22050".into(),
     ];
     // Default to the higher-fidelity HiFi-GAN vocoder; the CLI will gracefully
     // fall back to Griffin-Lim if it cannot be loaded on the current system.
@@ -6204,28 +6665,57 @@ fn queue_riffusion_job(
     if let Some(prompt) = options.prompt.as_ref().filter(|s| !s.trim().is_empty()) {
         args.push(prompt.clone());
     }
-    if let Some(neg) = options.negative.as_ref().filter(|s| !s.trim().is_empty()) { args.push("--negative".into()); args.push(neg.clone()); }
-    if let Some(pre) = options.preset.as_ref().filter(|s| !s.trim().is_empty()) { args.push("--preset".into()); args.push(pre.clone()); }
-    if let Some(seed) = options.seed { args.push("--seed".into()); args.push(seed.to_string()); }
-    if let Some(steps) = options.steps { args.push("--steps".into()); args.push(steps.to_string()); }
-    if let Some(g) = options.guidance { args.push("--guidance".into()); args.push(format!("{}", g)); }
-    if let Some(dur) = options.duration { args.push("--duration".into()); args.push(format!("{}", dur)); }
-    if let Some(cf) = options.crossfade_secs { args.push("--crossfade_secs".into()); args.push(format!("{}", cf)); }
+    if let Some(neg) = options.negative.as_ref().filter(|s| !s.trim().is_empty()) {
+        args.push("--negative".into());
+        args.push(neg.clone());
+    }
+    if let Some(pre) = options.preset.as_ref().filter(|s| !s.trim().is_empty()) {
+        args.push("--preset".into());
+        args.push(pre.clone());
+    }
+    if let Some(seed) = options.seed {
+        args.push("--seed".into());
+        args.push(seed.to_string());
+    }
+    if let Some(steps) = options.steps {
+        args.push("--steps".into());
+        args.push(steps.to_string());
+    }
+    if let Some(g) = options.guidance {
+        args.push("--guidance".into());
+        args.push(format!("{}", g));
+    }
+    if let Some(dur) = options.duration {
+        args.push("--duration".into());
+        args.push(format!("{}", dur));
+    }
+    if let Some(cf) = options.crossfade_secs {
+        args.push("--crossfade_secs".into());
+        args.push(format!("{}", cf));
+    }
 
     let label_source = options
         .output_name
         .as_ref()
         .filter(|s| !s.trim().is_empty())
         .map(|s| s.trim().to_string())
-        .or_else(|| options.prompt.as_ref().map(|p| {
-            let mut s: String = p.trim().chars().take(80).collect();
-            if p.trim().chars().count() > 80 { s.push('.'); }
-            s
-        }))
+        .or_else(|| {
+            options.prompt.as_ref().map(|p| {
+                let mut s: String = p.trim().chars().take(80).collect();
+                if p.trim().chars().count() > 80 {
+                    s.push('.');
+                }
+                s
+            })
+        })
         .unwrap_or_else(|| format!("Riffusion {}", timestamp));
     let label: String = label_source.chars().take(120).collect();
 
-    let context = JobContext { kind: Some("riffusion".into()), label: Some(label), artifact_candidates };
+    let context = JobContext {
+        kind: Some("riffusion".into()),
+        label: Some(label),
+        artifact_candidates,
+    };
 
     // Use spawn_job_with_context with our args vector (python -m invocation handled inside job system)
     spawn_job_with_context(app, registry, args, context)
@@ -7094,7 +7584,8 @@ fn main() {
                         if w > 0 && h > 0 {
                             let _ = window.set_size(Size::Physical(PhysicalSize::new(w, h)));
                         }
-                        let _ = window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
+                        let _ =
+                            window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
                     }
                 }
             }
@@ -7118,6 +7609,7 @@ fn main() {
             npc_create,
             list_whisper,
             set_whisper,
+            transcribe_whisper,
             list_piper,
             set_piper,
             // Whisper
@@ -7248,7 +7740,9 @@ fn main() {
             }
             // Persist window bounds on move/resize/scale changes
             match event {
-                tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. } => {
+                tauri::WindowEvent::Moved(_)
+                | tauri::WindowEvent::Resized(_)
+                | tauri::WindowEvent::ScaleFactorChanged { .. } => {
                     let app_handle = window.app_handle();
                     if let (Ok(pos), Ok(size)) = (window.outer_position(), window.outer_size()) {
                         if let Ok(store) = settings_store(&app_handle) {
