@@ -13,6 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -5694,6 +5695,78 @@ fn set_whisper(app: AppHandle, model: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn transcribe_whisper(audio: Vec<u8>) -> Result<String, String> {
+    if audio.is_empty() {
+        return Ok(String::new());
+    }
+    let encoded = general_purpose::STANDARD.encode(audio);
+    let text = async_runtime::spawn_blocking(move || -> Result<String, String> {
+        let audio_literal =
+            serde_json::to_string(&encoded).map_err(|e| format!("encode error: {}", e))?;
+        let script = format!(
+            r#"
+import asyncio
+import base64
+import json
+import sys
+
+from ears.whisper_service import WhisperService
+
+audio = base64.b64decode({audio_literal})
+
+async def _run():
+    service = WhisperService()
+    texts = []
+    async for segment in service.transcribe(audio):
+        text = getattr(segment, "text", "") or ""
+        text = text.strip()
+        if text:
+            texts.append(text)
+    return " ".join(texts).strip()
+
+try:
+    result = asyncio.run(_run())
+except Exception as exc:
+    sys.stderr.write(str(exc))
+    sys.exit(1)
+
+print(json.dumps({{"text": result}}))
+"#,
+            audio_literal = audio_literal
+        );
+        let mut cmd = python_command();
+        cmd.arg("-c").arg(script);
+        let output = cmd.output().map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let message = if stderr.is_empty() {
+                "Whisper transcription failed".to_string()
+            } else {
+                stderr
+            };
+            return Err(message);
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let trimmed = stdout.trim();
+        if trimmed.is_empty() {
+            return Ok(String::new());
+        }
+        let value: Value = serde_json::from_str(trimmed)
+            .map_err(|e| format!("Failed to parse Whisper output: {}", e))?;
+        let text = value
+            .get("text")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        Ok(text)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(text)
+}
+
+#[tauri::command]
 fn list_piper(app: AppHandle) -> Result<Value, String> {
     let mut options = list_from_dir("assets/voice_models")
         .ok()
@@ -7731,6 +7804,7 @@ fn main() {
             npc_create,
             list_whisper,
             set_whisper,
+            transcribe_whisper,
             list_piper,
             set_piper,
             // Whisper
