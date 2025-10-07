@@ -1,3 +1,4 @@
+import SettingsAbout from '../components/SettingsAbout.jsx';
 import BackButton from '../components/BackButton.jsx';
 import Card from '../components/Card.jsx';
 import './Settings.css';
@@ -7,10 +8,7 @@ const sections = [
   { to: '/settings/discord', icon: 'MessageSquare', title: 'Discord', description: 'Manage bot tokens and guilds.' },
   { to: '/settings/appearance', icon: 'Palette', title: 'Appearance', description: 'Theme, accent color, and font size.' },
   { to: '/settings/models', icon: 'HardDrive', title: 'Models & Voices', description: 'Manage Whisper, LLM, and Piper voices.' },
-  { to: '/settings/devices', icon: 'Headphones', title: 'Audio Devices', description: 'Input/output device selection.' },
-  { to: '/settings/hotwords', icon: 'Mic', title: 'Hotwords', description: 'Add and toggle wake words.' },
-  { to: '/settings/backup', icon: 'FileDown', title: 'Export/Import', description: 'Backup or restore your settings.' },
-  { to: '/settings/advanced', icon: 'Settings', title: 'Advanced Settings', description: 'Full configuration and logs.' },
+  { to: '/settings/advanced', icon: 'Settings', title: 'Advanced Settings', description: 'Diagnostics and activity logs.' },
 ];
 
 export default function SettingsHome() {
@@ -18,6 +16,7 @@ export default function SettingsHome() {
     <>
       <BackButton />
       <h1>Settings</h1>
+      <SettingsAbout className="settings-home-about" legend="About Blossom" />
       <main className="dashboard dnd-card-grid">
         {sections.map(({ to, icon, title, description }) => (
           <Card key={title + to} to={to} icon={icon} title={title}>
