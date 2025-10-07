@@ -52,7 +52,6 @@ import DndWorldCalendar from './pages/DndWorldCalendar.jsx';
 import SoundLab from './pages/SoundLab.jsx';
 import Queue from './pages/Queue.jsx';
 import Tools from './pages/Tools.jsx';
-import WhisperOutput from './pages/WhisperOutput.jsx';
 import Fusion from './pages/Fusion.jsx';
 import LoopMaker from './pages/LoopMaker.jsx';
 import BeatMaker from './pages/BeatMaker.jsx';
@@ -322,6 +321,7 @@ export default function App() {
             <Route path="/tools/voices/eleven" element={<DndElevenLabs />} />
             <Route path="/tools/voices/manage" element={<ManageVoices />} />
             <Route path="/dnd/discord" element={<DndDiscord />} />
+            <Route path="/dnd/whisper" element={<DndDiscord />} />
             <Route path="/dnd/chat" element={<DndChat />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/settings/users" element={<SettingsUsers />} />
@@ -335,7 +335,6 @@ export default function App() {
             <Route path="/profiles" element={<Profiles />} />
             <Route path="/train" element={<Train />} />
             <Route path="/tools" element={<Tools />} />
-            <Route path="/tools/whisper" element={<WhisperOutput />} />
             <Route path="/calendar" element={<Calendar />} />
             <Route path="/chat" element={<GeneralChat />} />
             <Route path="/queue" element={<Queue />} />

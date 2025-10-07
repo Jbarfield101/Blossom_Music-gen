@@ -78,6 +78,7 @@ export default function DndDiscord() {
   const [npcSaving, setNpcSaving] = useState({});
   const [npcStatus, setNpcStatus] = useState({});
   const statusTimeouts = useRef({});
+  const autoStartRef = useRef(false);
 
   const [voiceOptions, setVoiceOptions] = useState({ piper: [], elevenlabs: [] });
   const [voiceLoading, setVoiceLoading] = useState({ piper: false, elevenlabs: false });
@@ -91,6 +92,11 @@ export default function DndDiscord() {
   const [commandsError, setCommandsError] = useState('');
 
   // Bot controls
+  const [whisperChannelId, setWhisperChannelId] = useState('');
+  const [whisperModel, setWhisperModel] = useState('');
+  const [whisperOptions, setWhisperOptions] = useState([]);
+  const [whisperError, setWhisperError] = useState('');
+  const [whisperBusy, setWhisperBusy] = useState(false);
   const [botPid, setBotPid] = useState(0);
   const [botStatus, setBotStatus] = useState('');
   const [starting, setStarting] = useState(false);
@@ -185,6 +191,109 @@ export default function DndDiscord() {
       setVoiceLoading((prev) => ({ ...prev, elevenlabs: false }));
     }
   }, []);
+
+  const loadWhisperModels = useCallback(async () => {
+    try {
+      const info = await invoke('list_whisper');
+      const opts = Array.isArray(info?.options)
+        ? info.options.filter((option) => typeof option === 'string' && option.trim())
+        : [];
+      setWhisperOptions(opts);
+      const selected = typeof info?.selected === 'string' ? info.selected : '';
+      setWhisperModel((prev) => {
+        if (prev && opts.includes(prev)) {
+          return prev;
+        }
+        if (selected && opts.includes(selected)) {
+          return selected;
+        }
+        return opts[0] || '';
+      });
+    } catch (err) {
+      console.warn('Failed to load Whisper models', err);
+      setWhisperOptions([]);
+    }
+  }, []);
+
+  const syncWhisperChannelFromStatus = useCallback(async () => {
+    try {
+      const bytes = await invoke('read_file_bytes', { path: 'data/discord_status.json' });
+      if (!Array.isArray(bytes) || !bytes.length) {
+        return '';
+      }
+      const text = new TextDecoder('utf-8').decode(new Uint8Array(bytes));
+      const data = JSON.parse(text || '{}');
+      if (data && data.channel_id) {
+        const id = String(data.channel_id);
+        setWhisperChannelId(id);
+        setWhisperError('');
+        return id;
+      }
+    } catch (err) {
+      console.warn('Failed to read Discord status file', err);
+    }
+    return '';
+  }, []);
+
+  const handleWhisperStart = useCallback(async () => {
+    if (whisperBusy) {
+      return;
+    }
+    const numericId = Number(whisperChannelId);
+    if (!Number.isFinite(numericId) || numericId <= 0) {
+      const message = 'Enter a valid Discord voice channel ID or use the active bot channel option.';
+      setWhisperError(message);
+      setWhisperLogs((prev) =>
+        prev
+          .concat([{ text: message, final: true, speaker: 'system', t: Date.now() }])
+          .slice(-500),
+      );
+      return;
+    }
+    setWhisperBusy(true);
+    try {
+      if (whisperModel) {
+        await invoke('set_whisper', { model: whisperModel });
+      }
+      await invoke('discord_listen_start', { channelId: numericId });
+      setListening(true);
+      setWhisperError('');
+      autoStartRef.current = true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setWhisperError(message);
+      setListening(false);
+      setWhisperLogs((prev) =>
+        prev
+          .concat([{ text: message, final: true, speaker: 'system', t: Date.now() }])
+          .slice(-500),
+      );
+    } finally {
+      setWhisperBusy(false);
+    }
+  }, [whisperBusy, whisperChannelId, whisperModel]);
+
+  const handleWhisperStop = useCallback(async () => {
+    if (whisperBusy) {
+      return;
+    }
+    setWhisperBusy(true);
+    try {
+      await invoke('discord_listen_stop');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setWhisperLogs((prev) =>
+        prev
+          .concat([{ text: message, final: true, speaker: 'system', t: Date.now() }])
+          .slice(-500),
+      );
+    } finally {
+      setListening(false);
+      setWhisperError('');
+      autoStartRef.current = false;
+      setWhisperBusy(false);
+    }
+  }, [whisperBusy]);
 
   const ensureVoiceOptions = useCallback(
     async (provider) => {
@@ -361,6 +470,14 @@ export default function DndDiscord() {
     loadCommands();
   }, [loadCommands]);
 
+  useEffect(() => {
+    loadWhisperModels();
+  }, [loadWhisperModels]);
+
+  useEffect(() => {
+    syncWhisperChannelFromStatus();
+  }, [syncWhisperChannelFromStatus]);
+
   // ElevenLabs usage widget
   useEffect(() => {
     (async () => {
@@ -440,11 +557,22 @@ export default function DndDiscord() {
         // Also capture errors and stderr lines from the listener
         unlistenErr = await listen('whisper::error', (event) => {
           try {
-            const msg = typeof event?.payload === 'string' ? event.payload : JSON.stringify(event?.payload);
-            const line = `[error] ${msg}`;
+            const payload = event?.payload;
+            const message = typeof payload === 'string' ? payload : JSON.stringify(payload);
+            const line = `[error] ${message}`;
             setListenLogs((prev) => prev.concat([line]).slice(-800));
             setListenerErrorLine(clampLogLine(line));
             setShowBotControls(true);
+            if (message) {
+              setWhisperError(message);
+              setWhisperLogs((prev) =>
+                prev
+                  .concat([{ text: message, final: true, speaker: 'system', t: Date.now() }])
+                  .slice(-500),
+              );
+            }
+            setListening(false);
+            autoStartRef.current = false;
           } catch {}
         });
         unlistenStderr = await listen('whisper::stderr', (event) => {
@@ -577,12 +705,17 @@ export default function DndDiscord() {
         const tx = new TextDecoder('utf-8').decode(new Uint8Array(bytes));
         const st = JSON.parse(tx || '{}');
         const channelId = Number(st?.channel_id || 0);
-        if (Number.isFinite(channelId) && channelId > 0) {
-          await invoke('discord_listen_start', { channelId });
-          setListening(true);
-          autoStartRef.current = true;
+        if (!Number.isFinite(channelId) || channelId <= 0) {
+          return;
         }
-      } catch {}
+        await invoke('discord_listen_start', { channelId });
+        setListening(true);
+        setWhisperChannelId(String(channelId));
+        setWhisperError('');
+        autoStartRef.current = true;
+      } catch (err) {
+        console.warn('Automatic Whisper start failed', err);
+      }
     }, 2000);
     return () => clearInterval(timer);
   }, [listening]);
@@ -715,7 +848,7 @@ export default function DndDiscord() {
   return (
     <>
       <BackButton />
-      <h1>Dungeons &amp; Dragons &middot; Discord</h1>
+      <h1>Dungeons &amp; Dragons &middot; Discord &amp; Whisper</h1>
       <div className="discord-status-bar muted" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '0.25rem' }}>
         <span>Status: {botStatus || (botPid ? `Running (PID ${botPid})` : 'Idle')}</span>
         <label style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
@@ -764,29 +897,6 @@ export default function DndDiscord() {
               <button type="button" onClick={handleStopBot} disabled={stopping}>
                 {stopping ? 'Stopping.' : 'Stop Bot'}
               </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    let channelId = 0;
-                    try {
-                      const bytes = await invoke('read_file_bytes', { path: 'data/discord_status.json' });
-                      if (Array.isArray(bytes) && bytes.length) {
-                        const tx = new TextDecoder('utf-8').decode(new Uint8Array(bytes));
-                        const st = JSON.parse(tx || '{}');
-                        if (st && st.channel_id) channelId = Number(st.channel_id);
-                      }
-                    } catch {}
-                    if (!Number.isFinite(channelId) || channelId <= 0) throw new Error('No active voice channel. Use /join first.');
-                    await invoke('discord_listen_start', { channelId });
-                    setListening(true);
-                  } catch (e) { console.error(e); setListening(false); }
-                }}
-                disabled={listening}
-              >
-                Start Listen
-              </button>
-              <button type="button" onClick={async () => { try { await invoke('discord_listen_stop'); } catch {}; setListening(false); }} disabled={!listening}>Stop Listen</button>
               <button type="button" onClick={handleCheckStatus}>Check Status</button>
               <button
                 type="button"
@@ -808,8 +918,99 @@ export default function DndDiscord() {
               </button>
             </div>
           </div>
-          {showBotControls && (
-            <div id="discord-bot-controls" className="discord-bot-controls">
+        <div
+          className="dnd-whisper-panel"
+          style={{ display: 'grid', gap: '0.75rem', marginTop: 'var(--space-md)' }}
+        >
+          <div>
+            <h3 style={{ margin: 0 }}>Whisper Listener</h3>
+            <p className="muted" style={{ marginTop: '0.25rem' }}>
+              Transcribe Discord voice chat and drive automatic NPC replies.
+            </p>
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '0.75rem',
+              alignItems: 'flex-end',
+            }}
+          >
+            <label
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.25rem',
+                minWidth: 220,
+              }}
+            >
+              <span>Voice Channel ID</span>
+              <input
+                type="text"
+                value={whisperChannelId}
+                onChange={(event) => {
+                  setWhisperChannelId(event.target.value);
+                  setWhisperError('');
+                }}
+                placeholder="e.g. 123456789012345678"
+              />
+            </label>
+            <button
+              type="button"
+              className="p-sm"
+              onClick={() => {
+                syncWhisperChannelFromStatus();
+              }}
+            >
+              Use active bot channel
+            </button>
+            <label
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.25rem',
+                minWidth: 200,
+              }}
+            >
+              <span>Whisper Model</span>
+              <select
+                value={whisperModel}
+                onChange={(event) => setWhisperModel(event.target.value)}
+                disabled={whisperOptions.length === 0}
+              >
+                {whisperOptions.length === 0 ? (
+                  <option value="">No models discovered</option>
+                ) : (
+                  whisperOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))
+                )}
+              </select>
+            </label>
+            {!listening ? (
+              <button
+                type="button"
+                onClick={handleWhisperStart}
+                disabled={whisperBusy || !whisperChannelId.trim()}
+              >
+                {whisperBusy ? 'Starting…' : 'Start Listening'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleWhisperStop}
+                disabled={whisperBusy}
+              >
+                {whisperBusy ? 'Stopping…' : 'Stop Listening'}
+              </button>
+            )}
+          </div>
+          {whisperError ? <div className="warning">{whisperError}</div> : null}
+        </div>
+        {showBotControls && (
+          <div id="discord-bot-controls" className="discord-bot-controls">
               <div className="muted">
                 Token sources: {tokenSources.length === 0 ? 'Unknown' : tokenSources.map((t) => `${t.source} (${t.length} chars)`).join(', ')}
               </div>
