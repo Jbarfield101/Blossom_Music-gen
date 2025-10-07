@@ -36,6 +36,7 @@ export default function JobQueuePanel({ queue = [], onCancel, activeId } = {}) {
             <th>Status</th>
             <th>Position</th>
             <th>Label</th>
+            <th>Source</th>
             <th>ETA</th>
             <th>Queued</th>
             <th>Started</th>
@@ -57,6 +58,7 @@ export default function JobQueuePanel({ queue = [], onCancel, activeId } = {}) {
                 <td>{item.status}</td>
                 <td>{position}</td>
                 <td>{item.label || item.kind || item.id}</td>
+                <td>{item.source || "—"}</td>
                 <td>
                   {typeof item.eta_seconds === "number"
                     ? formatSeconds(item.eta_seconds)

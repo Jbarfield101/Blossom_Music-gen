@@ -1405,6 +1405,7 @@ export default function LoopMaker() {
           const jobIdValue = await invoke('record_manual_job', {
             kind: 'loop-maker',
             label: defaultFileName,
+            source: 'Loop Maker',
             args: jobArgs,
             artifacts: [{ name: defaultFileName, path: savePath }],
             stdout: [`Saved to ${savePath}`],
@@ -1511,6 +1512,7 @@ export default function LoopMaker() {
         const jobIdValue = await invoke('record_manual_job', {
           kind: 'loop-maker',
           label: defaultFileName,
+          source: 'Loop Maker',
           args: jobArgs,
           stdout: ['Download started'],
         });

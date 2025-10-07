@@ -21,8 +21,8 @@ use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 use tauri::path::BaseDirectory;
 use tauri::Emitter;
 use tauri::Manager;
-use tauri::{PhysicalPosition, PhysicalSize, Position, Size};
 use tauri::{async_runtime, AppHandle, Runtime, State};
+use tauri::{PhysicalPosition, PhysicalSize, Position, Size};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::init as fs_init;
 use tauri_plugin_opener::OpenerExt;
@@ -82,7 +82,10 @@ fn attach_discord_bot_loggers(child: &mut Child, app: &AppHandle) {
                                 logs.drain(0..drop);
                             }
                         }
-                        let _ = app_for_thread.emit("discord::bot_log", json!({"line": l.clone(), "stream": "stdout"}));
+                        let _ = app_for_thread.emit(
+                            "discord::bot_log",
+                            json!({"line": l.clone(), "stream": "stdout"}),
+                        );
                         if let Ok(val) = serde_json::from_str::<Value>(&l) {
                             if let Some(obj) = val.get("discord_act") {
                                 let _ = app_for_thread.emit("discord::act", obj.clone());
@@ -109,7 +112,8 @@ fn attach_discord_bot_loggers(child: &mut Child, app: &AppHandle) {
                                 logs.drain(0..drop);
                             }
                         }
-                        let _ = app_for_thread.emit("discord::bot_log", json!({"line": l, "stream": "stderr"}));
+                        let _ = app_for_thread
+                            .emit("discord::bot_log", json!({"line": l, "stream": "stderr"}));
                     }
                     Err(_) => break,
                 }
@@ -158,7 +162,9 @@ fn read_discord_settings() -> DiscordSettings {
 
 fn write_discord_settings(settings: &DiscordSettings) -> Result<(), String> {
     let path = discord_settings_path();
-    if let Some(dir) = path.parent() { std::fs::create_dir_all(dir).map_err(|e| e.to_string())?; }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
     let text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
     std::fs::write(&path, text).map_err(|e| e.to_string())
 }
@@ -172,7 +178,9 @@ fn discord_settings_get() -> Result<DiscordSettings, String> {
 fn discord_token_add(name: String, token: String) -> Result<DiscordSettings, String> {
     let mut s = read_discord_settings();
     s.tokens.insert(name.clone(), token);
-    if s.currentToken.is_none() { s.currentToken = Some(name); }
+    if s.currentToken.is_none() {
+        s.currentToken = Some(name);
+    }
     write_discord_settings(&s)?;
     Ok(s)
 }
@@ -192,7 +200,9 @@ fn discord_token_remove(name: String) -> Result<DiscordSettings, String> {
 #[tauri::command]
 fn discord_token_select(name: String) -> Result<DiscordSettings, String> {
     let mut s = read_discord_settings();
-    if s.tokens.contains_key(&name) { s.currentToken = Some(name); }
+    if s.tokens.contains_key(&name) {
+        s.currentToken = Some(name);
+    }
     write_discord_settings(&s)?;
     Ok(s)
 }
@@ -201,7 +211,9 @@ fn discord_token_select(name: String) -> Result<DiscordSettings, String> {
 fn discord_guild_add(name: String, id: u64) -> Result<DiscordSettings, String> {
     let mut s = read_discord_settings();
     s.guilds.insert(name.clone(), id);
-    if s.currentGuild.is_none() { s.currentGuild = Some(name); }
+    if s.currentGuild.is_none() {
+        s.currentGuild = Some(name);
+    }
     write_discord_settings(&s)?;
     Ok(s)
 }
@@ -221,13 +233,19 @@ fn discord_guild_remove(name: String) -> Result<DiscordSettings, String> {
 #[tauri::command]
 fn discord_guild_select(name: String) -> Result<DiscordSettings, String> {
     let mut s = read_discord_settings();
-    if s.guilds.contains_key(&name) { s.currentGuild = Some(name); }
+    if s.guilds.contains_key(&name) {
+        s.currentGuild = Some(name);
+    }
     write_discord_settings(&s)?;
     Ok(s)
 }
 
 #[derive(Serialize)]
-struct TokenSource { source: String, length: usize, path: String }
+struct TokenSource {
+    source: String,
+    length: usize,
+    path: String,
+}
 
 #[tauri::command]
 fn discord_detect_token_sources() -> Result<Vec<TokenSource>, String> {
@@ -237,17 +255,29 @@ fn discord_detect_token_sources() -> Result<Vec<TokenSource>, String> {
     if let Ok(text) = std::fs::read_to_string(&token_file) {
         let t = text.trim().to_string();
         if !t.is_empty() {
-            out.push(TokenSource { source: "discord_token.txt".into(), length: t.len(), path: token_file.to_string_lossy().to_string() });
+            out.push(TokenSource {
+                source: "discord_token.txt".into(),
+                length: t.len(),
+                path: token_file.to_string_lossy().to_string(),
+            });
         }
     }
     // secrets.json at repo root
     let secrets = project_root().join("secrets.json");
     if let Ok(text) = std::fs::read_to_string(&secrets) {
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
-            if let Some(tok) = val.get("discord").and_then(|d| d.get("botToken")).and_then(|v| v.as_str()) {
+            if let Some(tok) = val
+                .get("discord")
+                .and_then(|d| d.get("botToken"))
+                .and_then(|v| v.as_str())
+            {
                 let tok = tok.trim();
                 if !tok.is_empty() {
-                    out.push(TokenSource { source: "secrets.json".into(), length: tok.len(), path: secrets.to_string_lossy().to_string() });
+                    out.push(TokenSource {
+                        source: "secrets.json".into(),
+                        length: tok.len(),
+                        path: secrets.to_string_lossy().to_string(),
+                    });
                 }
             }
         }
@@ -258,7 +288,11 @@ fn discord_detect_token_sources() -> Result<Vec<TokenSource>, String> {
 #[tauri::command]
 fn discord_listen_status() -> Result<String, String> {
     let running = discord_listen_store().lock().unwrap().is_some();
-    Ok(if running { "running".into() } else { "stopped".into() })
+    Ok(if running {
+        "running".into()
+    } else {
+        "stopped".into()
+    })
 }
 
 #[tauri::command]
@@ -284,12 +318,16 @@ fn discord_listen_start(app: AppHandle, channel_id: u64) -> Result<u32, String> 
     }
     // Select Whisper model
     let model = models_store::<tauri::Wry>(&app)
-        .and_then(|s| Ok(s.get("whisper").and_then(|v| v.as_str().map(|s| s.to_string()))))
+        .and_then(|s| {
+            Ok(s.get("whisper")
+                .and_then(|v| v.as_str().map(|s| s.to_string())))
+        })
         .unwrap_or(None)
         .unwrap_or_else(|| "small".into());
 
     // Build Python snippet which runs ears.pipeline.run_bot and prints JSON lines for segments
-    let code = format!(r#"
+    let code = format!(
+        r#"
 import os, asyncio, json, sys
 from ears.pipeline import run_bot
 
@@ -318,7 +356,10 @@ async def main():
     await run_bot(None, CHANNEL, model_path=MODEL, part_callback=on_part, rate_limit=0.25)
 
 asyncio.run(main())
-"#, model = model, channel = channel_id);
+"#,
+        model = model,
+        channel = channel_id
+    );
 
     let mut cmd = python_command();
     // Inject selected Discord token (from UI settings) so the listener can authenticate
@@ -354,7 +395,10 @@ asyncio.run(main())
                     {
                         let mut logs = logs_arc.lock().unwrap();
                         logs.push(line.clone());
-                        if logs.len() > 1000 { let drain = logs.len() - 1000; logs.drain(0..drain); }
+                        if logs.len() > 1000 {
+                            let drain = logs.len() - 1000;
+                            logs.drain(0..drain);
+                        }
                     }
                     // Try to parse JSON whisper event
                     if let Ok(val) = serde_json::from_str::<Value>(&line) {
@@ -371,14 +415,19 @@ asyncio.run(main())
     {
         let logs_arc = discord_listen_logs().clone();
         tauri::async_runtime::spawn(async move {
-            if let Some(err) = stderr { for line in std::io::BufReader::new(err).lines().flatten() {
-                let tagged = format!("[stderr] {}", line);
-                let mut logs = logs_arc.lock().unwrap();
-                logs.push(tagged.clone());
-                if logs.len() > 1000 { let drain = logs.len() - 1000; logs.drain(0..drain); }
-                // Emit stderr lines to the UI for debugging
-                let _ = app.emit("whisper::stderr", json!({"line": tagged}));
-            }}
+            if let Some(err) = stderr {
+                for line in std::io::BufReader::new(err).lines().flatten() {
+                    let tagged = format!("[stderr] {}", line);
+                    let mut logs = logs_arc.lock().unwrap();
+                    logs.push(tagged.clone());
+                    if logs.len() > 1000 {
+                        let drain = logs.len() - 1000;
+                        logs.drain(0..drain);
+                    }
+                    // Emit stderr lines to the UI for debugging
+                    let _ = app.emit("whisper::stderr", json!({"line": tagged}));
+                }
+            }
         });
     }
 
@@ -423,7 +472,9 @@ fn discord_bot_start(app: tauri::AppHandle) -> Result<u32, String> {
                 cmd.env("DISCORD_GUILD_ID", gid.to_string());
             }
         }
-        cmd.arg("discord_bot.py").stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd.arg("discord_bot.py")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
         cmd.spawn().map_err(|e| e.to_string())
     };
 
@@ -445,9 +496,20 @@ fn discord_bot_start(app: tauri::AppHandle) -> Result<u32, String> {
         if let Ok(Some(status)) = c.try_wait() {
             let code = status.code().unwrap_or(-1);
             let logs = discord_bot_logs().lock().unwrap();
-            let tail: Vec<String> = logs.iter().rev().take(12).cloned().collect::<Vec<_>>().into_iter().rev().collect();
+            let tail: Vec<String> = logs
+                .iter()
+                .rev()
+                .take(12)
+                .cloned()
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
             let joined = tail.join("\n");
-            return Err(format!("Discord bot exited immediately (code {}). Logs:\n{}", code, joined));
+            return Err(format!(
+                "Discord bot exited immediately (code {}). Logs:\n{}",
+                code, joined
+            ));
         }
     }
 
@@ -464,16 +526,24 @@ fn discord_bot_start(app: tauri::AppHandle) -> Result<u32, String> {
                         let mut guard = discord_bot_store().lock().unwrap();
                         if let Some(child) = guard.as_mut() {
                             match child.try_wait() {
-                                Ok(Some(status)) => { code_opt = status.code(); false }
+                                Ok(Some(status)) => {
+                                    code_opt = status.code();
+                                    false
+                                }
                                 Ok(None) => true,
-                                Err(_) => { code_opt = Some(-1); false }
+                                Err(_) => {
+                                    code_opt = Some(-1);
+                                    false
+                                }
                             }
                         } else {
                             // No child to watch
                             break;
                         }
                     };
-                    if !still_running { break; }
+                    if !still_running {
+                        break;
+                    }
                     // Allow stop() or app shutdown to proceed
                     std::thread::sleep(std::time::Duration::from_millis(1000));
                     // If keepalive disabled during wait and process still running, just continue polling;
@@ -550,7 +620,11 @@ fn discord_bot_status() -> Result<DiscordBotStatus, String> {
         }
     }
     let code = { *discord_bot_exit_code().lock().unwrap() };
-    Ok(DiscordBotStatus { running, pid, exit_code: code })
+    Ok(DiscordBotStatus {
+        running,
+        pid,
+        exit_code: code,
+    })
 }
 
 #[tauri::command]
@@ -1017,7 +1091,10 @@ async fn generate_llm(
     eprintln!(
         "[llm] generate_llm: prompt_len={}, system_present={}",
         prompt.len(),
-        system.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false)
+        system
+            .as_ref()
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false)
     );
     if let Some(temp) = temperature {
         eprintln!("[llm] temperature={:.3}", temp);
@@ -1025,7 +1102,11 @@ async fn generate_llm(
     if let Some(seed_val) = seed {
         eprintln!("[llm] seed={}", seed_val);
     }
-    let preview = prompt.chars().take(160).collect::<String>().replace('\n', " ");
+    let preview = prompt
+        .chars()
+        .take(160)
+        .collect::<String>()
+        .replace('\n', " ");
     eprintln!("[llm] prompt_preview: {}", preview);
     async_runtime::spawn_blocking(move || -> Result<String, String> {
         // Use the Python helper which streams from Ollama and concatenates the result
@@ -1092,7 +1173,11 @@ except Exception as e:
             return Err(String::from_utf8_lossy(&output.stderr).to_string());
         }
         let out = String::from_utf8_lossy(&output.stdout).to_string();
-        eprintln!("[llm] response_len={} preview='{}'", out.len(), out.chars().take(120).collect::<String>().replace('\n', " "));
+        eprintln!(
+            "[llm] response_len={} preview='{}'",
+            out.len(),
+            out.chars().take(120).collect::<String>().replace('\n', " ")
+        );
         Ok(out)
     })
     .await
@@ -1543,7 +1628,9 @@ fn discord_listen_logs_tail(lines: Option<usize>) -> Result<Vec<String>, String>
     let count = lines.unwrap_or(100).min(1000);
     let logs = discord_listen_logs().lock().unwrap();
     let n = logs.len();
-    if n == 0 { return Ok(Vec::new()); }
+    if n == 0 {
+        return Ok(Vec::new());
+    }
     let start = if n > count { n - count } else { 0 };
     Ok(logs[start..].to_vec())
 }
@@ -1921,6 +2008,8 @@ struct JobRecord {
     id: u64,
     kind: Option<String>,
     label: Option<String>,
+    #[serde(default)]
+    source: Option<String>,
     args: Vec<String>,
     created_at: DateTime<Utc>,
     #[serde(default)]
@@ -1956,6 +2045,8 @@ struct QueueRecord {
     args: Vec<String>,
     kind: Option<String>,
     label: Option<String>,
+    #[serde(default)]
+    source: Option<String>,
     artifact_candidates: Vec<JobArtifact>,
     created_at: DateTime<Utc>,
     queued_at: DateTime<Utc>,
@@ -1965,6 +2056,7 @@ struct QueueRecord {
 struct JobContext {
     kind: Option<String>,
     label: Option<String>,
+    source: Option<String>,
     artifact_candidates: Vec<JobArtifactCandidate>,
 }
 
@@ -2033,6 +2125,7 @@ struct JobInfo {
     progress: Arc<Mutex<Option<JobProgressSnapshot>>>,
     kind: Option<String>,
     label: Option<String>,
+    source: Option<String>,
 }
 
 impl JobInfo {
@@ -2057,6 +2150,7 @@ impl JobInfo {
             progress: Arc::new(Mutex::new(None)),
             kind: context.kind.clone(),
             label: context.label.clone(),
+            source: context.source.clone(),
         }
     }
 
@@ -2085,6 +2179,7 @@ impl JobInfo {
             id,
             kind: self.kind.clone(),
             label: self.label.clone(),
+            source: self.source.clone(),
             args: self.args.clone(),
             created_at: self.created_at,
             started_at: self.started_at,
@@ -2187,6 +2282,7 @@ impl JobRegistry {
                             progress: Arc::new(Mutex::new(None)),
                             kind: record.kind.clone(),
                             label: record.label.clone(),
+                            source: record.source.clone(),
                         };
                         jobs.insert(record.id, job);
                         queue.push_back(record.id);
@@ -2247,6 +2343,7 @@ impl JobRegistry {
                             args: job.args.clone(),
                             kind: job.kind.clone(),
                             label: job.label.clone(),
+                            source: job.source.clone(),
                             artifact_candidates: job
                                 .artifact_candidates
                                 .iter()
@@ -2407,6 +2504,98 @@ impl JobRegistry {
             eprintln!("[blossom] persistence disabled; skipping persist_queue on enqueue");
         }
         Ok(())
+    }
+
+    fn register_running_job(
+        &self,
+        app: &AppHandle,
+        id: u64,
+        mut job: JobInfo,
+        initial_progress: JobProgressSnapshot,
+    ) {
+        job.pending = false;
+        job.started_at = Some(Utc::now());
+        {
+            let mut progress = job.progress.lock().unwrap();
+            *progress = Some(initial_progress.clone());
+        }
+        {
+            let mut jobs = self.jobs.lock().unwrap();
+            jobs.insert(id, job);
+        }
+        let event = ProgressEvent {
+            stage: initial_progress.stage.clone(),
+            percent: initial_progress.percent,
+            message: initial_progress.message.clone(),
+            eta: initial_progress.eta.clone(),
+            step: initial_progress.step,
+            total: initial_progress.total,
+            queue_position: initial_progress.queue_position,
+            queue_eta_seconds: initial_progress.queue_eta_seconds,
+        };
+        let _ = app.emit(&format!("progress::{}", id), event);
+    }
+
+    fn update_job_progress(&self, app: &AppHandle, id: u64, snapshot: JobProgressSnapshot) {
+        let progress_arc = {
+            let jobs = self.jobs.lock().unwrap();
+            jobs.get(&id).map(|job| job.progress.clone())
+        };
+        if let Some(progress_arc) = progress_arc {
+            {
+                let mut guard = progress_arc.lock().unwrap();
+                *guard = Some(snapshot.clone());
+            }
+            let event = ProgressEvent {
+                stage: snapshot.stage.clone(),
+                percent: snapshot.percent,
+                message: snapshot.message.clone(),
+                eta: snapshot.eta.clone(),
+                step: snapshot.step,
+                total: snapshot.total,
+                queue_position: snapshot.queue_position,
+                queue_eta_seconds: snapshot.queue_eta_seconds,
+            };
+            let _ = app.emit(&format!("progress::{}", id), event);
+        }
+    }
+
+    fn append_job_stdout(&self, id: u64, line: &str) {
+        let arc = {
+            let jobs = self.jobs.lock().unwrap();
+            jobs.get(&id).map(|job| job.stdout_excerpt.clone())
+        };
+        if let Some(buffer_arc) = arc {
+            let mut buffer = buffer_arc.lock().unwrap();
+            buffer.push_back(line.to_string());
+            while buffer.len() > MAX_LOG_LINES {
+                buffer.pop_front();
+            }
+        }
+    }
+
+    fn append_job_stderr(&self, id: u64, line: &str) {
+        let handles = {
+            let jobs = self.jobs.lock().unwrap();
+            jobs.get(&id)
+                .map(|job| (job.stderr_excerpt.clone(), job.stderr_full.clone()))
+        };
+        if let Some((excerpt_arc, full_arc)) = handles {
+            {
+                let mut buffer = excerpt_arc.lock().unwrap();
+                buffer.push_back(line.to_string());
+                while buffer.len() > MAX_LOG_LINES {
+                    buffer.pop_front();
+                }
+            }
+            {
+                let mut full = full_arc.lock().unwrap();
+                full.push_str(line);
+                if !line.ends_with('\n') {
+                    full.push('\n');
+                }
+            }
+        }
     }
 
     fn spawn_completion_watcher(
@@ -2753,6 +2942,7 @@ impl JobRegistry {
                     (
                         job.kind.clone(),
                         job.label.clone(),
+                        job.source.clone(),
                         job.args.clone(),
                         job.created_at,
                         job.started_at,
@@ -2773,6 +2963,7 @@ impl JobRegistry {
             (
                 kind,
                 label,
+                source,
                 args_clone,
                 created_at,
                 started_at,
@@ -2807,6 +2998,7 @@ impl JobRegistry {
                 id,
                 kind,
                 label,
+                source,
                 args: args_clone,
                 created_at,
                 started_at,
@@ -2961,12 +3153,58 @@ fn settings_store(app: &AppHandle) -> Result<Arc<Store<tauri::Wry>>, String> {
 }
 
 #[tauri::command]
-async fn update_section_tags(app: AppHandle, section: String) -> Result<TagUpdateSummary, String> {
+async fn update_section_tags(
+    app: AppHandle,
+    registry: State<JobRegistry>,
+    section: String,
+) -> Result<TagUpdateSummary, String> {
     let trimmed = section.trim();
     let section_cfg = tag_section_map()
         .get(trimmed)
         .cloned()
         .ok_or_else(|| format!("Unknown tag section '{}'.", trimmed))?;
+
+    let job_label = format!("D&D Tags · {}", section_cfg.label);
+    let args = vec!["dnd:update_section_tags".into(), section_cfg.id.clone()];
+    let context = JobContext {
+        kind: Some("dnd_update_section_tags".into()),
+        label: Some(job_label.clone()),
+        source: Some("D&D".into()),
+        artifact_candidates: Vec::new(),
+    };
+    let job_id = registry.next_id();
+    let job = JobInfo::new_pending(args, &context);
+    let initial_snapshot = JobProgressSnapshot {
+        stage: Some("starting".into()),
+        percent: Some(0),
+        message: Some(format!("Preparing tag refresh for {}", section_cfg.label)),
+        eta: None,
+        step: None,
+        total: None,
+        queue_position: None,
+        queue_eta_seconds: None,
+    };
+    registry.register_running_job(&app, job_id, job, initial_snapshot);
+
+    let fail_job = |message: String| -> Result<TagUpdateSummary, String> {
+        registry.append_job_stderr(job_id, &message);
+        registry.update_job_progress(
+            &app,
+            job_id,
+            JobProgressSnapshot {
+                stage: Some("error".into()),
+                percent: Some(100),
+                message: Some(message.clone()),
+                eta: None,
+                step: None,
+                total: None,
+                queue_position: None,
+                queue_eta_seconds: None,
+            },
+        );
+        registry.complete_job(&app, job_id, false, Some(1), false);
+        Err(message)
+    };
 
     let mut candidates: Vec<PathBuf> = Vec::new();
 
@@ -2996,7 +3234,7 @@ async fn update_section_tags(app: AppHandle, section: String) -> Result<TagUpdat
         }
     }
     if candidates.is_empty() {
-        return Err(format!(
+        return fail_job(format!(
             "No folder mapping configured for section '{}'. Ensure the DreadHaven directory exists at {}.",
             section_cfg.label,
             config::DEFAULT_DREADHAVEN_ROOT
@@ -3018,7 +3256,7 @@ async fn update_section_tags(app: AppHandle, section: String) -> Result<TagUpdat
                 .map(|p| p.to_string_lossy().to_string())
                 .collect::<Vec<_>>()
                 .join(", ");
-            return Err(format!(
+            return fail_job(format!(
                 "Folder for '{}' not found. Checked: {}.",
                 section_cfg.label, searched
             ));
@@ -3026,6 +3264,7 @@ async fn update_section_tags(app: AppHandle, section: String) -> Result<TagUpdat
     };
 
     let base_display = base_dir.to_string_lossy().to_string();
+    registry.append_job_stdout(job_id, &format!("Scanning {}", base_display));
     let label = section_cfg.label.clone();
 
     let mut files: Vec<PathBuf> = Vec::new();
@@ -3057,6 +3296,27 @@ async fn update_section_tags(app: AppHandle, section: String) -> Result<TagUpdat
     files.sort();
 
     let total = files.len();
+    let start = Instant::now();
+
+    let queue_message = if total == 1 {
+        "Processing 1 note.".to_string()
+    } else {
+        format!("Processing {} notes.", total)
+    };
+    registry.update_job_progress(
+        &app,
+        job_id,
+        JobProgressSnapshot {
+            stage: Some("running".into()),
+            percent: Some(if total == 0 { 100 } else { 0 }),
+            message: Some(queue_message.clone()),
+            eta: None,
+            step: Some(0),
+            total: Some(total as u64),
+            queue_position: None,
+            queue_eta_seconds: None,
+        },
+    );
     emit_tag_event(
         &app,
         TagUpdateEvent {
@@ -3067,11 +3327,7 @@ async fn update_section_tags(app: AppHandle, section: String) -> Result<TagUpdat
             total: Some(total),
             rel_path: Some(base_display.clone()),
             tags: None,
-            message: Some(if total == 1 {
-                "Processing 1 note.".to_string()
-            } else {
-                format!("Processing {} notes.", total)
-            }),
+            message: Some(queue_message),
             updated: None,
             skipped: None,
             failed: None,
@@ -3081,10 +3337,34 @@ async fn update_section_tags(app: AppHandle, section: String) -> Result<TagUpdat
     let mut updated_notes = 0usize;
     let mut skipped_notes = 0usize;
     let mut failed_notes = 0usize;
-    let start = Instant::now();
 
     for (index, path) in files.iter().enumerate() {
         let rel = relative_display(&base_dir, path);
+        let percent_val = if total == 0 {
+            100
+        } else {
+            (((index + 1) * 100) / total).min(100)
+        };
+        let running_percent = if percent_val >= 100 {
+            99u8
+        } else {
+            percent_val as u8
+        };
+        registry.update_job_progress(
+            &app,
+            job_id,
+            JobProgressSnapshot {
+                stage: Some("running".into()),
+                percent: Some(running_percent),
+                message: Some(format!("{} ({}/{})", label, index + 1, total)),
+                eta: None,
+                step: Some((index + 1) as u64),
+                total: Some(total as u64),
+                queue_position: None,
+                queue_eta_seconds: None,
+            },
+        );
+
         emit_tag_event(
             &app,
             TagUpdateEvent {
@@ -3106,6 +3386,8 @@ async fn update_section_tags(app: AppHandle, section: String) -> Result<TagUpdat
             Ok(text) => text,
             Err(err) => {
                 failed_notes += 1;
+                let msg = format!("Failed to read file: {}", err);
+                registry.append_job_stderr(job_id, &format!("{}: {}", rel, msg));
                 emit_tag_event(
                     &app,
                     TagUpdateEvent {
@@ -3116,7 +3398,7 @@ async fn update_section_tags(app: AppHandle, section: String) -> Result<TagUpdat
                         total: Some(total),
                         rel_path: Some(rel.clone()),
                         tags: None,
-                        message: Some(format!("Failed to read file: {}", err)),
+                        message: Some(msg),
                         updated: None,
                         skipped: None,
                         failed: None,
@@ -3130,6 +3412,7 @@ async fn update_section_tags(app: AppHandle, section: String) -> Result<TagUpdat
             Ok(parts) => parts,
             Err(err) => {
                 failed_notes += 1;
+                registry.append_job_stderr(job_id, &format!("{}: {}", rel, err));
                 emit_tag_event(
                     &app,
                     TagUpdateEvent {
@@ -3155,6 +3438,8 @@ async fn update_section_tags(app: AppHandle, section: String) -> Result<TagUpdat
                 Ok(s) => s,
                 Err(err) => {
                     failed_notes += 1;
+                    let msg = format!("Failed to serialize frontmatter: {}", err);
+                    registry.append_job_stderr(job_id, &format!("{}: {}", rel, msg));
                     emit_tag_event(
                         &app,
                         TagUpdateEvent {
@@ -3165,7 +3450,7 @@ async fn update_section_tags(app: AppHandle, section: String) -> Result<TagUpdat
                             total: Some(total),
                             rel_path: Some(rel.clone()),
                             tags: None,
-                            message: Some(format!("Failed to serialize frontmatter: {}", err)),
+                            message: Some(msg),
                             updated: None,
                             skipped: None,
                             failed: None,
@@ -3220,6 +3505,8 @@ Frontmatter:\n{frontmatter}\n---\nBody excerpt:\n{body}",
             Ok(text) => text,
             Err(err) => {
                 failed_notes += 1;
+                let msg = format!("Model call failed: {}", err);
+                registry.append_job_stderr(job_id, &format!("{}: {}", rel, msg));
                 emit_tag_event(
                     &app,
                     TagUpdateEvent {
@@ -3230,7 +3517,7 @@ Frontmatter:\n{frontmatter}\n---\nBody excerpt:\n{body}",
                         total: Some(total),
                         rel_path: Some(rel.clone()),
                         tags: None,
-                        message: Some(format!("Model call failed: {}", err)),
+                        message: Some(msg),
                         updated: None,
                         skipped: None,
                         failed: None,
@@ -3244,6 +3531,7 @@ Frontmatter:\n{frontmatter}\n---\nBody excerpt:\n{body}",
             Ok(tags) => tags,
             Err(err) => {
                 failed_notes += 1;
+                registry.append_job_stderr(job_id, &format!("{}: {}", rel, err));
                 emit_tag_event(
                     &app,
                     TagUpdateEvent {
@@ -3299,7 +3587,7 @@ Frontmatter:\n{frontmatter}\n---\nBody excerpt:\n{body}",
                     index: Some(index),
                     total: Some(total),
                     rel_path: Some(rel.clone()),
-                    tags: Some(normalized.clone()),
+                    tags: None,
                     message: Some("Tags already up to date.".into()),
                     updated: None,
                     skipped: None,
@@ -3322,6 +3610,8 @@ Frontmatter:\n{frontmatter}\n---\nBody excerpt:\n{body}",
             Ok(s) => s,
             Err(err) => {
                 failed_notes += 1;
+                let msg = format!("Failed to serialize updated frontmatter: {}", err);
+                registry.append_job_stderr(job_id, &format!("{}: {}", rel, msg));
                 emit_tag_event(
                     &app,
                     TagUpdateEvent {
@@ -3332,7 +3622,7 @@ Frontmatter:\n{frontmatter}\n---\nBody excerpt:\n{body}",
                         total: Some(total),
                         rel_path: Some(rel.clone()),
                         tags: None,
-                        message: Some(format!("Failed to serialize updated frontmatter: {}", err)),
+                        message: Some(msg),
                         updated: None,
                         skipped: None,
                         failed: None,
@@ -3350,6 +3640,8 @@ Frontmatter:\n{frontmatter}\n---\nBody excerpt:\n{body}",
 
         if let Err(err) = fs::write(path, new_content) {
             failed_notes += 1;
+            let msg = format!("Failed to write file: {}", err);
+            registry.append_job_stderr(job_id, &format!("{}: {}", rel, msg));
             emit_tag_event(
                 &app,
                 TagUpdateEvent {
@@ -3360,7 +3652,7 @@ Frontmatter:\n{frontmatter}\n---\nBody excerpt:\n{body}",
                     total: Some(total),
                     rel_path: Some(rel.clone()),
                     tags: Some(normalized.clone()),
-                    message: Some(format!("Failed to write file: {}", err)),
+                    message: Some(msg),
                     updated: None,
                     skipped: None,
                     failed: None,
@@ -3406,6 +3698,19 @@ Frontmatter:\n{frontmatter}\n---\nBody excerpt:\n{body}",
             failed: Some(failed_notes),
         },
     );
+
+    registry.append_job_stdout(
+        job_id,
+        &format!(
+            "Processed {} notes · updated {}, skipped {}, failed {} · {:.1}s",
+            total,
+            updated_notes,
+            skipped_notes,
+            failed_notes,
+            duration_ms as f32 / 1000.0
+        ),
+    );
+    registry.complete_job(&app, job_id, true, Some(0), false);
 
     Ok(TagUpdateSummary {
         section: section_cfg.id,
@@ -3742,7 +4047,9 @@ async fn npc_create(
                 // Build a simple, single-line frontmatter block the UI parser understands
                 let mut front = String::new();
                 let mut push_kv = |k: &str, v: String| {
-                    if v.trim().is_empty() { return; }
+                    if v.trim().is_empty() {
+                        return;
+                    }
                     front.push_str(k);
                     front.push_str(": ");
                     front.push_str(&v);
@@ -3763,10 +4070,27 @@ async fn npc_create(
                     })
                 };
                 for key in [
-                    "region","location","role","occupation","faction","race","gender","age","alignment",
-                    "residence","voice","attitude","archetype","goals","fears","motives","secrets",
+                    "region",
+                    "location",
+                    "role",
+                    "occupation",
+                    "faction",
+                    "race",
+                    "gender",
+                    "age",
+                    "alignment",
+                    "residence",
+                    "voice",
+                    "attitude",
+                    "archetype",
+                    "goals",
+                    "fears",
+                    "motives",
+                    "secrets",
                 ] {
-                    if let Some(val) = scalar(key) { push_kv(key, val); }
+                    if let Some(val) = scalar(key) {
+                        push_kv(key, val);
+                    }
                 }
 
                 // Replace first markdown H1 with the NPC name to avoid template titles
@@ -3781,8 +4105,11 @@ async fn npc_create(
                 while start_idx < scan_lines.len() {
                     let lt = scan_lines[start_idx].trim();
                     let low = lt.to_ascii_lowercase();
-                    let is_banner = low.contains("npc template") || low.contains("ultimate npc template") || lt.starts_with('📜');
-                    let is_inline_fm = lt.starts_with("---") && lt.ends_with("---") && !lt.contains('\n');
+                    let is_banner = low.contains("npc template")
+                        || low.contains("ultimate npc template")
+                        || lt.starts_with('📜');
+                    let is_inline_fm =
+                        lt.starts_with("---") && lt.ends_with("---") && !lt.contains('\n');
                     if lt.is_empty() || is_banner || is_inline_fm {
                         start_idx += 1;
                         continue;
@@ -3828,8 +4155,14 @@ async fn npc_create(
     // Re-extract the final NPC name from updated content/frontmatter
     let effective_name = match parse_frontmatter(&content) {
         Ok((mapping, _body, _raw)) => {
-            let key = |k: &str| mapping.get(&YamlValue::String(k.to_string())).and_then(|v| v.as_str().map(|s| s.to_string()));
-            key("name").or_else(|| key("title")).unwrap_or_else(|| initial_name.clone())
+            let key = |k: &str| {
+                mapping
+                    .get(&YamlValue::String(k.to_string()))
+                    .and_then(|v| v.as_str().map(|s| s.to_string()))
+            };
+            key("name")
+                .or_else(|| key("title"))
+                .unwrap_or_else(|| initial_name.clone())
         }
         Err(_) => extract_title(&content).unwrap_or_else(|| initial_name.clone()),
     };
@@ -4061,7 +4394,12 @@ fn extract_sheet_string(sheet: &Value, path: &[&str]) -> Option<String> {
 }
 
 #[tauri::command]
-fn inbox_create(app: AppHandle, name: String, content: Option<String>, base_path: Option<String>) -> Result<String, String> {
+fn inbox_create(
+    app: AppHandle,
+    name: String,
+    content: Option<String>,
+    base_path: Option<String>,
+) -> Result<String, String> {
     // Determine target directory: explicit base_path > vault/00_Inbox
     let target_dir = if let Some(p) = base_path.filter(|s| !s.trim().is_empty()) {
         PathBuf::from(p)
@@ -4079,17 +4417,27 @@ fn inbox_create(app: AppHandle, name: String, content: Option<String>, base_path
     // Build a safe filename
     let mut fname = name
         .chars()
-        .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect::<String>()
         .trim()
         .replace(' ', "_");
-    if fname.is_empty() { fname = "New_Note".to_string(); }
+    if fname.is_empty() {
+        fname = "New_Note".to_string();
+    }
     let mut target = target_dir.join(format!("{}.md", fname));
     let mut counter = 2u32;
     while target.exists() {
         target = target_dir.join(format!("{}_{}.md", fname, counter));
         counter += 1;
-        if counter > 9999 { break; }
+        if counter > 9999 {
+            break;
+        }
     }
     let body = content.unwrap_or_default();
     fs::write(&target, body.as_bytes()).map_err(|e| e.to_string())?;
@@ -4097,48 +4445,90 @@ fn inbox_create(app: AppHandle, name: String, content: Option<String>, base_path
 }
 
 #[tauri::command]
-fn npc_save_portrait(app: AppHandle, name: String, filename: String, bytes: Vec<u8>) -> Result<String, String> {
+fn npc_save_portrait(
+    app: AppHandle,
+    name: String,
+    filename: String,
+    bytes: Vec<u8>,
+) -> Result<String, String> {
     let store = settings_store(&app).map_err(|e| e.to_string())?;
     let vault = store
         .get("vaultPath")
         .and_then(|v| v.as_str().map(|s| s.to_string()));
     let base_dir = if let Some(ref v) = vault {
-        PathBuf::from(v).join("30_Assets").join("Images").join("NPC_Portraits")
+        PathBuf::from(v)
+            .join("30_Assets")
+            .join("Images")
+            .join("NPC_Portraits")
     } else {
         PathBuf::from(r"D:\\Documents\\DreadHaven\\30_Assets\\Images\\NPC_Portraits")
     };
-    if !base_dir.exists() { fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?; }
+    if !base_dir.exists() {
+        fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?;
+    }
     let ext = std::path::Path::new(&filename)
         .extension()
         .and_then(|s| s.to_str())
         .unwrap_or("png");
-    let mut fname = name.chars().map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' }).collect::<String>();
+    let mut fname = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
     fname = fname.trim().replace(' ', "_");
-    if fname.is_empty() { fname = "Portrait".into(); }
+    if fname.is_empty() {
+        fname = "Portrait".into();
+    }
     let target = base_dir.join(format!("{}.{}", fname, ext));
     fs::write(&target, &bytes).map_err(|e| e.to_string())?;
     Ok(target.to_string_lossy().to_string())
 }
 
 #[tauri::command]
-fn god_save_portrait(app: AppHandle, name: String, filename: String, bytes: Vec<u8>) -> Result<String, String> {
+fn god_save_portrait(
+    app: AppHandle,
+    name: String,
+    filename: String,
+    bytes: Vec<u8>,
+) -> Result<String, String> {
     let store = settings_store(&app).map_err(|e| e.to_string())?;
     let vault = store
         .get("vaultPath")
         .and_then(|v| v.as_str().map(|s| s.to_string()));
     let base_dir = if let Some(ref v) = vault {
-        PathBuf::from(v).join("30_Assets").join("Images").join("God_Portraits")
+        PathBuf::from(v)
+            .join("30_Assets")
+            .join("Images")
+            .join("God_Portraits")
     } else {
         PathBuf::from(r"D:\\Documents\\DreadHaven\\30_Assets\\Images\\God_Portraits")
     };
-    if !base_dir.exists() { fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?; }
+    if !base_dir.exists() {
+        fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?;
+    }
     let ext = std::path::Path::new(&filename)
         .extension()
         .and_then(|s| s.to_str())
         .unwrap_or("png");
-    let mut fname = name.chars().map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' }).collect::<String>();
+    let mut fname = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
     fname = fname.trim().replace(' ', "_");
-    if fname.is_empty() { fname = "Portrait".into(); }
+    if fname.is_empty() {
+        fname = "Portrait".into();
+    }
     let target = base_dir.join(format!("{}.{}", fname, ext));
     fs::write(&target, &bytes).map_err(|e| e.to_string())?;
     Ok(target.to_string_lossy().to_string())
@@ -4173,7 +4563,9 @@ fn race_create(
         let mut joined = base.clone();
         for part in raw.replace('\\', "/").split('/') {
             let trimmed = part.trim();
-            if trimmed.is_empty() { continue; }
+            if trimmed.is_empty() {
+                continue;
+            }
             joined.push(trimmed);
         }
         joined
@@ -4187,11 +4579,19 @@ fn race_create(
     fn sanitize_filename(input: &str) -> String {
         let mut out = input
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect::<String>()
             .trim()
             .replace(' ', "_");
-        if out.is_empty() { out = "New".into(); }
+        if out.is_empty() {
+            out = "New".into();
+        }
         out
     }
 
@@ -4204,9 +4604,17 @@ fn race_create(
 
     let mut target_dir = if let Some(ref override_path) = directory_override {
         let candidate = PathBuf::from(override_path);
-        if candidate.is_absolute() { candidate } else { resolve_relative(&base_dir, override_path) }
-    } else { base_dir.join(default_folder) };
-    if !target_dir.exists() { fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?; }
+        if candidate.is_absolute() {
+            candidate
+        } else {
+            resolve_relative(&base_dir, override_path)
+        }
+    } else {
+        base_dir.join(default_folder)
+    };
+    if !target_dir.exists() {
+        fs::create_dir_all(&target_dir).map_err(|e| e.to_string())?;
+    }
     eprintln!("[races] target_dir='{}'", target_dir.to_string_lossy());
 
     // Determine template candidates
@@ -4220,10 +4628,19 @@ fn race_create(
         let candidate = PathBuf::from(path);
         if candidate.exists() && candidate.is_file() {
             template_body = fs::read_to_string(&candidate).ok();
-            eprintln!("[races] using template override file '{}'", candidate.to_string_lossy());
+            eprintln!(
+                "[races] using template override file '{}'",
+                candidate.to_string_lossy()
+            );
         } else if let Some(ref v) = vault {
             let rel = resolve_relative(&PathBuf::from(v), path);
-            if rel.exists() && rel.is_file() { template_body = fs::read_to_string(rel.clone()).ok(); eprintln!("[races] using template override (vault-relative) '{}'", rel.to_string_lossy()); }
+            if rel.exists() && rel.is_file() {
+                template_body = fs::read_to_string(rel.clone()).ok();
+                eprintln!(
+                    "[races] using template override (vault-relative) '{}'",
+                    rel.to_string_lossy()
+                );
+            }
         }
     }
     let mut body = String::new();
@@ -4249,13 +4666,23 @@ fn race_create(
             )
         };
         let system = Some(String::from("You are a helpful worldbuilding assistant. Produce clean, cohesive Markdown and keep to the template headings."));
-        eprintln!("[races] invoking LLM to fill template for '{}' (parent={:?})", name, parent);
+        eprintln!(
+            "[races] invoking LLM to fill template for '{}' (parent={:?})",
+            name, parent
+        );
         let llm_content = tauri::async_runtime::block_on(async {
             generate_llm(prompt, system, None, None).await
         })
-            .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?;
         body = strip_code_fence(&llm_content).to_string();
-        eprintln!("[races] LLM output len={} preview='{}'", body.len(), body.chars().take(100).collect::<String>().replace('\n', " "));
+        eprintln!(
+            "[races] LLM output len={} preview='{}'",
+            body.len(),
+            body.chars()
+                .take(100)
+                .collect::<String>()
+                .replace('\n', " ")
+        );
     } else if let Some(tpl) = template_body {
         body = tpl;
         eprintln!("[races] using template body without LLM for '{}'", name);
@@ -4267,18 +4694,30 @@ fn race_create(
     }
 
     // Sanitize filename and ensure uniqueness
-    let base_filename = if let Some(ref parent_name) = parent { sanitize_filename(&name) } else { sanitize_filename(&name) };
+    let base_filename = if let Some(ref parent_name) = parent {
+        sanitize_filename(&name)
+    } else {
+        sanitize_filename(&name)
+    };
     let mut fname = base_filename.clone();
-    if fname.is_empty() { fname = "New_Race".into(); }
+    if fname.is_empty() {
+        fname = "New_Race".into();
+    }
     let mut target = target_dir.join(format!("{}.md", fname));
     let mut counter = 2u32;
     while target.exists() {
         target = target_dir.join(format!("{}_{}.md", fname, counter));
         counter += 1;
-        if counter > 9999 { break; }
+        if counter > 9999 {
+            break;
+        }
     }
     fs::write(&target, body.as_bytes()).map_err(|e| e.to_string())?;
-    eprintln!("[races] wrote file '{}' ({} bytes)", target.to_string_lossy(), body.len());
+    eprintln!(
+        "[races] wrote file '{}' ({} bytes)",
+        target.to_string_lossy(),
+        body.len()
+    );
     Ok(target.to_string_lossy().to_string())
 }
 
@@ -4295,16 +4734,32 @@ fn race_save_portrait(
         .get("vaultPath")
         .and_then(|v| v.as_str().map(|s| s.to_string()));
     let base_dir = if let Some(ref v) = vault {
-        PathBuf::from(v).join("30_Assets").join("Images").join("Race_Portraits")
+        PathBuf::from(v)
+            .join("30_Assets")
+            .join("Images")
+            .join("Race_Portraits")
     } else {
         PathBuf::from(r"D:\\Documents\\DreadHaven\\30_Assets\\Images\\Race_Portraits")
     };
-    if !base_dir.exists() { fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?; }
+    if !base_dir.exists() {
+        fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?;
+    }
 
     fn sanitize(s: &str) -> String {
-        let mut out = s.chars().map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' }).collect::<String>();
+        let mut out = s
+            .chars()
+            .map(|c| {
+                if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect::<String>();
         out = out.trim().replace(' ', "_");
-        if out.is_empty() { out = "Portrait".into(); }
+        if out.is_empty() {
+            out = "Portrait".into();
+        }
         out
     }
     let race_clean = sanitize(&race);
@@ -5390,7 +5845,12 @@ fn discover_piper_voices() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-fn add_piper_voice(app: AppHandle, name: String, voice: String, tags: String) -> Result<(), String> {
+fn add_piper_voice(
+    app: AppHandle,
+    name: String,
+    voice: String,
+    tags: String,
+) -> Result<(), String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let path = dir.join("voices.json");
     let mut map: serde_json::Map<String, Value> = if path.exists() {
@@ -5453,7 +5913,12 @@ fn list_piper_profiles(app: AppHandle) -> Result<Vec<PiperProfile>, String> {
 }
 
 #[tauri::command]
-fn update_piper_profile(app: AppHandle, original: String, name: String, tags: String) -> Result<(), String> {
+fn update_piper_profile(
+    app: AppHandle,
+    original: String,
+    name: String,
+    tags: String,
+) -> Result<(), String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let path = dir.join("voices.json");
     let mut map: serde_json::Map<String, Value> = if path.exists() {
@@ -5537,17 +6002,37 @@ fn piper_test(app: AppHandle, text: String, voice: String) -> Result<PathBuf, St
         'resolve_specific: for base in &roots {
             if let Ok(rd) = fs::read_dir(base) {
                 for entry in rd {
-                    let entry = match entry { Ok(e) => e, Err(_) => continue };
+                    let entry = match entry {
+                        Ok(e) => e,
+                        Err(_) => continue,
+                    };
                     let path = entry.path();
-                    if !path.is_dir() { continue; }
-                    let id = match path.file_name().and_then(|s| s.to_str()) { Some(s) => s.to_string(), None => continue };
-                    if id != voice { continue; }
+                    if !path.is_dir() {
+                        continue;
+                    }
+                    let id = match path.file_name().and_then(|s| s.to_str()) {
+                        Some(s) => s.to_string(),
+                        None => continue,
+                    };
+                    if id != voice {
+                        continue;
+                    }
                     let mut model_file: Option<String> = None;
                     if let Ok(files) = fs::read_dir(&path) {
                         for f in files.flatten() {
-                            if let Ok(ft) = f.file_type() { if !ft.is_file() { continue; } }
-                            let name = match f.file_name().to_str() { Some(s) => s.to_string(), None => continue };
-                            if name.to_lowercase().ends_with(".onnx") { model_file = Some(name); break; }
+                            if let Ok(ft) = f.file_type() {
+                                if !ft.is_file() {
+                                    continue;
+                                }
+                            }
+                            let name = match f.file_name().to_str() {
+                                Some(s) => s.to_string(),
+                                None => continue,
+                            };
+                            if name.to_lowercase().ends_with(".onnx") {
+                                model_file = Some(name);
+                                break;
+                            }
                         }
                     }
                     if let Some(model) = model_file {
@@ -5565,7 +6050,9 @@ fn piper_test(app: AppHandle, text: String, voice: String) -> Result<PathBuf, St
             if let Ok(rd) = fs::read_dir(base) {
                 for entry in rd.flatten() {
                     let path = entry.path();
-                    if !path.is_dir() { continue; }
+                    if !path.is_dir() {
+                        continue;
+                    }
                     if let Ok(files) = fs::read_dir(&path) {
                         for f in files.flatten() {
                             let fpath = f.path();
@@ -5899,6 +6386,7 @@ struct JobState {
     progress: Option<JobProgressSnapshot>,
     kind: Option<String>,
     label: Option<String>,
+    source: Option<String>,
     cancelled: bool,
 }
 
@@ -6054,6 +6542,7 @@ fn export_loop_video(
     let context = JobContext {
         kind: Some("loop-maker".into()),
         label: Some(stem),
+        source: Some("Loop Export".into()),
         artifact_candidates,
     };
 
@@ -6085,9 +6574,19 @@ fn queue_riffusion_soundscape_job(
 
     let sanitize = |s: &str| -> String {
         let mut out = String::new();
-        for ch in s.chars() { if ch.is_ascii_alphanumeric() || matches!(ch, '-'|'_'|' ') { out.push(ch); } else { out.push('_'); } }
+        for ch in s.chars() {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ' ') {
+                out.push(ch);
+            } else {
+                out.push('_');
+            }
+        }
         let trimmed = out.trim().trim_matches('.').to_string();
-        if trimmed.is_empty() { "soundscape".to_string() } else { trimmed.chars().take(120).collect() }
+        if trimmed.is_empty() {
+            "soundscape".to_string()
+        } else {
+            trimmed.chars().take(120).collect()
+        }
     };
 
     let base_name_source = options
@@ -6095,7 +6594,12 @@ fn queue_riffusion_soundscape_job(
         .as_ref()
         .filter(|s| !s.trim().is_empty())
         .map(|s| s.trim().to_string())
-        .unwrap_or_else(|| options.preset.clone().unwrap_or_else(|| "dark_ambience".into()));
+        .unwrap_or_else(|| {
+            options
+                .preset
+                .clone()
+                .unwrap_or_else(|| "dark_ambience".into())
+        });
     let base_name = sanitize(&base_name_source);
     let outfile = base_dir.join(format!("{}.wav", base_name));
     let cover = base_dir.join(format!("{}.png", base_name));
@@ -6103,28 +6607,64 @@ fn queue_riffusion_soundscape_job(
 
     // Artifact candidates: master, cover, directory. (Stem files will be registered at completion by pattern.)
     let mut artifact_candidates = Vec::new();
-    artifact_candidates.push(JobArtifactCandidate { name: format!("{} (master)", base_name), path: outfile.clone() });
-    artifact_candidates.push(JobArtifactCandidate { name: format!("{} (cover)", base_name), path: cover.clone() });
-    artifact_candidates.push(JobArtifactCandidate { name: format!("{} (log)", base_name), path: logf.clone() });
-    artifact_candidates.push(JobArtifactCandidate { name: "Output Directory".into(), path: base_dir.clone() });
+    artifact_candidates.push(JobArtifactCandidate {
+        name: format!("{} (master)", base_name),
+        path: outfile.clone(),
+    });
+    artifact_candidates.push(JobArtifactCandidate {
+        name: format!("{} (cover)", base_name),
+        path: cover.clone(),
+    });
+    artifact_candidates.push(JobArtifactCandidate {
+        name: format!("{} (log)", base_name),
+        path: logf.clone(),
+    });
+    artifact_candidates.push(JobArtifactCandidate {
+        name: "Output Directory".into(),
+        path: base_dir.clone(),
+    });
 
     let mut args: Vec<String> = vec![
         "-m".into(),
         "blossom.audio.riffusion.cli_soundscape".into(),
-        "--outfile".into(), outfile.to_string_lossy().to_string(),
+        "--outfile".into(),
+        outfile.to_string_lossy().to_string(),
     ];
     // Prefer HiFi-GAN output for soundscape renders as well; the CLI will
     // revert to Griffin-Lim automatically if loading fails.
     args.push("--hub_hifigan".into());
-    if let Some(p) = options.preset.clone() { args.push("--preset".into()); args.push(p); }
-    if let Some(d) = options.duration { args.push("--duration".into()); args.push(format!("{}", d)); }
-    if let Some(s) = options.seed { args.push("--seed".into()); args.push(s.to_string()); }
-    if let Some(st) = options.steps { args.push("--steps".into()); args.push(st.to_string()); }
-    if let Some(g) = options.guidance { args.push("--guidance".into()); args.push(format!("{}", g)); }
-    if let Some(cf) = options.crossfade_secs { args.push("--crossfade_secs".into()); args.push(format!("{}", cf)); }
+    if let Some(p) = options.preset.clone() {
+        args.push("--preset".into());
+        args.push(p);
+    }
+    if let Some(d) = options.duration {
+        args.push("--duration".into());
+        args.push(format!("{}", d));
+    }
+    if let Some(s) = options.seed {
+        args.push("--seed".into());
+        args.push(s.to_string());
+    }
+    if let Some(st) = options.steps {
+        args.push("--steps".into());
+        args.push(st.to_string());
+    }
+    if let Some(g) = options.guidance {
+        args.push("--guidance".into());
+        args.push(format!("{}", g));
+    }
+    if let Some(cf) = options.crossfade_secs {
+        args.push("--crossfade_secs".into());
+        args.push(format!("{}", cf));
+    }
 
     let label = format!("Riffusion Soundscape: {}", base_name);
-    let context = JobContext { kind: Some("riffusion_soundscape".into()), label: Some(label), artifact_candidates };
+    let context = JobContext {
+        kind: Some("riffusion_soundscape".into()),
+        label: Some(label),
+        source: Some("Riffusion".into()),
+        artifact_candidates,
+    };
     spawn_job_with_context(app, registry, args, context)
 }
 
@@ -6162,7 +6702,11 @@ fn queue_riffusion_job(
             }
         }
         let trimmed = out.trim().trim_matches('.').to_string();
-        if trimmed.is_empty() { "riffusion".to_string() } else { trimmed.chars().take(120).collect() }
+        if trimmed.is_empty() {
+            "riffusion".to_string()
+        } else {
+            trimmed.chars().take(120).collect()
+        }
     };
 
     let fallback_name = format!("riffusion-{}", timestamp);
@@ -6183,20 +6727,39 @@ fn queue_riffusion_job(
     let log_path = outfile.with_extension("log");
 
     let mut artifact_candidates = Vec::new();
-    artifact_candidates.push(JobArtifactCandidate { name: base_name.clone(), path: outfile.clone() });
-    artifact_candidates.push(JobArtifactCandidate { name: "Metadata JSON".into(), path: meta_path.clone() });
-    artifact_candidates.push(JobArtifactCandidate { name: "Cover Image".into(), path: cover_path.clone() });
-    artifact_candidates.push(JobArtifactCandidate { name: "Log".into(), path: log_path.clone() });
-    artifact_candidates.push(JobArtifactCandidate { name: "Output Directory".into(), path: output_dir.clone() });
+    artifact_candidates.push(JobArtifactCandidate {
+        name: base_name.clone(),
+        path: outfile.clone(),
+    });
+    artifact_candidates.push(JobArtifactCandidate {
+        name: "Metadata JSON".into(),
+        path: meta_path.clone(),
+    });
+    artifact_candidates.push(JobArtifactCandidate {
+        name: "Cover Image".into(),
+        path: cover_path.clone(),
+    });
+    artifact_candidates.push(JobArtifactCandidate {
+        name: "Log".into(),
+        path: log_path.clone(),
+    });
+    artifact_candidates.push(JobArtifactCandidate {
+        name: "Output Directory".into(),
+        path: output_dir.clone(),
+    });
 
     // Build python -m blossom.audio.riffusion.cli_riffusion args
     let mut args: Vec<String> = vec![
         "-m".into(),
         "blossom.audio.riffusion.cli_riffusion".into(),
-        "--outfile".into(), outfile.to_string_lossy().to_string(),
-        "--width".into(), "512".into(),
-        "--height".into(), "512".into(),
-        "--sr".into(), "22050".into(),
+        "--outfile".into(),
+        outfile.to_string_lossy().to_string(),
+        "--width".into(),
+        "512".into(),
+        "--height".into(),
+        "512".into(),
+        "--sr".into(),
+        "22050".into(),
     ];
     // Default to the higher-fidelity HiFi-GAN vocoder; the CLI will gracefully
     // fall back to Griffin-Lim if it cannot be loaded on the current system.
@@ -6204,28 +6767,58 @@ fn queue_riffusion_job(
     if let Some(prompt) = options.prompt.as_ref().filter(|s| !s.trim().is_empty()) {
         args.push(prompt.clone());
     }
-    if let Some(neg) = options.negative.as_ref().filter(|s| !s.trim().is_empty()) { args.push("--negative".into()); args.push(neg.clone()); }
-    if let Some(pre) = options.preset.as_ref().filter(|s| !s.trim().is_empty()) { args.push("--preset".into()); args.push(pre.clone()); }
-    if let Some(seed) = options.seed { args.push("--seed".into()); args.push(seed.to_string()); }
-    if let Some(steps) = options.steps { args.push("--steps".into()); args.push(steps.to_string()); }
-    if let Some(g) = options.guidance { args.push("--guidance".into()); args.push(format!("{}", g)); }
-    if let Some(dur) = options.duration { args.push("--duration".into()); args.push(format!("{}", dur)); }
-    if let Some(cf) = options.crossfade_secs { args.push("--crossfade_secs".into()); args.push(format!("{}", cf)); }
+    if let Some(neg) = options.negative.as_ref().filter(|s| !s.trim().is_empty()) {
+        args.push("--negative".into());
+        args.push(neg.clone());
+    }
+    if let Some(pre) = options.preset.as_ref().filter(|s| !s.trim().is_empty()) {
+        args.push("--preset".into());
+        args.push(pre.clone());
+    }
+    if let Some(seed) = options.seed {
+        args.push("--seed".into());
+        args.push(seed.to_string());
+    }
+    if let Some(steps) = options.steps {
+        args.push("--steps".into());
+        args.push(steps.to_string());
+    }
+    if let Some(g) = options.guidance {
+        args.push("--guidance".into());
+        args.push(format!("{}", g));
+    }
+    if let Some(dur) = options.duration {
+        args.push("--duration".into());
+        args.push(format!("{}", dur));
+    }
+    if let Some(cf) = options.crossfade_secs {
+        args.push("--crossfade_secs".into());
+        args.push(format!("{}", cf));
+    }
 
     let label_source = options
         .output_name
         .as_ref()
         .filter(|s| !s.trim().is_empty())
         .map(|s| s.trim().to_string())
-        .or_else(|| options.prompt.as_ref().map(|p| {
-            let mut s: String = p.trim().chars().take(80).collect();
-            if p.trim().chars().count() > 80 { s.push('.'); }
-            s
-        }))
+        .or_else(|| {
+            options.prompt.as_ref().map(|p| {
+                let mut s: String = p.trim().chars().take(80).collect();
+                if p.trim().chars().count() > 80 {
+                    s.push('.');
+                }
+                s
+            })
+        })
         .unwrap_or_else(|| format!("Riffusion {}", timestamp));
     let label: String = label_source.chars().take(120).collect();
 
-    let context = JobContext { kind: Some("riffusion".into()), label: Some(label), artifact_candidates };
+    let context = JobContext {
+        kind: Some("riffusion".into()),
+        label: Some(label),
+        source: Some("Riffusion".into()),
+        artifact_candidates,
+    };
 
     // Use spawn_job_with_context with our args vector (python -m invocation handled inside job system)
     spawn_job_with_context(app, registry, args, context)
@@ -6245,6 +6838,7 @@ fn job_state_from_registry(app: &AppHandle, registry: &JobRegistry, job_id: u64)
         progress: None,
         kind: None,
         label: None,
+        source: None,
         cancelled: false,
     };
 
@@ -6255,6 +6849,7 @@ fn job_state_from_registry(app: &AppHandle, registry: &JobRegistry, job_id: u64)
             state.created_at = Some(format_timestamp(job.created_at));
             state.kind = job.kind.clone();
             state.label = job.label.clone();
+            state.source = job.source.clone();
             state.cancelled = job.cancelled;
             state.stdout = job
                 .stdout_excerpt
@@ -6328,6 +6923,7 @@ fn job_state_from_registry(app: &AppHandle, registry: &JobRegistry, job_id: u64)
             state.args = record.args.clone();
             state.kind = record.kind.clone();
             state.label = record.label.clone();
+            state.source = record.source.clone();
             state.stdout = record.stdout_excerpt.clone();
             state.stderr = record.stderr_excerpt.clone();
             state.artifacts = record.artifacts.clone();
@@ -6367,7 +6963,13 @@ fn list_job_queue(registry: State<JobRegistry>) -> Vec<QueueEntry> {
     let mut running_entries = Vec::new();
     let mut pending_info: HashMap<
         u64,
-        (DateTime<Utc>, Option<String>, Option<String>, Vec<String>),
+        (
+            DateTime<Utc>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Vec<String>,
+        ),
     > = HashMap::new();
     {
         let jobs = registry.jobs.lock().unwrap();
@@ -6382,6 +6984,7 @@ fn list_job_queue(registry: State<JobRegistry>) -> Vec<QueueEntry> {
                         job.queued_at,
                         job.label.clone(),
                         job.kind.clone(),
+                        job.source.clone(),
                         job.args.clone(),
                     ),
                 );
@@ -6394,6 +6997,7 @@ fn list_job_queue(registry: State<JobRegistry>) -> Vec<QueueEntry> {
                     started_at: job.started_at.map(format_timestamp),
                     label: job.label.clone(),
                     kind: job.kind.clone(),
+                    source: job.source.clone(),
                     args: job.args.clone(),
                     eta_seconds: None,
                 });
@@ -6404,7 +7008,7 @@ fn list_job_queue(registry: State<JobRegistry>) -> Vec<QueueEntry> {
     let running_count = running_entries.len();
     let mut queued_entries = Vec::new();
     for (idx, id) in queue_ids.iter().enumerate() {
-        if let Some((queued_at, label, kind, args)) = pending_info.get(id) {
+        if let Some((queued_at, label, kind, source, args)) = pending_info.get(id) {
             let eta_seconds = registry.estimate_queue_eta_seconds(idx, running_count);
             queued_entries.push(QueueEntry {
                 id: *id,
@@ -6414,6 +7018,7 @@ fn list_job_queue(registry: State<JobRegistry>) -> Vec<QueueEntry> {
                 started_at: None,
                 label: label.clone(),
                 kind: kind.clone(),
+                source: source.clone(),
                 args: args.clone(),
                 eta_seconds,
             });
@@ -6431,6 +7036,7 @@ struct JobSummary {
     finished_at: Option<String>,
     kind: Option<String>,
     label: Option<String>,
+    source: Option<String>,
     args: Vec<String>,
 }
 
@@ -6443,6 +7049,7 @@ struct QueueEntry {
     started_at: Option<String>,
     label: Option<String>,
     kind: Option<String>,
+    source: Option<String>,
     args: Vec<String>,
     eta_seconds: Option<u64>,
 }
@@ -6464,6 +7071,7 @@ fn list_completed_jobs(registry: State<JobRegistry>) -> Vec<JobSummary> {
             finished_at: record.finished_at.map(format_timestamp),
             kind: record.kind.clone(),
             label: record.label.clone(),
+            source: record.source.clone(),
             args: record.args.clone(),
         })
         .collect()
@@ -6663,6 +7271,7 @@ fn queue_musicgen_job(
     let context = JobContext {
         kind: Some("musicgen".into()),
         label: Some(label),
+        source: Some("MusicGen".into()),
         artifact_candidates,
     };
 
@@ -6850,6 +7459,7 @@ fn queue_render_job(
     let context = JobContext {
         kind: Some("music-render".into()),
         label: Some(name),
+        source: Some("Render".into()),
         artifact_candidates,
     };
 
@@ -6861,6 +7471,7 @@ fn record_manual_job(
     registry: State<JobRegistry>,
     kind: Option<String>,
     label: Option<String>,
+    source: Option<String>,
     args: Option<Vec<String>>,
     artifacts: Option<Vec<JobArtifact>>,
     stdout: Option<Vec<String>>,
@@ -6873,6 +7484,7 @@ fn record_manual_job(
         id,
         kind,
         label,
+        source,
         args: args.unwrap_or_default(),
         created_at: now,
         started_at: Some(now),
@@ -7094,7 +7706,8 @@ fn main() {
                         if w > 0 && h > 0 {
                             let _ = window.set_size(Size::Physical(PhysicalSize::new(w, h)));
                         }
-                        let _ = window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
+                        let _ =
+                            window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
                     }
                 }
             }
@@ -7248,7 +7861,9 @@ fn main() {
             }
             // Persist window bounds on move/resize/scale changes
             match event {
-                tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. } => {
+                tauri::WindowEvent::Moved(_)
+                | tauri::WindowEvent::Resized(_)
+                | tauri::WindowEvent::ScaleFactorChanged { .. } => {
                     let app_handle = window.app_handle();
                     if let (Ok(pos), Ok(size)) = (window.outer_position(), window.outer_size()) {
                         if let Ok(store) = settings_store(&app_handle) {
