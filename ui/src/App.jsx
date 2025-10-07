@@ -34,9 +34,6 @@ import SettingsUsers from './pages/SettingsUsers.jsx';
 import SettingsDiscord from './pages/SettingsDiscord.jsx';
 import SettingsAppearance from './pages/SettingsAppearance.jsx';
 import SettingsModels from './pages/SettingsModels.jsx';
-import SettingsDevices from './pages/SettingsDevices.jsx';
-import SettingsHotwords from './pages/SettingsHotwords.jsx';
-import SettingsBackup from './pages/SettingsBackup.jsx';
 import Train from './pages/Train.jsx';
 import Profiles from './pages/Profiles.jsx';
 import MusicGen from './pages/MusicGen.jsx';
@@ -330,9 +327,6 @@ export default function App() {
             <Route path="/settings/discord" element={<SettingsDiscord />} />
             <Route path="/settings/appearance" element={<SettingsAppearance />} />
             <Route path="/settings/models" element={<SettingsModels />} />
-            <Route path="/settings/devices" element={<SettingsDevices />} />
-            <Route path="/settings/hotwords" element={<SettingsHotwords />} />
-            <Route path="/settings/backup" element={<SettingsBackup />} />
             <Route path="/settings/advanced" element={<SettingsAdvanced />} />
             <Route path="/profiles" element={<Profiles />} />
             <Route path="/train" element={<Train />} />
