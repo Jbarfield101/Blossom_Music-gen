@@ -66,6 +66,58 @@ fn discord_bot_keepalive() -> &'static Mutex<bool> {
     DISCORD_BOT_KEEPALIVE.get_or_init(|| Mutex::new(false))
 }
 
+fn attach_discord_bot_loggers(child: &mut Child, app: &AppHandle) {
+    if let Some(out) = child.stdout.take() {
+        let app_for_thread = app.clone();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(out);
+            for line in reader.lines() {
+                match line {
+                    Ok(l) => {
+                        {
+                            let mut logs = discord_bot_logs().lock().unwrap();
+                            logs.push(l.clone());
+                            if logs.len() > 400 {
+                                let drop = logs.len() - 400;
+                                logs.drain(0..drop);
+                            }
+                        }
+                        let _ = app_for_thread.emit("discord::bot_log", json!({"line": l.clone(), "stream": "stdout"}));
+                        if let Ok(val) = serde_json::from_str::<Value>(&l) {
+                            if let Some(obj) = val.get("discord_act") {
+                                let _ = app_for_thread.emit("discord::act", obj.clone());
+                            }
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+    if let Some(err) = child.stderr.take() {
+        let app_for_thread = app.clone();
+        std::thread::spawn(move || {
+            let reader = BufReader::new(err);
+            for line in reader.lines() {
+                match line {
+                    Ok(l) => {
+                        {
+                            let mut logs = discord_bot_logs().lock().unwrap();
+                            logs.push(l.clone());
+                            if logs.len() > 400 {
+                                let drop = logs.len() - 400;
+                                logs.drain(0..drop);
+                            }
+                        }
+                        let _ = app_for_thread.emit("discord::bot_log", json!({"line": l, "stream": "stderr"}));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+}
+
 fn discord_listen_store() -> &'static Mutex<Option<Child>> {
     DISCORD_LISTEN_CHILD.get_or_init(|| Mutex::new(None))
 }
@@ -382,53 +434,7 @@ fn discord_bot_start(app: tauri::AppHandle) -> Result<u32, String> {
     }
 
     let mut log_child = spawn_once()?;
-    // stdout
-    if let Some(out) = log_child.stdout.take() {
-        let app_for_thread = app.clone();
-        std::thread::spawn(move || {
-            let reader = BufReader::new(out);
-            for line in reader.lines() {
-                match line {
-                    Ok(l) => {
-                        let mut logs = discord_bot_logs().lock().unwrap();
-                        logs.push(l);
-                        if logs.len() > 400 {
-                            let drop = logs.len() - 400;
-                            logs.drain(0..drop);
-                        }
-                        // Try to parse JSON events and emit to UI
-                        if let Some(last) = logs.last() {
-                            if let Ok(val) = serde_json::from_str::<Value>(last) {
-                                if let Some(obj) = val.get("discord_act") {
-                                    let _ = app_for_thread.emit("discord::act", obj.clone());
-                                }
-                            }
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
-    }
-    // stderr
-    if let Some(err) = log_child.stderr.take() {
-        std::thread::spawn(move || {
-            let reader = BufReader::new(err);
-            for line in reader.lines() {
-                match line {
-                    Ok(l) => {
-                        let mut logs = discord_bot_logs().lock().unwrap();
-                        logs.push(l);
-                        if logs.len() > 400 {
-                            let drop = logs.len() - 400;
-                            logs.drain(0..drop);
-                        }
-                    }
-                    Err(_) => break,
-                }
-            }
-        });
-    }
+    attach_discord_bot_loggers(&mut log_child, &app);
     // store child handle
     let pid = log_child.id();
     let mut guard = discord_bot_store().lock().unwrap();
@@ -446,85 +452,65 @@ fn discord_bot_start(app: tauri::AppHandle) -> Result<u32, String> {
     }
 
     // Spawn a watcher thread that auto-restarts the bot if it exits unexpectedly
-    std::thread::spawn(move || {
-        loop {
-            // Poll until the current child exits, without holding the lock while waiting
-            let mut code_opt: Option<i32> = None;
+    {
+        let app_handle = app.clone();
+        std::thread::spawn(move || {
+            let app_handle = app_handle;
             loop {
-                let still_running = {
-                    let mut guard = discord_bot_store().lock().unwrap();
-                    if let Some(child) = guard.as_mut() {
-                        match child.try_wait() {
-                            Ok(Some(status)) => { code_opt = status.code(); false }
-                            Ok(None) => true,
-                            Err(_) => { code_opt = Some(-1); false }
+                // Poll until the current child exits, without holding the lock while waiting
+                let mut code_opt: Option<i32> = None;
+                loop {
+                    let still_running = {
+                        let mut guard = discord_bot_store().lock().unwrap();
+                        if let Some(child) = guard.as_mut() {
+                            match child.try_wait() {
+                                Ok(Some(status)) => { code_opt = status.code(); false }
+                                Ok(None) => true,
+                                Err(_) => { code_opt = Some(-1); false }
+                            }
+                        } else {
+                            // No child to watch
+                            break;
                         }
-                    } else {
-                        // No child to watch
-                        break;
-                    }
-                };
-                if !still_running { break; }
-                // Allow stop() or app shutdown to proceed
-                std::thread::sleep(std::time::Duration::from_millis(1000));
-                // If keepalive disabled during wait and process still running, just continue polling;
-                // stop() will kill the process and the next loop will observe exit.
-            }
-            {
-                let mut exitc = discord_bot_exit_code().lock().unwrap();
-                *exitc = code_opt;
-            }
-            // Check keepalive flag
-            let keepalive = { *discord_bot_keepalive().lock().unwrap() };
-            if !keepalive {
-                // Do not restart; ensure store is cleared and exit watcher
-                let mut guard = discord_bot_store().lock().unwrap();
-                *guard = None;
-                break;
-            }
-            // Attempt restart after a short delay
-            std::thread::sleep(std::time::Duration::from_millis(1200));
-            match (|| -> Result<(), String> {
-                let mut child = spawn_once()?;
-                // reattach log readers
-                if let Some(out) = child.stdout.take() {
-                    std::thread::spawn(move || {
-                        let reader = BufReader::new(out);
-                        for line in reader.lines() {
-                            if let Ok(l) = line {
-                                let mut logs = discord_bot_logs().lock().unwrap();
-                                logs.push(l);
-                                if logs.len() > 400 { let drop = logs.len() - 400; logs.drain(0..drop); }
-                            } else { break; }
-                        }
-                    });
+                    };
+                    if !still_running { break; }
+                    // Allow stop() or app shutdown to proceed
+                    std::thread::sleep(std::time::Duration::from_millis(1000));
+                    // If keepalive disabled during wait and process still running, just continue polling;
+                    // stop() will kill the process and the next loop will observe exit.
                 }
-                if let Some(err) = child.stderr.take() {
-                    std::thread::spawn(move || {
-                        let reader = BufReader::new(err);
-                        for line in reader.lines() {
-                            if let Ok(l) = line {
-                                let mut logs = discord_bot_logs().lock().unwrap();
-                                logs.push(l);
-                                if logs.len() > 400 { let drop = logs.len() - 400; logs.drain(0..drop); }
-                            } else { break; }
-                        }
-                    });
+                {
+                    let mut exitc = discord_bot_exit_code().lock().unwrap();
+                    *exitc = code_opt;
                 }
-                let mut guard = discord_bot_store().lock().unwrap();
-                *guard = Some(child);
-                Ok(())
-            })() {
-                Ok(()) => {}
-                Err(_) => {
-                    // Could not restart; clear store and exit
+                // Check keepalive flag
+                let keepalive = { *discord_bot_keepalive().lock().unwrap() };
+                if !keepalive {
+                    // Do not restart; ensure store is cleared and exit watcher
                     let mut guard = discord_bot_store().lock().unwrap();
                     *guard = None;
                     break;
                 }
+                // Attempt restart after a short delay
+                std::thread::sleep(std::time::Duration::from_millis(1200));
+                match (|| -> Result<(), String> {
+                    let mut child = spawn_once()?;
+                    attach_discord_bot_loggers(&mut child, &app_handle);
+                    let mut guard = discord_bot_store().lock().unwrap();
+                    *guard = Some(child);
+                    Ok(())
+                })() {
+                    Ok(()) => {}
+                    Err(_) => {
+                        // Could not restart; clear store and exit
+                        let mut guard = discord_bot_store().lock().unwrap();
+                        *guard = None;
+                        break;
+                    }
+                }
             }
-        }
-    });
+        });
+    }
     Ok(pid)
 }
 
@@ -694,8 +680,8 @@ mod tests {
 struct TagSectionConfig {
     id: String,
     label: String,
-    #[serde(rename = "vaultSubfolder")]
-    vault_subfolder: String,
+    #[serde(rename = "relativePath")]
+    relative_path: String,
     prompt: String,
     #[serde(default)]
     tags: Vec<String>,
@@ -726,7 +712,7 @@ fn tag_section_map() -> &'static HashMap<String, TagSectionConfig> {
     })
 }
 
-fn join_vault_folder(base: &Path, subfolder: &str) -> PathBuf {
+fn join_relative_folder(base: &Path, subfolder: &str) -> PathBuf {
     let mut path = PathBuf::from(base);
     for segment in subfolder.split(['/', '\\']) {
         let trimmed = segment.trim();
@@ -1563,7 +1549,7 @@ fn filesystem_npc_names(app: &AppHandle) -> Result<Vec<String>, String> {
                 .and_then(|v| v.as_str().map(|s| s.to_string()))
             {
                 let base = PathBuf::from(&vault_path);
-                let joined = join_vault_folder(&base, "20_DM/NPC");
+                let joined = join_relative_folder(&base, "20_DM/NPC");
                 if !candidates.iter().any(|p| p == &joined) {
                     candidates.push(joined);
                 }
@@ -2951,15 +2937,26 @@ async fn update_section_tags(app: AppHandle, section: String) -> Result<TagUpdat
         .cloned()
         .ok_or_else(|| format!("Unknown tag section '{}'.", trimmed))?;
 
-    let store = settings_store(&app)?;
-    let vault = store
-        .get("vaultPath")
-        .and_then(|v| v.as_str().map(|s| s.to_string()));
-
     let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Some(ref base) = vault {
-        let base_path = PathBuf::from(base);
-        candidates.push(join_vault_folder(&base_path, &section_cfg.vault_subfolder));
+
+    if let Ok(store) = settings_store(&app) {
+        if let Some(path) = store
+            .get("vaultPath")
+            .and_then(|v| v.as_str().map(|s| s.trim().to_string()))
+            .filter(|s| !s.is_empty())
+        {
+            let base_path = PathBuf::from(&path);
+            let joined = join_relative_folder(&base_path, &section_cfg.relative_path);
+            if !candidates.iter().any(|p| p == &joined) {
+                candidates.push(joined);
+            }
+        }
+    }
+
+    let default_base = PathBuf::from(config::DEFAULT_DREADHAVEN_ROOT);
+    let default_candidate = join_relative_folder(&default_base, &section_cfg.relative_path);
+    if !candidates.iter().any(|p| p == &default_candidate) {
+        candidates.push(default_candidate);
     }
     for fallback in &section_cfg.fallbacks {
         let candidate = PathBuf::from(fallback);
@@ -2969,8 +2966,9 @@ async fn update_section_tags(app: AppHandle, section: String) -> Result<TagUpdat
     }
     if candidates.is_empty() {
         return Err(format!(
-            "No folder mapping configured for section '{}'. Set a vault path in Settings.",
-            section_cfg.label
+            "No folder mapping configured for section '{}'. Ensure the DreadHaven directory exists at {}.",
+            section_cfg.label,
+            config::DEFAULT_DREADHAVEN_ROOT
         ));
     }
 

@@ -4,6 +4,8 @@ use tauri::Emitter;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_store::{Store, StoreBuilder};
 
+pub const DEFAULT_DREADHAVEN_ROOT: &str = r"D:\Documents\DreadHaven";
+
 fn config_store(app: &AppHandle) -> Result<Arc<Store<tauri::Wry>>, String> {
     let path = app
         .path()

@@ -19,6 +19,25 @@ const PROVIDERS = [
 
 const EMPTY_STATUS = Object.freeze({});
 
+const ERROR_BANNER_STYLE = Object.freeze({
+  marginTop: '0.75rem',
+  padding: '0.75rem',
+  border: '1px solid var(--danger-border, #b00020)',
+  background: 'var(--danger-bg, rgba(176, 0, 32, 0.08))',
+  color: 'var(--danger-text, #b00020)',
+  borderRadius: 'var(--radius-md, 8px)',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '0.5rem',
+});
+
+const clampLogLine = (value, max = 240) => {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  return trimmed.length > max ? `${trimmed.slice(0, max)}...` : trimmed;
+};
+
 const decodeVoiceValue = (value) => {
   if (typeof value !== 'string') {
     return { provider: 'piper', voice: '' };
@@ -78,6 +97,8 @@ export default function DndDiscord() {
   const [stopping, setStopping] = useState(false);
   const [logs, setLogs] = useState([]);
   const [listenLogs, setListenLogs] = useState([]);
+  const [botErrorLine, setBotErrorLine] = useState('');
+  const [listenerErrorLine, setListenerErrorLine] = useState('');
   const [tokenSources, setTokenSources] = useState([]);
   const [showBotControls, setShowBotControls] = useState(false);
   const [compact, setCompact] = useState(true);
@@ -420,13 +441,20 @@ export default function DndDiscord() {
         unlistenErr = await listen('whisper::error', (event) => {
           try {
             const msg = typeof event?.payload === 'string' ? event.payload : JSON.stringify(event?.payload);
-            setListenLogs((prev) => prev.concat([`[error] ${msg}`]).slice(-800));
+            const line = `[error] ${msg}`;
+            setListenLogs((prev) => prev.concat([line]).slice(-800));
+            setListenerErrorLine(clampLogLine(line));
+            setShowBotControls(true);
           } catch {}
         });
         unlistenStderr = await listen('whisper::stderr', (event) => {
           try {
             const line = String(event?.payload?.line || '');
-            if (line) setListenLogs((prev) => prev.concat([line]).slice(-800));
+            if (line) {
+              setListenLogs((prev) => prev.concat([line]).slice(-800));
+              setListenerErrorLine(clampLogLine(line));
+              setShowBotControls(true);
+            }
           } catch {}
         });
       } catch (e) {
@@ -440,6 +468,34 @@ export default function DndDiscord() {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [actNpc, npcs]);
+
+  useEffect(() => {
+    let unlisten;
+    (async () => {
+      try {
+        unlisten = await listen('discord::bot_log', (event) => {
+          try {
+            const payload = event?.payload || {};
+            const line = typeof payload?.line === 'string' ? payload.line : '';
+            if (!line) return;
+            setLogs((prev) => prev.concat([line]).slice(-400));
+            const stream = typeof payload?.stream === 'string' ? payload.stream : 'stdout';
+            if (stream === 'stderr') {
+              setBotErrorLine(clampLogLine(line));
+              setShowBotControls(true);
+            }
+          } catch (err) {
+            console.warn('Failed to handle discord::bot_log payload', err);
+          }
+        });
+      } catch (err) {
+        console.warn('Failed to listen for discord::bot_log events', err);
+      }
+    })();
+    return () => {
+      if (typeof unlisten === 'function') unlisten();
+    };
+  }, []);
 
   // Listen for /act events from the bot
   useEffect(() => {
@@ -667,6 +723,20 @@ export default function DndDiscord() {
           Compact view
         </label>
       </div>
+      {botErrorLine && (
+        <div className="discord-error-banner" role="alert" style={ERROR_BANNER_STYLE}>
+          <span style={{ fontWeight: 600 }}>Bot stderr:</span>
+          <span style={{ flex: 1 }}>{botErrorLine}</span>
+          <button type="button" onClick={() => setBotErrorLine('')}>Dismiss</button>
+        </div>
+      )}
+      {listenerErrorLine && (
+        <div className="discord-error-banner" role="alert" style={ERROR_BANNER_STYLE}>
+          <span style={{ fontWeight: 600 }}>Listener stderr:</span>
+          <span style={{ flex: 1 }}>{listenerErrorLine}</span>
+          <button type="button" onClick={() => setListenerErrorLine('')}>Dismiss</button>
+        </div>
+      )}
       <main
         className="dashboard discord-dashboard"
         style={{ display: 'grid', gap: 'var(--space-lg)', marginTop: 'var(--space-lg)', gridTemplateColumns: compact ? '1fr' : '1fr 1fr' }}
@@ -718,8 +788,24 @@ export default function DndDiscord() {
               </button>
               <button type="button" onClick={async () => { try { await invoke('discord_listen_stop'); } catch {}; setListening(false); }} disabled={!listening}>Stop Listen</button>
               <button type="button" onClick={handleCheckStatus}>Check Status</button>
-              <button type="button" onClick={handleFetchLogs}>View Logs</button>
-              <button type="button" onClick={handleFetchListenLogs}>View Listen Logs</button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowBotControls(true);
+                  handleFetchLogs();
+                }}
+              >
+                View Logs
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowBotControls(true);
+                  handleFetchListenLogs();
+                }}
+              >
+                View Listen Logs
+              </button>
             </div>
           </div>
           {showBotControls && (

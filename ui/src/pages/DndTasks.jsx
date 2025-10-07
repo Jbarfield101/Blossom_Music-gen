@@ -350,7 +350,7 @@ export default function DndTasks() {
                           <div className="dnd-section-meta">
                             <div className="dnd-section-head">
                               <span className="dnd-section-title">{section.label}</span>
-                              <span className="dnd-section-path">{section.vaultSubfolder}</span>
+                              <span className="dnd-section-path">Lore folder: {section.relativePath}</span>
                             </div>
                             <p className="dnd-section-prompt">{section.prompt}</p>
                             {section.tags?.length > 0 && (

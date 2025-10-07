@@ -1,8 +1,8 @@
 """Example usage of :mod:`service_api`.
 
 This script demonstrates simple interactions such as performing a search,
-listing NPC notes and fetching the raw Markdown for a note. It assumes that
-an Obsidian vault has been selected via ``config.obsidian.select_vault``.
+listing NPC notes and fetching the raw Markdown for a note. It assumes the
+DreadHaven lore directory is present (see ``brain.constants.DEFAULT_DREADHAVEN_ROOT``).
 """
 
 from __future__ import annotations

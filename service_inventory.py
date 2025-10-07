@@ -217,12 +217,8 @@ def _resolve_db_path(db_path: str | Path | None) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
 
-    vault = get_vault()
-    if vault is None:
-        raise RuntimeError("Obsidian vault has not been selected")
-
-    base = Path(vault).resolve()
-    storage_dir = base / ".blossom"
+    vault = get_vault().resolve()
+    storage_dir = vault / ".blossom"
     storage_dir.mkdir(parents=True, exist_ok=True)
     return storage_dir / _DB_FILENAME
 

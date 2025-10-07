@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
   listWhisper,
@@ -13,8 +12,6 @@ import { listPiperVoices } from "../lib/piperVoices";
 import { listDevices, setDevices as apiSetDevices } from "../api/devices";
 import { listHotwords, setHotword as apiSetHotword } from "../api/hotwords";
 import {
-  getConfig,
-  setConfig,
   exportSettings as apiExportSettings,
   importSettings as apiImportSettings,
 } from "../api/config";
@@ -33,25 +30,18 @@ import {
 import "./Settings.css";
 
 export default function Settings() {
-  const VAULT_KEY = "vaultPath";
   const [whisper, setWhisper] = useState({ options: [], selected: "" });
   const [piper, setPiper] = useState({ options: [], selected: "" });
   const [llm, setLlm] = useState({ options: [], selected: "" });
   const [input, setInput] = useState({ options: [], selected: "" });
   const [output, setOutput] = useState({ options: [], selected: "" });
-  const [vault, setVault] = useState("");
   const [hotwords, setHotwords] = useState({});
   const [theme, setThemeState] = useState("dark");
   const [accent, setAccentState] = useState("#ff4d6d");
   const [baseFontSize, setBaseFontSizeState] = useState("16px");
   const [versions, setVersions] = useState({ app: "", python: "" });
   const [currentUser, setCurrentUser] = useState("");
-  const [vaultError, setVaultError] = useState("");
-  const vaultRef = useRef("");
 
-  useEffect(() => {
-    vaultRef.current = vault;
-  }, [vault]);
 
   useEffect(() => {
     getTheme().then((savedTheme) => setThemeState(savedTheme || "dark"));
@@ -73,15 +63,22 @@ export default function Settings() {
   }, []);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const store = await Store.load("users.json");
-        const cur = await store.get("currentUser");
-        if (typeof cur === "string") setCurrentUser(cur);
-      } catch (e) {
+    let active = true;
+
+    Store.load("users.json")
+      .then((store) => store.get("currentUser"))
+      .then((cur) => {
+        if (active && typeof cur === "string") {
+          setCurrentUser(cur);
+        }
+      })
+      .catch((e) => {
         console.warn("Failed to load current user", e);
-      }
-    })();
+      });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -177,25 +174,6 @@ export default function Settings() {
       await refreshModels();
       await refreshDevices();
       await refreshHotwords();
-      const path = await getConfig(VAULT_KEY);
-      if (!active) {
-        return;
-      }
-      const normalizedPath = path || "";
-
-      if (!active) {
-        return;
-      }
-      setVault(normalizedPath);
-
-      if (!active) {
-        return;
-      }
-
-      // Do not auto-start the vault watcher on load to avoid UI jank.
-      // We only update the displayed path here; selecting a new vault via the button
-      // will explicitly invoke the watcher.
-      if (active) setVaultError("");
     };
 
     const reload = () =>
@@ -287,34 +265,6 @@ export default function Settings() {
     };
   }, []);
 
-  const chooseVault = async () => {
-    try {
-      const res = await openDialog({ directory: true });
-      if (!res) return;
-      const path =
-        Array.isArray(res)
-          ? typeof res[0] === "string"
-            ? res[0]
-            : res[0]?.path
-          : typeof res === "string"
-          ? res
-          : res?.path;
-      if (path) {
-        await invoke("select_vault", { path });
-        await setConfig(VAULT_KEY, path);
-        setVault(path);
-        setVaultError("");
-      } else {
-        const message = "Failed to determine vault path from selection";
-        console.error(message, res);
-        setVaultError("Could not determine the vault folder. Please try again.");
-      }
-    } catch (err) {
-      console.error('Folder selection failed', err);
-      setVaultError("Failed to open the vault picker. Please try again.");
-    }
-  };
-
   const exportSettings = async () => {
     const filePath = await saveDialog({
       filters: [{ name: "JSON", extensions: ["json"] }],
@@ -331,8 +281,6 @@ export default function Settings() {
     });
     if (typeof filePath === "string") {
       await apiImportSettings(filePath);
-      const path = await getConfig(VAULT_KEY);
-      setVault(path || "");
     }
   };
 
@@ -356,7 +304,7 @@ export default function Settings() {
     <main className="settings">
       <BackButton />
       <h1>Settings</h1>
-      {/* Users and Vault moved to dedicated cards/pages */}
+      
       <section className="settings-section">
         <fieldset>
           <legend>Models</legend>

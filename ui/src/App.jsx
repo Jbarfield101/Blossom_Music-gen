@@ -31,7 +31,6 @@ import ManageVoices from './pages/ManageVoices.jsx';
 import Settings from './pages/SettingsHome.jsx';
 import SettingsAdvanced from './pages/Settings.jsx';
 import SettingsUsers from './pages/SettingsUsers.jsx';
-import SettingsVault from './pages/SettingsVault.jsx';
 import SettingsDiscord from './pages/SettingsDiscord.jsx';
 import SettingsAppearance from './pages/SettingsAppearance.jsx';
 import SettingsModels from './pages/SettingsModels.jsx';
@@ -326,7 +325,6 @@ export default function App() {
             <Route path="/dnd/chat" element={<DndChat />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/settings/users" element={<SettingsUsers />} />
-            <Route path="/settings/vault" element={<SettingsVault />} />
             <Route path="/settings/discord" element={<SettingsDiscord />} />
             <Route path="/settings/appearance" element={<SettingsAppearance />} />
             <Route path="/settings/models" element={<SettingsModels />} />

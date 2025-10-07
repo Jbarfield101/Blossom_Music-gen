@@ -139,11 +139,34 @@ except ModuleNotFoundError:  # pragma: no cover
 
     sys.modules["soundfile"] = soundfile_module
 
+if "torchaudio" not in sys.modules:  # pragma: no cover
+    class _TAIdentity:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __call__(self, tensor):  # type: ignore[override]
+            return tensor
+
+    torchaudio_module = types.ModuleType("torchaudio")
+    transforms_module = types.ModuleType("torchaudio.transforms")
+    transforms_module.InverseMelScale = lambda *args, **kwargs: _TAIdentity()
+    transforms_module.MelScale = lambda *args, **kwargs: _TAIdentity()
+    transforms_module.GriffinLim = lambda *args, **kwargs: _TAIdentity()
+    torchaudio_module.transforms = transforms_module
+    sys.modules["torchaudio"] = torchaudio_module
+    sys.modules["torchaudio.transforms"] = transforms_module
+
 if "torch" not in sys.modules:  # pragma: no cover
     torch_module = types.ModuleType("torch")
     torch_module.cuda = SimpleNamespace(is_available=lambda: False)
     torch_module.backends = SimpleNamespace(mps=SimpleNamespace(is_available=lambda: False))
+    torch_module.ops = SimpleNamespace(load_library=lambda *args, **kwargs: None)
+    hub_module = types.ModuleType("torch.hub")
+    hub_module.download_url_to_file = lambda *args, **kwargs: None
+    hub_module.load_state_dict_from_url = lambda *args, **kwargs: None
+    torch_module.hub = hub_module
     sys.modules["torch"] = torch_module
+    sys.modules["torch.hub"] = hub_module
 
 if "blossom.audio.vocoders.hifigan" not in sys.modules:  # pragma: no cover
     hifigan_stub = types.ModuleType("blossom.audio.vocoders.hifigan")
@@ -302,6 +325,7 @@ def test_riffusion_cli_hub_hifigan_cpu(monkeypatch, tmp_path, use_tiles):
         "--hub_hifigan",
         "--outfile",
         str(outfile),
+        "--no-hub-hifigan",
     ]
     monkeypatch.setattr(sys, "argv", argv)
 
@@ -408,6 +432,7 @@ def test_soundscape_cli_griffinlim_fallback(monkeypatch, tmp_path):
         "0.5",
         "--outfile",
         str(outfile),
+        "--no-hub-hifigan",
     ]
 
     monkeypatch.setattr(sys, "argv", argv)
@@ -416,8 +441,8 @@ def test_soundscape_cli_griffinlim_fallback(monkeypatch, tmp_path):
 
     assert exit_code == 0
     assert calls.get("tiles_len") == 1
-    assert calls.get("gl_iters") == 128
-    assert calls.get("gl_restarts") == 2
+    assert calls.get("gl_iters") == 256
+    assert calls.get("gl_restarts") == 4
     assert calls.get("mix_sr") == 22050
     assert calls.get("sf_sr") == 22050
     assert calls.get("sf_subtype") == "PCM_16"

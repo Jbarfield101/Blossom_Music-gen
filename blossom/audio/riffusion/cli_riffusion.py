@@ -69,7 +69,12 @@ def main() -> int:
     p.add_argument("--width", type=int, default=512)
     p.add_argument("--height", type=int, default=512)
     p.add_argument("--overlap", type=int, default=None, help="Tile overlap in pixels (time frames)")
-    p.add_argument("--crossfade_secs", type=float, default=0.25, help="Crossfade time between tiles in seconds (used if --overlap not set)")
+    p.add_argument(
+        "--crossfade_secs",
+        type=float,
+        default=0.35,
+        help="Crossfade time between tiles in seconds (used if --overlap not set)",
+    )
     p.add_argument("--sr", type=int, default=22050)
     p.add_argument("--outfile", type=Path, default=Path("riffusion_out.wav"))
     p.add_argument("--model", default=None, help="Hugging Face model id or local path")
@@ -80,24 +85,54 @@ def main() -> int:
     p.add_argument("--wet", type=float, default=0.12, help="Reverb wet mix [0,1]")
     p.add_argument("--no-post", action="store_true", help="Disable post-processing chain")
     # Griffin-Lim quality controls
-    p.add_argument("--gl_iters", type=int, default=128, help="Griffin-Lim iterations (higher = cleaner phase)")
-    p.add_argument("--gl_restarts", type=int, default=2, help="Griffin-Lim random restarts; best is chosen")
+    p.add_argument(
+        "--gl_iters",
+        type=int,
+        default=256,
+        help="Griffin-Lim iterations (higher = cleaner phase)",
+    )
+    p.add_argument(
+        "--gl_restarts",
+        type=int,
+        default=4,
+        help="Griffin-Lim random restarts; best is chosen",
+    )
     # HiFi-GAN (neural vocoder)
     p.add_argument("--hifigan_repo", default=None, help="Path to cloned HiFi-GAN repo (adds to sys.path)")
     p.add_argument("--hifigan_ckpt", default=None, help="Path to HiFi-GAN generator checkpoint (.pt/.pth)")
     p.add_argument("--hifigan_config", default=None, help="Optional HiFi-GAN config JSON path")
     # Hub HiFi-GAN (NVIDIA torch.hub)
     p.add_argument("--hub_hifigan", action="store_true", help="Use NVIDIA HiFi-GAN via torch.hub")
+    p.add_argument(
+        "--no-hub-hifigan",
+        action="store_true",
+        help="Disable torch.hub HiFi-GAN even if available",
+    )
     p.add_argument("--hub_denoise", type=float, default=0.0, help="Hub denoiser strength (0 to disable)")
     p.add_argument("--vocoder", default=None, choices=["hifigan","griffinlim", None], help="Select vocoder (overrides other flags)")
     args = p.parse_args()
     # Optional default via environment: RIFFUSION_DEFAULT_VOCODER=hifigan|griffinlim
     out_sr = int(args.sr)
     env_vocoder = os.environ.get("RIFFUSION_DEFAULT_VOCODER", "").strip().lower()
+
+    # Determine HiFi-GAN preference. Default to HiFi-GAN per upstream guidance.
+    use_hub_hifigan = True
+    if args.vocoder == "griffinlim":
+        use_hub_hifigan = False
+    elif args.vocoder == "hifigan":
+        use_hub_hifigan = True
+
     if env_vocoder == "hifigan":
-        args.hub_hifigan = True
+        use_hub_hifigan = True
     elif env_vocoder == "griffinlim":
-        args.hub_hifigan = False
+        use_hub_hifigan = False
+
+    if getattr(args, "no_hub_hifigan", False):
+        use_hub_hifigan = False
+    if args.hub_hifigan:
+        use_hub_hifigan = True
+
+    args.hub_hifigan = use_hub_hifigan
 
     # Prepare logfile path next to outfile
     log_path = args.outfile.with_suffix('.log')

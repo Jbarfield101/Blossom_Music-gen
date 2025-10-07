@@ -17,7 +17,7 @@ export default function Riffusion() {
   const [steps, setSteps] = useState(32);
   const [guidance, setGuidance] = useState(7.0);
   const [duration, setDuration] = useState(180);
-  const [crossfade, setCrossfade] = useState(0.25);
+  const [crossfade, setCrossfade] = useState(0.35);
   const [img2img, setImg2img] = useState(false);
   const [strength, setStrength] = useState(0.5);
   const [audioPath, setAudioPath] = useState('');
@@ -255,7 +255,7 @@ export default function Riffusion() {
             </div>
             <div>
               <label style={{ fontWeight: 600, display: 'block' }}>Crossfade (sec)</label>
-              <input type="number" step="0.05" min={0} max={3} value={crossfade} onChange={(e) => setCrossfade(parseFloat(e.target.value || '0.25'))} style={{ width: '100%' }} />
+              <input type="number" step="0.05" min={0} max={3} value={crossfade} onChange={(e) => setCrossfade(parseFloat(e.target.value || '0.35'))} style={{ width: '100%' }} />
             </div>
           </div>
 

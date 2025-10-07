@@ -22,29 +22,42 @@ DEFAULT_FALLBACK_VAULT: Final[Path] = DEFAULT_DREADHAVEN_ROOT
 
 
 def _fallback_filesystem_probe(query: str) -> bool:
-    """Lightweight filesystem probe when Obsidian index isn't configured.
+    """Lightweight filesystem probe when the search index is unavailable.
 
     Scans Markdown files under the default DreadHaven folder and returns
-    True if the query terms appear in any file. This avoids requiring a
-    configured vault for basic relevance checks.
+    True if the query terms appear in any file.
     """
-    root = DEFAULT_FALLBACK_VAULT
     try:
+        root = DEFAULT_FALLBACK_VAULT.resolve()
         if not root.exists() or not root.is_dir():
             return False
-        q = query.strip().lower()
+        q = query.strip()
         if not q:
             return False
+        lowered = q.lower()
         # Extract probable entity names (capitalized words) and tokens
         name_candidates = re.findall(r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})*)\b", query)
-        raw_tokens = [t for t in q.replace("\n", " ").split() if len(t) >= 3]
+        raw_tokens = [t for t in lowered.replace("\n", " ").split() if len(t) >= 3]
         stop = {"the","a","an","about","tell","asked","ask","please","hi","hello","howdy","of","and","in","to","for","on","me","you"}
         tokens = [t for t in raw_tokens if t.lower() not in stop]
-        if not tokens:
-            tokens = raw_tokens or [q]
-        # Prefer name candidates when available
-        base_terms = name_candidates or tokens
-        patterns = [re.compile(rf"\b{re.escape(tok)}(?:[’']s)?\b", re.IGNORECASE) for tok in base_terms]
+        cleaned_names = []
+        seen = set()
+        for cand in name_candidates:
+            canonical = cand.strip()
+            lowered_name = canonical.lower()
+            if lowered_name in stop or lowered_name in seen:
+                continue
+            seen.add(lowered_name)
+            cleaned_names.append(canonical)
+        base_terms = cleaned_names[:]
+        for tok in tokens:
+            lowered_tok = tok.lower()
+            if lowered_tok not in seen:
+                base_terms.append(tok)
+                seen.add(lowered_tok)
+        if not base_terms:
+            base_terms = tokens or raw_tokens or [lowered]
+        patterns = [re.compile(rf"\b{re.escape(tok)}(?:['']s)?\b", re.IGNORECASE) for tok in base_terms]
         # Walk up to a reasonable limit
         banned_patterns = [re.compile(re.escape(t), re.IGNORECASE) for t in BANNED_TERMS]
         for dirpath, _dirnames, filenames in os.walk(root):
@@ -76,7 +89,7 @@ def _has_relevant_context(message: str, category: str) -> bool:
         results = service_api.search(message, tags=list(_ALLOWED_CATEGORIES))
         return bool(results)
     except Exception:
-        # Fallback to direct filesystem probe on DreadHaven when vault/index is missing
+        # Fallback to direct filesystem probe when the search index is unavailable.
         return _fallback_filesystem_probe(message)
 
 

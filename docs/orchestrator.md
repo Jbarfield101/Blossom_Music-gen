@@ -11,18 +11,11 @@ Coordinate local large language model responses with context drawn from Obsidian
    ollama run mistral  # downloads the model and starts the server
    ```
 
-2. **Select an Obsidian vault**
+2. **Ensure the DreadHaven lore folder exists**
 
-   ```bash
-   python - <<'PY'
-   from pathlib import Path
-   from config.obsidian import select_vault
-
-   select_vault(Path('~/Obsidian/MyCampaign'))
-   PY
-   ```
-
-   The path is stored in `config/obsidian_vault.txt` and reused on subsequent runs.
+   All lore lookups now use the hard-coded DreadHaven directory defined in
+   `brain/constants.py`. Create the folder if it is missing (default:
+   `D:\Documents\DreadHaven`) and populate it with the campaign notes.
 
 ## Command-line usage
 

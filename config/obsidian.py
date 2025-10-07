@@ -1,93 +1,36 @@
 from __future__ import annotations
 
-"""Utilities for selecting an Obsidian vault.
+"""Access the campaign lore root used for DreadHaven content.
 
-This module exposes :func:`select_vault` which stores the path to an
-Obsidian vault in a small settings file.  The stored path is treated as
-read-only once written.  Subsequent attempts to change the path will
-raise a :class:`RuntimeError`.
+The repository previously allowed picking an arbitrary Obsidian vault. All lore
+features now assume the hard-coded DreadHaven directory that ships with the
+project. The helper below simply returns that path and ensures it exists on the
+filesystem.
 """
 
 from pathlib import Path
 
-__all__ = ["select_vault", "get_vault", "VAULT_FILE"]
+from brain.constants import DEFAULT_DREADHAVEN_ROOT
 
-# Location where the selected vault path will be persisted.
-VAULT_FILE = Path(__file__).with_name("obsidian_vault.txt")
-
-# Internal cached vault path.  This should be treated as read-only.
-_VAULT_PATH: Path | None = None
+__all__ = ["get_vault", "select_vault"]
 
 
-def get_vault() -> Path | None:
-    """Return the currently selected vault path, if any."""
+def get_vault() -> Path:
+    """Return the DreadHaven lore directory, creating it if necessary."""
 
-    global _VAULT_PATH
-    if _VAULT_PATH is not None:
-        return _VAULT_PATH
-    if VAULT_FILE.exists():
-        _VAULT_PATH = Path(VAULT_FILE.read_text().strip())
-    return _VAULT_PATH
+    DEFAULT_DREADHAVEN_ROOT.mkdir(parents=True, exist_ok=True)
+    return DEFAULT_DREADHAVEN_ROOT
 
 
-def select_vault(root: Path | str) -> Path:
-    """Persist or update the Obsidian vault path and (re)start the watcher.
+def select_vault(_root: Path | str) -> Path:
+    """Deprecated shim kept for backwards compatibility.
 
-    Parameters
-    ----------
-    root:
-        Directory containing the Obsidian vault.
-
-    Returns
-    -------
-    Path
-        The resolved vault path.
-
-    Raises
-    ------
-    FileNotFoundError
-        If ``root`` does not exist.
-    RuntimeError
-        No longer raised for re-selection. Previous behavior disallowed
-        changing the vault once set; now this function updates the stored
-        path and restarts the watcher as needed.
+    Manual vault selection is no longer supported. The hard-coded DreadHaven
+    folder is always used instead.
     """
 
-    # Accept either Path or string inputs from the Tauri bridge
-    root_path = root if isinstance(root, Path) else Path(root)
-    resolved = root_path.expanduser().resolve()
-    if not resolved.exists():
-        raise FileNotFoundError(f"Vault path {resolved} does not exist")
-
-    existing = get_vault()
-    # Persist new path (or overwrite if changed)
-    if VAULT_FILE.exists():
-        try:
-            VAULT_FILE.chmod(0o666)
-        except Exception:
-            pass
-    VAULT_FILE.write_text(str(resolved))
-    try:
-        # Permissions best-effort; not strictly required for correctness
-        VAULT_FILE.chmod(0o444)
-    except Exception:
-        pass
-
-    global _VAULT_PATH
-    _VAULT_PATH = resolved
-
-    # (Re)start background watcher for note changes. Any failure to manage
-    # the watcher should not block vault selection.
-    try:
-        from notes.watchdog import start_watchdog, stop_watchdog
-
-        # If an old watcher is running for a different vault, stop it first.
-        if existing is not None and existing.resolve() != resolved:
-            try:
-                stop_watchdog()
-            except Exception:
-                pass
-        start_watchdog(resolved)
-    except Exception:
-        pass
-    return resolved
+    raise RuntimeError(
+        "Manual Obsidian vault selection has been removed. "
+        "DreadHaven content is now loaded from the default folder at "
+        f"{DEFAULT_DREADHAVEN_ROOT}"
+    )

@@ -1,9 +1,7 @@
 """High level helpers for interacting with Obsidian notes.
 
-This module exposes small convenience functions that operate on the
-SQLite/FAISS index maintained for an Obsidian vault. A vault must be
-selected via :func:`config.obsidian.select_vault` before any of the
-functions here can be used.
+This module exposes convenience helpers for interacting with the note index
+built from the campaign lore stored under the default DreadHaven folder.
 """
 
 from __future__ import annotations
@@ -33,26 +31,22 @@ _REQUIRED_CHUNK_TABLES = {"chunks", "tags"}
 
 
 def _paths() -> tuple[Path, Path, Path]:
-    """Return ``(vault, db_path, index_path)`` for the selected vault.
+    """Return `(vault, db_path, index_path)` for the campaign lore root.
 
     Raises
     ------
     RuntimeError
-        If a vault has not been selected.
+        If the default DreadHaven directory cannot be created.
     """
 
-    vault = get_vault()
-    if vault is None:
-        # Fallback to default DreadHaven path when no vault configured
-        if DEFAULT_DREADHAVEN_ROOT.exists():
-            vault = DEFAULT_DREADHAVEN_ROOT
-        else:
-            raise RuntimeError("Obsidian vault has not been selected")
-    vault = vault.resolve()
+    vault = get_vault().resolve()
+    if not vault.exists():
+        raise RuntimeError(
+            f"DreadHaven folder is missing at {vault}. Create it or update brain.constants.DEFAULT_DREADHAVEN_ROOT."
+        )
     db_path = vault / DEFAULT_DB_PATH
     index_path = vault / DEFAULT_INDEX_PATH
     return vault, db_path, index_path
-
 
 def _ensure_chunks_db_ready(db_path: Path) -> None:
     """Raise a helpful error if the chunks database is unavailable."""
@@ -398,3 +392,4 @@ def list_lore() -> List[Dict[str, Any]]:
         )
 
     return results
+

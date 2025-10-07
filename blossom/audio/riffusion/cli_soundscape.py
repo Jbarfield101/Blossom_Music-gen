@@ -77,21 +77,37 @@ def main() -> int:
     p.add_argument("--outfile", type=Path, default=Path("soundscape.wav"))
     p.add_argument("--model", default=None)
     # Additional quality toggles
-    p.add_argument("--gl_iters", type=int, default=128)
-    p.add_argument("--gl_restarts", type=int, default=2)
+    p.add_argument("--gl_iters", type=int, default=256)
+    p.add_argument("--gl_restarts", type=int, default=4)
     # HiFi-GAN
     p.add_argument("--hifigan_repo", default=None)
     p.add_argument("--hifigan_ckpt", default=None)
     p.add_argument("--hifigan_config", default=None)
     p.add_argument("--hub_hifigan", action="store_true")
+    p.add_argument("--no-hub-hifigan", action="store_true")
+    p.add_argument("--vocoder", choices=["hifigan", "griffinlim"], default=None)
     p.add_argument("--hub_denoise", type=float, default=0.0)
     args = p.parse_args()
     # Optional default via environment: RIFFUSION_DEFAULT_VOCODER=hifigan|griffinlim
     env_vocoder = os.environ.get("RIFFUSION_DEFAULT_VOCODER", "").strip().lower()
+
+    use_hub_hifigan = True
+    if args.vocoder == "griffinlim":
+        use_hub_hifigan = False
+    elif args.vocoder == "hifigan":
+        use_hub_hifigan = True
+
     if env_vocoder == "hifigan":
-        args.hub_hifigan = True
+        use_hub_hifigan = True
     elif env_vocoder == "griffinlim":
-        args.hub_hifigan = False
+        use_hub_hifigan = False
+
+    if args.no_hub_hifigan:
+        use_hub_hifigan = False
+    if args.hub_hifigan:
+        use_hub_hifigan = True
+
+    args.hub_hifigan = use_hub_hifigan
 
     # Prepare master log path next to outfile
     log_path = args.outfile.with_suffix('.log')

@@ -2,7 +2,6 @@
   {
     "id": "npcs",
     "label": "NPCs",
-    "vaultSubfolder": "20_DM/NPC",
     "prompt": "Focus on NPC roles, factions, locations, species, and any story hooks mentioned in the profile.",
     "tags": [
       "npc",
@@ -14,14 +13,11 @@
       "ally",
       "enemy"
     ],
-    "fallbacks": [
-      "D\\\\Documents\\\\DreadHaven\\\\20_DM\\\\NPC"
-    ]
+    "relativePath": "20_DM/NPC"
   },
   {
     "id": "pantheon",
     "label": "Pantheon",
-    "vaultSubfolder": "10_World/Gods of the Realm",
     "prompt": "Highlight divine portfolios, domains, worshippers, rivalries, and sacred sites tied to the deity.",
     "tags": [
       "pantheon",
@@ -32,14 +28,11 @@
       "myth",
       "worship"
     ],
-    "fallbacks": [
-      "D\\\\Documents\\\\DreadHaven\\\\10_World\\\\Gods of the Realm"
-    ]
+    "relativePath": "10_World/Gods of the Realm"
   },
   {
     "id": "monsters",
     "label": "Monsters",
-    "vaultSubfolder": "20_DM/Monsters",
     "prompt": "Tag statblocks with creature type, habitat, threat level, tactics, and any signature abilities or loot.",
     "tags": [
       "monster",
@@ -50,14 +43,11 @@
       "hazard",
       "legendary"
     ],
-    "fallbacks": [
-      "D\\\\Documents\\\\DreadHaven\\\\20_DM\\\\Monsters"
-    ]
+    "relativePath": "20_DM/Monsters"
   },
   {
     "id": "quests",
     "label": "Quests",
-    "vaultSubfolder": "20_DM/Quests",
     "prompt": "Emphasize quest status, involved factions, key NPCs, locations, stakes, and promised rewards.",
     "tags": [
       "quest",
@@ -68,14 +58,11 @@
       "npc",
       "downtime"
     ],
-    "fallbacks": [
-      "D\\\\Documents\\\\DreadHaven\\\\20_DM\\\\Quests"
-    ]
+    "relativePath": "20_DM/Quests"
   },
   {
     "id": "establishments",
     "label": "Establishments",
-    "vaultSubfolder": "10_World/Regions",
     "prompt": "Surface the settlement, services offered, notable staff or owners, clientele, and adventure hooks.",
     "tags": [
       "establishment",
@@ -89,14 +76,11 @@
     "includes": [
       "Establishments"
     ],
-    "fallbacks": [
-      "D\\\\Documents\\\\DreadHaven\\\\10_World\\\\Regions"
-    ]
+    "relativePath": "10_World/Regions"
   },
   {
     "id": "world-inventory",
     "label": "World Inventory",
-    "vaultSubfolder": "20_DM/World Inventory",
     "prompt": "Call out item types, rarity, origin, storage location, owners, and how the party might use the resource.",
     "tags": [
       "inventory",
@@ -107,8 +91,6 @@
       "faction",
       "loot"
     ],
-    "fallbacks": [
-      "D\\\\Documents\\\\DreadHaven\\\\20_DM\\\\World Inventory"
-    ]
+    "relativePath": "20_DM/World Inventory"
   }
 ]
