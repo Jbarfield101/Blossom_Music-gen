@@ -1,7 +1,13 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { save, open } from '@tauri-apps/plugin-dialog';
-import { writeFile as writeBinaryFile, readFile as readBinaryFile } from '@tauri-apps/plugin-fs';
+import {
+  writeFile as writeBinaryFile,
+  readFile as readBinaryFile,
+  mkdir,
+  remove,
+} from '@tauri-apps/plugin-fs';
 import { isTauri, invoke } from '@tauri-apps/api/core';
+import { appDataDir, join } from '@tauri-apps/api/path';
 import BackButton from '../components/BackButton.jsx';
 import { useSharedState, DEFAULT_LOOPMAKER_FORM } from '../lib/sharedState.jsx';
 import { useJobQueue } from '../lib/useJobQueue.js';
@@ -143,6 +149,8 @@ export default function LoopMaker() {
   const jobIdRef = useRef(null);
   const pollTimeoutRef = useRef(null);
   const jobRequestRef = useRef(null);
+  const tempFilesRef = useRef(new Set());
+  const selectionTempPathRef = useRef('');
   const [jobId, setJobId] = useState(null);
   // Poll the global job queue so loop exports appear in the queue UI
   const { queue, refresh: refreshQueue } = useJobQueue(2000);
@@ -344,6 +352,7 @@ export default function LoopMaker() {
           }
           refreshJobs();
           refreshQueue();
+          await cleanupRequestInputPath(request);
           return;
         }
 
@@ -400,6 +409,7 @@ export default function LoopMaker() {
         }
         refreshJobs();
         refreshQueue();
+        await cleanupRequestInputPath(request);
       } catch (err) {
         console.error('failed to fetch job status', err);
         if (jobIdRef.current === id) {
@@ -410,7 +420,14 @@ export default function LoopMaker() {
         }
       }
     },
-    [clearPollTimeout, refreshJobs, refreshQueue, sharedReady, updateSection]
+    [
+      cleanupRequestInputPath,
+      clearPollTimeout,
+      refreshJobs,
+      refreshQueue,
+      sharedReady,
+      updateSection,
+    ]
   );
 
   useEffect(() => {
@@ -418,6 +435,24 @@ export default function LoopMaker() {
     const timer = setInterval(refreshJobs, 10000);
     return () => clearInterval(timer);
   }, [refreshJobs]);
+
+  useEffect(() => {
+    if (!runningInTauri) return undefined;
+    return () => {
+      const activeJobPath =
+        jobRequestRef.current && typeof jobRequestRef.current.inputPath === 'string'
+          ? jobRequestRef.current.inputPath
+          : '';
+      const pending = Array.from(tempFilesRef.current);
+      tempFilesRef.current.clear();
+      for (const path of pending) {
+        if (!path || path === activeJobPath) continue;
+        remove(path).catch((err) => {
+          console.warn('Failed to remove temporary loop input during cleanup', err);
+        });
+      }
+    };
+  }, [runningInTauri]);
 
   useEffect(() => {
     if (!jobId) {
@@ -810,25 +845,171 @@ export default function LoopMaker() {
 
   const clearOutdir = useCallback(() => setOutdir(''), []);
 
-  const handleFileChange = (e) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    setFile(f);
-    // In Tauri, File object often carries an absolute path
-    setFilePath(typeof f?.path === 'string' ? f.path : '');
-    setLoopsCompleted(0);
-    setElapsed(0);
-    setUseConcatenated(false);
-    const url = URL.createObjectURL(f);
-    setVideoURL(url);
-    // Prefer MP4 output if the input is MP4
-    if (String(f.type || '').toLowerCase().includes('mp4')) {
-      setSelectedFormat('video/mp4;codecs=h264,aac');
+  const removeTempFile = useCallback(
+    async (path) => {
+      if (!runningInTauri) return;
+      if (typeof path !== 'string' || !path) return;
+      if (!tempFilesRef.current.has(path)) return;
+      try {
+        await remove(path);
+      } catch (err) {
+        console.warn('Failed to remove temporary loop input', err);
+      } finally {
+        tempFilesRef.current.delete(path);
+      }
+    },
+    [runningInTauri]
+  );
+
+  const persistFileToTemp = useCallback(
+    async (inputFile) => {
+      if (!runningInTauri || !inputFile) {
+        throw new Error('Tauri environment required to persist video input.');
+      }
+
+      const baseDir = await appDataDir();
+      const tempDir = await join(baseDir, 'loop-maker', 'inputs');
+      await mkdir(tempDir, { recursive: true });
+
+      const determineExtension = () => {
+        if (typeof inputFile.name === 'string') {
+          const match = /\.([a-zA-Z0-9]+)$/.exec(inputFile.name);
+          if (match && match[1]) {
+            return match[1].toLowerCase();
+          }
+        }
+        const mime = typeof inputFile.type === 'string' ? inputFile.type : '';
+        const fromMime = extensionFromMime(mime, 'video/webm');
+        return fromMime.replace(/[^a-z0-9]/gi, '').toLowerCase() || 'webm';
+      };
+
+      const ext = determineExtension();
+      const unique = `loop-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 10)}`;
+      const filename = ext ? `${unique}.${ext}` : unique;
+      const destination = await join(tempDir, filename);
+      const buffer = new Uint8Array(await inputFile.arrayBuffer());
+      await writeBinaryFile(destination, buffer);
+      tempFilesRef.current.add(destination);
+      return destination;
+    },
+    [runningInTauri]
+  );
+
+  const ensureInputPath = useCallback(async () => {
+    if (!runningInTauri) return '';
+    if (filePath) {
+      return filePath;
     }
-    setTargetInput(String(targetSeconds));
-    setTargetError('');
-    cleanupProcessed();
-  };
+    if (!file) {
+      return '';
+    }
+
+    if (typeof file.path === 'string' && file.path) {
+      selectionTempPathRef.current = '';
+      setFilePath(file.path);
+      return file.path;
+    }
+
+    try {
+      const tempPath = await persistFileToTemp(file);
+      selectionTempPathRef.current = tempPath;
+      setFilePath(tempPath);
+      return tempPath;
+    } catch (err) {
+      console.error('Failed to persist temporary video file', err);
+      setErrorMessage(
+        'Failed to prepare the selected video for export. Please choose a different file.'
+      );
+      setStatusMessage('');
+      return '';
+    }
+  }, [file, filePath, persistFileToTemp, runningInTauri]);
+
+  const cleanupRequestInputPath = useCallback(
+    async (request) => {
+      if (!runningInTauri) return;
+      if (!request || typeof request.inputPath !== 'string') return;
+      const candidate = request.inputPath;
+      const tracked = tempFilesRef.current.has(candidate);
+      if (selectionTempPathRef.current === candidate) {
+        selectionTempPathRef.current = '';
+      }
+      if (!tracked) {
+        return;
+      }
+      await removeTempFile(candidate);
+      setFilePath((prev) => (prev === candidate ? '' : prev));
+    },
+    [removeTempFile, runningInTauri]
+  );
+
+  const handleFileChange = useCallback(
+    async (e) => {
+      const selected = e?.target?.files?.[0];
+      if (!selected) return;
+
+      setFile(selected);
+      setLoopsCompleted(0);
+      setElapsed(0);
+      setUseConcatenated(false);
+      const url = URL.createObjectURL(selected);
+      setVideoURL(url);
+      if (String(selected.type || '').toLowerCase().includes('mp4')) {
+        setSelectedFormat('video/mp4;codecs=h264,aac');
+      }
+      setTargetInput(String(targetSeconds));
+      setTargetError('');
+      cleanupProcessed();
+
+      if (!runningInTauri) {
+        selectionTempPathRef.current = '';
+        setFilePath('');
+        return;
+      }
+
+      const previousTemp = selectionTempPathRef.current;
+      const activeJobPath =
+        jobRequestRef.current && typeof jobRequestRef.current.inputPath === 'string'
+          ? jobRequestRef.current.inputPath
+          : '';
+      if (previousTemp && previousTemp !== activeJobPath) {
+        await removeTempFile(previousTemp);
+        setFilePath((prev) => (prev === previousTemp ? '' : prev));
+      }
+      selectionTempPathRef.current = '';
+
+      let resolvedPath = '';
+      if (typeof selected.path === 'string' && selected.path) {
+        resolvedPath = selected.path;
+      } else {
+        try {
+          const tempPath = await persistFileToTemp(selected);
+          selectionTempPathRef.current = tempPath;
+          resolvedPath = tempPath;
+        } catch (err) {
+          console.error('Failed to persist temporary video file', err);
+          setErrorMessage(
+            'Failed to access the selected video. Please choose a different file.'
+          );
+          setStatusMessage('');
+          setFilePath('');
+          return;
+        }
+      }
+
+      setFilePath(resolvedPath);
+      setErrorMessage('');
+    },
+    [
+      cleanupProcessed,
+      persistFileToTemp,
+      removeTempFile,
+      runningInTauri,
+      targetSeconds,
+    ]
+  );
 
   const buildConcatenatedSource = (file, loops, clipDurationSeconds) =>
     new Promise((resolve) => {
@@ -1597,7 +1778,8 @@ export default function LoopMaker() {
 
   const handleRenderOrSave = async () => {
     if (runningInTauri) {
-      if (!filePath) {
+      const resolvedPath = await ensureInputPath();
+      if (!resolvedPath) {
         setErrorMessage('Select a local video file to export.');
         return;
       }
@@ -1609,7 +1791,7 @@ export default function LoopMaker() {
       setErrorMessage('');
       const { fullLoops, remainder } = computeLoopPlan(targetSeconds, duration);
       const jobRequest = {
-        inputPath: filePath,
+        inputPath: resolvedPath,
         targetSeconds: Number(targetSeconds),
         clipSeconds: Number(duration),
         outdir: outdir || '',
@@ -1620,7 +1802,7 @@ export default function LoopMaker() {
       };
       try {
         const jobIdValue = await invoke('export_loop_video', {
-          inputPath: filePath,
+          inputPath: resolvedPath,
           targetSeconds: Number(targetSeconds),
           clipSeconds: Number(duration),
           outdir: outdir || undefined,

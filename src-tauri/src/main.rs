@@ -6542,14 +6542,34 @@ fn export_loop_video(
 ) -> Result<u64, String> {
     let in_path = PathBuf::from(&input_path);
     if !in_path.exists() {
-        return Err("Input video does not exist".into());
+        let msg = format!("Input video does not exist at {}", in_path.display());
+        eprintln!("[loop-maker] {}", msg);
+        return Err(msg);
+    }
+    if in_path.is_dir() {
+        let msg = format!(
+            "Input path is a directory, expected a file: {}",
+            in_path.display()
+        );
+        eprintln!("[loop-maker] {}", msg);
+        return Err(msg);
     }
     let clip = clip_seconds.unwrap_or(0.0);
     if target_seconds <= 0.0 {
-        return Err("Target seconds must be > 0".into());
+        let msg = format!(
+            "Target seconds must be greater than zero (received {:.3}).",
+            target_seconds
+        );
+        eprintln!("[loop-maker] {}", msg);
+        return Err(msg);
     }
     if clip <= 0.0 {
-        return Err("Clip duration unknown; cannot compute loops".into());
+        let msg = format!(
+            "Clip duration must be greater than zero to compute loops (received {:.3}).",
+            clip
+        );
+        eprintln!("[loop-maker] {}", msg);
+        return Err(msg);
     }
     let loops = (target_seconds / clip).floor() as i64;
     let remainder = target_seconds - (loops as f64) * clip;
@@ -6560,13 +6580,27 @@ fn export_loop_video(
         PathBuf::from(dir)
     } else {
         // Default to app data jobs/loops
-        app.path()
-            .app_data_dir()
-            .map_err(|e| e.to_string())?
-            .join("jobs")
-            .join("loops")
+        match app.path().app_data_dir() {
+            Ok(base) => base.join("jobs").join("loops"),
+            Err(err) => {
+                let msg = format!(
+                    "Failed to resolve app data directory for loop export: {}",
+                    err
+                );
+                eprintln!("[loop-maker] {}", msg);
+                return Err(msg);
+            }
+        }
     };
-    std::fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
+    if let Err(err) = std::fs::create_dir_all(&out_dir) {
+        let msg = format!(
+            "Failed to create loop export directory {}: {}",
+            out_dir.display(),
+            err
+        );
+        eprintln!("[loop-maker] {}", msg);
+        return Err(msg);
+    }
 
     // Determine output filename
     let stem = if let Some(name) = output_name {
@@ -6587,11 +6621,49 @@ fn export_loop_video(
         "../scripts/export_loop_video.py".to_string()
     };
 
-    let input_arg = in_path
-        .canonicalize()
-        .unwrap_or_else(|_| in_path.clone())
-        .to_string_lossy()
-        .to_string();
+    let script_path = Path::new(&script);
+    if !script_path.exists() {
+        let msg = format!("Loop export script not found at {}", script_path.display());
+        eprintln!("[loop-maker] {}", msg);
+        return Err(msg);
+    }
+
+    match Command::new("ffmpeg").arg("-version").output() {
+        Ok(output) => {
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let detail = if !stderr.trim().is_empty() {
+                    stderr.trim().to_string()
+                } else if !stdout.trim().is_empty() {
+                    stdout.trim().to_string()
+                } else {
+                    "ffmpeg -version returned a non-zero exit status".to_string()
+                };
+                let msg = format!("Failed to run ffmpeg: {}", detail);
+                eprintln!("[loop-maker] {}", msg);
+                return Err(msg);
+            }
+        }
+        Err(err) => {
+            let msg = format!("Failed to execute ffmpeg: {}", err);
+            eprintln!("[loop-maker] {}", msg);
+            return Err(msg);
+        }
+    }
+
+    let canonical_input = match in_path.canonicalize() {
+        Ok(path) => path,
+        Err(err) => {
+            eprintln!(
+                "[loop-maker] Failed to canonicalize input path {}: {}. Using provided path.",
+                in_path.display(),
+                err
+            );
+            in_path.clone()
+        }
+    };
+    let input_arg = canonical_input.to_string_lossy().to_string();
 
     let mut args = vec![script];
     args.push("--input".into());
@@ -6615,11 +6687,23 @@ fn export_loop_video(
     let context = JobContext {
         kind: Some("loop-maker".into()),
         label: Some(stem),
-        source: Some("Loop Export".into()),
+        source: Some("Loop Maker".into()),
         artifact_candidates,
     };
 
-    spawn_job_with_context(app, registry, args, context)
+    eprintln!(
+        "[loop-maker] queueing loop export for {} (target {:.2}s, clip {:.2}s) -> {}",
+        canonical_input.display(),
+        target_seconds,
+        clip,
+        out_path.display()
+    );
+
+    spawn_job_with_context(app, registry, args, context).map_err(|err| {
+        let msg = format!("Failed to queue loop export: {}", err);
+        eprintln!("[loop-maker] {}", msg);
+        msg
+    })
 }
 
 #[tauri::command]
