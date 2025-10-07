@@ -40,10 +40,10 @@ const sections = [
     description: 'Track campaign todos and session tasks. (WIP)',
   },
   {
-    to: '/dnd/discord',
+    to: '/dnd/whisper',
     icon: 'MessageCircle',
-    title: 'Discord',
-    description: 'Set up Discord integrations for your campaign.',
+    title: 'Discord & Whisper',
+    description: 'Set up Discord integrations and live transcription.',
   },
   {
     to: '/dnd/chat',
