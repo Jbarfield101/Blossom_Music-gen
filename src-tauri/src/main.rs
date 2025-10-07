@@ -2859,6 +2859,7 @@ impl JobRegistry {
             (
                 Option<String>,
                 Option<String>,
+                Option<String>,
                 Vec<String>,
                 DateTime<Utc>,
                 Option<DateTime<Utc>>,
@@ -3156,7 +3157,7 @@ fn settings_store(app: &AppHandle) -> Result<Arc<Store<tauri::Wry>>, String> {
 #[tauri::command]
 async fn update_section_tags(
     app: AppHandle,
-    registry: State<JobRegistry>,
+    registry: State<'_, JobRegistry>,
     section: String,
 ) -> Result<TagUpdateSummary, String> {
     let trimmed = section.trim();
@@ -5763,6 +5764,7 @@ print(json.dumps({{"text": result}}))
     })
     .await
     .map_err(|e| e.to_string())?;
+    let text = text?;
     Ok(text)
 }
 
