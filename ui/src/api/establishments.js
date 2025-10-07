@@ -1,4 +1,4 @@
-import { getConfig } from './config';
+import { getDreadhavenRoot } from './config';
 import { listDir } from './dir';
 
 const DEFAULT_REGIONS = 'D:\\Documents\\DreadHaven\\10_World\\Regions';
@@ -122,12 +122,12 @@ function sortItems(items) {
 export async function loadEstablishments() {
   const candidates = [];
   try {
-    const vault = await getConfig('vaultPath');
+    const vault = await getDreadhavenRoot();
     if (typeof vault === 'string' && vault.trim()) {
-      candidates.push(joinSegments(vault, '10_World', 'Regions'));
+      candidates.push(joinSegments(vault.trim(), '10_World', 'Regions'));
     }
   } catch (err) {
-    console.warn('Failed to read vault path for establishments', err);
+    console.warn('Failed to resolve DreadHaven root for establishments', err);
   }
   if (!candidates.includes(DEFAULT_REGIONS)) {
     candidates.push(DEFAULT_REGIONS);

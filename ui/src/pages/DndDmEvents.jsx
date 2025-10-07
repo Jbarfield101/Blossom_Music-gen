@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
-import { getConfig } from '../api/config';
+import { getDreadhavenRoot } from '../api/config';
 import { listInbox, readInbox } from '../api/inbox';
 import { renderMarkdown } from '../lib/markdown.jsx';
 import './Dnd.css';
@@ -42,8 +42,8 @@ export default function DndDmEvents() {
     setLoading(true);
     setError('');
     try {
-      const vault = await getConfig('vaultPath');
-      const base = (typeof vault === 'string' && vault) ? `${vault}\\20_DM\\Events` : '';
+      const vault = await getDreadhavenRoot();
+      const base = (typeof vault === 'string' && vault.trim()) ? `${vault.trim()}\\20_DM\\Events` : '';
       if (base) {
         const list = await listInbox(base);
         setUsingPath(base);

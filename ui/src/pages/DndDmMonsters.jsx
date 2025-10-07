@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
-import { getConfig } from '../api/config';
+import { getDreadhavenRoot } from '../api/config';
 import { listInbox, readInbox } from '../api/inbox';
 import { listDir } from '../api/dir';
 import { readFileBytes } from '../api/files';
@@ -55,8 +55,9 @@ export default function DndDmMonsters() {
   const [createError, setCreateError] = useState('');
 
   const refreshVaultPath = useCallback(async () => {
+    const fallback = 'D:\\Documents\\DreadHaven';
     try {
-      const vault = await getConfig('vaultPath');
+      const vault = await getDreadhavenRoot();
       const normalized = typeof vault === 'string' ? vault.trim() : '';
       if (normalized) {
         setVaultPath(normalized);
@@ -65,8 +66,8 @@ export default function DndDmMonsters() {
     } catch (e) {
       // ignore
     }
-    setVaultPath('');
-    return '';
+    setVaultPath(fallback);
+    return fallback;
   }, []);
 
   const fetchItems = useCallback(async () => {
@@ -133,7 +134,7 @@ export default function DndDmMonsters() {
     } catch (e) {
       const msg = e?.message || String(e);
       const hint = /Failed to read template/i.test(msg)
-        ? '\nHint: Place the monster template under \\_Templates\\ or set your Vault path in Settings.'
+        ? '\nHint: Place the monster template under \\_Templates\\.'
         : '';
       setCreateError(`${msg}${hint}`);
     } finally {
@@ -147,9 +148,9 @@ export default function DndDmMonsters() {
   useEffect(() => {
     (async () => {
       try {
-        const vault = await getConfig('vaultPath');
-        const base = (typeof vault === 'string' && vault)
-          ? `${vault}\\\\30_Assets\\\\Images\\\\Monster_Portraits`.replace(/\\\\/g, '\\\\')
+        const vault = await getDreadhavenRoot();
+        const base = (typeof vault === 'string' && vault.trim())
+          ? `${vault.trim()}\\\\30_Assets\\\\Images\\\\Monster_Portraits`.replace(/\\\\/g, '\\\\')
           : DEFAULT_PORTRAITS;
         const entries = await listDir(base);
         const idx = {};

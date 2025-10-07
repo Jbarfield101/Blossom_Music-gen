@@ -1,4 +1,4 @@
-import { getConfig } from './config';
+import { getDreadhavenRoot } from './config';
 import { listDir } from './dir';
 import { invoke } from '@tauri-apps/api/core';
 
@@ -18,11 +18,13 @@ function joinSegments(base, ...segments) {
   return result;
 }
 
+const DEFAULT_ROOT = 'D:\\Documents\\DreadHaven';
+
 export async function loadRaces() {
-  let base = 'D:\\Documents\\DreadHaven';
+  let base = DEFAULT_ROOT;
   try {
-    const vault = await getConfig('vaultPath');
-    if (typeof vault === 'string' && vault.trim()) base = vault;
+    const vault = await getDreadhavenRoot();
+    if (typeof vault === 'string' && vault.trim()) base = vault.trim();
   } catch {}
   const folder = joinSegments(base, '10_World', 'Races');
   const results = [];

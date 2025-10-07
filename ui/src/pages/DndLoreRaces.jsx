@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { fileSrc } from '../lib/paths.js';
-import { getConfig } from '../api/config';
+import { getDreadhavenRoot } from '../api/config';
 import BackButton from '../components/BackButton.jsx';
 import Card from '../components/Card.jsx';
 import { loadRaces, createRace, saveRacePortrait } from '../api/races';
@@ -50,8 +50,8 @@ export default function DndLoreRaces() {
   const resolvePortrait = useCallback(async (raceName) => {
     let base = 'D:\\Documents\\DreadHaven';
     try {
-      const vault = await getConfig('vaultPath');
-      if (typeof vault === 'string' && vault.trim()) base = vault;
+      const vault = await getDreadhavenRoot();
+      if (typeof vault === 'string' && vault.trim()) base = vault.trim();
     } catch {}
     const dir = `${base}\\\\30_Assets\\\\Images\\\\Race_Portraits`;
     const clean = (s) => String(s || '').trim().replace(/\s+/g, '_');

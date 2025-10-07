@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
 import Icon from '../components/Icon.jsx';
-import { getConfig } from '../api/config';
+import { getDreadhavenRoot } from '../api/config';
 import { listDir } from '../api/dir';
 import { readInbox } from '../api/inbox';
 import { renderMarkdown } from '../lib/markdown.jsx';
@@ -32,9 +32,9 @@ export default function DndWorldFactions() {
     setLoading(true);
     setError('');
     try {
-      const vault = await getConfig('vaultPath');
-      const base = (typeof vault === 'string' && vault)
-        ? `${vault}\\\\10_World\\\\Factions`.replace(/\\\\/g, '\\\\')
+      const vault = await getDreadhavenRoot();
+      const base = (typeof vault === 'string' && vault.trim())
+        ? `${vault.trim()}\\\\10_World\\\\Factions`.replace(/\\\\/g, '\\\\')
         : DEFAULT_FACTIONS;
       setBasePath(base);
       setCurrentPath(base);

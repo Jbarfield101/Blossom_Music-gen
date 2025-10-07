@@ -9,7 +9,7 @@ import { listNpcs, saveNpc } from '../api/npcs.js';
 import { listPiperVoices } from '../lib/piperVoices';
 import { listDir } from '../api/dir';
 import { readFileBytes } from '../api/files';
-import { getConfig } from '../api/config';
+import { getDreadhavenRoot } from '../api/config';
 import './Dnd.css';
 
 const PROVIDERS = [
@@ -748,8 +748,8 @@ export default function DndDiscord() {
 
         let base = '';
         try {
-          const v = await getConfig('vaultPath');
-          const vStr = typeof v === 'string' ? v : '';
+          const v = await getDreadhavenRoot();
+          const vStr = typeof v === 'string' ? v.trim() : '';
           if (vStr) {
             base = joinPortraitPath(vStr, '30_Assets', 'Images', 'NPC_Portraits');
           }

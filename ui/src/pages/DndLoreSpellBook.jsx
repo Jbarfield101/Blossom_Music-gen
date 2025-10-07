@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
-import { getConfig } from '../api/config';
+import { getDreadhavenRoot } from '../api/config';
 import { listInbox, readInbox } from '../api/inbox';
 import { createSpell } from '../api/spells';
 import { renderMarkdown } from '../lib/markdown.jsx';
@@ -57,9 +57,9 @@ export default function DndLoreSpellBook() {
     setLoading(true);
     setError('');
     try {
-      const vault = await getConfig('vaultPath');
-      const base = (typeof vault === 'string' && vault)
-        ? `${vault}\\10_World\\SpellBook`
+      const vault = await getDreadhavenRoot();
+      const base = (typeof vault === 'string' && vault.trim())
+        ? `${vault.trim()}\\10_World\\SpellBook`
         : '';
       if (base) {
         const list = await listInbox(base);
