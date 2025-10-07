@@ -11,7 +11,7 @@
   flex-direction: column;
   gap: var(--space-md);
   align-items: stretch;
-  width: min(960px, 100%);
+  width: min(1280px, 100%);
   margin: 0 auto;
   padding: clamp(var(--space-md), 3vw, var(--space-xl));
   background: var(--card-bg);
@@ -41,8 +41,8 @@
 
 .sand-game-hud {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-  gap: var(--space-md);
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: clamp(var(--space-md), 3vw, var(--space-xl));
   align-items: stretch;
 }
 
@@ -81,34 +81,8 @@
   font-weight: 700;
 }
 
-.sand-score-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.4rem 0.9rem;
-  border-radius: 999px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  background: rgba(148, 163, 184, 0.22);
-  color: rgba(226, 232, 240, 0.95);
-}
 
-.sand-score-badge.running {
-  background: rgba(34, 197, 94, 0.25);
-  color: #4ade80;
-}
-
-.sand-score-badge.paused {
-  background: rgba(251, 191, 36, 0.25);
-  color: #facc15;
-}
-
-.sand-score-badge.over {
-  background: rgba(248, 113, 113, 0.28);
-  color: #f87171;
-}
-
-.sand-game-preview {
+.sand-game-palette {
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
@@ -121,28 +95,56 @@
   box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.15);
 }
 
-.sand-preview-title {
+.sand-palette-title {
   font-size: 0.9rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   opacity: 0.8;
 }
 
-.sand-preview-queue {
+.sand-palette-colors {
   display: flex;
-  flex-direction: column;
-  width: 100%;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: var(--space-sm);
+  width: 100%;
 }
 
-.sand-preview-card {
-  position: relative;
+.sand-color-swatch {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  box-shadow: inset 0 0 0 2px rgba(15, 23, 42, 0.4);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.sand-color-swatch:hover {
+  transform: translateY(-2px);
+  border-color: rgba(255, 255, 255, 0.65);
+}
+
+.sand-color-swatch.selected {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.45);
+  border-color: rgba(255, 255, 255, 0.85);
+}
+
+.sand-palette-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-sm);
+  width: 100%;
+}
+
+.sand-palette-card {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.65rem;
   align-items: center;
   width: 100%;
-  padding: 0.75rem;
+  padding: 0.85rem;
   border: 1px solid rgba(148, 163, 184, 0.25);
   border-radius: var(--space-sm);
   background: rgba(15, 23, 42, 0.55);
@@ -152,31 +154,37 @@
   transition: transform 0.15s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.sand-preview-card:hover {
+.sand-palette-card:hover {
   transform: translateY(-2px);
   border-color: rgba(96, 165, 250, 0.5);
   box-shadow: 0 10px 18px rgba(15, 23, 42, 0.35);
 }
 
-.sand-preview-card.selected {
+.sand-palette-card.selected {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.45);
 }
 
-.sand-preview-card:focus {
+.sand-palette-card:focus {
   outline: none;
   border-color: rgba(96, 165, 250, 0.75);
   box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.45);
 }
 
-.sand-preview-order {
-  position: absolute;
-  top: 0.45rem;
-  left: 0.6rem;
-  font-size: 0.75rem;
+.sand-palette-shape-name {
+  font-size: 0.85rem;
   font-weight: 600;
-  letter-spacing: 0.05em;
-  opacity: 0.7;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.sand-palette-helper {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  text-align: center;
+  opacity: 0.8;
 }
 
 .sand-preview-grid {
@@ -198,22 +206,13 @@
 
 .sand-preview-cell.empty {
   background: rgba(148, 163, 184, 0.16);
-  opacity: 0.35;
-  box-shadow: none;
 }
 
-.sand-preview-label {
-  font-size: 0.95rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-align: center;
-}
-
-.sand-preview-helper {
-  font-size: 0.8rem;
-  opacity: 0.7;
-  text-align: center;
-  max-width: 16rem;
+.sand-preview-grid.small {
+  grid-template-columns: repeat(4, clamp(22px, 3vw, 28px));
+  grid-auto-rows: clamp(22px, 3vw, 28px);
+  gap: 4px;
+  padding: 0.5rem;
 }
 
 .sand-game-controls {
@@ -252,8 +251,9 @@
 }
 
 .sand-game-canvas {
-  width: auto;
+  width: 100%;
   height: auto;
+  max-width: 100%;
   border: 2px solid var(--accent);
   border-radius: var(--space-sm);
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.45);
@@ -315,7 +315,7 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .sand-game-preview {
+  .sand-game-palette {
     padding: var(--space-sm) var(--space-md);
   }
 

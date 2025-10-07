@@ -2,18 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
 import './SandBlocks.css';
 
-const CELL_SIZE = 16;
-const GRID_WIDTH = 120;
-const GRID_HEIGHT = 80;
+const CELL_SIZE = 32;
+const GRID_WIDTH = 36;
+const GRID_HEIGHT = 24;
 const CANVAS_WIDTH = GRID_WIDTH * CELL_SIZE;
 const CANVAS_HEIGHT = GRID_HEIGHT * CELL_SIZE;
-const SPAWN_INTERVAL = 2000;
-const DROP_INTERVAL = 450;
-const SPAWN_WARNING_ROW = 10;
+const SPAWN_WARNING_ROW = 6;
 const WALL_INDICATOR_WIDTH = 4;
 const POINTS_PER_GRAIN = 10;
 const STORAGE_KEY = 'sandBlocksHighScore';
-const QUEUE_LENGTH = 3;
 
 const COLOR_PALETTE = [
   { name: 'Sunburst', value: '#fbbf24' },
@@ -141,23 +138,9 @@ const getRotationInfo = (shape, rotation) => {
 const createEmptyGrid = () =>
   Array.from({ length: GRID_HEIGHT }, () => Array(GRID_WIDTH).fill(0));
 
-const randomShape = () => {
-  const template = SHAPES[Math.floor(Math.random() * SHAPES.length)];
-  const color = Math.floor(Math.random() * COLOR_PALETTE.length) + 1;
-  return { ...template, color };
-};
-
 export default function SandBlocks() {
   const canvasRef = useRef(null);
-  const animationFrameRef = useRef(null);
   const gridRef = useRef(createEmptyGrid());
-  const isRunningRef = useRef(false);
-  const isGameOverRef = useRef(false);
-  const lastSpawnTimeRef = useRef(0);
-  const lastDropTimeRef = useRef(0);
-
-  const [isRunning, setIsRunning] = useState(false);
-  const [isGameOver, setIsGameOver] = useState(false);
   const [grainCount, setGrainCount] = useState(0);
   const [score, setScore] = useState(0);
   const [bridgesCleared, setBridgesCleared] = useState(0);
@@ -174,15 +157,12 @@ export default function SandBlocks() {
       return 0;
     }
   });
-  const [nextShapeQueue, setNextShapeQueue] = useState(() =>
-    Array.from({ length: QUEUE_LENGTH }, () => randomShape())
-  );
-  const nextShapeQueueRef = useRef(nextShapeQueue);
-  const [selectedPreviewIndex, setSelectedPreviewIndex] = useState(0);
-  const selectedPreviewIndexRef = useRef(selectedPreviewIndex);
+  const [selectedShapeIndex, setSelectedShapeIndex] = useState(0);
+  const [selectedColorIndex, setSelectedColorIndex] = useState(0);
   const [activePiece, setActivePiece] = useState(null);
   const activePieceRef = useRef(activePiece);
   const pointerStateRef = useRef(null);
+  const previousShapeIndexRef = useRef(selectedShapeIndex);
 
   const updateActivePiece = useCallback((piece) => {
     activePieceRef.current = piece;
@@ -190,20 +170,133 @@ export default function SandBlocks() {
   }, []);
 
   useEffect(() => {
-    nextShapeQueueRef.current = nextShapeQueue;
-  }, [nextShapeQueue]);
+    const piece = activePieceRef.current;
+    if (!piece) {
+      return;
+    }
+
+    const paletteEntry = COLOR_PALETTE[selectedColorIndex];
+    if (!paletteEntry) {
+      return;
+    }
+
+    const colorId = selectedColorIndex + 1;
+    if (piece.shape.color === colorId) {
+      return;
+    }
+
+    updateActivePiece({
+      ...piece,
+      shape: { ...piece.shape, color: colorId },
+    });
+  }, [selectedColorIndex, updateActivePiece]);
 
   useEffect(() => {
-    selectedPreviewIndexRef.current = selectedPreviewIndex;
-  }, [selectedPreviewIndex]);
+    const previousShapeIndex = previousShapeIndexRef.current;
+    if (previousShapeIndex === selectedShapeIndex && activePieceRef.current) {
+      return;
+    }
+
+    previousShapeIndexRef.current = selectedShapeIndex;
+
+    const template = SHAPES[selectedShapeIndex];
+    const paletteEntry = COLOR_PALETTE[selectedColorIndex];
+    if (!template || !paletteEntry) {
+      updateActivePiece(null);
+      return;
+    }
+
+    const colorId = selectedColorIndex + 1;
+    const rotation = 0;
+    const startX = Math.max(0, Math.floor((GRID_WIDTH - template.width) / 2));
+    const startY = Math.max(0, Math.floor((GRID_HEIGHT - template.height) / 2));
+    let candidate = {
+      shape: { ...template, color: colorId },
+      x: startX,
+      y: startY,
+      rotation,
+    };
+
+    if (!canPlacePiece(candidate)) {
+      let placed = false;
+      for (let ty = 0; ty <= GRID_HEIGHT - template.height; ty += 1) {
+        for (let tx = 0; tx <= GRID_WIDTH - template.width; tx += 1) {
+          const attempt = {
+            shape: { ...template, color: colorId },
+            x: tx,
+            y: ty,
+            rotation,
+          };
+          if (canPlacePiece(attempt)) {
+            candidate = attempt;
+            placed = true;
+            break;
+          }
+        }
+        if (placed) {
+          break;
+        }
+      }
+
+      if (!placed) {
+        updateActivePiece(null);
+        return;
+      }
+    }
+
+    updateActivePiece(candidate);
+  }, [canPlacePiece, selectedColorIndex, selectedShapeIndex, updateActivePiece]);
 
   useEffect(() => {
-    isRunningRef.current = isRunning;
-  }, [isRunning]);
+    if (activePiece) {
+      return;
+    }
 
-  useEffect(() => {
-    isGameOverRef.current = isGameOver;
-  }, [isGameOver]);
+    const template = SHAPES[selectedShapeIndex];
+    const paletteEntry = COLOR_PALETTE[selectedColorIndex];
+    if (!template || !paletteEntry) {
+      return;
+    }
+
+    const colorId = selectedColorIndex + 1;
+    const rotation = 0;
+    const startX = Math.max(0, Math.floor((GRID_WIDTH - template.width) / 2));
+    const startY = Math.max(0, Math.floor((GRID_HEIGHT - template.height) / 2));
+    let candidate = {
+      shape: { ...template, color: colorId },
+      x: startX,
+      y: startY,
+      rotation,
+    };
+
+    if (!canPlacePiece(candidate)) {
+      let placed = false;
+      for (let ty = 0; ty <= GRID_HEIGHT - template.height; ty += 1) {
+        for (let tx = 0; tx <= GRID_WIDTH - template.width; tx += 1) {
+          const attempt = {
+            shape: { ...template, color: colorId },
+            x: tx,
+            y: ty,
+            rotation,
+          };
+          if (canPlacePiece(attempt)) {
+            candidate = attempt;
+            placed = true;
+            break;
+          }
+        }
+        if (placed) {
+          break;
+        }
+      }
+
+      if (!placed) {
+        return;
+      }
+    }
+
+    updateActivePiece(candidate);
+  }, [activePiece, canPlacePiece, selectedColorIndex, selectedShapeIndex, updateActivePiece]);
 
   const drawGrid = useCallback(() => {
     const canvas = canvasRef.current;
@@ -316,15 +409,10 @@ export default function SandBlocks() {
   }, []);
 
   const lockActivePiece = useCallback(
-    (piece, timestamp) => {
-      if (!piece) {
-        return;
+    (piece) => {
+      if (!piece || !canPlacePiece(piece)) {
+        return false;
       }
-
-      const appliedTimestamp =
-        timestamp ?? (typeof window !== 'undefined' && window.performance
-          ? window.performance.now()
-          : Date.now());
 
       const grid = gridRef.current.map((row) => row.slice());
       const { offsets } = getRotationInfo(piece.shape, piece.rotation);
@@ -339,40 +427,12 @@ export default function SandBlocks() {
 
       gridRef.current = grid;
       updateActivePiece(null);
-      lastSpawnTimeRef.current = appliedTimestamp;
-      lastDropTimeRef.current = appliedTimestamp;
       pointerStateRef.current = null;
       countGrains();
       drawGrid();
+      return true;
     },
-    [countGrains, drawGrid, updateActivePiece]
-  );
-
-  const stepSimulation = useCallback(
-    (timestamp) => {
-      if (!isRunningRef.current || isGameOverRef.current) {
-        return;
-      }
-
-      const piece = activePieceRef.current;
-      if (!piece) {
-        return;
-      }
-
-      if (timestamp - lastDropTimeRef.current < DROP_INTERVAL) {
-        return;
-      }
-
-      if (canPlacePiece(piece, 0, 1, 0)) {
-        const moved = { ...piece, y: piece.y + 1 };
-        updateActivePiece(moved);
-      } else {
-        lockActivePiece(piece, timestamp);
-      }
-
-      lastDropTimeRef.current = timestamp;
-    },
-    [canPlacePiece, lockActivePiece, updateActivePiece]
+    [canPlacePiece, countGrains, drawGrid, updateActivePiece]
   );
 
   const clearBridges = useCallback(() => {
@@ -456,91 +516,51 @@ export default function SandBlocks() {
     }
   }, [countGrains, drawGrid]);
 
-  const spawnShape = useCallback(
-    (timestamp) => {
-      const queue = nextShapeQueueRef.current;
-      if (!queue || queue.length === 0) {
-        return;
-      }
+  const handlePlacePiece = useCallback(() => {
+    const piece = activePieceRef.current;
+    if (!piece) {
+      return;
+    }
 
-      const selectedIndex = Math.min(
-        selectedPreviewIndexRef.current,
-        queue.length - 1
-      );
-      const shape = queue[selectedIndex];
-
-      const rotation = 0;
-      const { width } = getRotationInfo(shape, rotation);
-      const spawnX = Math.floor((GRID_WIDTH - width) / 2);
-      const piece = {
-        shape,
-        x: spawnX,
-        y: 0,
-        rotation,
-      };
-
-      if (!canPlacePiece(piece)) {
-        setIsGameOver(true);
-        setIsRunning(false);
-        return;
-      }
-
-      updateActivePiece(piece);
-      drawGrid();
-
-      const replenishedQueue = [
-        ...queue.slice(0, selectedIndex),
-        ...queue.slice(selectedIndex + 1),
-        randomShape(),
-      ];
-      nextShapeQueueRef.current = replenishedQueue;
-      setNextShapeQueue(replenishedQueue);
-      selectedPreviewIndexRef.current = 0;
-      setSelectedPreviewIndex(0);
-      lastSpawnTimeRef.current = timestamp;
-      lastDropTimeRef.current = timestamp;
-    },
-    [canPlacePiece, drawGrid, updateActivePiece]
-  );
-
-  const maybeSpawnShape = useCallback(
-    (timestamp) => {
-      if (!isRunningRef.current || isGameOverRef.current) {
-        return;
-      }
-
-      if (activePieceRef.current) {
-        return;
-      }
-
-      if (timestamp - lastSpawnTimeRef.current < SPAWN_INTERVAL) {
-        return;
-      }
-
-      spawnShape(timestamp);
-    },
-    [spawnShape]
-  );
+    if (lockActivePiece(piece)) {
+      clearBridges();
+    }
+  }, [clearBridges, lockActivePiece]);
 
   const attemptMovePiece = useCallback(
-    (deltaX) => {
+    (deltaX = 0, deltaY = 0) => {
       const piece = activePieceRef.current;
-      if (!piece || deltaX === 0) {
+      if (!piece || (deltaX === 0 && deltaY === 0)) {
         return;
       }
 
-      const direction = deltaX > 0 ? 1 : -1;
-      let remaining = Math.abs(deltaX);
       let currentPiece = piece;
       let moved = false;
 
-      while (remaining > 0) {
-        if (!canPlacePiece(currentPiece, direction, 0, 0)) {
-          break;
+      const stepAxis = (axisDelta, axis) => {
+        const direction = axisDelta > 0 ? 1 : -1;
+        let remaining = Math.abs(axisDelta);
+        while (remaining > 0) {
+          const offsetX = axis === 'x' ? direction : 0;
+          const offsetY = axis === 'y' ? direction : 0;
+          if (!canPlacePiece(currentPiece, offsetX, offsetY, 0)) {
+            break;
+          }
+          currentPiece = {
+            ...currentPiece,
+            x: currentPiece.x + offsetX,
+            y: currentPiece.y + offsetY,
+          };
+          remaining -= 1;
+          moved = true;
         }
-        currentPiece = { ...currentPiece, x: currentPiece.x + direction };
-        remaining -= 1;
-        moved = true;
+      };
+
+      if (deltaX !== 0) {
+        stepAxis(deltaX, 'x');
+      }
+      if (deltaY !== 0) {
+        stepAxis(deltaY, 'y');
       }
 
       if (moved) {
@@ -565,26 +585,11 @@ export default function SandBlocks() {
   }, [canPlacePiece, updateActivePiece]);
 
   const attemptSoftDrop = useCallback(() => {
-    const piece = activePieceRef.current;
-    if (!piece) {
-      return;
-    }
-
-    if (canPlacePiece(piece, 0, 1, 0)) {
-      const moved = { ...piece, y: piece.y + 1 };
-      updateActivePiece(moved);
-      const now =
-        typeof window !== 'undefined' && window.performance
-          ? window.performance.now()
-          : Date.now();
-      lastDropTimeRef.current = now;
-    } else {
-      lockActivePiece(piece);
-    }
-  }, [canPlacePiece, lockActivePiece, updateActivePiece]);
+    attemptMovePiece(0, 1);
+  }, [attemptMovePiece]);
 
   const handlePointerDown = useCallback((event) => {
-    if (!isRunningRef.current || isGameOverRef.current || event.button > 0) {
+    if (event.button > 0) {
       return;
     }
 
@@ -597,10 +602,13 @@ export default function SandBlocks() {
     event.preventDefault();
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
     pointerStateRef.current = {
       id: event.pointerId,
       startX: x,
+      startY: y,
       originX: piece.x,
+      originY: piece.y,
       moved: false,
     };
 
@@ -615,10 +623,6 @@ export default function SandBlocks() {
 
   const handlePointerMove = useCallback(
     (event) => {
-      if (!isRunningRef.current || isGameOverRef.current) {
-        return;
-      }
-
       const state = pointerStateRef.current;
       if (!state || state.id !== event.pointerId) {
         return;
@@ -632,17 +636,20 @@ export default function SandBlocks() {
 
       const rect = canvas.getBoundingClientRect();
       const x = event.clientX - rect.left;
-      const delta = x - state.startX;
-      const deltaCells = Math.round(delta / CELL_SIZE);
-      if (deltaCells === 0) {
+      const y = event.clientY - rect.top;
+      const deltaX = Math.round((x - state.startX) / CELL_SIZE);
+      const deltaY = Math.round((y - state.startY) / CELL_SIZE);
+      if (deltaX === 0 && deltaY === 0) {
         return;
       }
 
       event.preventDefault();
-      const desiredX = state.originX + deltaCells;
-      const moveDelta = desiredX - piece.x;
-      if (moveDelta !== 0) {
-        attemptMovePiece(moveDelta);
+      const desiredX = state.originX + deltaX;
+      const desiredY = state.originY + deltaY;
+      const moveDeltaX = desiredX - piece.x;
+      const moveDeltaY = desiredY - piece.y;
+      if (moveDeltaX !== 0 || moveDeltaY !== 0) {
+        attemptMovePiece(moveDeltaX, moveDeltaY);
         if (pointerStateRef.current) {
           pointerStateRef.current.moved = true;
         }
@@ -675,8 +682,6 @@ export default function SandBlocks() {
         state &&
         state.id === event.pointerId &&
         !state.moved &&
-        isRunningRef.current &&
-        !isGameOverRef.current &&
         event.type === 'pointerup'
       ) {
         const canvas = canvasRef.current;
@@ -703,27 +708,19 @@ export default function SandBlocks() {
   );
 
   useEffect(() => {
-    if (!isRunning || isGameOver) {
-      return undefined;
-    }
-
     const handleKeyDown = (event) => {
-      if (!isRunningRef.current || isGameOverRef.current) {
-        return;
-      }
-
       let handled = false;
       switch (event.key) {
         case 'ArrowLeft':
         case 'a':
         case 'A':
-          attemptMovePiece(-1);
+          attemptMovePiece(-1, 0);
           handled = true;
           break;
         case 'ArrowRight':
         case 'd':
         case 'D':
-          attemptMovePiece(1);
+          attemptMovePiece(1, 0);
           handled = true;
           break;
         case 'ArrowUp':
@@ -740,6 +737,10 @@ export default function SandBlocks() {
           attemptSoftDrop();
           handled = true;
           break;
+        case 'Enter':
+          handlePlacePiece();
+          handled = true;
+          break;
         default:
           break;
       }
@@ -753,39 +754,7 @@ export default function SandBlocks() {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [attemptMovePiece, attemptRotatePiece, attemptSoftDrop, isGameOver, isRunning]);
-
-  const updateAnimation = useCallback(
-    (timestamp) => {
-      if (!isRunningRef.current || isGameOverRef.current) {
-        return;
-      }
-
-      maybeSpawnShape(timestamp);
-      stepSimulation(timestamp);
-      clearBridges();
-      drawGrid();
-
-      animationFrameRef.current = window.requestAnimationFrame(updateAnimation);
-    },
-    [clearBridges, drawGrid, maybeSpawnShape, stepSimulation]
-  );
-
-  useEffect(() => {
-    if (!isRunning) {
-      if (animationFrameRef.current) {
-        window.cancelAnimationFrame(animationFrameRef.current);
-      }
-      return undefined;
-    }
-
-    animationFrameRef.current = window.requestAnimationFrame(updateAnimation);
-    return () => {
-      if (animationFrameRef.current) {
-        window.cancelAnimationFrame(animationFrameRef.current);
-      }
-    };
-  }, [isRunning, updateAnimation]);
+  }, [attemptMovePiece, attemptRotatePiece, attemptSoftDrop, handlePlacePiece]);
 
   useEffect(() => {
     drawGrid();
@@ -809,89 +778,40 @@ export default function SandBlocks() {
     pointerStateRef.current = null;
     drawGrid();
     countGrains();
-    lastSpawnTimeRef.current = 0;
-    lastDropTimeRef.current = 0;
   }, [countGrains, drawGrid, updateActivePiece]);
 
-  const handleStart = useCallback(() => {
-    if (isGameOver) {
-      return;
-    }
-    setIsRunning(true);
-  }, [isGameOver]);
-
-  const handlePause = useCallback(() => {
-    setIsRunning(false);
-  }, []);
-
   const handleReset = useCallback(() => {
-    setIsRunning(false);
-    setIsGameOver(false);
     resetBoard();
     setScore(0);
     setBridgesCleared(0);
-    const upcoming = Array.from({ length: QUEUE_LENGTH }, () => randomShape());
-    nextShapeQueueRef.current = upcoming;
-    setNextShapeQueue(upcoming);
-    selectedPreviewIndexRef.current = 0;
-    setSelectedPreviewIndex(0);
   }, [resetBoard]);
 
-  const handlePlayAgain = useCallback(() => {
-    handleReset();
-    setIsRunning(true);
-  }, [handleReset]);
+  const selectedColor = COLOR_PALETTE[selectedColorIndex];
 
-  const handleSelectQueuedShape = useCallback((index) => {
-    selectedPreviewIndexRef.current = index;
-    setSelectedPreviewIndex(index);
-  }, []);
-
-  useEffect(() => {
-    if (selectedPreviewIndex >= nextShapeQueue.length) {
-      selectedPreviewIndexRef.current = 0;
-      setSelectedPreviewIndex(0);
-    }
-  }, [nextShapeQueue, selectedPreviewIndex]);
-
-  const previewCards = useMemo(() => {
+  const paletteShapes = useMemo(() => {
     const createMatrix = (shape) => {
-      const matrix = Array.from({ length: 4 }, () => Array(4).fill(0));
-      if (!shape) {
-        return matrix;
-      }
-
-      const offsetX = Math.floor((4 - shape.width) / 2);
-      const offsetY = Math.floor((4 - shape.height) / 2);
+      const size = 4;
+      const matrix = Array.from({ length: size }, () => Array(size).fill(0));
+      const offsetX = Math.floor((size - shape.width) / 2);
+      const offsetY = Math.floor((size - shape.height) / 2);
 
       shape.cells.forEach(([dx, dy]) => {
         const px = dx + offsetX;
         const py = dy + offsetY;
-        if (px >= 0 && px < 4 && py >= 0 && py < 4) {
-          matrix[py][px] = shape.color;
+        if (px >= 0 && px < size && py >= 0 && py < size) {
+          matrix[py][px] = 1;
         }
       });
 
       return matrix;
     };
 
-    return nextShapeQueue.map((shape) => ({
+    return SHAPES.map((shape, index) => ({
       shape,
+      index,
       matrix: createMatrix(shape),
     }));
-  }, [nextShapeQueue]);
-
-  const statusLabel = isGameOver
-    ? 'Game Over'
-    : isRunning
-    ? 'Running'
-    : 'Paused';
-
-  const statusBadgeClass = isGameOver
-    ? 'sand-score-badge over'
-    : isRunning
-    ? 'sand-score-badge running'
-    : 'sand-score-badge paused';
+  }, []);
 
   return (
     <div className="sand-page">
@@ -900,8 +820,9 @@ export default function SandBlocks() {
         <header className="sand-game-header">
           <h1>Sand Blocks</h1>
           <p className="sand-game-subtitle">
-            Guide falling blocky sand shapes and forge bridges of matching colors
-            from the left wall to the right wall to clear them and score points.
+            Craft colorful bridges by placing sand blocks anywhere in the play
+            field. Connect matching colors from the left wall to the right wall
+            to clear bridges and rack up points.
           </p>
         </header>
 
@@ -927,41 +848,45 @@ export default function SandBlocks() {
               <span className="sand-score-label">Grains</span>
               <span className="sand-score-value">{grainCount.toLocaleString()}</span>
             </div>
-            <div className="sand-score-card">
-              <span className="sand-score-label">Status</span>
-              <span className={statusBadgeClass}>{statusLabel}</span>
-            </div>
           </div>
 
-          <div className="sand-game-preview">
-            <span className="sand-preview-title">Upcoming Queue</span>
-            <div className="sand-preview-queue">
-              {previewCards.map(({ shape, matrix }, index) => {
-                const paletteEntry = COLOR_PALETTE[shape?.color - 1];
-                const isSelected = index === selectedPreviewIndex;
-                const label = shape
-                  ? `${paletteEntry?.name ?? 'Unknown'} ${shape.name}`
-                  : 'Empty';
-
+          <div className="sand-game-palette">
+            <span className="sand-palette-title">Block Palette</span>
+            <div className="sand-palette-colors" role="radiogroup" aria-label="Select block color">
+              {COLOR_PALETTE.map((paletteEntry, index) => {
+                const isSelected = index === selectedColorIndex;
                 return (
                   <button
-                    key={shape?.name ? `${shape.name}-${index}` : index}
+                    key={paletteEntry.name}
                     type="button"
-                    onClick={() => handleSelectQueuedShape(index)}
-                    className={`sand-preview-card${
-                      isSelected ? ' selected' : ''
-                    }`}
+                    className={`sand-color-swatch${isSelected ? ' selected' : ''}`}
+                    style={{ backgroundColor: paletteEntry.value }}
+                    onClick={() => setSelectedColorIndex(index)}
                     aria-pressed={isSelected}
-                    aria-label={`Select queued shape ${index + 1}: ${label}`}
+                    aria-label={`Use ${paletteEntry.name} blocks`}
+                  />
+                );
+              })}
+            </div>
+            <div className="sand-palette-grid">
+              {paletteShapes.map(({ shape, index, matrix }) => {
+                const isSelected = index === selectedShapeIndex;
+                return (
+                  <button
+                    key={shape.name}
+                    type="button"
+                    onClick={() => setSelectedShapeIndex(index)}
+                    className={`sand-palette-card${isSelected ? ' selected' : ''}`}
+                    aria-pressed={isSelected}
+                    aria-label={`Select ${shape.name} block`}
                   >
-                    <span className="sand-preview-order">#{index + 1}</span>
-                    <div className="sand-preview-grid">
+                    <span className="sand-palette-shape-name">{shape.name}</span>
+                    <div className="sand-preview-grid small">
                       {matrix.map((row, rowIndex) =>
                         row.map((value, columnIndex) => {
-                          const key = `${index}-${rowIndex}-${columnIndex}`;
-                          const cellPalette = COLOR_PALETTE[value - 1];
+                          const key = `${shape.name}-${rowIndex}-${columnIndex}`;
                           const style = value
-                            ? { backgroundColor: cellPalette?.value }
+                            ? { backgroundColor: selectedColor?.value }
                             : undefined;
                           const cellClass = value
                             ? 'sand-preview-cell'
@@ -972,26 +897,29 @@ export default function SandBlocks() {
                         })
                       )}
                     </div>
-                    <span className="sand-preview-label">{label}</span>
                   </button>
                 );
               })}
             </div>
-            <span className="sand-preview-helper">
-              Tap a card to choose which block will drop next.
-            </span>
+            <p className="sand-palette-helper">
+              Choose a color and shape, then drag the block around the board. Double
+              click or press Enter to place it.
+            </p>
           </div>
         </div>
 
         <div className="sand-game-controls">
-          <button type="button" onClick={handleStart} className="sand-button">
-            Start
+          <button type="button" onClick={handlePlacePiece} className="sand-button">
+            Place Block
           </button>
-          <button type="button" onClick={handlePause} className="sand-button">
-            Pause
+          <button type="button" onClick={attemptRotatePiece} className="sand-button">
+            Rotate
+          </button>
+          <button type="button" onClick={() => attemptMovePiece(0, -1)} className="sand-button">
+            Nudge Up
           </button>
           <button type="button" onClick={handleReset} className="sand-button">
-            Reset
+            Clear Board
           </button>
         </div>
 
@@ -1006,40 +934,8 @@ export default function SandBlocks() {
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerCancel}
             onPointerLeave={handlePointerUp}
+            onDoubleClick={handlePlacePiece}
           />
-          {(!isRunning || isGameOver) && (
-            <div className="sand-game-overlay">
-              <div className="sand-game-overlay-content">
-                <h2 className="sand-game-overlay-title">Sand Blocks</h2>
-                <p className="sand-game-overlay-text">
-                  Connect a single color from one wall to the other using the
-                  falling tetromino-style sand pieces. Clearing bridges keeps the
-                  board from overflowing and earns huge points.
-                </p>
-                {isGameOver ? (
-                  <button
-                    type="button"
-                    className="sand-button"
-                    onClick={handlePlayAgain}
-                  >
-                    Play Again
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="sand-button"
-                    onClick={handleStart}
-                  >
-                    Start Simulation
-                  </button>
-                )}
-                <p className="sand-game-overlay-hint">
-                  Tip: Watch the edges—only bridges that touch both walls will
-                  collapse into points.
-                </p>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>
