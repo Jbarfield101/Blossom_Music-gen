@@ -879,7 +879,9 @@ export default function DndDiscord() {
             <div>
               <h2 id="discord-bot-controls-heading">Discord Bot</h2>
               <p className="muted" style={{ marginTop: '0.25rem' }}>
-                Token from <code>secrets.json</code> or selected in <code>Settings → Discord</code>. Commands: <code>/ping</code>, <code>/join</code>, <code>/leave</code>, <code>/say</code>.
+                Token from <code>secrets.json</code> (see <code>Settings → Discord</code> for setup instructions) or the{' '}
+                <code>DISCORD_TOKEN</code> environment variable. Commands: <code>/ping</code>, <code>/join</code>,
+                <code>/leave</code>, <code>/say</code>.
               </p>
             </div>
             <div className="button-row" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>

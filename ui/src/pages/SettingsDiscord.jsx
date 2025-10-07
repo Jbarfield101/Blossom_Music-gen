@@ -1,134 +1,37 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import BackButton from '../components/BackButton.jsx';
 import './Settings.css';
 
+const SECRETS_SAMPLE = `{
+  "discord": {
+    "botToken": "your-discord-bot-token",
+    "guildId": "optional guild id"
+  }
+}`;
+
 export default function SettingsDiscord() {
-  const [settings, setSettings] = useState({ tokens: {}, currentToken: '', guilds: {}, currentGuild: '' });
-  const [tokenName, setTokenName] = useState('');
-  const [tokenValue, setTokenValue] = useState('');
-  const [guildName, setGuildName] = useState('');
-  const [guildId, setGuildId] = useState('');
+  const [sources, setSources] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [info, setInfo] = useState([]);
 
-  const tokens = useMemo(() => settings.tokens || {}, [settings]);
-  const guilds = useMemo(() => settings.guilds || {}, [settings]);
-
-  const refresh = useCallback(async () => {
+  const refreshSources = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const s = await invoke('discord_settings_get');
-      const norm = {
-        tokens: s?.tokens || {},
-        currentToken: s?.currentToken || '',
-        guilds: s?.guilds || {},
-        currentGuild: s?.currentGuild || '',
-      };
-      setSettings(norm);
       const det = await invoke('discord_detect_token_sources');
-      setInfo(Array.isArray(det) ? det : []);
+      setSources(Array.isArray(det) ? det : []);
     } catch (e) {
-      setError(e?.message || 'Failed to load Discord settings');
+      setSources([]);
+      setError(e?.message || 'Unable to inspect token sources.');
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
-
-  const addToken = async (e) => {
-    e.preventDefault();
-    const name = tokenName.trim();
-    const value = tokenValue.trim();
-    if (!name || !value) return;
-    try {
-      const s = await invoke('discord_token_add', { name, token: value });
-      setTokenName('');
-      setTokenValue('');
-      setSettings({
-        tokens: s?.tokens || {},
-        currentToken: s?.currentToken || '',
-        guilds: s?.guilds || {},
-        currentGuild: s?.currentGuild || '',
-      });
-    } catch (e) {
-      setError(e?.message || 'Failed to add token');
-    }
-  };
-
-  const removeToken = async (name) => {
-    try {
-      const s = await invoke('discord_token_remove', { name });
-      setSettings({
-        tokens: s?.tokens || {},
-        currentToken: s?.currentToken || '',
-        guilds: s?.guilds || {},
-        currentGuild: s?.currentGuild || '',
-      });
-    } catch (e) { setError(e?.message || 'Failed to remove token'); }
-  };
-
-  const selectToken = async (name) => {
-    try {
-      const s = await invoke('discord_token_select', { name });
-      setSettings({
-        tokens: s?.tokens || {},
-        currentToken: s?.currentToken || '',
-        guilds: s?.guilds || {},
-        currentGuild: s?.currentGuild || '',
-      });
-    } catch (e) { setError(e?.message || 'Failed to select token'); }
-  };
-
-  const addGuild = async (e) => {
-    e.preventDefault();
-    const name = guildName.trim();
-    const id = guildId.trim();
-    const asNum = Number(id);
-    if (!name || !asNum || !Number.isFinite(asNum)) return;
-    try {
-      const s = await invoke('discord_guild_add', { name, id: asNum });
-      setGuildName('');
-      setGuildId('');
-      setSettings({
-        tokens: s?.tokens || {},
-        currentToken: s?.currentToken || '',
-        guilds: s?.guilds || {},
-        currentGuild: s?.currentGuild || '',
-      });
-    } catch (e) {
-      setError(e?.message || 'Failed to add guild');
-    }
-  };
-
-  const removeGuild = async (name) => {
-    try {
-      const s = await invoke('discord_guild_remove', { name });
-      setSettings({
-        tokens: s?.tokens || {},
-        currentToken: s?.currentToken || '',
-        guilds: s?.guilds || {},
-        currentGuild: s?.currentGuild || '',
-      });
-    } catch (e) { setError(e?.message || 'Failed to remove guild'); }
-  };
-
-  const selectGuild = async (name) => {
-    try {
-      const s = await invoke('discord_guild_select', { name });
-      setSettings({
-        tokens: s?.tokens || {},
-        currentToken: s?.currentToken || '',
-        guilds: s?.guilds || {},
-        currentGuild: s?.currentGuild || '',
-      });
-    } catch (e) { setError(e?.message || 'Failed to select guild'); }
-  };
-
-  const masked = (s) => (typeof s === 'string' ? `${s.length} chars` : '');
+  useEffect(() => {
+    refreshSources();
+  }, [refreshSources]);
 
   return (
     <>
@@ -136,82 +39,62 @@ export default function SettingsDiscord() {
       <h1>Discord Settings</h1>
       <main className="dashboard" style={{ display: 'grid', gap: 'var(--space-lg)' }}>
         {error && <div className="warning">{error}</div>}
+
         <section className="dnd-surface">
-          <div className="section-head">
-            <div>
-              <h2>Tokens</h2>
-              <p className="muted">Manage multiple bot tokens and choose the active one.</p>
-            </div>
-            <button type="button" onClick={refresh} disabled={loading}>{loading ? 'Refreshing.' : 'Refresh'}</button>
-          </div>
-          <form onSubmit={addToken} className="npc-voice-grid" style={{ gridTemplateColumns: 'minmax(180px,1fr) minmax(240px,1.5fr) minmax(120px,auto)' }}>
-            <input placeholder="Token name" value={tokenName} onChange={(e) => setTokenName(e.target.value)} />
-            <input placeholder="Token value" value={tokenValue} onChange={(e) => setTokenValue(e.target.value)} />
-            <button type="submit">Add Token</button>
-          </form>
-          <div className="npc-voice-table" style={{ marginTop: '0.5rem' }}>
-            {Object.keys(tokens).length === 0 ? (
-              <div className="muted">No tokens saved.</div>
-            ) : (
-              Object.entries(tokens).map(([name, tok]) => (
-                <div key={name} className="npc-voice-grid">
-                  <div className="npc-voice-name">{name}</div>
-                  <div className="npc-voice-cell">{masked(tok)}</div>
-                  <div className="npc-voice-cell" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                    <button type="button" onClick={() => selectToken(name)} disabled={settings.currentToken === name}>
-                      {settings.currentToken === name ? 'Selected' : 'Select'}
-                    </button>
-                    <button type="button" onClick={() => removeToken(name)}>Remove</button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+          <h2>Provide a Discord bot token</h2>
+          <p className="muted">
+            Blossom looks for a bot token in the <code>DISCORD_TOKEN</code> environment variable and in a{' '}
+            <code>secrets.json</code> file. Supply either source before launching the bot.
+          </p>
+          <ol className="commands-list" style={{ marginTop: 'var(--space-md)' }}>
+            <li className="commands-item">
+              <code className="commands-syntax">DISCORD_TOKEN</code>
+              <span className="commands-description">
+                Export the token in your shell when running <code>discord_bot.py</code> or the desktop
+                app.&nbsp;
+                <code>export DISCORD_TOKEN=&quot;your-token&quot;</code>
+              </span>
+            </li>
+            <li className="commands-item">
+              <code className="commands-syntax">secrets.json</code>
+              <span className="commands-description">
+                Create a <code>secrets.json</code> file at the project root or in the app data directory
+                (<code>%APPDATA%/com.blossom.musicgen</code>,{' '}
+                <code>~/Library/Application Support/com.blossom.musicgen</code>, or{' '}
+                <code>~/.local/share/com.blossom.musicgen</code>) and paste the JSON shown below.
+              </span>
+            </li>
+          </ol>
+          <pre className="npc-voice-code" style={{ marginTop: 'var(--space-md)' }}>
+            <code>{SECRETS_SAMPLE}</code>
+          </pre>
+          <p className="muted" style={{ marginTop: 'var(--space-md)' }}>
+            The optional <code>guildId</code> lets Blossom register slash commands for a single guild.
+            Leave it blank if you register commands globally. Never commit real tokens to version
+            control.
+          </p>
         </section>
 
         <section className="dnd-surface">
           <div className="section-head">
             <div>
-              <h2>Guilds</h2>
-              <p className="muted">Add guilds (servers) by ID and select one for fast slash command sync.</p>
+              <h2>Detected token sources</h2>
+              <p className="muted">The first valid token found is used automatically.</p>
             </div>
-            <button type="button" onClick={refresh} disabled={loading}>{loading ? 'Refreshing.' : 'Refresh'}</button>
+            <button type="button" onClick={refreshSources} disabled={loading}>
+              {loading ? 'Refreshing.' : 'Refresh'}
+            </button>
           </div>
-          <form onSubmit={addGuild} className="npc-voice-grid" style={{ gridTemplateColumns: 'minmax(180px,1fr) minmax(240px,1.5fr) minmax(120px,auto)' }}>
-            <input placeholder="Guild name" value={guildName} onChange={(e) => setGuildName(e.target.value)} />
-            <input placeholder="Guild ID" value={guildId} onChange={(e) => setGuildId(e.target.value)} />
-            <button type="submit">Add Guild</button>
-          </form>
-          <div className="npc-voice-table" style={{ marginTop: '0.5rem' }}>
-            {Object.keys(guilds).length === 0 ? (
-              <div className="muted">No guilds saved.</div>
-            ) : (
-              Object.entries(guilds).map(([name, id]) => (
-                <div key={name} className="npc-voice-grid">
-                  <div className="npc-voice-name">{name}</div>
-                  <div className="npc-voice-cell">{String(id)}</div>
-                  <div className="npc-voice-cell" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                    <button type="button" onClick={() => selectGuild(name)} disabled={settings.currentGuild === name}>
-                      {settings.currentGuild === name ? 'Selected' : 'Select'}
-                    </button>
-                    <button type="button" onClick={() => removeGuild(name)}>Remove</button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </section>
-
-        <section className="dnd-surface">
-          <h2>Detected Token Sources</h2>
-          {info.length === 0 ? (
+          {sources.length === 0 ? (
             <div className="muted">No token sources detected yet.</div>
           ) : (
             <ul className="commands-list">
-              {info.map((i) => (
-                <li key={i.source + i.path} className="commands-item">
-                  <code className="commands-syntax">{i.source}</code>
-                  <span className="commands-description">{i.length} chars ({i.path})</span>
+              {sources.map((source) => (
+                <li key={source.source + source.path} className="commands-item">
+                  <code className="commands-syntax">{source.source}</code>
+                  <span className="commands-description">
+                    {source.length} chars ({source.path})
+                  </span>
                 </li>
               ))}
             </ul>

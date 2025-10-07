@@ -1,19 +1,30 @@
 # Discord Configuration
 
-Set the bot token in the ``DISCORD_TOKEN`` environment variable before
-starting ``discord_bot.py`` or persist it to ``config/discord_token.txt`` using
-``config.discord_token.set_token``. When the environment variable is not set
-the bot falls back to the stored token.
+Set the bot token before launching ``discord_bot.py``. Blossom first checks the
+``DISCORD_TOKEN`` environment variable and then looks for a ``secrets.json``
+file (the desktop app’s **Settings → Discord** page mirrors these steps).
 
 ```bash
 export DISCORD_TOKEN="your_bot_token"
 python discord_bot.py
 ```
 
-```python
-from config.discord_token import set_token
-set_token("your_bot_token")
+Alternatively, create ``secrets.json`` in the project root or in the app data
+directory (``%APPDATA%/com.blossom.musicgen`` on Windows,
+``~/Library/Application Support/com.blossom.musicgen`` on macOS, or
+``~/.local/share/com.blossom.musicgen`` on Linux):
+
+```json
+{
+  "discord": {
+    "botToken": "your_bot_token",
+    "guildId": "optional guild id"
+  }
+}
 ```
+
+If you prefer a text file, ``config.discord_token.set_token`` will write the
+token to ``config/discord_token.txt``, which is also checked at runtime.
 
 The Discord bot reads command permission rules from `config/discord.yaml` on startup.
 Each top-level key in the file is the name of a slash command (use the full

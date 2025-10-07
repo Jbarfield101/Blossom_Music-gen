@@ -5,7 +5,7 @@ import './Settings.css';
 
 const sections = [
   { to: '/settings/users', icon: 'User', title: 'Users', description: 'Switch or manage users.' },
-  { to: '/settings/discord', icon: 'MessageSquare', title: 'Discord', description: 'Manage bot tokens and guilds.' },
+  { to: '/settings/discord', icon: 'MessageSquare', title: 'Discord', description: 'Instructions for configuring your bot token.' },
   { to: '/settings/appearance', icon: 'Palette', title: 'Appearance', description: 'Theme, accent color, and font size.' },
   { to: '/settings/models', icon: 'HardDrive', title: 'Models & Voices', description: 'Manage Whisper, LLM, and Piper voices.' },
   { to: '/settings/advanced', icon: 'Settings', title: 'Advanced Settings', description: 'Diagnostics and activity logs.' },
