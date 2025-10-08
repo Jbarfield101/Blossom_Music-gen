@@ -17,6 +17,8 @@ const PROVIDERS = [
   { value: 'elevenlabs', label: 'ElevenLabs' },
 ];
 
+const BOT_LOG_HISTORY_LIMIT = 2000;
+
 const EMPTY_STATUS = Object.freeze({});
 
 const ERROR_BANNER_STYLE = Object.freeze({
@@ -103,6 +105,9 @@ export default function DndDiscord() {
   const [stopping, setStopping] = useState(false);
   const [logs, setLogs] = useState([]);
   const [listenLogs, setListenLogs] = useState([]);
+  const [showLogViewer, setShowLogViewer] = useState(false);
+  const [logViewerMode, setLogViewerMode] = useState('bot');
+  const [selfDeaf, setSelfDeaf] = useState(true);
   const [botErrorLine, setBotErrorLine] = useState('');
   const [listenerErrorLine, setListenerErrorLine] = useState('');
   const [tokenSources, setTokenSources] = useState([]);
@@ -121,7 +126,21 @@ export default function DndDiscord() {
   const utterRef = useRef('');
   const debounceRef = useRef(null);
   const speakingRef = useRef(false);
+  const logViewerRef = useRef(null);
   const [portraitUrl, setPortraitUrl] = useState('');
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const settings = await invoke('discord_settings_get');
+        const value =
+          settings && typeof settings.selfDeaf === 'boolean' ? settings.selfDeaf : true;
+        setSelfDeaf(value);
+      } catch (err) {
+        console.warn('Failed to load Discord settings', err);
+      }
+    })();
+  }, []);
 
   const computeSelections = useCallback((items, piperOpts, elevenOpts) => {
     const piperSet = new Set(piperOpts.map((opt) => opt.value));
@@ -230,6 +249,10 @@ export default function DndDiscord() {
         return id;
       }
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err || '');
+      if (message.includes('os error 2')) {
+        return '';
+      }
       console.warn('Failed to read Discord status file', err);
     }
     return '';
@@ -515,6 +538,10 @@ export default function DndDiscord() {
           if (!text) return;
           const speaker = typeof p?.speaker === 'string' && p.speaker.trim() ? p.speaker.trim() : 'unknown';
           setWhisperLogs((prev) => prev.concat([{ text, speaker, final: !!p.is_final, t: Date.now() }]).slice(-500));
+          if (p.is_final) {
+            const summaryLine = `[${speaker}] ${text}`;
+            setListenLogs((prev) => prev.concat([summaryLine]).slice(-800));
+          }
           lastPartRef.current = Date.now();
           if (p.is_final) {
             utterRef.current = (utterRef.current + ' ' + text).trim();
@@ -606,7 +633,7 @@ export default function DndDiscord() {
             const payload = event?.payload || {};
             const line = typeof payload?.line === 'string' ? payload.line : '';
             if (!line) return;
-            setLogs((prev) => prev.concat([line]).slice(-400));
+            setLogs((prev) => prev.concat([line]).slice(-BOT_LOG_HISTORY_LIMIT));
             const stream = typeof payload?.stream === 'string' ? payload.stream : 'stdout';
             if (stream === 'stderr') {
               setBotErrorLine(clampLogLine(line));
@@ -654,6 +681,9 @@ export default function DndDiscord() {
     if (starting) return;
     setStarting(true);
     setBotStatus('');
+    setLogs([]);
+    setBotErrorLine('');
+    setShowLogViewer(false);
     try {
       const pid = await invoke('discord_bot_start');
       const num = typeof pid === 'number' ? pid : Number(pid);
@@ -714,6 +744,10 @@ export default function DndDiscord() {
         setWhisperError('');
         autoStartRef.current = true;
       } catch (err) {
+        const message = err instanceof Error ? err.message : String(err || '');
+        if (message.includes('os error 2')) {
+          return;
+        }
         console.warn('Automatic Whisper start failed', err);
       }
     }, 2000);
@@ -782,7 +816,7 @@ export default function DndDiscord() {
 
   const handleFetchLogs = useCallback(async () => {
     try {
-      const lines = await invoke('discord_bot_logs_tail', { lines: 120 });
+      const lines = await invoke('discord_bot_logs_tail', { lines: BOT_LOG_HISTORY_LIMIT });
       setLogs(Array.isArray(lines) ? lines : []);
     } catch (err) {
       console.error('Failed to fetch bot logs', err);
@@ -791,8 +825,43 @@ export default function DndDiscord() {
 
   const handleFetchListenLogs = useCallback(async () => {
     try {
-      const lines = await invoke('discord_listen_logs_tail', { lines: 200 });
-      setListenLogs(Array.isArray(lines) ? lines : []);
+      const lines = await invoke('discord_listen_logs_tail', { lines: 400 });
+      if (!Array.isArray(lines)) {
+        setListenLogs([]);
+        return;
+      }
+      const parsed = lines
+        .map((entry) => {
+          const raw = typeof entry === 'string' ? entry : String(entry);
+          if (!raw) return '';
+          try {
+            const json = JSON.parse(raw);
+            if (json && typeof json === 'object') {
+              if (json.whisper && typeof json.whisper === 'object') {
+                const whisper = json.whisper;
+                const speaker =
+                  typeof whisper.speaker === 'string' && whisper.speaker.trim()
+                    ? whisper.speaker.trim()
+                    : 'unknown';
+                const text = typeof whisper.text === 'string' ? whisper.text.trim() : '';
+                if (text) {
+                  return `[${speaker}] ${text}${whisper.is_final ? '' : ' (partial)'}`;
+                }
+              } else if (json.whisper_error) {
+                const msg =
+                  typeof json.whisper_error === 'string'
+                    ? json.whisper_error
+                    : JSON.stringify(json.whisper_error);
+                return `[error] ${msg}`;
+              }
+            }
+          } catch (parseErr) {
+            // fall through to raw line
+          }
+          return raw;
+        })
+        .filter((line) => typeof line === 'string' && line.trim().length > 0);
+      setListenLogs(parsed);
     } catch (err) {
       console.error('Failed to fetch listener logs', err);
     }
@@ -806,6 +875,45 @@ export default function DndDiscord() {
       console.error('Failed to detect tokens', err);
     }
   }, []);
+
+  const updateSelfDeafPreference = useCallback(
+    async (nextValue) => {
+      const previous = selfDeaf;
+      setShowBotControls(true);
+      setSelfDeaf(nextValue);
+      try {
+        const updated = await invoke('discord_set_self_deaf', { value: nextValue });
+        if (updated && typeof updated.selfDeaf === 'boolean') {
+          setSelfDeaf(updated.selfDeaf);
+          setBotStatus(
+            updated.selfDeaf
+              ? 'Self-deafen enabled. I will ignore channel audio.'
+              : 'Monitoring enabled. I will listen to the channel.',
+          );
+        } else {
+          setBotStatus(nextValue ? 'Self-deafen preference stored.' : 'Monitoring preference stored.');
+        }
+      } catch (err) {
+        console.error('Failed to update Discord self-deafen preference', err);
+        setSelfDeaf(previous);
+        setBotStatus('Failed to update monitoring preference.');
+      }
+    },
+    [selfDeaf],
+  );
+
+  const handleCloseLogViewer = useCallback(() => {
+    setShowLogViewer(false);
+  }, []);
+
+  const handleLogBackdropClick = useCallback(
+    (event) => {
+      if (event?.target === event?.currentTarget) {
+        handleCloseLogViewer();
+      }
+    },
+    [handleCloseLogViewer],
+  );
 
   const handleResync = useCallback(async () => {
     try {
@@ -844,6 +952,24 @@ export default function DndDiscord() {
     const id = setTimeout(clearNpcStatus, 4000);
     return () => clearTimeout(id);
   }, [clearNpcStatus, npcStatus]);
+
+  useEffect(() => {
+    if (!showLogViewer) {
+      return;
+    }
+    const node = logViewerRef.current;
+    if (node) {
+      node.scrollTop = node.scrollHeight;
+    }
+  }, [showLogViewer, logViewerMode, logs, listenLogs]);
+
+  const viewerLines = logViewerMode === 'listen' ? listenLogs : logs;
+  const viewerTitle = logViewerMode === 'listen' ? 'Discord Listener Logs' : 'Discord Bot Logs';
+  const viewerSubtitle =
+    logViewerMode === 'listen'
+      ? 'Recent Whisper transcriptions from the active voice channel.'
+      : 'Live output since the bot last started.';
+  const viewerEmpty = logViewerMode === 'listen' ? 'No listener output yet.' : 'No log output yet.';
 
   return (
     <>
@@ -904,6 +1030,8 @@ export default function DndDiscord() {
                 type="button"
                 onClick={() => {
                   setShowBotControls(true);
+                  setLogViewerMode('bot');
+                  setShowLogViewer(true);
                   handleFetchLogs();
                 }}
               >
@@ -913,11 +1041,26 @@ export default function DndDiscord() {
                 type="button"
                 onClick={() => {
                   setShowBotControls(true);
+                  setLogViewerMode('listen');
+                  setShowLogViewer(true);
                   handleFetchListenLogs();
                 }}
               >
                 View Listen Logs
               </button>
+              <label
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem', padding: '0.3rem 0' }}
+              >
+                <input
+                  type="checkbox"
+                  checked={!selfDeaf}
+                  onChange={(event) => {
+                    const monitor = event.target.checked;
+                    updateSelfDeafPreference(!monitor);
+                  }}
+                />
+                Monitor call audio
+              </label>
             </div>
           </div>
         <div
@@ -1087,6 +1230,44 @@ export default function DndDiscord() {
         <span>Voice: {actProvider}/{actVoice || '—'}</span>
         <span style={{ opacity: 0.8 }}>{listening ? 'Listening' : 'Idle'}</span>
       </div></main>
+
+      {showLogViewer && (
+        <div
+          className="dnd-modal-backdrop"
+          role="presentation"
+          onClick={handleLogBackdropClick}
+        >
+          <div
+            className="dnd-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="discord-log-viewer-title"
+          >
+            <div className="dnd-modal-header">
+              <div>
+                <h2 id="discord-log-viewer-title">{viewerTitle}</h2>
+                <p className="dnd-modal-subtitle">{viewerSubtitle}</p>
+              </div>
+              <button type="button" onClick={handleCloseLogViewer}>Close</button>
+            </div>
+            <div className="dnd-modal-body" style={{ maxHeight: 360 }}>
+              <pre
+                ref={logViewerRef}
+                className="inbox-reader"
+                style={{
+                  maxHeight: '100%',
+                  overflow: 'auto',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  margin: 0,
+                }}
+              >
+                {viewerLines.length === 0 ? viewerEmpty : viewerLines.join('\n')}
+              </pre>
+            </div>
+          </div>
+        </div>
+      )}
 
       {actOpen && (
         <div className="dnd-modal-backdrop" role="dialog" aria-modal="true" aria-label="Select NPC and voice">

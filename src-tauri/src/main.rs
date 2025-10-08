@@ -44,6 +44,17 @@ fn dreadhaven_root() -> PathBuf {
     PathBuf::from(config::DEFAULT_DREADHAVEN_ROOT)
 }
 
+fn default_greeting_path() -> String {
+    project_root()
+        .join("assets")
+        .join("scripted_sounds")
+        .join("Discord_Recorded _Greeting.wav")
+        .to_string_lossy()
+        .to_string()
+}
+
+const DISCORD_BOT_LOG_CAP: usize = 2000;
+
 static DISCORD_BOT_CHILD: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
 static DISCORD_BOT_LOGS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
 static DISCORD_BOT_EXIT: OnceLock<Mutex<Option<i32>>> = OnceLock::new();
@@ -82,8 +93,8 @@ fn attach_discord_bot_loggers(child: &mut Child, app: &AppHandle) {
                         {
                             let mut logs = discord_bot_logs().lock().unwrap();
                             logs.push(l.clone());
-                            if logs.len() > 400 {
-                                let drop = logs.len() - 400;
+                            if logs.len() > DISCORD_BOT_LOG_CAP {
+                                let drop = logs.len() - DISCORD_BOT_LOG_CAP;
                                 logs.drain(0..drop);
                             }
                         }
@@ -112,8 +123,8 @@ fn attach_discord_bot_loggers(child: &mut Child, app: &AppHandle) {
                         {
                             let mut logs = discord_bot_logs().lock().unwrap();
                             logs.push(l.clone());
-                            if logs.len() > 400 {
-                                let drop = logs.len() - 400;
+                            if logs.len() > DISCORD_BOT_LOG_CAP {
+                                let drop = logs.len() - DISCORD_BOT_LOG_CAP;
                                 logs.drain(0..drop);
                             }
                         }
@@ -143,7 +154,7 @@ fn discord_settings_path() -> std::path::PathBuf {
     project_root().join("config").join("discord_accounts.json")
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone)]
 struct DiscordSettings {
     #[serde(default)]
     currentToken: Option<String>,
@@ -153,6 +164,24 @@ struct DiscordSettings {
     currentGuild: Option<String>,
     #[serde(default)]
     guilds: std::collections::HashMap<String, u64>,
+    #[serde(default = "default_self_deaf")]
+    selfDeaf: bool,
+}
+
+fn default_self_deaf() -> bool {
+    true
+}
+
+impl Default for DiscordSettings {
+    fn default() -> Self {
+        DiscordSettings {
+            currentToken: None,
+            tokens: std::collections::HashMap::new(),
+            currentGuild: None,
+            guilds: std::collections::HashMap::new(),
+            selfDeaf: true,
+        }
+    }
 }
 
 fn read_discord_settings() -> DiscordSettings {
@@ -172,6 +201,43 @@ fn write_discord_settings(settings: &DiscordSettings) -> Result<(), String> {
     }
     let text = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
     std::fs::write(&path, text).map_err(|e| e.to_string())
+}
+
+fn write_discord_control(
+    self_deaf: bool,
+    greeting_path: Option<&str>,
+    greeting_volume: Option<f32>,
+) -> Result<(), String> {
+    let path = project_root().join("data").join("discord_control.json");
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let stamp = Utc::now();
+    let mut map = Map::new();
+    map.insert("self_deaf".into(), Value::Bool(self_deaf));
+    map.insert(
+        "nonce".into(),
+        Value::String(format!(
+            "self-deaf-{}-{}",
+            self_deaf,
+            stamp.timestamp_millis()
+        )),
+    );
+    map.insert("updated_at".into(), Value::String(stamp.to_rfc3339()));
+    if let Some(path) = greeting_path {
+        if !path.trim().is_empty() {
+            map.insert(
+                "greeting_path".into(),
+                Value::String(path.trim().to_string()),
+            );
+        }
+    }
+    if let Some(vol) = greeting_volume {
+        map.insert("greeting_volume".into(), Value::from(vol));
+    }
+    let payload = Value::Object(map);
+    let body = serde_json::to_string_pretty(&payload).map_err(|e| e.to_string())?;
+    std::fs::write(&path, body).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -247,6 +313,23 @@ fn discord_guild_select(name: String) -> Result<DiscordSettings, String> {
         s.currentGuild = Some(name);
     }
     write_discord_settings(&s)?;
+    Ok(s)
+}
+
+#[tauri::command]
+fn discord_set_self_deaf(value: bool) -> Result<DiscordSettings, String> {
+    let mut s = read_discord_settings();
+    s.selfDeaf = value;
+    write_discord_settings(&s)?;
+    let greeting_path = std::env::var("DISCORD_GREETING_PATH")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| default_greeting_path());
+    let greeting_volume = std::env::var("DISCORD_GREETING_VOLUME")
+        .ok()
+        .and_then(|v| v.parse::<f32>().ok())
+        .unwrap_or(1.0);
+    write_discord_control(value, Some(&greeting_path), Some(greeting_volume))?;
     Ok(s)
 }
 
@@ -482,6 +565,31 @@ fn discord_bot_start(app: tauri::AppHandle) -> Result<u32, String> {
                 cmd.env("DISCORD_GUILD_ID", gid.to_string());
             }
         }
+        let greeting_path = std::env::var("DISCORD_GREETING_PATH")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .unwrap_or_else(|| default_greeting_path());
+        let greeting_volume = std::env::var("DISCORD_GREETING_VOLUME")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .unwrap_or(1.0);
+        if let Err(err) = write_discord_control(
+            settings.selfDeaf,
+            Some(&greeting_path),
+            Some(greeting_volume),
+        ) {
+            eprintln!("failed to write discord control file: {}", err);
+        }
+        println!(
+            "[discord-tauri] Launching bot: self_deaf={} greeting_path={} volume={:.2}",
+            settings.selfDeaf, greeting_path, greeting_volume
+        );
+        cmd.env(
+            "DISCORD_SELF_DEAF",
+            if settings.selfDeaf { "1" } else { "0" },
+        )
+        .env("DISCORD_GREETING_PATH", &greeting_path)
+        .env("DISCORD_GREETING_VOLUME", greeting_volume.to_string());
         cmd.arg("discord_bot.py")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -639,7 +747,9 @@ fn discord_bot_status() -> Result<DiscordBotStatus, String> {
 
 #[tauri::command]
 fn discord_bot_logs_tail(lines: Option<usize>) -> Result<Vec<String>, String> {
-    let count = lines.unwrap_or(100).min(400);
+    let count = lines
+        .unwrap_or(DISCORD_BOT_LOG_CAP)
+        .min(DISCORD_BOT_LOG_CAP);
     let logs = discord_bot_logs().lock().unwrap();
     let n = logs.len();
     let start = n.saturating_sub(count);
@@ -7822,6 +7932,7 @@ fn main() {
             discord_guild_add,
             discord_guild_remove,
             discord_guild_select,
+            discord_set_self_deaf,
             discord_detect_token_sources,
             npc_save_portrait,
             god_save_portrait,

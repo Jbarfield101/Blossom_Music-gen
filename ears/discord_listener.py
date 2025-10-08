@@ -15,24 +15,35 @@ from typing import Awaitable, Callable, Optional
 
 import discord
 
+if not hasattr(discord, 'sinks'):
+    raise RuntimeError('discord.sinks is unavailable. Install py-cord>=2.4 or switch to a discord.py fork that supports voice receive.')
+
 PCMFrameCallback = Callable[[discord.Member, bytes], Awaitable[None]]
 VoiceStateCallback = Callable[[discord.Member, discord.VoiceState, discord.VoiceState], Awaitable[None]]
 SpeakingCallback = Callable[[discord.Member, bool], Awaitable[None]]
 
 
-class _PCMStream(discord.sinks.RawData):
+class _PCMStream(discord.sinks.Sink):
     """Sink that forwards PCM frames to a coroutine callback."""
 
     def __init__(self, frame_callback: PCMFrameCallback):
         super().__init__()
         self._cb = frame_callback
 
+    @discord.sinks.Filters.container
     def write(self, data: bytes, user: discord.Member) -> None:  # type: ignore[override]
         if self._cb is None:
             return
         result = self._cb(user, data)
         if inspect.iscoroutine(result):
             asyncio.create_task(result)
+
+    def cleanup(self) -> None:
+        self.finished = True
+        self._cb = None
+
+    def format_audio(self, audio) -> None:  # type: ignore[override]
+        return
 
 
 class DiscordListener(discord.Client):
@@ -68,11 +79,14 @@ class DiscordListener(discord.Client):
         self._speaking_cb = on_speaking
         self._sink = _PCMStream(self._handle_frame)
 
+    def _on_recording_finished(self, sink: discord.sinks.Sink, *args) -> None:
+        return
+
     async def join_voice(self, channel: discord.VoiceChannel) -> discord.VoiceClient:
         """Connect to ``channel`` and begin capturing audio."""
 
         vc = await channel.connect()
-        vc.listen(self._sink)  # start receiving PCM frames
+        vc.start_recording(self._sink, self._on_recording_finished)
         return vc
 
     # ------------------------------------------------------------------

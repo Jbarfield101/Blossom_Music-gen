@@ -104,12 +104,6 @@ def _tauri_store_secret_files(platform: str | None = None) -> Iterable[Path]:
             / store_name
         )
     else:
-        data_home = os.environ.get("XDG_DATA_HOME")
-        if data_home:
-            candidates.append(Path(data_home) / identifier / store_name)
-        config_home = os.environ.get("XDG_CONFIG_HOME")
-        if config_home:
-            candidates.append(Path(config_home) / identifier / store_name)
         home = Path.home()
         candidates.extend(
             [
@@ -117,6 +111,14 @@ def _tauri_store_secret_files(platform: str | None = None) -> Iterable[Path]:
                 home / ".config" / identifier / store_name,
             ]
         )
+
+    # Include XDG-style locations when environment variables are present.
+    data_home = os.environ.get("XDG_DATA_HOME")
+    if data_home:
+        candidates.append(Path(data_home) / identifier / store_name)
+    config_home = os.environ.get("XDG_CONFIG_HOME")
+    if config_home:
+        candidates.append(Path(config_home) / identifier / store_name)
 
     seen: set[Path] = set()
     for path in candidates:
