@@ -169,6 +169,30 @@ export default function SandBlocks() {
     setActivePiece(piece);
   }, []);
 
+  const canPlacePiece = useCallback(
+    (piece, offsetX = 0, offsetY = 0, rotationDelta = 0) => {
+      if (!piece) {
+        return false;
+      }
+
+      const grid = gridRef.current;
+      const rotation = getNormalizedRotation(piece.rotation + rotationDelta);
+      const { offsets } = getRotationInfo(piece.shape, rotation);
+      const targetX = piece.x + offsetX;
+      const targetY = piece.y + offsetY;
+
+      return offsets.every(([dx, dy]) => {
+        const x = targetX + dx;
+        const y = targetY + dy;
+        if (x < 0 || x >= GRID_WIDTH || y < 0 || y >= GRID_HEIGHT) {
+          return false;
+        }
+        return grid[y][x] === 0;
+      });
+    },
+    []
+  );
+
   useEffect(() => {
     const piece = activePieceRef.current;
     if (!piece) {
@@ -385,27 +409,6 @@ export default function SandBlocks() {
       }
     }
     setGrainCount(count);
-  }, []);
-
-  const canPlacePiece = useCallback((piece, offsetX = 0, offsetY = 0, rotationDelta = 0) => {
-    if (!piece) {
-      return false;
-    }
-
-    const grid = gridRef.current;
-    const rotation = getNormalizedRotation(piece.rotation + rotationDelta);
-    const { offsets } = getRotationInfo(piece.shape, rotation);
-    const targetX = piece.x + offsetX;
-    const targetY = piece.y + offsetY;
-
-    return offsets.every(([dx, dy]) => {
-      const x = targetX + dx;
-      const y = targetY + dy;
-      if (x < 0 || x >= GRID_WIDTH || y < 0 || y >= GRID_HEIGHT) {
-        return false;
-      }
-      return grid[y][x] === 0;
-    });
   }, []);
 
   const lockActivePiece = useCallback(
