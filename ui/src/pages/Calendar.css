@@ -260,7 +260,7 @@
   background: color-mix(
     in srgb,
     var(--event-chip-color, var(--accent)),
-    rgba(0, 0, 0, 0.2) 20%
+    #000 45%
   );
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   white-space: nowrap;
