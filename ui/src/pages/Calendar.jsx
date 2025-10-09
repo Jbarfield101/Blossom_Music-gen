@@ -180,7 +180,7 @@ function formatMinutesRange(startMinutes, endMinutes) {
   return `${minutesToTimeString(startMinutes)} – ${minutesToTimeString(endMinutes)}`;
 }
 
-function createDefaultFormState(category = 'work') {
+function createDefaultFormState(category = 'work', dateKey = '') {
   const isKnownCategory = EVENT_CATEGORIES.some((item) => item.id === category);
   const resolvedCategory = isKnownCategory ? category : 'custom';
   const meta = EVENT_CATEGORIES.find((item) => item.id === resolvedCategory);
@@ -192,6 +192,7 @@ function createDefaultFormState(category = 'work') {
         : meta?.defaultTitle ?? '',
     startTime: '09:00',
     endTime: '10:00',
+    date: dateKey,
   };
 }
 
@@ -217,6 +218,40 @@ function formatDateKey(date) {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function parseDateKey(dateKey) {
+  if (typeof dateKey !== 'string') {
+    return null;
+  }
+  const parts = dateKey.split('-');
+  if (parts.length !== 3) {
+    return null;
+  }
+  const [yearStr, monthStr, dayStr] = parts;
+  const year = Number.parseInt(yearStr, 10);
+  const month = Number.parseInt(monthStr, 10);
+  const day = Number.parseInt(dayStr, 10);
+  if (
+    Number.isNaN(year) ||
+    Number.isNaN(month) ||
+    Number.isNaN(day) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return null;
+  }
+  const date = new Date(year, month - 1, day);
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+  return date;
 }
 
 function buildCalendarWeeks(monthDate, weekStart) {
@@ -256,7 +291,9 @@ export default function Calendar() {
     loadStoredEvents
   );
   const [isDayViewOpen, setDayViewOpen] = useState(false);
-  const [formState, setFormState] = useState(() => createDefaultFormState());
+  const [formState, setFormState] = useState(() =>
+    createDefaultFormState('work', formatDateKey(today))
+  );
   const [formError, setFormError] = useState('');
   const dayViewRef = useRef(null);
 
@@ -279,6 +316,24 @@ export default function Calendar() {
     setDayViewOpen(false);
     setFormError('');
   }, []);
+
+  const updateSelectionToDate = useCallback(
+    (date) => {
+      const normalized = startOfDay(date);
+      setSelectedDate(normalized);
+      setVisibleMonth((prev) => {
+        if (
+          prev.getFullYear() === normalized.getFullYear() &&
+          prev.getMonth() === normalized.getMonth()
+        ) {
+          return prev;
+        }
+        return startOfMonth(normalized);
+      });
+      return normalized;
+    },
+    [setSelectedDate, setVisibleMonth]
+  );
 
   const weeks = useMemo(
     () => buildCalendarWeeks(visibleMonth, weekStart),
@@ -466,40 +521,40 @@ export default function Calendar() {
   );
 
   const handleToday = useCallback(() => {
-    setVisibleMonth(startOfMonth(today));
-    setSelectedDate(today);
-  }, [today]);
+    updateSelectionToDate(today);
+  }, [today, updateSelectionToDate]);
 
   const handleSelectDate = useCallback(
     (date) => {
-      const normalized = startOfDay(date);
-      setSelectedDate(normalized);
-      setVisibleMonth((prev) => {
-        if (
-          prev.getFullYear() === normalized.getFullYear() &&
-          prev.getMonth() === normalized.getMonth()
-        ) {
-          return prev;
-        }
-        return startOfMonth(normalized);
-      });
+      const normalized = updateSelectionToDate(date);
       setFormError('');
+      const nextDateKey = formatDateKey(normalized);
+      setFormState((prev) =>
+        prev.date === nextDateKey ? prev : { ...prev, date: nextDateKey }
+      );
       setDayViewOpen(true);
     },
-    [setSelectedDate, setVisibleMonth]
+    [updateSelectionToDate]
   );
 
   const handleAddEventClick = useCallback(() => {
     setFormError('');
     if (selectedDate) {
+      const nextDateKey = formatDateKey(selectedDate);
+      setFormState((prev) =>
+        prev.date === nextDateKey ? prev : { ...prev, date: nextDateKey }
+      );
       setDayViewOpen(true);
       return;
     }
-    const normalizedToday = today;
-    setSelectedDate(normalizedToday);
-    setVisibleMonth(startOfMonth(normalizedToday));
+    const normalizedToday = updateSelectionToDate(today);
+    setFormState((prev) =>
+      prev.date === formatDateKey(normalizedToday)
+        ? prev
+        : { ...prev, date: formatDateKey(normalizedToday) }
+    );
     setDayViewOpen(true);
-  }, [selectedDate, setSelectedDate, setVisibleMonth, today]);
+  }, [selectedDate, today, updateSelectionToDate]);
 
   const handleFormChange = useCallback(
     (event) => {
@@ -523,26 +578,51 @@ export default function Calendar() {
         });
         return;
       }
+      if (name === 'date') {
+        setFormState((prev) => ({ ...prev, date: value }));
+        return;
+      }
       setFormState((prev) => ({ ...prev, [name]: value }));
     },
     [categoryMap]
   );
 
+  useEffect(() => {
+    if (selectedDate) {
+      const nextDateKey = formatDateKey(selectedDate);
+      setFormState((prev) =>
+        prev.date === nextDateKey ? prev : { ...prev, date: nextDateKey }
+      );
+      return;
+    }
+    setFormState((prev) => (prev.date ? { ...prev, date: '' } : prev));
+  }, [selectedDate]);
+
   const handleSubmitEvent = useCallback(
     (event) => {
       event.preventDefault();
-      if (!selectedDateKey) {
-        setFormError('Please pick a day from the calendar first.');
-        return;
-      }
-
-      const { category, title, startTime, endTime } = formState;
+      const { category, title, startTime, endTime, date: dateKeyInput } = formState;
       const trimmedTitle = title.trim();
       const categoryMeta = categoryMap[category];
       if (category === 'custom' && trimmedTitle.length === 0) {
         setFormError('Please provide a title when using the custom category.');
         return;
       }
+
+      const resolvedDateKey = dateKeyInput?.trim() || selectedDateKey;
+      if (!resolvedDateKey) {
+        setFormError('Please choose a date for this event.');
+        return;
+      }
+
+      const normalizedDate = parseDateKey(resolvedDateKey);
+      if (!normalizedDate) {
+        setFormError('Please choose a valid date for this event.');
+        return;
+      }
+
+      const normalizedDateKey = formatDateKey(normalizedDate);
+      const existingEvents = eventsByDate[normalizedDateKey] ?? [];
 
       const { isValid, startMinutes, endMinutes, message } = validateTimeRange(
         startTime,
@@ -554,7 +634,7 @@ export default function Calendar() {
         return;
       }
 
-      if (hasTimeCollision(dayEvents, startMinutes, endMinutes)) {
+      if (hasTimeCollision(existingEvents, startMinutes, endMinutes)) {
         setFormError('This time overlaps with an existing event.');
         return;
       }
@@ -568,7 +648,7 @@ export default function Calendar() {
       const normalizedEnd = minutesToTimeString(endMinutes);
 
       const newEvent = {
-        id: `${selectedDateKey}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: `${normalizedDateKey}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         title: resolvedTitle,
         category,
         startTime: normalizedStart,
@@ -577,13 +657,18 @@ export default function Calendar() {
         endMinutes,
       };
 
-      dispatchEvents({ type: 'add', payload: { dateKey: selectedDateKey, event: newEvent } });
+      dispatchEvents({
+        type: 'add',
+        payload: { dateKey: normalizedDateKey, event: newEvent },
+      });
       setFormError('');
+      updateSelectionToDate(normalizedDate);
       setFormState((prev) => {
         const base = {
           ...prev,
           startTime: normalizedStart,
           endTime: normalizedEnd,
+          date: normalizedDateKey,
         };
         if (category === 'custom') {
           return { ...base, title: '' };
@@ -591,7 +676,14 @@ export default function Calendar() {
         return { ...base, title: categoryMeta?.defaultTitle ?? base.title };
       });
     },
-    [categoryMap, dayEvents, dispatchEvents, formState, selectedDateKey]
+    [
+      categoryMap,
+      dispatchEvents,
+      eventsByDate,
+      formState,
+      selectedDateKey,
+      updateSelectionToDate,
+    ]
   );
 
   const handleWeekStartChange = useCallback((event) => {
@@ -852,6 +944,18 @@ export default function Calendar() {
                 <form className="calendar-day-view-form" onSubmit={handleSubmitEvent}>
                   <div className="calendar-form-grid">
                     <label className="calendar-form-field">
+                      <span className="calendar-form-label">Date</span>
+                      <input
+                        type="date"
+                        name="date"
+                        className="calendar-input"
+                        value={formState.date ?? ''}
+                        onChange={handleFormChange}
+                        aria-describedby={formError ? 'calendar-form-error' : undefined}
+                        aria-invalid={formError ? true : undefined}
+                      />
+                    </label>
+                    <label className="calendar-form-field">
                       <span className="calendar-form-label">Category</span>
                       <select
                         name="category"
@@ -925,7 +1029,14 @@ export default function Calendar() {
                       className="calendar-action-button"
                       onClick={() => {
                         setFormError('');
-                        setFormState(createDefaultFormState(formState.category));
+                        const fallbackDateKey =
+                          formState.date || selectedDateKey || formatDateKey(today);
+                        setFormState(
+                          createDefaultFormState(
+                            formState.category,
+                            fallbackDateKey
+                          )
+                        );
                       }}
                     >
                       Reset
