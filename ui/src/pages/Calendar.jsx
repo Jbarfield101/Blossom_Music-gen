@@ -31,6 +31,24 @@ const EVENT_CATEGORIES = [
     defaultTitle: 'Task reminder',
   },
   {
+    id: 'appointment',
+    label: 'Appointment',
+    accent: '#2563eb',
+    defaultTitle: 'Appointment',
+  },
+  {
+    id: 'chores',
+    label: 'Chores',
+    accent: '#dc2626',
+    defaultTitle: 'Chore block',
+  },
+  {
+    id: 'job',
+    label: 'Job',
+    accent: '#7c3aed',
+    defaultTitle: 'Job shift',
+  },
+  {
     id: 'custom',
     label: 'Custom',
     accent: '#f59e0b',
@@ -163,10 +181,15 @@ function formatMinutesRange(startMinutes, endMinutes) {
 }
 
 function createDefaultFormState(category = 'work') {
-  const meta = EVENT_CATEGORIES.find((item) => item.id === category);
+  const isKnownCategory = EVENT_CATEGORIES.some((item) => item.id === category);
+  const resolvedCategory = isKnownCategory ? category : 'custom';
+  const meta = EVENT_CATEGORIES.find((item) => item.id === resolvedCategory);
   return {
-    category,
-    title: meta?.defaultTitle ?? '',
+    category: resolvedCategory,
+    title:
+      resolvedCategory === 'custom'
+        ? ''
+        : meta?.defaultTitle ?? '',
     startTime: '09:00',
     endTime: '10:00',
   };
