@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useNavigate } from 'react-router-dom';
 import BackButton from '../components/BackButton.jsx';
@@ -7,6 +7,7 @@ import AbilityScoreInputs from '../components/AbilityScoreInputs.jsx';
 import PrimaryButton from '../components/PrimaryButton.jsx';
 import { createPlayer } from '../api/players';
 import { serializeCharacterSheet, buildDerivedStats, createEmptyPlayerSheet, playerSheetReducer } from '../lib/playerSheet.js';
+import { offlineStoryHint, sampleOfflineStory } from '../lib/offlineStoryTables.js';
 import './Dnd.css';
 
 function toNum(value, min = -Infinity, max = Infinity) {
@@ -25,6 +26,18 @@ export default function DndDmPlayerCreate() {
   const [error, setError] = useState('');
   const [status, setStatus] = useState('');
   const [rolling, setRolling] = useState({ traits: false, ideals: false, backstory: false });
+  const [randomMode, setRandomMode] = useState(() => {
+    if (typeof window === 'undefined') return 'tauri';
+    return window.__TAURI__ ? 'tauri' : 'local';
+  });
+  const [randomHelper, setRandomHelper] = useState({
+    traits: { message: '', tone: 'info' },
+    ideals: { message: '', tone: 'info' },
+    backstory: { message: '', tone: 'info' },
+  });
+  const [randomGlobalError, setRandomGlobalError] = useState('');
+  const [randomFatal, setRandomFatal] = useState('');
+  const invokeFailureCount = useRef(0);
 
   const next = () => setStep((s) => Math.min(3, s + 1));
   const prev = () => setStep((s) => Math.max(1, s - 1));
@@ -200,8 +213,114 @@ export default function DndDmPlayerCreate() {
     </CharacterSheetSection>
   );
 
+  useEffect(() => {
+    if (typeof window !== 'undefined' && !window.__TAURI__) {
+      setRandomMode('local');
+      setRandomGlobalError('AI helpers are unavailable in this environment. Using offline tables for suggestions.');
+    }
+  }, []);
+
+  const resetHelper = useCallback((kind) => {
+    setRandomHelper((prev) => ({ ...prev, [kind]: { message: '', tone: 'info' } }));
+  }, []);
+
+  const setHelperMessage = useCallback((kind, message, tone = 'info') => {
+    setRandomHelper((prev) => ({ ...prev, [kind]: { message, tone } }));
+  }, []);
+
+  const randomLabels = useMemo(
+    () => ({
+      traits: 'personality traits',
+      ideals: 'ideals',
+      backstory: 'backstory',
+    }),
+    []
+  );
+
+  const requestRandom = useCallback(
+    async (kind) => {
+      if (randomFatal) return;
+      const helperId = randomLabels[kind] || kind;
+      setRolling((r) => ({ ...r, [kind]: true }));
+      resetHelper(kind);
+      let offlineAttempted = false;
+      try {
+        let result = '';
+        let usedOffline = false;
+        if (randomMode === 'tauri') {
+          try {
+            const prompt = buildPrompt(sheet, kind);
+            const sys = buildSystem(kind);
+            const text = await invoke('generate_llm', { prompt, system: sys });
+            result = String(text || '').trim();
+            invokeFailureCount.current = 0;
+            if (randomGlobalError && result) {
+              setRandomGlobalError('');
+            }
+          } catch (err) {
+            const message = err?.message || 'Story generator is unavailable.';
+            setHelperMessage(kind, `${message} Falling back to offline tables.`, 'error');
+            setRandomGlobalError('Story generator encountered an error. Using offline tables for suggestions.');
+            invokeFailureCount.current += 1;
+            if (invokeFailureCount.current >= 2) {
+              setRandomMode('local');
+            }
+            try {
+              offlineAttempted = true;
+              result = sampleOfflineStory(kind);
+              usedOffline = true;
+            } catch (offlineErr) {
+              throw offlineErr;
+            }
+          }
+        }
+        if (!result) {
+          try {
+            offlineAttempted = true;
+            result = sampleOfflineStory(kind);
+            usedOffline = true;
+          } catch (offlineErr) {
+            throw offlineErr;
+          }
+        }
+
+        const value = String(result || '').trim();
+        if (!value) {
+          throw new Error('No suggestion was produced.');
+        }
+        if (usedOffline) {
+          setHelperMessage(kind, offlineStoryHint(kind), 'info');
+          if (!randomGlobalError) {
+            setRandomGlobalError('Offline random tables are providing suggestions while AI helpers are unavailable.');
+          }
+        } else {
+          resetHelper(kind);
+        }
+
+        if (kind === 'backstory') {
+          dispatch({ type: 'setField', path: ['personality', 'appearance'], value });
+        } else {
+          dispatch({ type: 'setField', path: ['personality', kind], value });
+        }
+      } catch (err) {
+        const message = err?.message || `Unable to randomize ${helperId}.`;
+        setHelperMessage(kind, message, 'error');
+        setRandomGlobalError((prev) => prev || message);
+        if (offlineAttempted || randomMode === 'local') {
+          setRandomFatal('Randomization is currently unavailable. Please enter details manually.');
+        }
+      } finally {
+        setRolling((r) => ({ ...r, [kind]: false }));
+      }
+    },
+    [dispatch, randomFatal, randomGlobalError, randomMode, randomLabels, resetHelper, setHelperMessage, sheet]
+  );
+
   const Step3Story = (
     <CharacterSheetSection title="Story" description="Add personality and a hook to get started.">
+      {randomGlobalError && (
+        <div className="dnd-sheet-alert" role="status">{randomGlobalError}</div>
+      )}
       <label>
         <span>Traits</span>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -212,24 +331,39 @@ export default function DndDmPlayerCreate() {
             placeholder="Curious, soft-spoken, fiercely loyal."
             style={{ flex: '1 1 auto' }}
           />
-          <button type="button" onClick={async () => {
-            if (rolling.traits) return;
-            setRolling((r) => ({ ...r, traits: true }));
-            try {
-              const prompt = buildPrompt(sheet, 'traits');
-              const sys = buildSystem('traits');
-              const text = await invoke('generate_llm', { prompt, system: sys });
-              const val = String(text || '').trim();
-              if (val) dispatch({ type: 'setField', path: ['personality', 'traits'], value: val });
-            } catch (e) {
-              console.warn('traits roll failed', e);
-            } finally {
-              setRolling((r) => ({ ...r, traits: false }));
+          <button
+            type="button"
+            onClick={() => requestRandom('traits')}
+            disabled={rolling.traits || !!randomFatal}
+            aria-disabled={rolling.traits || !!randomFatal}
+            aria-describedby="random-traits-helper"
+            aria-label={
+              rolling.traits
+                ? 'Rolling personality traits. Please wait.'
+                : randomFatal
+                  ? `Randomization unavailable: ${randomFatal}`
+                  : 'Randomize personality traits'
             }
-          }} disabled={rolling.traits}>
-            {rolling.traits ? (<><span className="spinner" aria-label="loading" /> Rolling…</>) : 'Random'}
+            title={
+              rolling.traits
+                ? 'Rolling personality traits…'
+                : randomFatal || 'Generate personality traits automatically'
+            }
+          >
+            {rolling.traits ? (
+              <>
+                <span className="spinner" aria-hidden="true" /> Rolling…
+              </>
+            ) : randomFatal ? 'Unavailable' : 'Random'}
           </button>
         </div>
+        <small
+          id="random-traits-helper"
+          className="muted"
+          style={{ color: randomHelper.traits.tone === 'error' ? 'var(--color-danger, #b00020)' : undefined }}
+        >
+          {randomHelper.traits.message || (randomMode === 'local' ? offlineStoryHint('traits') : 'Use Random to suggest new personality traits.')}
+        </small>
       </label>
       <label>
         <span>Ideals</span>
@@ -241,24 +375,39 @@ export default function DndDmPlayerCreate() {
             placeholder="Knowledge is the path to power and domination."
             style={{ flex: '1 1 auto' }}
           />
-          <button type="button" onClick={async () => {
-            if (rolling.ideals) return;
-            setRolling((r) => ({ ...r, ideals: true }));
-            try {
-              const prompt = buildPrompt(sheet, 'ideals');
-              const sys = buildSystem('ideals');
-              const text = await invoke('generate_llm', { prompt, system: sys });
-              const val = String(text || '').trim();
-              if (val) dispatch({ type: 'setField', path: ['personality', 'ideals'], value: val });
-            } catch (e) {
-              console.warn('ideals roll failed', e);
-            } finally {
-              setRolling((r) => ({ ...r, ideals: false }));
+          <button
+            type="button"
+            onClick={() => requestRandom('ideals')}
+            disabled={rolling.ideals || !!randomFatal}
+            aria-disabled={rolling.ideals || !!randomFatal}
+            aria-describedby="random-ideals-helper"
+            aria-label={
+              rolling.ideals
+                ? 'Rolling ideals. Please wait.'
+                : randomFatal
+                  ? `Randomization unavailable: ${randomFatal}`
+                  : 'Randomize ideals'
             }
-          }} disabled={rolling.ideals}>
-            {rolling.ideals ? (<><span className="spinner" aria-label="loading" /> Rolling…</>) : 'Random'}
+            title={
+              rolling.ideals
+                ? 'Rolling ideals…'
+                : randomFatal || 'Generate ideals automatically'
+            }
+          >
+            {rolling.ideals ? (
+              <>
+                <span className="spinner" aria-hidden="true" /> Rolling…
+              </>
+            ) : randomFatal ? 'Unavailable' : 'Random'}
           </button>
         </div>
+        <small
+          id="random-ideals-helper"
+          className="muted"
+          style={{ color: randomHelper.ideals.tone === 'error' ? 'var(--color-danger, #b00020)' : undefined }}
+        >
+          {randomHelper.ideals.message || (randomMode === 'local' ? offlineStoryHint('ideals') : 'Use Random to suggest new ideals.')}
+        </small>
       </label>
       <label>
         <span>Backstory</span>
@@ -270,24 +419,39 @@ export default function DndDmPlayerCreate() {
             placeholder="A paragraph or two is plenty to start."
             style={{ flex: '1 1 auto' }}
           />
-          <button type="button" onClick={async () => {
-            if (rolling.backstory) return;
-            setRolling((r) => ({ ...r, backstory: true }));
-            try {
-              const prompt = buildPrompt(sheet, 'backstory');
-              const sys = buildSystem('backstory');
-              const text = await invoke('generate_llm', { prompt, system: sys });
-              const val = String(text || '').trim();
-              if (val) dispatch({ type: 'setField', path: ['personality', 'appearance'], value: val });
-            } catch (e) {
-              console.warn('backstory roll failed', e);
-            } finally {
-              setRolling((r) => ({ ...r, backstory: false }));
+          <button
+            type="button"
+            onClick={() => requestRandom('backstory')}
+            disabled={rolling.backstory || !!randomFatal}
+            aria-disabled={rolling.backstory || !!randomFatal}
+            aria-describedby="random-backstory-helper"
+            aria-label={
+              rolling.backstory
+                ? 'Rolling backstory. Please wait.'
+                : randomFatal
+                  ? `Randomization unavailable: ${randomFatal}`
+                  : 'Randomize backstory'
             }
-          }} disabled={rolling.backstory}>
-            {rolling.backstory ? (<><span className="spinner" aria-label="loading" /> Rolling…</>) : 'Random'}
+            title={
+              rolling.backstory
+                ? 'Rolling backstory…'
+                : randomFatal || 'Generate a backstory automatically'
+            }
+          >
+            {rolling.backstory ? (
+              <>
+                <span className="spinner" aria-hidden="true" /> Rolling…
+              </>
+            ) : randomFatal ? 'Unavailable' : 'Random'}
           </button>
         </div>
+        <small
+          id="random-backstory-helper"
+          className="muted"
+          style={{ color: randomHelper.backstory.tone === 'error' ? 'var(--color-danger, #b00020)' : undefined }}
+        >
+          {randomHelper.backstory.message || (randomMode === 'local' ? offlineStoryHint('backstory') : 'Use Random to suggest a backstory.')}
+        </small>
       </label>
     </CharacterSheetSection>
   );
