@@ -12,6 +12,7 @@ import os
 import logging
 import threading
 import time
+import types
 from typing import Dict, Optional
 
 try:  # pragma: no cover - optional dependency
@@ -21,9 +22,10 @@ except Exception:  # pragma: no cover - handled gracefully
     read_wav = None  # type: ignore
 
 try:  # pragma: no cover - optional dependency
-    from transformers import pipeline
+    from transformers import pipeline, AutoProcessor
 except Exception:  # pragma: no cover - handled gracefully
     pipeline = None  # type: ignore
+    AutoProcessor = None  # type: ignore
 
 try:  # pragma: no cover - optional dependency
     import torch
@@ -36,6 +38,25 @@ except Exception:  # pragma: no cover - handled gracefully
     np = None  # type: ignore
 
 logger = logging.getLogger(__name__)
+
+class _MelodyProcessorWrapper:
+    """Ensures melody processors receive text/audio via keywords."""
+    __slots__ = ("_processor",)
+
+    def __init__(self, processor):
+        self._processor = processor
+
+    def __call__(self, text=None, **kwargs):
+        if text is not None and "text" not in kwargs:
+            kwargs["text"] = text
+        return self._processor(**kwargs)
+
+    def decode(self, audio, *args, **kwargs):
+        return audio
+
+    def __getattr__(self, name):
+        return getattr(self._processor, name)
+
 
 # Mapping from shorthand aliases exposed in the UI to the fully qualified
 # HuggingFace model identifiers expected by ``transformers``.
@@ -50,12 +71,12 @@ MODEL_NAME_ALIASES: Dict[str, str] = {
 # the .bin branch for these identifiers.
 BIN_ONLY_MODELS = {
     "facebook/musicgen-medium",
-    "facebook/musicgen-melody",
 }
 
 # Cache for loaded MusicGen pipelines.  Access is guarded by a lock since model
 # loading may be expensive and not thread safe.
 _PIPELINE_CACHE: Dict[str, object] = {}
+_PROCESSOR_CACHE: Dict[str, object] = {}
 _LAST_STATUS: Dict[str, object] = {"device": "cpu", "fallback": False, "reason": None}
 
 def get_last_status() -> Dict[str, object]:
@@ -69,6 +90,49 @@ _PYTORCH_UPGRADE_GUIDANCE = (
     "  pip install --index-url https://download.pytorch.org/whl/cpu \"torch>=2.5\" \"torchaudio>=2.5\"\n"
     "Also ensure scipy is installed for writing WAV files."
 )
+
+
+def _patch_musicgen_config(cfg) -> None:
+    if cfg is None:
+        return
+    try:
+        decoder_cfg = getattr(cfg, "decoder", None)
+        text_encoder_cfg = getattr(cfg, "text_encoder", None)
+        chosen_cfg = decoder_cfg or text_encoder_cfg or getattr(cfg, "text_config", None)
+        if chosen_cfg is None:
+            return
+        setattr(cfg, "text_config", chosen_cfg)
+
+        original = getattr(cfg, "get_text_config", None)
+
+        def _patched_get_text_config(self, decoder: bool = False, **_):
+            if decoder:
+                return decoder_cfg or chosen_cfg
+            return chosen_cfg
+
+        if callable(original):
+            setattr(cfg, "get_text_config", types.MethodType(_patched_get_text_config, cfg))
+    except Exception:
+        logger.debug("Unable to patch MusicGen config", exc_info=True)
+
+
+def _attach_melody_processor(pipe, processor) -> None:
+    if pipe is None or processor is None:
+        return
+    existing = getattr(pipe, "processor", None)
+    if isinstance(existing, _MelodyProcessorWrapper) and getattr(existing, "_processor", None) is processor:
+        pass
+    else:
+        wrapper = _MelodyProcessorWrapper(processor)
+        setattr(pipe, "processor", wrapper)
+    setattr(pipe, "no_processor", False)
+    if hasattr(processor, "tokenizer") and processor.tokenizer is not None:
+        setattr(pipe, "tokenizer", processor.tokenizer)
+    if hasattr(processor, "feature_extractor") and processor.feature_extractor is not None:
+        setattr(pipe, "feature_extractor", processor.feature_extractor)
+    model = getattr(pipe, "model", None)
+    cfg = getattr(model, "config", None)
+    _patch_musicgen_config(cfg)
 
 
 def _assert_supported_torch_version() -> None:
@@ -124,7 +188,18 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
         )
         cache_key = f"{normalized_name}|{cache_device_key}"
         if cache_key in _PIPELINE_CACHE:
-            return _PIPELINE_CACHE[cache_key]
+            cached_pipe = _PIPELINE_CACHE[cache_key]
+            if normalized_name == "facebook/musicgen-melody":
+                processor = _PROCESSOR_CACHE.get(normalized_name)
+                if processor is None and AutoProcessor is not None:
+                    processor_kwargs = {"trust_remote_code": True}
+                    if os.environ.get("HF_HUB_OFFLINE") == "1" or os.environ.get("TRANSFORMERS_OFFLINE") == "1":
+                        processor_kwargs["local_files_only"] = True
+                    processor = AutoProcessor.from_pretrained(normalized_name, **processor_kwargs)
+                    _PROCESSOR_CACHE[normalized_name] = processor
+                if processor is not None:
+                    _attach_melody_processor(cached_pipe, processor)
+            return cached_pipe
 
         logger.info("Loading MusicGen model: %s", normalized_name)
         try:
@@ -156,7 +231,11 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
                 or os.environ.get("TRANSFORMERS_OFFLINE") == "1"
             )
 
-            def _build_pipe(use_safetensors: bool = True, model_id: Optional[str] = None):
+            def _build_pipe(
+                use_safetensors: bool = True,
+                model_id: Optional[str] = None,
+                processor_obj=None,
+            ):
                 model_kwargs = {
                     # The pipeline now expects safetensor preferences within model_kwargs.
                     "use_safetensors": use_safetensors,
@@ -175,6 +254,8 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
                     "trust_remote_code": True,
                     "model_kwargs": model_kwargs,
                 }
+                if processor_obj is not None:
+                    pipeline_kwargs["processor"] = processor_obj
                 return pipeline("text-to-audio", **pipeline_kwargs)
 
             def _should_retry_without_safetensors(exc: Exception) -> bool:
@@ -182,26 +263,37 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
                 return "safetensor" in text
 
             pipe = None
-            # Try the requested model first; for the melody variant, provide
-            # pragmatic fallbacks to commonly available text-only checkpoints.
             candidate_ids = [normalized_name]
             if normalized_name == "facebook/musicgen-melody":
-                # Allow an override via env if the user has a specific fork.
                 override = os.environ.get("MUSICGEN_MELODY_ID")
-                if override and override not in candidate_ids:
-                    candidate_ids.append(override)
-                # Known widely available checkpoints as last-resort fallbacks.
-                for alt in ("facebook/musicgen-large", "facebook/musicgen-medium", "facebook/musicgen-small"):
-                    if alt not in candidate_ids:
-                        candidate_ids.append(alt)
+                if override and override != normalized_name:
+                    logger.info("Using MUSICGEN_MELODY_ID override: %s", override)
+                    candidate_ids.insert(0, override)
 
             last_exc: Optional[Exception] = None
             for candidate in candidate_ids:
                 safetensors_allowed = candidate not in BIN_ONLY_MODELS
                 try:
+                    processor_obj = None
+                    if "musicgen-melody" in candidate:
+                        if AutoProcessor is None:
+                            raise RuntimeError(
+                                "MusicGen melody conditioning requires transformers.AutoProcessor. "
+                                "Upgrade the transformers package to a version that provides AutoProcessor."
+                            )
+                        processor_obj = _PROCESSOR_CACHE.get(candidate)
+                        if processor_obj is None:
+                            processor_kwargs = {"trust_remote_code": True}
+                            if offline:
+                                processor_kwargs["local_files_only"] = True
+                            logger.info("Loading MusicGen melody processor: %s", candidate)
+                            processor_obj = AutoProcessor.from_pretrained(candidate, **processor_kwargs)
+                            _PROCESSOR_CACHE[candidate] = processor_obj
+                            if candidate != normalized_name:
+                                _PROCESSOR_CACHE[normalized_name] = processor_obj
                     if safetensors_allowed:
                         try:
-                            pipe = _build_pipe(True, model_id=candidate)
+                            pipe = _build_pipe(True, model_id=candidate, processor_obj=processor_obj)
                         except Exception as exc:
                             last_exc = exc
                             if _should_retry_without_safetensors(exc):
@@ -212,12 +304,13 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
                             else:
                                 raise
                     if pipe is None:
-                        pipe = _build_pipe(False, model_id=candidate)
+                        pipe = _build_pipe(False, model_id=candidate, processor_obj=processor_obj)
+                    if processor_obj is not None and pipe is not None:
+                        _attach_melody_processor(pipe, processor_obj)
                     # Success
                     if candidate != normalized_name:
-                        logger.warning(
-                            "Fell back from %s to %s. Melody conditioning may be ignored on fallback.",
-                            normalized_name,
+                        logger.info(
+                            "Loaded MusicGen pipeline using override identifier %s",
                             candidate,
                         )
                     break
@@ -226,23 +319,28 @@ def _get_pipeline(model_name: str, device_override: Optional[int] = None):
                     pipe = None
                     logger.debug("Candidate model %s failed: %s", candidate, exc)
                     continue
-            if pipe is None and last_exc is not None:
-                raise last_exc
+            if pipe is None:
+                if normalized_name == "facebook/musicgen-melody":
+                    guidance = (
+                        "Failed to load the MusicGen melody checkpoint 'facebook/musicgen-melody'. "
+                        "Ensure the weights are available locally, for example via "
+                        "`huggingface-cli download facebook/musicgen-melody --local-dir \"<cache-dir>\"`."
+                    )
+                    if last_exc is not None:
+                        raise RuntimeError(
+                            f"{guidance}\nOriginal error: {last_exc}"
+                        ) from last_exc
+                    raise RuntimeError(guidance)
+                if last_exc is not None:
+                    raise last_exc
+                raise RuntimeError(
+                    f"Failed to initialize MusicGen pipeline for {normalized_name}"
+                )
             # Patch ambiguous text config in newer Transformers MusicGen variants
             try:
                 model = getattr(pipe, "model", None)
                 cfg = getattr(model, "config", None)
-                if cfg is not None and hasattr(cfg, "get_text_config"):
-                    # Prefer decoder sub-config for generation; fallback to text_encoder
-                    dec = getattr(cfg, "decoder", None)
-                    te = getattr(cfg, "text_encoder", None)
-                    chosen = dec or te
-                    if chosen is not None:
-                        setattr(cfg, "text_config", chosen)
-                        logger.debug(
-                            "Set MusicGen config.text_config = %s",
-                            "decoder" if dec is not None else "text_encoder",
-                        )
+                _patch_musicgen_config(cfg)
             except Exception:
                 # Non-fatal; generation may still succeed
                 pass

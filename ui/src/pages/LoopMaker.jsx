@@ -152,6 +152,8 @@ export default function LoopMaker() {
   const tempFilesRef = useRef(new Set());
   const selectionTempPathRef = useRef('');
   const [jobId, setJobId] = useState(null);
+  const [batchItems, setBatchItems] = useState([]);
+  const [isBatchQueueing, setIsBatchQueueing] = useState(false);
   // Poll the global job queue so loop exports appear in the queue UI
   const { queue, refresh: refreshQueue } = useJobQueue(2000);
 
@@ -763,6 +765,112 @@ export default function LoopMaker() {
       fontWeight: 600,
       textAlign: 'center',
     },
+    batchSection: {
+      marginTop: '1.5rem',
+      padding: '1.25rem 1.5rem',
+      background: '#f9fafb',
+      borderRadius: '0.85rem',
+      boxShadow: '0 10px 20px rgba(17, 24, 39, 0.12)',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '1rem',
+    },
+    batchHeader: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '0.35rem',
+    },
+    batchTitle: {
+      margin: 0,
+      fontSize: '1.35rem',
+      fontWeight: 700,
+      color: '#111827',
+    },
+    batchHint: {
+      margin: 0,
+      color: '#4b5563',
+      fontSize: '0.95rem',
+    },
+    batchControls: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '0.75rem',
+      alignItems: 'flex-start',
+    },
+    batchActions: {
+      display: 'flex',
+      flexWrap: 'wrap',
+      gap: '0.75rem',
+    },
+    batchQueueButton: {
+      padding: '0.6rem 1.5rem',
+      borderRadius: '0.75rem',
+      border: 'none',
+      background: 'linear-gradient(90deg, #22d3ee, #6366f1)',
+      color: '#0f172a',
+      fontWeight: 700,
+      fontSize: '0.95rem',
+      cursor: 'pointer',
+      boxShadow: '0 8px 18px rgba(15, 23, 42, 0.2)',
+    },
+    batchSecondaryButton: {
+      padding: '0.6rem 1.25rem',
+      borderRadius: '0.75rem',
+      border: '1px solid #d1d5db',
+      background: '#ffffff',
+      color: '#111827',
+      fontWeight: 600,
+      fontSize: '0.9rem',
+      cursor: 'pointer',
+      boxShadow: '0 4px 12px rgba(17, 24, 39, 0.08)',
+    },
+    batchList: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '0.75rem',
+    },
+    batchItem: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: '1rem',
+      padding: '0.85rem 1rem',
+      borderRadius: '0.75rem',
+      background: '#ffffff',
+      boxShadow: '0 6px 14px rgba(17, 24, 39, 0.12)',
+    },
+    batchItemInfo: {
+      flex: '1 1 auto',
+      minWidth: 0,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '0.25rem',
+    },
+    batchItemTitle: {
+      fontWeight: 600,
+      color: '#111827',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+    },
+    batchItemMeta: {
+      color: '#4b5563',
+      fontSize: '0.85rem',
+    },
+    batchRemoveButton: {
+      border: 'none',
+      background: 'transparent',
+      color: '#dc2626',
+      fontSize: '1.1rem',
+      cursor: 'pointer',
+      padding: '0.35rem 0.5rem',
+      borderRadius: '0.5rem',
+    },
+    batchEmpty: {
+      margin: 0,
+      color: '#6b7280',
+      fontStyle: 'italic',
+    },
   };
 
   const selectedFormatOptionDisplay =
@@ -830,6 +938,216 @@ export default function LoopMaker() {
     setVideoURL(url);
     cleanupProcessed();
   }, [cleanupProcessed, file]);
+
+  const measureMediaDuration = useCallback(
+    (inputFile) =>
+      new Promise((resolve, reject) => {
+        if (!inputFile) {
+          reject(new Error('No file provided.'));
+          return;
+        }
+        if (typeof window === 'undefined' || typeof document === 'undefined') {
+          reject(new Error('Media duration measurement is unavailable in this environment.'));
+          return;
+        }
+        const mime = String(inputFile.type || '').toLowerCase();
+        const element = mime.startsWith('audio/')
+          ? document.createElement('audio')
+          : document.createElement('video');
+        element.preload = 'metadata';
+        element.muted = true;
+        element.defaultMuted = true;
+        let url = '';
+        const handleLoaded = () => {
+          const durationValue = Number(element.duration);
+          cleanup();
+          if (Number.isFinite(durationValue) && durationValue > 0) {
+            resolve(durationValue);
+          } else {
+            reject(new Error('Unable to determine clip duration.'));
+          }
+        };
+        const handleError = () => {
+          cleanup();
+          reject(new Error('Failed to load media metadata.'));
+        };
+        const cleanup = () => {
+          element.removeEventListener('loadedmetadata', handleLoaded);
+          element.removeEventListener('error', handleError);
+          try {
+            if (typeof element.pause === 'function') {
+              element.pause();
+            }
+          } catch (_err) {}
+          element.removeAttribute('src');
+          try {
+            element.load();
+          } catch (_err) {}
+          if (url) {
+            URL.revokeObjectURL(url);
+            url = '';
+          }
+        };
+        try {
+          url = URL.createObjectURL(inputFile);
+          element.addEventListener('loadedmetadata', handleLoaded, { once: true });
+          element.addEventListener('error', handleError, { once: true });
+          element.src = url;
+        } catch (err) {
+          cleanup();
+          reject(err instanceof Error ? err : new Error(String(err)));
+        }
+      }),
+    []
+  );
+
+  const handleBatchFilesChange = useCallback(
+    async (e) => {
+      const fileList = Array.from(e?.target?.files || []);
+      if (!fileList.length) return;
+      const existingKeys = new Set(
+        batchItems.map((item) => {
+          if (typeof item.file?.path === 'string' && item.file.path) {
+            return item.file.path;
+          }
+          return item.file?.name || item.id;
+        })
+      );
+      const additions = [];
+      const failures = [];
+      for (const entry of fileList) {
+        const key =
+          (typeof entry.path === 'string' && entry.path) || entry.name || `file-${Date.now()}`;
+        if (existingKeys.has(key)) {
+          continue;
+        }
+        try {
+          const durationSeconds = await measureMediaDuration(entry);
+          additions.push({
+            id: `batch-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+            file: entry,
+            name: entry.name || 'clip',
+            duration: durationSeconds,
+          });
+          existingKeys.add(key);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          failures.push(`${entry.name || 'clip'} (${message})`);
+        }
+      }
+      if (additions.length) {
+        setBatchItems((prev) => [...prev, ...additions]);
+        setStatusMessage(
+          additions.length === 1
+            ? 'Added 1 clip to the batch queue.'
+            : `Added ${additions.length} clips to the batch queue.`
+        );
+      }
+      if (failures.length) {
+        setErrorMessage(`Skipped ${failures.length} file(s): ${failures.join('; ')}`);
+      } else if (!additions.length) {
+        setStatusMessage('');
+      } else {
+        setErrorMessage('');
+      }
+      if (e?.target) {
+        e.target.value = '';
+      }
+    },
+    [batchItems, measureMediaDuration]
+  );
+
+  const handleRemoveBatchItem = useCallback((id) => {
+    setBatchItems((prev) => prev.filter((item) => item.id !== id));
+  }, []);
+
+  const handleClearBatchItems = useCallback(() => {
+    setBatchItems([]);
+  }, []);
+
+  const handleQueueBatch = useCallback(async () => {
+    if (!runningInTauri) {
+      setErrorMessage('Batch export is only available in the desktop app.');
+      return;
+    }
+    if (!batchItems.length) {
+      setStatusMessage('No batch clips selected.');
+      return;
+    }
+    if (!targetSeconds || targetSeconds <= 0) {
+      setErrorMessage('Set a valid target length before queueing batch exports.');
+      return;
+    }
+    setIsBatchQueueing(true);
+    setStatusMessage('Queueing batch exports...');
+    const successes = [];
+    const failures = [];
+    for (const item of batchItems) {
+      try {
+        const clipSeconds = Number(item.duration || 0);
+        if (!Number.isFinite(clipSeconds) || clipSeconds <= 0) {
+          throw new Error('Invalid clip duration.');
+        }
+        const sourcePath =
+          typeof item.file?.path === 'string' && item.file.path
+            ? item.file.path
+            : null;
+        if (!sourcePath) {
+          throw new Error('Unable to access the source file path.');
+        }
+        const jobIdValue = await invoke('export_loop_video', {
+          inputPath: sourcePath,
+          targetSeconds: Number(targetSeconds),
+          clipSeconds,
+          outdir: outdir || undefined,
+          outputName: outputName || undefined,
+        });
+        successes.push({ jobId: jobIdValue, name: item.name });
+        jobIdRef.current = jobIdValue;
+        jobRequestRef.current = {
+          inputPath: sourcePath,
+          targetSeconds: Number(targetSeconds),
+          clipSeconds,
+          loops: computeLoopPlan(Number(targetSeconds), clipSeconds).fullLoops,
+          outdir: outdir || '',
+          outputName: outputName || '',
+          sourceName: item.name || '',
+        };
+        setJobId(jobIdValue);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        failures.push({ name: item.name, message });
+      }
+    }
+    setBatchItems([]);
+    if (successes.length) {
+      setStatusMessage(
+        successes.length === 1
+          ? `Queued 1 clip for export (${successes[0].name}).`
+          : `Queued ${successes.length} clips for export.`
+      );
+      refreshQueue();
+    } else {
+      setStatusMessage('');
+    }
+    if (failures.length) {
+      const combined = failures
+        .map((entry) => `${entry.name}: ${entry.message}`)
+        .join('; ');
+      setErrorMessage(`Failed to queue ${failures.length} clip(s): ${combined}`);
+    } else {
+      setErrorMessage('');
+    }
+    setIsBatchQueueing(false);
+  }, [
+    batchItems,
+    computeLoopPlan,
+    outdir,
+    outputName,
+    refreshQueue,
+    runningInTauri,
+    targetSeconds,
+  ]);
 
   const chooseOutdir = useCallback(async () => {
     if (!runningInTauri) return;
@@ -1856,7 +2174,89 @@ export default function LoopMaker() {
           Last saved job ID: <strong>{lastJobId}</strong>
         </p>
       )}
-      <input type="file" accept="video/*" onChange={handleFileChange} />
+      <input type="file" accept="video/*,audio/*" onChange={handleFileChange} />
+      <section style={styles.batchSection}>
+        <div style={styles.batchHeader}>
+          <h2 style={styles.batchTitle}>Batch Queue</h2>
+          <p style={styles.batchHint}>
+            Queue multiple clips with the same target length
+            {Number(targetSeconds || 0) > 0 ? ` (${Number(targetSeconds || 0)}s).` : '.'}
+          </p>
+        </div>
+        <div style={styles.batchControls}>
+          <input
+            type="file"
+            accept="video/*,audio/*"
+            multiple
+            onChange={handleBatchFilesChange}
+          />
+          {batchItems.length > 0 && (
+            <div style={styles.batchActions}>
+              <button
+                type="button"
+                onClick={handleQueueBatch}
+                style={{
+                  ...styles.batchQueueButton,
+                  ...(isBatchQueueing ? styles.saveButtonDisabled : {}),
+                }}
+                disabled={isBatchQueueing}
+              >
+                {isBatchQueueing
+                  ? 'Queueing...'
+                  : `Queue ${batchItems.length} clip${batchItems.length === 1 ? '' : 's'}`}
+              </button>
+              <button
+                type="button"
+                onClick={handleClearBatchItems}
+                style={styles.batchSecondaryButton}
+                disabled={isBatchQueueing}
+              >
+                Clear
+              </button>
+            </div>
+          )}
+        </div>
+        {batchItems.length > 0 ? (
+          <div style={styles.batchList}>
+            {batchItems.map((item) => {
+              const durationSeconds = Number(item.duration || 0);
+              const loopsInfo =
+                Number(targetSeconds) > 0 && durationSeconds > 0
+                  ? computeLoopPlan(Number(targetSeconds), durationSeconds)
+                  : { fullLoops: 0, remainder: 0 };
+              return (
+                <div key={item.id} style={styles.batchItem}>
+                  <div style={styles.batchItemInfo}>
+                    <span style={styles.batchItemTitle}>{item.name || 'clip'}</span>
+                    <span style={styles.batchItemMeta}>
+                      Duration {durationSeconds > 0 ? `${durationSeconds.toFixed(2)}s` : 'unknown'}
+                      {Number(targetSeconds) > 0 && durationSeconds > 0
+                        ? ` - Loops ${loopsInfo.fullLoops}${loopsInfo.remainder > REMAINDER_EPSILON ? ' + remainder' : ''}`
+                        : ''}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveBatchItem(item.id)}
+                    style={{
+                      ...styles.batchRemoveButton,
+                      ...(isBatchQueueing ? styles.saveButtonDisabled : {}),
+                    }}
+                    aria-label={`Remove ${item.name || 'clip'} from batch`}
+                    disabled={isBatchQueueing}
+                  >
+                    x
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p style={styles.batchEmpty}>
+            Select multiple clips to queue them with the same loop settings.
+          </p>
+        )}
+      </section>
       <form style={styles.targetControls} onSubmit={handleTargetSubmit}>
         <label style={styles.targetLabel}>
           Target Length (seconds)

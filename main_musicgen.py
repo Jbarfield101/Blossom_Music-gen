@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from typing import List
 
-from core.musicgen_backend import generate_music, get_last_status
+from core.musicgen_backend import MODEL_NAME_ALIASES, generate_music, get_last_status
 
 
 def _sanitize_base_name(raw: str, fallback: str) -> str:
@@ -74,6 +74,7 @@ def run() -> dict:
     output_dir = Path(args.output_dir).expanduser()
     output_dir.mkdir(parents=True, exist_ok=True)
     summary_path = Path(args.summary_path).expanduser() if args.summary_path else None
+    resolved_model = MODEL_NAME_ALIASES.get(args.model, args.model)
 
     if args.force_cpu:
         os.environ["CUDA_VISIBLE_DEVICES"] = ""
@@ -109,7 +110,7 @@ def run() -> dict:
             generate_music(
                 prompt=args.prompt,
                 duration=float(args.duration),
-                model_name=args.model,
+                model_name=resolved_model,
                 temperature=float(args.temperature),
                 output_dir=str(output_dir),
                 melody_path=melody_path,
@@ -135,6 +136,7 @@ def run() -> dict:
         "duration": float(args.duration),
         "temperature": float(args.temperature),
         "model": args.model,
+        "resolved_model": resolved_model,
         "count": count,
         "base_name": base_name,
         "output_dir": str(output_dir.resolve()),

@@ -6517,6 +6517,37 @@ fn sanitize_musicgen_base_name(name: Option<&str>, fallback: &str) -> String {
     }
 }
 
+fn probe_media_duration(input: &Path) -> Result<f64, String> {
+    let output = Command::new("ffprobe")
+        .arg("-v")
+        .arg("error")
+        .arg("-show_entries")
+        .arg("format=duration")
+        .arg("-of")
+        .arg("default=noprint_wrappers=1:nokey=1")
+        .arg(input)
+        .output()
+        .map_err(|err| format!("Failed to execute ffprobe: {}", err))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let detail = if !stderr.trim().is_empty() {
+            stderr.trim().to_string()
+        } else if !stdout.trim().is_empty() {
+            stdout.trim().to_string()
+        } else {
+            "ffprobe failed to read duration".to_string()
+        };
+        return Err(detail);
+    }
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    let raw = text.trim();
+    raw.parse::<f64>()
+        .map_err(|err| format!("Unable to parse ffprobe duration '{}': {}", raw, err))
+}
+
 #[tauri::command]
 fn export_loop_video(
     app: AppHandle,
@@ -6541,7 +6572,6 @@ fn export_loop_video(
         eprintln!("[loop-maker] {}", msg);
         return Err(msg);
     }
-    let clip = clip_seconds.unwrap_or(0.0);
     if target_seconds <= 0.0 {
         let msg = format!(
             "Target seconds must be greater than zero (received {:.3}).",
@@ -6550,17 +6580,6 @@ fn export_loop_video(
         eprintln!("[loop-maker] {}", msg);
         return Err(msg);
     }
-    if clip <= 0.0 {
-        let msg = format!(
-            "Clip duration must be greater than zero to compute loops (received {:.3}).",
-            clip
-        );
-        eprintln!("[loop-maker] {}", msg);
-        return Err(msg);
-    }
-    let loops = (target_seconds / clip).floor() as i64;
-    let remainder = target_seconds - (loops as f64) * clip;
-    let eps = 0.0005_f64;
 
     // Determine output directory
     let out_dir = if let Some(dir) = outdir {
@@ -6650,6 +6669,34 @@ fn export_loop_video(
             in_path.clone()
         }
     };
+
+    let mut clip = clip_seconds.unwrap_or(0.0);
+    if clip <= 0.0 {
+        match probe_media_duration(&canonical_input) {
+            Ok(value) => {
+                clip = value;
+                eprintln!("[loop-maker] detected clip duration {:.3}s for {}", clip, canonical_input.display());
+            }
+            Err(err) => {
+                let msg = format!("Unable to determine clip duration for {}: {}", canonical_input.display(), err);
+                eprintln!("[loop-maker] {}", msg);
+                return Err(msg);
+            }
+        }
+    }
+
+    if clip <= 0.0 {
+        let msg = format!(
+            "Clip duration must be greater than zero to compute loops (received {:.3}).",
+            clip
+        );
+        eprintln!("[loop-maker] {}", msg);
+        return Err(msg);
+    }
+
+    let loops = (target_seconds / clip).floor() as i64;
+    let remainder = target_seconds - (loops as f64) * clip;
+
     let input_arg = canonical_input.to_string_lossy().to_string();
 
     let mut args = vec![script];
