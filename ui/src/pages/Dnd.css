@@ -1713,3 +1713,144 @@
     width: 100%;
   }
 }
+
+/* Character sheet builder layout refinements */
+.dnd-sheet-columns {
+  display: grid;
+  gap: var(--space-xl);
+  grid-template-columns: minmax(240px, 1fr) minmax(320px, 1.15fr) minmax(260px, 1fr);
+  align-items: flex-start;
+}
+
+.dnd-sheet-column--left .dnd-sheet-section,
+.dnd-sheet-column--center .dnd-sheet-section,
+.dnd-sheet-column--right .dnd-sheet-section {
+  height: auto;
+}
+
+.dnd-random-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.dnd-random-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.dnd-random-row textarea {
+  flex: 1;
+}
+
+.dnd-random-row button {
+  align-self: stretch;
+  min-width: 6rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(37, 99, 235, 0.15);
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.dnd-random-row button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dnd-random-row button:not(:disabled):hover,
+.dnd-random-row button:not(:disabled):focus {
+  border-color: rgba(96, 165, 250, 0.55);
+  background: rgba(37, 99, 235, 0.25);
+}
+
+.dnd-class-features {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.dnd-class-feature-row {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  align-items: flex-start;
+  padding: 0.75rem;
+  background: rgba(15, 23, 42, 0.55);
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.15);
+}
+
+.dnd-class-feature-row textarea {
+  min-height: 90px;
+}
+
+.dnd-class-feature-remove {
+  justify-self: flex-end;
+  align-self: center;
+  border-radius: 10px;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.15);
+  color: inherit;
+  padding: 0.35rem 0.9rem;
+  cursor: pointer;
+}
+
+.dnd-class-feature-add {
+  align-self: flex-start;
+  border-radius: 10px;
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  background: rgba(37, 99, 235, 0.18);
+  padding: 0.4rem 0.85rem;
+  color: inherit;
+  cursor: pointer;
+}
+
+.dnd-spell-lists {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.dnd-spell-lists label textarea {
+  min-height: 90px;
+}
+
+.dnd-multiclass-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.dnd-multiclass-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: rgba(15, 23, 42, 0.55);
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.dnd-multiclass-remove {
+  justify-self: flex-end;
+  align-self: center;
+  border-radius: 10px;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.18);
+  color: inherit;
+  padding: 0.35rem 0.85rem;
+  cursor: pointer;
+}
+
+@media (max-width: 1024px) {
+  .dnd-sheet-columns {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+}

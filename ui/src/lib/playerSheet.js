@@ -60,6 +60,7 @@ const INITIAL_PLAYER_SHEET = Object.freeze({
   identity: {
     name: '',
     class: '',
+    subclass: '',
     background: '',
     playerName: '',
     race: '',
@@ -68,6 +69,9 @@ const INITIAL_PLAYER_SHEET = Object.freeze({
     level: 1,
     inspiration: false,
     proficiencyBonusOverride: '',
+  },
+  multiclass: {
+    classes: [],
   },
   abilityScores: { ...ABILITY_BASE_STATE },
   savingThrows: { ...SAVING_THROW_BASE },
@@ -78,6 +82,7 @@ const INITIAL_PLAYER_SHEET = Object.freeze({
   senses: '',
   passiveInsightNotes: '',
   passiveInvestigationNotes: '',
+  classFeatures: [],
   combat: {
     armorClass: '',
     initiativeBonus: '',
@@ -98,6 +103,10 @@ const INITIAL_PLAYER_SHEET = Object.freeze({
     saveDc: '',
     attackBonus: '',
     slots: SPELL_SLOT_LEVELS.reduce((acc, lvl) => {
+      acc[lvl] = '';
+      return acc;
+    }, {}),
+    spellLists: SPELL_SLOT_LEVELS.reduce((acc, lvl) => {
       acc[lvl] = '';
       return acc;
     }, {}),
@@ -156,6 +165,17 @@ function normalizeNumber(value) {
   return Number.isFinite(num) ? num : 0;
 }
 
+export function calculateTotalLevel(sheet) {
+  const baseLevel = Math.max(1, Math.floor(normalizeNumber(sheet?.identity?.level)) || 1);
+  const extra = Array.isArray(sheet?.multiclass?.classes)
+    ? sheet.multiclass.classes.reduce((sum, entry) => {
+        const lvl = Math.floor(normalizeNumber(entry?.level));
+        return sum + (Number.isFinite(lvl) && lvl > 0 ? lvl : 0);
+      }, 0)
+    : 0;
+  return Math.max(1, baseLevel + extra);
+}
+
 export function deriveAbilityModifier(score) {
   const val = normalizeNumber(score);
   return Math.floor(val / 2) - 5;
@@ -174,7 +194,7 @@ export function determineProficiencyBonus(sheet) {
       return num;
     }
   }
-  return computeProficiencyBonus(sheet?.identity?.level);
+  return computeProficiencyBonus(calculateTotalLevel(sheet));
 }
 
 export function formatModifier(mod) {
@@ -294,6 +314,106 @@ export function playerSheetReducer(state, action) {
         },
       };
     }
+    case 'addAttack': {
+      const current = Array.isArray(state.combat?.attacks) ? state.combat.attacks : [];
+      return {
+        ...state,
+        combat: {
+          ...state.combat,
+          attacks: [...current, { name: '', bonus: '', damage: '', notes: '' }],
+        },
+      };
+    }
+    case 'removeAttack': {
+      const current = Array.isArray(state.combat?.attacks) ? state.combat.attacks : [];
+      const next = current.filter((_, index) => index !== action.index);
+      return {
+        ...state,
+        combat: {
+          ...state.combat,
+          attacks: next,
+        },
+      };
+    }
+    case 'addMulticlass': {
+      const current = Array.isArray(state.multiclass?.classes) ? state.multiclass.classes : [];
+      return {
+        ...state,
+        multiclass: {
+          ...state.multiclass,
+          classes: [...current, { className: '', subclass: '', level: '' }],
+        },
+      };
+    }
+    case 'updateMulticlass': {
+      const current = Array.isArray(state.multiclass?.classes) ? state.multiclass.classes : [];
+      const next = current.map((entry, index) => {
+        if (index !== action.index) return entry;
+        return {
+          ...entry,
+          [action.field]: action.value,
+        };
+      });
+      return {
+        ...state,
+        multiclass: {
+          ...state.multiclass,
+          classes: next,
+        },
+      };
+    }
+    case 'removeMulticlass': {
+      const current = Array.isArray(state.multiclass?.classes) ? state.multiclass.classes : [];
+      const next = current.filter((_, index) => index !== action.index);
+      return {
+        ...state,
+        multiclass: {
+          ...state.multiclass,
+          classes: next,
+        },
+      };
+    }
+    case 'addClassFeature': {
+      const current = Array.isArray(state.classFeatures) ? state.classFeatures : [];
+      return {
+        ...state,
+        classFeatures: [...current, { name: '', level: '', description: '' }],
+      };
+    }
+    case 'updateClassFeature': {
+      const current = Array.isArray(state.classFeatures) ? state.classFeatures : [];
+      const next = current.map((feature, index) => {
+        if (index !== action.index) return feature;
+        return {
+          ...feature,
+          [action.field]: action.value,
+        };
+      });
+      return {
+        ...state,
+        classFeatures: next,
+      };
+    }
+    case 'removeClassFeature': {
+      const current = Array.isArray(state.classFeatures) ? state.classFeatures : [];
+      const next = current.filter((_, index) => index !== action.index);
+      return {
+        ...state,
+        classFeatures: next,
+      };
+    }
+    case 'setSpellList': {
+      return {
+        ...state,
+        spellcasting: {
+          ...state.spellcasting,
+          spellLists: {
+            ...state.spellcasting?.spellLists,
+            [action.level]: action.value,
+          },
+        },
+      };
+    }
     case 'replace': {
       return mergeDefaults(action.value);
     }
@@ -317,6 +437,7 @@ export function buildDerivedStats(sheet) {
   for (const ability of ABILITY_SCORES) {
     abilityModifiers[ability.key] = deriveAbilityModifier(sheet?.abilityScores?.[ability.key]);
   }
+  const totalLevel = calculateTotalLevel(sheet);
   const proficiencyBonus = determineProficiencyBonus(sheet);
   const savingThrows = {};
   for (const ability of ABILITY_SCORES) {
@@ -367,6 +488,7 @@ export function buildDerivedStats(sheet) {
       suggestedSaveDc: spellSaveSuggestion,
       suggestedAttackBonus: spellAttackSuggestion,
     },
+    totalLevel,
   };
 }
 
@@ -447,6 +569,52 @@ function renderAttacks(attacks) {
   ].join('\n');
 }
 
+function renderClassFeatures(features) {
+  if (!Array.isArray(features) || !features.length) return '';
+  const rows = features
+    .filter((feature) => (feature?.name || feature?.description || feature?.level))
+    .map((feature) => {
+      const levelText = feature?.level ? ` (Level ${feature.level})` : '';
+      const desc = (feature?.description || '').trim();
+      const detail = desc ? `\n${desc}` : '';
+      return `- **${escapePipe(feature?.name || 'Feature')}**${levelText}${detail}`;
+    });
+  if (!rows.length) return '';
+  return rows.join('\n');
+}
+
+function renderSpellLists(spellLists) {
+  if (!spellLists || typeof spellLists !== 'object') return '';
+  const sections = [];
+  for (const lvl of SPELL_SLOT_LEVELS) {
+    const content = (spellLists[lvl] || '').trim();
+    if (!content) continue;
+    const heading = lvl === 'cantrips' ? 'Cantrips' : `Level ${SPELL_SLOT_LEVELS.indexOf(lvl)}`;
+    sections.push(`### ${heading} Spells\n\n${content}`);
+  }
+  return sections.join('\n\n');
+}
+
+function renderMulticlass(multiclass, primary) {
+  const entries = [];
+  if (primary?.class) {
+    const primaryLevel = Math.max(1, Math.floor(normalizeNumber(primary.level)) || 1);
+    const subclass = (primary?.subclass || '').trim();
+    entries.push(`- ${escapePipe(primary.class)}${subclass ? ` (${escapePipe(subclass)})` : ''}: Level ${primaryLevel}`);
+  }
+  if (Array.isArray(multiclass?.classes)) {
+    for (const cls of multiclass.classes) {
+      if (!(cls?.className || '').trim()) continue;
+      const lvl = Math.floor(normalizeNumber(cls.level));
+      const subclass = (cls?.subclass || '').trim();
+      const levelText = Number.isFinite(lvl) && lvl > 0 ? `Level ${lvl}` : 'Level ?';
+      entries.push(`- ${escapePipe(cls.className)}${subclass ? ` (${escapePipe(subclass)})` : ''}: ${levelText}`);
+    }
+  }
+  if (!entries.length) return '';
+  return entries.join('\n');
+}
+
 function sectionIfContent(title, content) {
   const trimmed = (content || '').trim();
   if (!trimmed) return '';
@@ -459,6 +627,7 @@ export function serializeCharacterSheet(sheet) {
   const frontmatterLines = ['---'];
   frontmatterLines.push(`Title: ${identity.name || 'Unnamed Adventurer'}`);
   frontmatterLines.push(`Class: ${identity.class || ''}`);
+  frontmatterLines.push(`Subclass: ${identity.subclass || ''}`);
   frontmatterLines.push(`Level: ${Math.max(1, Math.floor(normalizeNumber(identity.level)) || 1)}`);
   frontmatterLines.push(`Background: ${identity.background || ''}`);
   frontmatterLines.push(`Player: ${identity.playerName || ''}`);
@@ -466,6 +635,7 @@ export function serializeCharacterSheet(sheet) {
   frontmatterLines.push(`Alignment: ${identity.alignment || ''}`);
   frontmatterLines.push(`Experience: ${identity.experience || ''}`);
   frontmatterLines.push(`Inspiration: ${identity.inspiration ? 'Yes' : 'No'}`);
+  frontmatterLines.push(`Total Level: ${derived.totalLevel}`);
   frontmatterLines.push(`Proficiency Bonus: ${formatModifier(derived.proficiencyBonus)}`);
   frontmatterLines.push(`Passive Perception: ${derived.passivePerception}`);
   frontmatterLines.push(`Passive Investigation: ${derived.passiveInvestigation}`);
@@ -475,6 +645,13 @@ export function serializeCharacterSheet(sheet) {
   const abilityTable = renderAbilityTable(sheet, derived);
   const skillTable = renderSkillTable(sheet, derived);
   const attacksTable = renderAttacks(sheet?.combat?.attacks);
+  const multiclassBlock = renderMulticlass(sheet?.multiclass, {
+    class: identity.class,
+    subclass: identity.subclass,
+    level: identity.level,
+  });
+  const classFeatureBlock = renderClassFeatures(sheet?.classFeatures);
+  const spellListBlock = renderSpellLists(sheet?.spellcasting?.spellLists);
 
   const combatSection = [
     `- Armor Class: ${sheet?.combat?.armorClass || ''}`,
@@ -521,6 +698,10 @@ export function serializeCharacterSheet(sheet) {
   out += `${abilityTable}\n\n`;
   out += '## Skills\n\n';
   out += `${skillTable}\n\n`;
+  if (multiclassBlock) {
+    out += '## Class & Levels\n\n';
+    out += `${multiclassBlock}\n\n`;
+  }
   out += '## Combat\n\n';
   out += `${combatSection}\n${deathSaveLine}\n\n`;
   if (attacksTable) {
@@ -531,6 +712,9 @@ export function serializeCharacterSheet(sheet) {
   out += `${spellLines.join('\n')}\n`;
   out += slotLines.join('\n');
   out += '\n\n';
+  if (spellListBlock) {
+    out += `${spellListBlock}\n\n`;
+  }
   out += sectionIfContent('Prepared Spells', spellcasting.prepared);
   out += sectionIfContent('Known Spells', spellcasting.known);
   out += sectionIfContent('Spell Notes', spellcasting.notes);
@@ -562,6 +746,7 @@ export function serializeCharacterSheet(sheet) {
   out += sectionIfContent('Notes', sheet?.personality?.notes);
   out += sectionIfContent('Resource Notes', sheet?.resources?.notes);
   out += sectionIfContent('Class Features', sheet?.resources?.features);
+  out += sectionIfContent('Additional Class Features', classFeatureBlock);
   out += '\n';
   return out.trimEnd();
 }
