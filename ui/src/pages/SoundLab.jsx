@@ -22,6 +22,13 @@ export default function SoundLab() {
           Launch the classic prompt-to-music workflow.
         </Card>
         <Card
+          to="/musicgen/stable-diffusion"
+          icon="Sparkles"
+          title="Stable Diffusion"
+        >
+          Edit Stable Audio prompts before running the diffusion workflow.
+        </Card>
+        <Card
           to="/musicgen/riffusion"
           icon="Music"
           title="Riffusion Music Generation"

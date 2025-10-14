@@ -39,6 +39,7 @@ import Profiles from './pages/Profiles.jsx';
 import MusicGen from './pages/MusicGen.jsx';
 import Riffusion from './pages/Riffusion.jsx';
 import AlgorithmicGenerator from './pages/Generate.jsx';
+import StableDiffusion from './pages/StableDiffusion.jsx';
 import DndWorldPantheon from './pages/DndWorldPantheon.jsx';
 import DndWorldRegions from './pages/DndWorldRegions.jsx';
 import DndWorldFactions from './pages/DndWorldFactions.jsx';
@@ -266,6 +267,7 @@ export default function App() {
             <Route path="/" element={<Dashboard />} />
           <Route path="/musicgen" element={<SoundLab />}>
             <Route path="musicgen" element={<MusicGen />} />
+            <Route path="stable-diffusion" element={<StableDiffusion />} />
             <Route path="riffusion" element={<Riffusion />} />
             <Route path="algorithmic" element={<AlgorithmicGenerator />} />
           </Route>

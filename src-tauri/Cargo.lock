@@ -327,7 +327,7 @@ dependencies = [
 
 [[package]]
 name = "blossom_tauri"
-version = "0.5.5"
+version = "5.6.0"
 dependencies = [
  "base64 0.21.7",
  "chrono",
@@ -347,6 +347,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "url",
+ "uuid",
  "walkdir",
 ]
 

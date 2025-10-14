@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "identifier": "com.blossom.musicgen",
   "productName": "Blossom Music Generator",
-  "version": "0.5.5",
+  "version": "5.6.0",
   "build": {
     "beforeDevCommand": "npm --prefix ui run dev",
     "frontendDist": "../ui/dist",
@@ -20,14 +20,18 @@
       "capabilities": [
         {
           "identifier": "allow-internal-toggle-devtools",
-          "windows": ["*"],
+          "windows": [
+            "*"
+          ],
           "permissions": [
             "core:webview:allow-internal-toggle-devtools"
           ]
         },
         {
           "identifier": "allow-path-resolve",
-          "windows": ["*"],
+          "windows": [
+            "*"
+          ],
           "permissions": [
             "core:path:default",
             "core:path:allow-resolve-directory"
@@ -35,13 +39,22 @@
         },
         {
           "identifier": "allow-fs-voice-models",
-          "windows": ["*"],
+          "windows": [
+            "*"
+          ],
           "permissions": [
             {
               "identifier": "fs:scope",
               "allow": [
-                { "path": "$APPDATA/**" },
-                { "path": "$RESOURCE/assets/voice_models/**" }
+                {
+                  "path": "$APPDATA/**"
+                },
+                {
+                  "path": "$RESOURCE/assets/voice_models/**"
+                },
+                {
+                  "path": "$RESOURCE/assets/workflows/**"
+                }
               ]
             },
             "fs:allow-mkdir",
@@ -52,21 +65,37 @@
         },
         {
           "identifier": "allow-shell-piper",
-          "windows": ["*"],
+          "windows": [
+            "*"
+          ],
           "permissions": [
             {
               "identifier": "shell:allow-execute",
               "allow": [
-                { "name": "piper", "cmd": "piper", "args": true },
-                { "name": "piper-voices", "cmd": "piper-voices", "args": true },
-                { "name": "piper-venv", "cmd": "$APP/../.venv/Scripts/piper.exe", "args": true }
+                {
+                  "name": "piper",
+                  "cmd": "piper",
+                  "args": true
+                },
+                {
+                  "name": "piper-voices",
+                  "cmd": "piper-voices",
+                  "args": true
+                },
+                {
+                  "name": "piper-venv",
+                  "cmd": "$APP/../.venv/Scripts/piper.exe",
+                  "args": true
+                }
               ]
             }
           ]
         },
         {
           "identifier": "allow-dialog-open",
-          "windows": ["*"],
+          "windows": [
+            "*"
+          ],
           "permissions": [
             "dialog:allow-open",
             "dialog:default"
@@ -74,7 +103,9 @@
         },
         {
           "identifier": "allow-core-event",
-          "windows": ["*"],
+          "windows": [
+            "*"
+          ],
           "permissions": [
             "core:event:allow-listen",
             "core:event:default"
@@ -82,7 +113,9 @@
         },
         {
           "identifier": "allow-store",
-          "windows": ["*"],
+          "windows": [
+            "*"
+          ],
           "permissions": [
             "store:default",
             "core:resources:allow-close"

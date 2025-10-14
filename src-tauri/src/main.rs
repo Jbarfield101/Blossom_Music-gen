@@ -1339,7 +1339,7 @@ fn find_project_root() -> Option<PathBuf> {
     None
 }
 
-fn project_root() -> PathBuf {
+pub(crate) fn project_root() -> PathBuf {
     static ROOT: OnceLock<PathBuf> = OnceLock::new();
     ROOT.get_or_init(|| {
         let candidate = find_project_root().unwrap_or_else(|| PathBuf::from("."));
@@ -7923,6 +7923,8 @@ fn main() {
             resolve_resource,
             list_bundled_voices,
             commands::read_file_bytes,
+            commands::get_stable_audio_prompts,
+            commands::update_stable_audio_prompts,
             discord_listen_logs_tail,
             album_concat,
             list_llm,
@@ -8065,3 +8067,4 @@ fn main() {
         eprintln!("error while running tauri application: {}", e);
     }
 }
+

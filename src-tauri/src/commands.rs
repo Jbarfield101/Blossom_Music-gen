@@ -4,6 +4,8 @@ use std::process::Command;
 use tempfile::NamedTempFile;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use crate::project_root;
 use tauri::{async_runtime, AppHandle, Manager};
 
 #[derive(Serialize, Deserialize)]
@@ -19,6 +21,177 @@ pub struct GenResult {
 pub struct RiffusionResult {
     pub path: String,
 }
+
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StableAudioPrompts {
+    pub prompt: String,
+    pub negative_prompt: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StableAudioPromptUpdate {
+    pub prompt: String,
+    pub negative_prompt: String,
+}
+
+fn stable_audio_workflow_path() -> std::path::PathBuf {
+    project_root()
+        .join("assets")
+        .join("workflows")
+        .join("stable_audio.json")
+}
+
+fn locate_stable_audio_nodes(data: &Value) -> Result<(i64, i64), String> {
+    let nodes = data
+        .get("nodes")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Workflow is missing a nodes array".to_string())?;
+
+    let sampler_id = nodes
+        .iter()
+        .find(|node| node.get("type").and_then(Value::as_str) == Some("KSampler"))
+        .and_then(|node| node.get("id"))
+        .and_then(Value::as_i64)
+        .ok_or_else(|| "Unable to locate KSampler node in workflow".to_string())?;
+
+    let links = data
+        .get("links")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Workflow is missing a links array".to_string())?;
+
+    let mut positive: Option<i64> = None;
+    let mut negative: Option<i64> = None;
+
+    for link in links {
+        let arr = match link.as_array() {
+            Some(arr) => arr,
+            None => continue,
+        };
+        if arr.len() < 5 {
+            continue;
+        }
+        let target_node = arr.get(3).and_then(Value::as_i64);
+        if target_node != Some(sampler_id) {
+            continue;
+        }
+        let origin = arr.get(1).and_then(Value::as_i64);
+        let target_slot = arr.get(4).and_then(Value::as_i64);
+        match target_slot {
+            Some(1) => positive = origin,
+            Some(2) => negative = origin,
+            _ => {}
+        }
+    }
+
+    let positive = positive
+        .ok_or_else(|| "Positive conditioning node not found in workflow".to_string())?;
+    let negative = negative
+        .ok_or_else(|| "Negative conditioning node not found in workflow".to_string())?;
+    Ok((positive, negative))
+}
+
+fn extract_prompt_text(data: &Value, node_id: i64) -> String {
+    data
+        .get("nodes")
+        .and_then(Value::as_array)
+        .and_then(|nodes| {
+            nodes.iter().find_map(|node| {
+                if node.get("id").and_then(Value::as_i64) != Some(node_id) {
+                    return None;
+                }
+                node
+                    .get("widgets_values")
+                    .and_then(Value::as_array)
+                    .and_then(|vals| vals.get(0))
+                    .and_then(Value::as_str)
+                    .map(|s| s.to_string())
+            })
+        })
+        .unwrap_or_default()
+}
+
+fn set_prompt_text(data: &mut Value, node_id: i64, text: &str) -> Result<(), String> {
+    let nodes = data
+        .get_mut("nodes")
+        .and_then(Value::as_array_mut)
+        .ok_or_else(|| "Workflow is missing a nodes array".to_string())?;
+
+    let node = nodes
+        .iter_mut()
+        .find(|node| node.get("id").and_then(Value::as_i64) == Some(node_id))
+        .ok_or_else(|| format!("Node {} not found in workflow", node_id))?;
+
+    let obj = node
+        .as_object_mut()
+        .ok_or_else(|| format!("Node {} is not an object", node_id))?;
+
+    match obj.get_mut("widgets_values") {
+        Some(Value::Array(arr)) => {
+            if arr.is_empty() {
+                arr.push(Value::String(text.to_owned()));
+            } else {
+                arr[0] = Value::String(text.to_owned());
+            }
+        }
+        _ => {
+            obj.insert(
+                "widgets_values".to_string(),
+                Value::Array(vec![Value::String(text.to_owned())]),
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn load_stable_audio_workflow() -> Result<Value, String> {
+    let path = stable_audio_workflow_path();
+    let raw = fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read stable_audio.json: {}", e))?;
+    serde_json::from_str(&raw)
+        .map_err(|e| format!("Failed to parse stable_audio.json: {}", e))
+}
+
+fn persist_stable_audio_workflow(data: &Value) -> Result<(), String> {
+    let path = stable_audio_workflow_path();
+    let payload = serde_json::to_string_pretty(data)
+        .map_err(|e| format!("Failed to serialize workflow: {}", e))?;
+    fs::write(&path, payload).map_err(|e| format!("Failed to write workflow file: {}", e))
+}
+
+#[tauri::command]
+pub fn get_stable_audio_prompts() -> Result<StableAudioPrompts, String> {
+    let data = load_stable_audio_workflow()?;
+    let (positive_id, negative_id) = locate_stable_audio_nodes(&data)?;
+    Ok(StableAudioPrompts {
+        prompt: extract_prompt_text(&data, positive_id),
+        negative_prompt: extract_prompt_text(&data, negative_id),
+    })
+}
+
+#[tauri::command]
+pub fn update_stable_audio_prompts(
+    payload: StableAudioPromptUpdate,
+) -> Result<StableAudioPrompts, String> {
+    let mut data = load_stable_audio_workflow()?;
+    let (positive_id, negative_id) = locate_stable_audio_nodes(&data)?;
+
+    let prompt = payload.prompt.trim().to_string();
+    let negative = payload.negative_prompt.trim().to_string();
+
+    set_prompt_text(&mut data, positive_id, &prompt)?;
+    set_prompt_text(&mut data, negative_id, &negative)?;
+    persist_stable_audio_workflow(&data)?;
+
+    Ok(StableAudioPrompts {
+        prompt,
+        negative_prompt: negative,
+    })
+}
+
 
 #[tauri::command]
 pub async fn riffusion_generate(
@@ -496,3 +669,5 @@ pub async fn album_concat(
 
     Ok(out_path.to_string_lossy().to_string())
 }
+
+
