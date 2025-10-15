@@ -6,7 +6,7 @@ export default function DndLorePlayerRelations() {
     <>
       <BackButton />
       <h1>Dungeons & Dragons · Player Relations</h1>
-      <main className="dashboard" style={{ padding: '1rem' }}>
+      <section className="dashboard" style={{ padding: '1rem' }}>
         <div
           style={{
             background: 'var(--card-bg)',
@@ -18,7 +18,7 @@ export default function DndLorePlayerRelations() {
         >
           Under construction
         </div>
-      </main>
+      </section>
     </>
   );
 }

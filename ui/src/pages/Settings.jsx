@@ -5,13 +5,13 @@ import './Settings.css';
 
 export default function Settings() {
   return (
-    <main className="settings">
+    <section className="settings">
       <BackButton />
       <h1>Advanced Settings</h1>
       <SettingsAbout />
       <section className="settings-section">
         <LogPanel />
       </section>
-    </main>
+    </section>
   );
 }

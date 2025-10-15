@@ -996,7 +996,7 @@ export default function DndDiscord() {
           <button type="button" onClick={() => setListenerErrorLine('')}>Dismiss</button>
         </div>
       )}
-      <main
+      <section
         className="dashboard discord-dashboard"
         style={{ display: 'grid', gap: 'var(--space-lg)', marginTop: 'var(--space-lg)', gridTemplateColumns: compact ? '1fr' : '1fr 1fr' }}
       >
@@ -1229,7 +1229,7 @@ export default function DndDiscord() {
         <span>NPC: {actNpc || '—'}</span>
         <span>Voice: {actProvider}/{actVoice || '—'}</span>
         <span style={{ opacity: 0.8 }}>{listening ? 'Listening' : 'Idle'}</span>
-      </div></main>
+      </div></section>
 
       {showLogViewer && (
         <div

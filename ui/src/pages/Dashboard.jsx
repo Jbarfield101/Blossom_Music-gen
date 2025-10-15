@@ -35,12 +35,12 @@ export default function Dashboard() {
         <h1 className="dashboard-title">Blossom</h1>
         {version && <div className="dashboard-version">v{version}</div>}
       </header>
-      <main className="dashboard-main">
+      <section className="dashboard-main">
         <FeatureWheel items={items} />
         <div className="screen-wrapper">
           <Screen />
         </div>
-      </main>
+      </section>
     </>
   );
 }

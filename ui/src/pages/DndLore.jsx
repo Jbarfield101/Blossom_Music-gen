@@ -20,13 +20,13 @@ export default function DndLore() {
     <>
       <BackButton />
       <h1>Dungeons & Dragons · Lore</h1>
-      <main className="dashboard dnd-card-grid">
+      <section className="dashboard dnd-card-grid">
         {sections.map(({ to, icon, title, description }) => (
           <Card key={to} to={to} icon={icon} title={title}>
             {description}
           </Card>
         ))}
-      </main>
+      </section>
     </>
   );
 }

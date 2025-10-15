@@ -37,7 +37,7 @@ export default function SettingsDiscord() {
     <>
       <BackButton />
       <h1>Discord Settings</h1>
-      <main className="dashboard" style={{ display: 'grid', gap: 'var(--space-lg)' }}>
+      <section className="dashboard" style={{ display: 'grid', gap: 'var(--space-lg)' }}>
         {error && <div className="warning">{error}</div>}
 
         <section className="dnd-surface">
@@ -100,7 +100,7 @@ export default function SettingsDiscord() {
             </ul>
           )}
         </section>
-      </main>
+      </section>
     </>
   );
 }

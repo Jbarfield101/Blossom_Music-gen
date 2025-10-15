@@ -6,7 +6,7 @@ export default function DndLoreBackgroundRules() {
     <>
       <BackButton />
       <h1>Dungeons & Dragons · Backgrounds & Rules</h1>
-      <main className="dashboard" style={{ display: 'grid', gap: 'var(--space-md)' }}>
+      <section className="dashboard" style={{ display: 'grid', gap: 'var(--space-md)' }}>
         <section className="dnd-surface">
           <h2>Backgrounds & Table Rules</h2>
           <p className="muted" style={{ marginTop: '0.25rem' }}>
@@ -14,7 +14,7 @@ export default function DndLoreBackgroundRules() {
           </p>
           <p className="muted">Coming soon — indexing notes and quick reference.</p>
         </section>
-      </main>
+      </section>
     </>
   );
 }

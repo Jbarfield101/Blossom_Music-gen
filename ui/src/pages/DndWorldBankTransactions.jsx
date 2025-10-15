@@ -51,7 +51,7 @@ export default function DndWorldBankTransactions() {
     <>
       <BackButton />
       <h1>Dungeons & Dragons · Bank Transactions</h1>
-      <main className="dashboard" style={{ display: 'grid', gap: 'var(--space-lg)' }}>
+      <section className="dashboard" style={{ display: 'grid', gap: 'var(--space-lg)' }}>
         <section className="dnd-surface" aria-labelledby="bank-balance-heading">
           <h2 id="bank-balance-heading">Balances</h2>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -96,7 +96,7 @@ export default function DndWorldBankTransactions() {
           </div>
           <p className="muted" style={{ marginTop: '0.5rem' }}>Balances persist to settings; full ledger coming soon.</p>
         </section>
-      </main>
+      </section>
     </>
   );
 }

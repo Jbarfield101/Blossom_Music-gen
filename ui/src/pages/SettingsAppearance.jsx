@@ -25,7 +25,7 @@ export default function SettingsAppearance() {
   }, []);
 
   return (
-    <main className="settings">
+    <section className="settings">
       <BackButton />
       <h1>Settings · Appearance</h1>
       <section className="settings-section">
@@ -52,7 +52,7 @@ export default function SettingsAppearance() {
           </select>
         </fieldset>
       </section>
-    </main>
+    </section>
   );
 }
 

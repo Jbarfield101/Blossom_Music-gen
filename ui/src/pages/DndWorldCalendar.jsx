@@ -102,7 +102,7 @@ export default function DndWorldCalendar() {
     <>
       <BackButton />
       <h1>Dungeons & Dragons · Campaign Calendar</h1>
-      <main className="dashboard" style={{ padding: '1rem', display: 'grid', gap: 'var(--space-lg)' }}>
+      <section className="dashboard" style={{ padding: '1rem', display: 'grid', gap: 'var(--space-lg)' }}>
         <section className="dnd-surface" aria-labelledby="calendar-current-heading">
           <div className="section-head">
             <div>
@@ -194,7 +194,7 @@ export default function DndWorldCalendar() {
             ))}
           </div>
         </section>
-      </main>
+      </section>
     </>
   );
 }

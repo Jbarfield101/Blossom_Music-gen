@@ -33,7 +33,7 @@ export default function SettingsModels() {
   }, []);
 
   return (
-    <main className="settings">
+    <section className="settings">
       <BackButton />
       <h1>Settings · Models & Voices</h1>
       <section className="settings-section">
@@ -73,6 +73,6 @@ export default function SettingsModels() {
           </select>
         </fieldset>
       </section>
-    </main>
+    </section>
   );
 }

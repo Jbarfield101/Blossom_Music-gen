@@ -26,14 +26,14 @@ export default function MusicGenerator() {
           </button>
         </nav>
       </header>
-      <main>
+      <section>
         <section hidden={activeTab !== 'algorithmic'}>
           <AlgorithmicGenerator />
         </section>
         <section hidden={activeTab !== 'phrase'}>
           <PhraseModel />
         </section>
-      </main>
+      </section>
     </>
   );
 }

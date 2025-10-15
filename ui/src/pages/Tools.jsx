@@ -6,7 +6,7 @@ export default function Tools() {
     <>
       <BackButton />
       <h1>Tools</h1>
-      <main className="dashboard">
+      <section className="dashboard">
         <Card to="/tools/voices" icon="Mic2" title="AI Voice Labs">
           Piper + ElevenLabs
         </Card>
@@ -34,7 +34,7 @@ export default function Tools() {
         <Card to="/train" icon="Sliders" title="Train Model">
           Custom Model Trainer
         </Card>
-      </main>
+      </section>
     </>
   );
 }
