@@ -75,7 +75,7 @@ import DndLoreClasses from './pages/DndLoreClasses.jsx';
 import DndLoreRules from './pages/DndLoreRules.jsx';
 import DndLoreBackgroundRules from './pages/DndLoreBackgroundRules.jsx';
 import { Store } from '@tauri-apps/plugin-store';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { setPiper as apiSetPiper, listPiper as apiListPiper } from './api/models';
 import { synthWithPiper } from './lib/piperSynth';
 import { fileSrc } from './lib/paths.js';
@@ -84,6 +84,96 @@ import { listPiperVoices, resolveVoiceResources } from './lib/piperVoices';
 function UserSelectorOverlay({ onClose }) {
   const [users, setUsers] = useState([]);
   const [name, setName] = useState('');
+  const panelRef = useRef(null);
+  const previousFocusRef = useRef(null);
+  const titleId = useId();
+
+  useEffect(() => {
+    previousFocusRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+
+    const focusFirstElement = () => {
+      const panel = panelRef.current;
+      if (!panel) return;
+      const focusableSelectors = [
+        'button',
+        '[href]',
+        'input',
+        'select',
+        'textarea',
+        '[tabindex]:not([tabindex="-1"])',
+      ].join(',');
+      const focusable = Array.from(panel.querySelectorAll(focusableSelectors)).filter(
+        (el) => el instanceof HTMLElement && !el.hasAttribute('disabled') && el.getAttribute('tabindex') !== '-1'
+      );
+      if (focusable.length && focusable[0] instanceof HTMLElement) {
+        focusable[0].focus();
+      } else {
+        panel.focus();
+      }
+    };
+
+    const frame = requestAnimationFrame(focusFirstElement);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      const previous = previousFocusRef.current;
+      if (previous && typeof previous.focus === 'function') {
+        previous.focus();
+      }
+    };
+  }, []);
+
+  const handleKeyDown = (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      onClose?.();
+      return;
+    }
+
+    if (event.key !== 'Tab') return;
+
+    const panel = panelRef.current;
+    if (!panel) return;
+
+    const focusableSelectors = [
+      'button',
+      '[href]',
+      'input',
+      'select',
+      'textarea',
+      '[tabindex]:not([tabindex="-1"])',
+    ].join(',');
+    const focusable = Array.from(panel.querySelectorAll(focusableSelectors)).filter(
+      (el) =>
+        el instanceof HTMLElement &&
+        !el.hasAttribute('disabled') &&
+        el.getAttribute('tabindex') !== '-1' &&
+        el.offsetParent !== null
+    );
+
+    if (!focusable.length) {
+      event.preventDefault();
+      panel.focus();
+      return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+
+    if (event.shiftKey) {
+      if (active === first || !panel.contains(active)) {
+        event.preventDefault();
+        last.focus();
+      }
+    } else if (active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   useEffect(() => {
     (async () => {
@@ -134,7 +224,7 @@ function UserSelectorOverlay({ onClose }) {
       if (!prefs[trimmed]) {
         prefs[trimmed] = {
           audioGreeting: true,
-          greetingText: 'Wellcome {name}, What shall we work on today?',
+          greetingText: 'Welcome {name}, what shall we work on today?',
           voice: defaultVoice,
         };
       }
@@ -152,8 +242,16 @@ function UserSelectorOverlay({ onClose }) {
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
       display: 'grid', placeItems: 'center', zIndex: 9999
     }}>
-      <div style={{ background: 'var(--card-bg)', color: 'var(--text)', padding: '1rem', borderRadius: 8, minWidth: 360 }}>
-        <h2>Select User</h2>
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        onKeyDown={handleKeyDown}
+        style={{ background: 'var(--card-bg)', color: 'var(--text)', padding: '1rem', borderRadius: 8, minWidth: 360 }}
+      >
+        <h2 id={titleId}>Select User</h2>
         {users.length > 0 ? (
           <div style={{ display: 'grid', gap: '0.5rem', marginBottom: '0.75rem' }}>
             {users.map((u) => (
@@ -226,7 +324,7 @@ export default function App() {
         if (audioGreeting) {
           const tpl = typeof p.greetingText === 'string' && p.greetingText.trim()
             ? p.greetingText.trim()
-            : `Wellcome {name}, What shall we work on today?`;
+            : `Welcome {name}, what shall we work on today?`;
           const message = tpl.replaceAll('{name}', user);
           try {
             // Resolve a concrete model/config for the selected voice
