@@ -202,6 +202,13 @@ export default function StableDiffusion() {
     }
   }, [isTauriEnv]);
 
+  const clearJobPolling = useCallback(() => {
+    if (pollIntervalRef.current) {
+      clearTimeout(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+  }, []);
+
   useEffect(() => {
     if (!isTauriEnv) return undefined;
     let cancelled = false;
@@ -300,13 +307,6 @@ export default function StableDiffusion() {
     setSeconds(String(template.seconds ?? Number(DEFAULT_SECONDS)));
     setTemplateName(template.name);
   }, [templates]);
-
-  const clearJobPolling = useCallback(() => {
-    if (pollIntervalRef.current) {
-      clearTimeout(pollIntervalRef.current);
-      pollIntervalRef.current = null;
-    }
-  }, []);
 
   const pollJobStatus = useCallback(async (id) => {
     if (!id || jobIdRef.current !== id) return;
