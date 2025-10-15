@@ -119,9 +119,12 @@ export default function FeatureWheel({ items, initialIndex = 0, radius = 80, spa
             }}
             onClick={() => navigate(item.to)}
           >
+            <span className="sr-only">{item.title}</span>
             <Icon name={item.icon} size={48} className="feature-wheel-icon" />
             {selected && (
-              <span className="feature-wheel-label">{item.title}</span>
+              <span className="feature-wheel-label" aria-hidden="true">
+                {item.title}
+              </span>
             )}
           </button>
         );
