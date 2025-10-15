@@ -7442,6 +7442,11 @@ fn stable_audio_output_files(
 }
 
 #[tauri::command]
+fn ace_output_files(app: AppHandle, limit: Option<usize>) -> Result<Vec<AudioOutputEntry>, String> {
+    stable_audio_output_files(app, limit)
+}
+
+#[tauri::command]
 fn register_job_artifacts(
     registry: State<JobRegistry>,
     job_id: u64,
@@ -7820,6 +7825,346 @@ async fn run_stable_audio_job(
 
     if final_message.is_empty() {
         final_message = "Stable Diffusion job failed.".into();
+    }
+
+    {
+        let registry = app_handle.state::<JobRegistry>();
+        registry.append_job_stderr(job_id, &final_message);
+        registry.update_job_progress(
+            &app_handle,
+            job_id,
+            JobProgressSnapshot {
+                stage: Some("error".into()),
+                percent: Some(100),
+                message: Some(final_message.clone()),
+                eta: None,
+                step: None,
+                total: None,
+                queue_position: None,
+                queue_eta_seconds: None,
+            },
+        );
+    }
+
+    let registry = app_handle.state::<JobRegistry>();
+    registry.complete_job(&app_handle, job_id, false, Some(1), false);
+}
+
+fn ace_job_label(prompt: &str) -> String {
+    let snippet = preview_text(prompt, 42);
+    if snippet.is_empty() {
+        "ACE Step Render".to_string()
+    } else {
+        format!("ACE Step · {}", snippet)
+    }
+}
+
+#[tauri::command]
+fn queue_ace_audio_job(app: AppHandle, registry: State<JobRegistry>) -> Result<u64, String> {
+    let prompts = commands::get_ace_workflow_prompts()?;
+    let label = ace_job_label(&prompts.style_prompt);
+
+    let mut args = Vec::new();
+    args.push(format!("bpm={:.3}", prompts.bpm));
+    args.push(format!("guidance={:.3}", prompts.guidance));
+
+    let context = JobContext {
+        kind: Some("ace_audio_render".into()),
+        label: Some(label),
+        source: Some("ACE Step".into()),
+        artifact_candidates: Vec::new(),
+    };
+
+    let job_id = registry.next_id();
+    let job = JobInfo::new_pending(args, &context);
+    let initial_snapshot = JobProgressSnapshot {
+        stage: Some("preparing".into()),
+        percent: Some(0),
+        message: Some("Preparing ACE Step workflow.".into()),
+        eta: None,
+        step: None,
+        total: None,
+        queue_position: None,
+        queue_eta_seconds: None,
+    };
+    registry.register_running_job(&app, job_id, job, initial_snapshot);
+
+    let style_preview = preview_text(&prompts.style_prompt, 160);
+    if !style_preview.is_empty() {
+        registry.append_job_stdout(job_id, &format!("Style prompt: {}", style_preview));
+    }
+    if !prompts.song_form.trim().is_empty() {
+        registry.append_job_stdout(job_id, "Song form blueprint:");
+        for line in prompts.song_form.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            registry.append_job_stdout(job_id, &format!("  {}", trimmed));
+        }
+    }
+    registry.append_job_stdout(job_id, &format!("Tempo: {:.2} BPM", prompts.bpm));
+    registry.append_job_stdout(job_id, &format!("Guidance: {:.3}", prompts.guidance));
+    registry.append_job_stdout(job_id, "Submitting ACE Step workflow to ComfyUI...");
+
+    let app_handle = app.clone();
+    let style_prompt = prompts.style_prompt;
+    let song_form = prompts.song_form;
+    let bpm = prompts.bpm;
+    let guidance = prompts.guidance;
+
+    async_runtime::spawn(async move {
+        run_ace_audio_job(app_handle, job_id, style_prompt, song_form, bpm, guidance).await;
+    });
+
+    Ok(job_id)
+}
+
+async fn run_ace_audio_job(
+    app_handle: AppHandle,
+    job_id: u64,
+    style_prompt: String,
+    song_form: String,
+    bpm: f64,
+    guidance: f64,
+) {
+    let comfy_settings = commands::get_comfyui_settings(app_handle.clone()).ok();
+    let mut final_success = false;
+    let mut final_message = String::new();
+
+    match commands::comfyui_submit_ace_audio(app_handle.clone()).await {
+        Ok(response) => {
+            {
+                let registry = app_handle.state::<JobRegistry>();
+                registry.append_job_stdout(
+                    job_id,
+                    &format!("ComfyUI prompt id: {}", response.prompt_id),
+                );
+                registry.update_job_progress(
+                    &app_handle,
+                    job_id,
+                    JobProgressSnapshot {
+                        stage: Some("queued".into()),
+                        percent: Some(5),
+                        message: Some("ComfyUI job queued.".into()),
+                        eta: None,
+                        step: None,
+                        total: None,
+                        queue_position: None,
+                        queue_eta_seconds: None,
+                    },
+                );
+            }
+
+            let prompt_id = response.prompt_id.clone();
+            let mut consecutive_errors = 0usize;
+            loop {
+                if app_handle.state::<JobRegistry>().is_job_done(job_id) {
+                    return;
+                }
+
+                match commands::comfyui_job_status(app_handle.clone(), prompt_id.clone()).await {
+                    Ok(status) => {
+                        consecutive_errors = 0;
+                        let status_lower = status.status.to_ascii_lowercase();
+                        match status_lower.as_str() {
+                            "queued" => {
+                                let message = if status.pending > 0 {
+                                    format!("ComfyUI queue · {} pending", status.pending)
+                                } else {
+                                    "ComfyUI queue".to_string()
+                                };
+                                let registry = app_handle.state::<JobRegistry>();
+                                registry.update_job_progress(
+                                    &app_handle,
+                                    job_id,
+                                    JobProgressSnapshot {
+                                        stage: Some("queued".into()),
+                                        percent: Some(10),
+                                        message: Some(message),
+                                        eta: None,
+                                        step: None,
+                                        total: None,
+                                        queue_position: None,
+                                        queue_eta_seconds: None,
+                                    },
+                                );
+                            }
+                            "running" => {
+                                let message = if status.pending > 0 {
+                                    format!(
+                                        "ComfyUI rendering · {} pending, {} active",
+                                        status.pending, status.running
+                                    )
+                                } else {
+                                    "ComfyUI rendering".to_string()
+                                };
+                                let registry = app_handle.state::<JobRegistry>();
+                                registry.update_job_progress(
+                                    &app_handle,
+                                    job_id,
+                                    JobProgressSnapshot {
+                                        stage: Some("running".into()),
+                                        percent: Some(55),
+                                        message: Some(message),
+                                        eta: None,
+                                        step: None,
+                                        total: None,
+                                        queue_position: None,
+                                        queue_eta_seconds: None,
+                                    },
+                                );
+                            }
+                            "completed" => {
+                                let message = status
+                                    .message
+                                    .clone()
+                                    .unwrap_or_else(|| "ComfyUI render complete.".to_string());
+                                let artifacts: Vec<JobArtifact> = status
+                                    .outputs
+                                    .iter()
+                                    .filter_map(|output| {
+                                        resolve_comfy_audio_path(
+                                            comfy_settings.as_ref(),
+                                            output.local_path.as_deref(),
+                                            &output.filename,
+                                        )
+                                        .map(|path| {
+                                            JobArtifact {
+                                                name: output.filename.clone(),
+                                                path: path.to_string_lossy().to_string(),
+                                            }
+                                        })
+                                    })
+                                    .collect();
+
+                                if !artifacts.is_empty() {
+                                    if let Err(err) = register_job_artifacts(
+                                        app_handle.state::<JobRegistry>(),
+                                        job_id,
+                                        artifacts.clone(),
+                                    ) {
+                                        let registry = app_handle.state::<JobRegistry>();
+                                        registry.append_job_stderr(
+                                            job_id,
+                                            &format!(
+                                                "Failed to register ComfyUI artifacts: {}",
+                                                err
+                                            ),
+                                        );
+                                    }
+                                }
+
+                                {
+                                    let registry = app_handle.state::<JobRegistry>();
+                                    if !artifacts.is_empty() {
+                                        for artifact in &artifacts {
+                                            registry.append_job_stdout(
+                                                job_id,
+                                                &format!("Artifact saved: {}", artifact.path),
+                                            );
+                                        }
+                                    }
+                                    let summary = json!({
+                                        "stylePrompt": style_prompt,
+                                        "songForm": song_form,
+                                        "bpm": bpm,
+                                        "guidance": guidance,
+                                        "outputs": artifacts.iter().map(|a| a.path.clone()).collect::<Vec<_>>(),
+                                    });
+                                    registry.append_job_stdout(
+                                        job_id,
+                                        &format!("SUMMARY: {}", summary.to_string()),
+                                    );
+                                    registry.update_job_progress(
+                                        &app_handle,
+                                        job_id,
+                                        JobProgressSnapshot {
+                                            stage: Some("completed".into()),
+                                            percent: Some(100),
+                                            message: Some(message.clone()),
+                                            eta: None,
+                                            step: None,
+                                            total: None,
+                                            queue_position: None,
+                                            queue_eta_seconds: None,
+                                        },
+                                    );
+                                }
+
+                                final_success = true;
+                                final_message = message;
+                                break;
+                            }
+                            "error" => {
+                                final_message = status
+                                    .message
+                                    .unwrap_or_else(|| "ComfyUI reported an error.".to_string());
+                                break;
+                            }
+                            "offline" => {
+                                final_message = status
+                                    .message
+                                    .unwrap_or_else(|| "ComfyUI appears offline.".to_string());
+                                break;
+                            }
+                            other => {
+                                let registry = app_handle.state::<JobRegistry>();
+                                registry.update_job_progress(
+                                    &app_handle,
+                                    job_id,
+                                    JobProgressSnapshot {
+                                        stage: Some(other.to_string()),
+                                        percent: Some(35),
+                                        message: status.message.clone(),
+                                        eta: None,
+                                        step: None,
+                                        total: None,
+                                        queue_position: None,
+                                        queue_eta_seconds: None,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        consecutive_errors += 1;
+                        let message = format!("Failed to poll ComfyUI status: {}", err);
+                        {
+                            let registry = app_handle.state::<JobRegistry>();
+                            registry.append_job_stderr(job_id, &message);
+                        }
+                        if consecutive_errors >= 3 {
+                            final_message = message;
+                            break;
+                        }
+                    }
+                }
+
+                sleep(Duration::from_millis(1500)).await;
+            }
+        }
+        Err(err) => {
+            final_message = format!("Failed to submit workflow to ComfyUI: {}", err);
+        }
+    }
+
+    if app_handle.state::<JobRegistry>().is_job_done(job_id) {
+        return;
+    }
+
+    if final_success {
+        let registry = app_handle.state::<JobRegistry>();
+        if final_message.is_empty() {
+            final_message = "ACE Step render complete.".into();
+        }
+        registry.append_job_stdout(job_id, &final_message);
+        registry.complete_job(&app_handle, job_id, true, Some(0), false);
+        return;
+    }
+
+    if final_message.is_empty() {
+        final_message = "ACE Step job failed.".into();
     }
 
     {
@@ -8460,15 +8805,20 @@ fn main() {
             commands::read_file_bytes,
             commands::get_stable_audio_prompts,
             commands::update_stable_audio_prompts,
+            commands::get_ace_workflow_prompts,
+            commands::update_ace_workflow_prompts,
             commands::get_stable_audio_templates,
             commands::save_stable_audio_template,
             commands::get_comfyui_settings,
             commands::update_comfyui_settings,
             commands::comfyui_status,
             commands::comfyui_submit_stable_audio,
+            commands::comfyui_submit_ace_audio,
             commands::comfyui_job_status,
             queue_stable_audio_job,
+            queue_ace_audio_job,
             stable_audio_output_files,
+            ace_output_files,
             discord_listen_logs_tail,
             album_concat,
             list_llm,

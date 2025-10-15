@@ -20,6 +20,9 @@ use uuid::Uuid;
 
 const DEFAULT_FILE_PREFIX: &str = "audio/ComfyUI";
 const DEFAULT_SECONDS: f64 = 120.0;
+const ACE_DEFAULT_GUIDANCE: f64 = 0.99;
+const ACE_DEFAULT_BPM: f64 = 120.0;
+const ACE_WORKFLOW_FILENAME: &str = "audio_ace_step_1_t2a_instrumentals.json";
 const TEMPLATES_KEY: &str = "stableAudioTemplates";
 const COMFY_SETTINGS_KEY: &str = "comfyuiSettings";
 const DEFAULT_BASE_URL: &str = "http://127.0.0.1:8188";
@@ -93,6 +96,26 @@ pub struct StableAudioPromptUpdate {
     pub file_name_prefix: Option<String>,
     #[serde(default)]
     pub seconds: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AceWorkflowPrompts {
+    pub style_prompt: String,
+    pub song_form: String,
+    pub bpm: f64,
+    pub guidance: f64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AceWorkflowPromptUpdate {
+    pub style_prompt: String,
+    pub song_form: String,
+    #[serde(default)]
+    pub bpm: Option<f64>,
+    #[serde(default)]
+    pub guidance: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -524,7 +547,7 @@ fn convert_node_to_prompt(
     Ok(Some((node_id.to_string(), Value::Object(prompt_node))))
 }
 
-fn convert_stable_audio_workflow_to_prompt(workflow: &Value) -> Result<Map<String, Value>, String> {
+fn convert_workflow_to_prompt(workflow: &Value) -> Result<Map<String, Value>, String> {
     let nodes = workflow
         .get("nodes")
         .and_then(Value::as_array)
@@ -759,6 +782,170 @@ fn persist_stable_audio_workflow(data: &Value) -> Result<(), String> {
     fs::write(&path, payload).map_err(|e| format!("Failed to write workflow file: {}", e))
 }
 
+fn ace_workflow_path() -> PathBuf {
+    project_root()
+        .join("assets")
+        .join("workflows")
+        .join(ACE_WORKFLOW_FILENAME)
+}
+
+fn load_ace_workflow() -> Result<Value, String> {
+    let path = ace_workflow_path();
+    let raw = fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read {}: {}", ACE_WORKFLOW_FILENAME, e))?;
+    serde_json::from_str(&raw)
+        .map_err(|e| format!("Failed to parse {}: {}", ACE_WORKFLOW_FILENAME, e))
+}
+
+fn persist_ace_workflow(data: &Value) -> Result<(), String> {
+    let path = ace_workflow_path();
+    let payload = serde_json::to_string_pretty(data)
+        .map_err(|e| format!("Failed to serialize ACE workflow: {}", e))?;
+    fs::write(&path, payload).map_err(|e| format!("Failed to write ACE workflow: {}", e))
+}
+
+fn locate_ace_text_node<'a>(data: &'a Value) -> Result<&'a Value, String> {
+    data.get("nodes")
+        .and_then(Value::as_array)
+        .and_then(|nodes| {
+            nodes.iter().find(|node| {
+                node.get("type")
+                    .and_then(Value::as_str)
+                    .map(|value| value == "TextEncodeAceStepAudio")
+                    .unwrap_or(false)
+            })
+        })
+        .ok_or_else(|| "TextEncodeAceStepAudio node not found in workflow".to_string())
+}
+
+fn locate_ace_text_node_mut<'a>(data: &'a mut Value) -> Result<&'a mut Value, String> {
+    data.get_mut("nodes")
+        .and_then(Value::as_array_mut)
+        .and_then(|nodes| {
+            nodes.iter_mut().find(|node| {
+                node.get("type")
+                    .and_then(Value::as_str)
+                    .map(|value| value == "TextEncodeAceStepAudio")
+                    .unwrap_or(false)
+            })
+        })
+        .ok_or_else(|| "TextEncodeAceStepAudio node not found in workflow".to_string())
+}
+
+fn locate_ace_latent_node_mut<'a>(data: &'a mut Value) -> Result<&'a mut Value, String> {
+    data.get_mut("nodes")
+        .and_then(Value::as_array_mut)
+        .and_then(|nodes| {
+            nodes.iter_mut().find(|node| {
+                node.get("type")
+                    .and_then(Value::as_str)
+                    .map(|value| value == "EmptyAceStepLatentAudio")
+                    .unwrap_or(false)
+            })
+        })
+        .ok_or_else(|| "EmptyAceStepLatentAudio node not found in workflow".to_string())
+}
+
+fn extract_ace_prompts(data: &Value) -> Result<AceWorkflowPrompts, String> {
+    let text_node = locate_ace_text_node(data)?;
+    let style_prompt = text_node
+        .get("widgets_values")
+        .and_then(Value::as_array)
+        .and_then(|arr| arr.get(0))
+        .and_then(Value::as_str)
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+    let song_form = text_node
+        .get("widgets_values")
+        .and_then(Value::as_array)
+        .and_then(|arr| arr.get(1))
+        .and_then(Value::as_str)
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+    let guidance = text_node
+        .get("widgets_values")
+        .and_then(Value::as_array)
+        .and_then(|arr| arr.get(2))
+        .and_then(Value::as_f64)
+        .unwrap_or(ACE_DEFAULT_GUIDANCE);
+
+    let bpm = data
+        .get("nodes")
+        .and_then(Value::as_array)
+        .and_then(|nodes| {
+            nodes.iter().find_map(|node| {
+                if node
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .map(|value| value == "EmptyAceStepLatentAudio")
+                    .unwrap_or(false)
+                {
+                    node.get("widgets_values")
+                        .and_then(Value::as_array)
+                        .and_then(|arr| arr.get(0))
+                        .and_then(Value::as_f64)
+                } else {
+                    None
+                }
+            })
+        })
+        .unwrap_or(ACE_DEFAULT_BPM);
+
+    Ok(AceWorkflowPrompts {
+        style_prompt,
+        song_form,
+        bpm,
+        guidance,
+    })
+}
+
+fn set_ace_text_fields(
+    data: &mut Value,
+    style_prompt: &str,
+    song_form: &str,
+    guidance: f64,
+) -> Result<(), String> {
+    let node = locate_ace_text_node_mut(data)?;
+    let obj = node
+        .as_object_mut()
+        .ok_or_else(|| "Text node is not an object".to_string())?;
+    let mut arr = match obj.get_mut("widgets_values") {
+        Some(Value::Array(values)) => values.clone(),
+        _ => Vec::new(),
+    };
+    if arr.len() < 3 {
+        arr.resize(3, Value::Null);
+    }
+    arr[0] = Value::String(style_prompt.to_string());
+    arr[1] = Value::String(song_form.to_string());
+    let guidance_value = Number::from_f64(guidance)
+        .or_else(|| Number::from_f64(ACE_DEFAULT_GUIDANCE))
+        .ok_or_else(|| "Failed to encode guidance value".to_string())?;
+    arr[2] = Value::Number(guidance_value);
+    obj.insert("widgets_values".to_string(), Value::Array(arr));
+    Ok(())
+}
+
+fn set_ace_bpm(data: &mut Value, bpm: f64) -> Result<(), String> {
+    let node = locate_ace_latent_node_mut(data)?;
+    let obj = node
+        .as_object_mut()
+        .ok_or_else(|| "Latent node is not an object".to_string())?;
+    let mut arr = match obj.get_mut("widgets_values") {
+        Some(Value::Array(values)) => values.clone(),
+        _ => Vec::new(),
+    };
+    if arr.is_empty() {
+        arr.push(Value::Null);
+    }
+    let bpm_value = Number::from_f64(bpm)
+        .or_else(|| Number::from_f64(ACE_DEFAULT_BPM))
+        .ok_or_else(|| "Failed to encode BPM value".to_string())?;
+    arr[0] = Value::Number(bpm_value);
+    obj.insert("widgets_values".to_string(), Value::Array(arr));
+    Ok(())
+}
+
 fn extract_latent_seconds(data: &Value, node_id: i64) -> f64 {
     data.get("nodes")
         .and_then(Value::as_array)
@@ -862,6 +1049,65 @@ pub fn update_stable_audio_prompts(
         negative_prompt: negative,
         file_name_prefix: prefix,
         seconds,
+    })
+}
+
+#[tauri::command]
+pub fn get_ace_workflow_prompts() -> Result<AceWorkflowPrompts, String> {
+    let data = load_ace_workflow()?;
+    extract_ace_prompts(&data)
+}
+
+#[tauri::command]
+pub fn update_ace_workflow_prompts(
+    update: AceWorkflowPromptUpdate,
+) -> Result<AceWorkflowPrompts, String> {
+    let mut data = load_ace_workflow()?;
+
+    let style_prompt = update.style_prompt.trim();
+    if style_prompt.is_empty() {
+        return Err("Style prompt cannot be empty.".into());
+    }
+
+    let cleaned_form = update
+        .song_form
+        .replace("\r\n", "\n")
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    if cleaned_form.trim().is_empty() {
+        return Err("Song form cannot be empty.".into());
+    }
+
+    let mut bpm = update.bpm.unwrap_or(ACE_DEFAULT_BPM);
+    if !bpm.is_finite() || bpm <= 0.0 {
+        bpm = ACE_DEFAULT_BPM;
+    } else if bpm > 400.0 {
+        bpm = 400.0;
+    }
+
+    let mut guidance = update.guidance.unwrap_or(ACE_DEFAULT_GUIDANCE);
+    if !guidance.is_finite() {
+        guidance = ACE_DEFAULT_GUIDANCE;
+    }
+    if guidance < 0.05 {
+        guidance = 0.05;
+    } else if guidance > 2.0 {
+        guidance = 2.0;
+    }
+
+    set_ace_text_fields(&mut data, style_prompt, &cleaned_form, guidance)?;
+    set_ace_bpm(&mut data, bpm)?;
+    persist_ace_workflow(&data)?;
+
+    Ok(AceWorkflowPrompts {
+        style_prompt: style_prompt.to_string(),
+        song_form: cleaned_form,
+        bpm,
+        guidance,
     })
 }
 
@@ -1061,7 +1307,40 @@ pub async fn comfyui_submit_stable_audio(app: AppHandle) -> Result<ComfyUISubmit
     }
 
     let workflow = load_stable_audio_workflow()?;
-    let prompt_map = convert_stable_audio_workflow_to_prompt(&workflow)?;
+    let prompt_map = convert_workflow_to_prompt(&workflow)?;
+    let prompt_value = Value::Object(prompt_map);
+    let client_id = format!("{}-{}", CLIENT_NAMESPACE, Uuid::new_v4());
+    let base_url = settings.base_url();
+    let url = format!("{}{}", base_url, PROMPT_ENDPOINT);
+    let response = post_json(
+        url,
+        json!({
+            "prompt": prompt_value,
+            "client_id": client_id,
+        }),
+    )
+    .await?;
+    let prompt_id = response
+        .get("prompt_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "ComfyUI submission did not return a prompt_id.".to_string())?;
+
+    Ok(ComfyUISubmitResponse {
+        prompt_id: prompt_id.to_string(),
+        client_id,
+    })
+}
+
+#[tauri::command]
+pub async fn comfyui_submit_ace_audio(app: AppHandle) -> Result<ComfyUISubmitResponse, String> {
+    let store = settings_store(&app)?;
+    let mut settings = load_comfyui_settings_from_store(store.as_ref());
+    if ensure_settings_defaults(&mut settings) {
+        persist_comfyui_settings(store.as_ref(), &settings)?;
+    }
+
+    let workflow = load_ace_workflow()?;
+    let prompt_map = convert_workflow_to_prompt(&workflow)?;
     let prompt_value = Value::Object(prompt_map);
     let client_id = format!("{}-{}", CLIENT_NAMESPACE, Uuid::new_v4());
     let base_url = settings.base_url();

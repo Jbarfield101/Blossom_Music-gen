@@ -40,6 +40,7 @@ import MusicGen from './pages/MusicGen.jsx';
 import Riffusion from './pages/Riffusion.jsx';
 import AlgorithmicGenerator from './pages/Generate.jsx';
 import StableDiffusion from './pages/StableDiffusion.jsx';
+import Ace from './pages/Ace.jsx';
 import DndWorldPantheon from './pages/DndWorldPantheon.jsx';
 import DndWorldRegions from './pages/DndWorldRegions.jsx';
 import DndWorldFactions from './pages/DndWorldFactions.jsx';
@@ -333,6 +334,7 @@ export default function App() {
             <Route path="/profiles" element={<Profiles />} />
             <Route path="/train" element={<Train />} />
             <Route path="/tools" element={<Tools />} />
+            <Route path="/ace" element={<Ace />} />
             <Route path="/calendar" element={<Calendar />} />
             <Route path="/chat" element={<GeneralChat />} />
             <Route path="/queue" element={<Queue />} />
