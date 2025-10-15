@@ -13,7 +13,7 @@ export default function SoundLab() {
     <>
       <BackButton />
       <h1>Sound Lab</h1>
-      <main className="dashboard">
+      <section className="dashboard">
         <Card
           to="/musicgen/musicgen"
           icon="AudioWaveform"
@@ -42,7 +42,7 @@ export default function SoundLab() {
         >
           Explore algorithmic arranging and rendering tools.
         </Card>
-      </main>
+      </section>
     </>
   );
 }

@@ -214,7 +214,7 @@ export default function DndTasks() {
     <>
       <BackButton />
       <h1>Dungeons &amp; Dragons · Tasks</h1>
-      <main className="dashboard dnd-card-grid">
+      <section className="dashboard dnd-card-grid">
         <Card icon="Tags" title="Update Tags" onClick={() => setModalOpen(true)}>
           Refresh YAML tags across campaign notes using the shared taxonomies.
         </Card>
@@ -324,7 +324,7 @@ export default function DndTasks() {
         }}>
           Find NPCs and Gods missing portrait images; attach images and get auto-generated prompts.
         </Card>
-      </main>
+      </section>
 
       {modalOpen && (
         <div className="dnd-modal-backdrop" role="presentation" onClick={handleBackdropClick}>

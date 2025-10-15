@@ -6,7 +6,7 @@ export default function DndLoreStories() {
     <>
       <BackButton />
       <h1>Dungeons & Dragons · Stories & Legends</h1>
-      <main className="dashboard" style={{ padding: '1rem' }}>
+      <section className="dashboard" style={{ padding: '1rem' }}>
         <div
           style={{
             background: 'var(--card-bg)',
@@ -18,7 +18,7 @@ export default function DndLoreStories() {
         >
           Under construction
         </div>
-      </main>
+      </section>
     </>
   );
 }

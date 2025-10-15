@@ -694,7 +694,7 @@ export default function Calendar() {
     <>
       <BackButton />
       <h1>Calendar</h1>
-      <main className="calendar-page">
+      <section className="calendar-page">
         <section className="calendar-main">
           <header className="calendar-toolbar">
             <div className="calendar-nav">
@@ -850,7 +850,7 @@ export default function Calendar() {
             ))}
           </div>
         </section>
-      </main>
+      </section>
       {isDayViewOpen && (
         <div
           className="calendar-day-view-overlay"

@@ -961,7 +961,7 @@ export default function MusicGen() {
   return (
     <>
       <BackButton />
-      <main className="sound-lab-page">
+      <section className="sound-lab-page">
         <h1 className="mb-md">Sound Lab</h1>
         <JobQueuePanel queue={queue} onCancel={cancelFromQueue} activeId={jobId || undefined} />
         <form
@@ -1348,7 +1348,7 @@ export default function MusicGen() {
             <strong>Something went wrong:</strong> {error}
           </div>
         )}
-      </main>
+      </section>
     </>
   );
 }

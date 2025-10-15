@@ -22,13 +22,13 @@ export default function DndWorldBank() {
     <>
       <BackButton />
       <h1>Dungeons & Dragons · Bank</h1>
-      <main className="dashboard dnd-card-grid">
+      <section className="dashboard dnd-card-grid">
         {bankSections.map(({ to, icon, title, description }) => (
           <Card key={to} to={to} icon={icon} title={title}>
             {description}
           </Card>
         ))}
-      </main>
+      </section>
     </>
   );
 }

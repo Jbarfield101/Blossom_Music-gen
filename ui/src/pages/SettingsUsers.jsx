@@ -85,7 +85,7 @@ export default function SettingsUsers() {
   };
 
   return (
-    <main className="settings">
+    <section className="settings">
       <BackButton />
       <h1>Settings · Users</h1>
       <section className="settings-section">
@@ -222,6 +222,6 @@ export default function SettingsUsers() {
           </fieldset>
         </section>
       )}
-    </main>
+    </section>
   );
 }

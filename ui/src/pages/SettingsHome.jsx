@@ -17,13 +17,13 @@ export default function SettingsHome() {
       <BackButton />
       <h1>Settings</h1>
       <SettingsAbout className="settings-home-about" legend="About Blossom" />
-      <main className="dashboard dnd-card-grid">
+      <section className="dashboard dnd-card-grid">
         {sections.map(({ to, icon, title, description }) => (
           <Card key={title + to} to={to} icon={icon} title={title}>
             {description}
           </Card>
         ))}
-      </main>
+      </section>
     </>
   );
 }

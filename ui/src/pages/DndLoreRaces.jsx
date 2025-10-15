@@ -115,7 +115,7 @@ export default function DndLoreRaces() {
     <>
       <BackButton />
       <h1>Dungeons & Dragons · Races</h1>
-      <main className="dashboard" style={{ display: 'grid', gap: 'var(--space-md)' }}>
+      <section className="dashboard" style={{ display: 'grid', gap: 'var(--space-md)' }}>
         <section className="dnd-surface">
           <div className="section-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
@@ -150,7 +150,7 @@ export default function DndLoreRaces() {
             </div>
           )}
         </section>
-      </main>
+      </section>
 
       {showCreate && (
         <div className="lightbox" onClick={() => { if (!creating) setShowCreate(false); }}>

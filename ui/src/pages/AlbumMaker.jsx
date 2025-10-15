@@ -89,7 +89,7 @@ export default function AlbumMaker() {
     <>
       <BackButton />
       <h1>Album Maker</h1>
-      <main className="panel" style={{ display: 'grid', gap: '1rem' }}>
+      <section className="panel" style={{ display: 'grid', gap: '1rem' }}>
         <section>
           <h2>Tracks</h2>
           <div style={{ display: 'flex', gap: '.5rem', marginBottom: '.5rem' }}>
@@ -145,7 +145,7 @@ export default function AlbumMaker() {
             )}
           </div>
         </section>
-      </main>
+      </section>
     </>
   );
 }

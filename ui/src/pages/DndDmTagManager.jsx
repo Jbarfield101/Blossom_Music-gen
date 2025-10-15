@@ -6,7 +6,7 @@ export default function DndDmTagManager() {
   return (
     <>
       <BackButton />
-      <main className="dnd-tag-manager">
+      <section className="dnd-tag-manager">
         <h1>Dungeons & Dragons · Tag Manager</h1>
         <p className="dnd-tag-manager-intro">
           Use this baseline tag set to organize notes, quests, and lore across your campaign.
@@ -20,7 +20,7 @@ export default function DndDmTagManager() {
             </span>
           ))}
         </div>
-      </main>
+      </section>
     </>
   );
 }

@@ -809,7 +809,7 @@ export function WorldInventoryView() {
   };
 
   return (
-    <main className="world-inventory-layout">
+    <section className="world-inventory-layout">
       <section className="wi-panel">
         <div className="wi-panel-header">
           <h2>Items</h2>
@@ -860,7 +860,7 @@ export function WorldInventoryView() {
         <InventoryEntitySection title="Owners" collection={owners} />
         <InventoryEntitySection title="Locations" collection={locations} />
       </aside>
-    </main>
+    </section>
   );
 }
 

@@ -7,7 +7,7 @@ export default function DndVoiceLabs() {
     <>
       <BackButton />
       <h1>AI Voice Labs</h1>
-      <main className="dashboard dnd-card-grid">
+      <section className="dashboard dnd-card-grid">
         <Card to="/tools/voices/piper" icon="Mic2" title="Piper">
           Discover voices and synthesize dialogue offline with Piper.
         </Card>
@@ -17,7 +17,7 @@ export default function DndVoiceLabs() {
         <Card to="/tools/voices/manage" icon="Wrench" title="Manage Voices">
           Eleven Labs only
         </Card>
-      </main>
+      </section>
     </>
   );
 }

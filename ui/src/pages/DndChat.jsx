@@ -65,7 +65,7 @@ export default function DndChat() {
     <>
       <BackButton />
       <h1>Dungeons &amp; Dragons &middot; Chat</h1>
-      <main className="dashboard" style={{ padding: '1rem' }}>
+      <section className="dashboard" style={{ padding: '1rem' }}>
         <section className="dnd-chat-panel">
           <p className="muted" style={{ margin: 0 }}>
             {INTRO_MESSAGE} Non-campaign topics will be politely declined.
@@ -108,7 +108,7 @@ export default function DndChat() {
             </div>
           </form>
         </section>
-      </main>
+      </section>
     </>
   );
 }

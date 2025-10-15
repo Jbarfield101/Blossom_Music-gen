@@ -35,7 +35,7 @@ export default function DndDmPlayersHome() {
     <>
       <BackButton />
       <h1>Dungeons & Dragons · Players</h1>
-      <main className="dashboard dnd-card-grid">
+      <section className="dashboard dnd-card-grid">
         <Card to="/dnd/dungeon-master/players/auto" icon="Bot" title="Create with Blossom">
           Auto-generate a character from name, race, and level.
         </Card>
@@ -62,7 +62,7 @@ export default function DndDmPlayersHome() {
         <Card to="#" icon="Info" title="Tips for Players">
           Use the guided creator to fill Identity → Abilities → Story. You can edit everything later in the full sheet.
         </Card>
-      </main>
+      </section>
       <section className="dnd-surface" style={{ marginTop: 'var(--space-lg)' }}>
         <h2>What’s Different?</h2>
         <p className="muted">
