@@ -40,6 +40,10 @@ falling back to `localStorage` when the plugin is not available.
     npm run tauri build
     ```
 
+If the build reports missing `commands::*` types or `__cmd__*` bindings, follow the
+[Tauri build troubleshooting guide](docs/tauri_troubleshooting.md) to refresh the
+repository state and clean cached artifacts before rebuilding.
+
 ## MusicGen smoke test
 
 Generate a short clip with Meta's pretrained MusicGen model. The `--prompt`
