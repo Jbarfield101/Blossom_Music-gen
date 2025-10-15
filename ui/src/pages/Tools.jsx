@@ -13,6 +13,9 @@ export default function Tools() {
         <Card to="/fusion" icon="Atom" title="Fusion">
           Concept Combiner
         </Card>
+        <Card to="/ace" icon="Sparkles" title="ACE">
+          ACE-Step Instrumental Studio
+        </Card>
         <Card to="/queue" icon="ListTodo" title="Job Queue">
           Queued + Running Jobs
         </Card>
