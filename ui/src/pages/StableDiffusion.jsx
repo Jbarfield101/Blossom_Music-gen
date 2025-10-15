@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { isTauri, invoke } from '@tauri-apps/api/core';
-import { open as openDialog } from '@tauri-apps/plugin-dialog';
 import { useLocation } from 'react-router-dom';
 import BackButton from '../components/BackButton.jsx';
 import PrimaryButton from '../components/PrimaryButton.jsx';
+import JobQueuePanel from '../components/JobQueuePanel.jsx';
 import { fileSrc } from '../lib/paths.js';
+import { useJobQueue } from '../lib/useJobQueue.js';
 
 const WORKFLOW_PATH = 'assets/workflows/stable_audio.json';
 const STATUS_POLL_INTERVAL_MS = 5000;
 const JOB_POLL_INTERVAL_MS = 1500;
+const DEFAULT_FILE_PREFIX = 'audio/ComfyUI';
+const DEFAULT_SECONDS = '120';
 
 const TEXTAREA_BASE_STYLE = Object.freeze({
   width: '100%',
@@ -31,22 +34,16 @@ function extractPromptField(result, key) {
   if (typeof direct === 'string') {
     return direct;
   }
+  if (typeof direct === 'number') {
+    return String(direct);
+  }
   const snakeKey = key.replace(/([A-Z])/g, '_').toLowerCase();
   const fallback = result[snakeKey];
-  return typeof fallback === 'string' ? fallback : '';
-}
-
-function extractDialogPath(selection) {
-  if (!selection) return '';
-  if (typeof selection === 'string') return selection;
-  if (Array.isArray(selection)) {
-    const first = selection[0];
-    if (typeof first === 'string') return first;
-    if (first && typeof first === 'object' && typeof first.path === 'string') return first.path;
-    return '';
+  if (typeof fallback === 'string') {
+    return fallback;
   }
-  if (typeof selection === 'object' && typeof selection.path === 'string') {
-    return selection.path;
+  if (typeof fallback === 'number') {
+    return String(fallback);
   }
   return '';
 }
@@ -57,9 +54,15 @@ export default function StableDiffusion() {
   const navPromptRef = useRef(initialPrompt);
   const statusIntervalRef = useRef(null);
   const pollIntervalRef = useRef(null);
+  const jobIdRef = useRef(null);
 
   const [prompt, setPrompt] = useState(initialPrompt);
   const [negativePrompt, setNegativePrompt] = useState('');
+  const [filePrefix, setFilePrefix] = useState(DEFAULT_FILE_PREFIX);
+  const [seconds, setSeconds] = useState(DEFAULT_SECONDS);
+  const [templates, setTemplates] = useState([]);
+  const [selectedTemplate, setSelectedTemplate] = useState('');
+  const [templateName, setTemplateName] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const [error, setError] = useState('');
   const [isTauriEnv, setIsTauriEnv] = useState(false);
@@ -67,10 +70,6 @@ export default function StableDiffusion() {
   const [saving, setSaving] = useState(false);
 
   const [comfySettings, setComfySettings] = useState(null);
-  const [executableInput, setExecutableInput] = useState('');
-  const [workingDirInput, setWorkingDirInput] = useState('');
-  const [baseUrlInput, setBaseUrlInput] = useState('');
-  const [outputDirInput, setOutputDirInput] = useState('');
   const [autoLaunch, setAutoLaunch] = useState(true);
 
   const [comfyStatus, setComfyStatus] = useState({ running: false, pending: 0, runningCount: 0 });
@@ -80,15 +79,44 @@ export default function StableDiffusion() {
   const [rendering, setRendering] = useState(false);
   const [renderStatus, setRenderStatus] = useState('');
   const [renderError, setRenderError] = useState('');
-  const [currentPromptId, setCurrentPromptId] = useState('');
+  const [currentJobId, setCurrentJobId] = useState('');
   const [audioOutputs, setAudioOutputs] = useState([]);
+  const [jobId, setJobId] = useState(null);
+  const [jobProgress, setJobProgress] = useState(0);
+  const [jobStage, setJobStage] = useState('');
+  const [queuePosition, setQueuePosition] = useState(null);
+  const [queueEtaSeconds, setQueueEtaSeconds] = useState(null);
+
+  const { queue, refresh: refreshQueue } = useJobQueue(2000);
+
+  const formatEta = useCallback((value) => {
+    if (typeof value !== 'number' || Number.isNaN(value)) return '';
+    const total = Math.max(0, Math.round(value));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const seconds = total % 60;
+    if (hours > 0) {
+      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+    return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }, []);
+
+  const cancelFromQueue = useCallback(
+    async (id) => {
+      if (!id) return;
+      try {
+        await invoke('cancel_job', { jobId: id });
+      } catch (err) {
+        console.warn('Failed to cancel job', err);
+      } finally {
+        refreshQueue();
+      }
+    },
+    [refreshQueue],
+  );
 
   useEffect(() => {
     if (!comfySettings) return;
-    setExecutableInput(comfySettings.executable_path || '');
-    setWorkingDirInput(comfySettings.working_directory || '');
-    setBaseUrlInput(comfySettings.base_url || 'http://127.0.0.1:8188');
-    setOutputDirInput(comfySettings.output_dir || '');
     setAutoLaunch(comfySettings.auto_launch ?? true);
   }, [comfySettings]);
 
@@ -110,10 +138,14 @@ export default function StableDiffusion() {
         if (cancelled) return;
         const fetchedPrompt = extractPromptField(promptsResult, 'prompt');
         const fetchedNegative = extractPromptField(promptsResult, 'negativePrompt');
+        const fetchedPrefix = extractPromptField(promptsResult, 'fileNamePrefix');
+        const fetchedSeconds = extractPromptField(promptsResult, 'seconds');
         const cardPrompt = (navPromptRef.current || '').trim();
         setPrompt(cardPrompt ? cardPrompt : fetchedPrompt);
         navPromptRef.current = '';
         setNegativePrompt(fetchedNegative);
+        setFilePrefix(fetchedPrefix || DEFAULT_FILE_PREFIX);
+        setSeconds(fetchedSeconds || DEFAULT_SECONDS);
         setError('');
         setStatusMessage('');
       } catch (err) {
@@ -190,12 +222,48 @@ export default function StableDiffusion() {
         clearInterval(statusIntervalRef.current);
         statusIntervalRef.current = null;
       }
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
+      clearJobPolling();
+      jobIdRef.current = null;
     };
-  }, [isTauriEnv, loadComfySettings, refreshStatus]);
+  }, [clearJobPolling, isTauriEnv, loadComfySettings, refreshStatus]);
+
+  const normalizeTemplates = useCallback((list) => {
+    if (!Array.isArray(list)) return [];
+    const normalized = list
+      .map((template) => ({
+        name: String(template?.name ?? ''),
+        prompt: template?.prompt ?? '',
+        negativePrompt: template?.negative_prompt ?? template?.negativePrompt ?? '',
+        fileNamePrefix: template?.file_name_prefix ?? template?.fileNamePrefix ?? DEFAULT_FILE_PREFIX,
+        seconds:
+          typeof template?.seconds === 'number'
+            ? template.seconds
+            : Number.parseFloat(String(template?.seconds ?? DEFAULT_SECONDS)) || Number(DEFAULT_SECONDS),
+      }))
+      .filter((template) => template.name.trim().length > 0);
+      normalized.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+    return normalized;
+  }, []);
+
+  const loadTemplates = useCallback(async () => {
+    if (!isTauriEnv) return;
+    try {
+      const result = await invoke('get_stable_audio_templates');
+      const normalized = normalizeTemplates(result);
+      setTemplates(normalized);
+      if (normalized.every((template) => template.name !== selectedTemplate)) {
+        setSelectedTemplate('');
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setStatusError((prev) => prev || message);
+    }
+  }, [isTauriEnv, normalizeTemplates, selectedTemplate]);
+
+  useEffect(() => {
+    if (!isTauriEnv) return;
+    loadTemplates();
+  }, [isTauriEnv, loadTemplates]);
 
   const updateComfySettings = useCallback(async (update) => {
     if (!isTauriEnv) return;
@@ -209,65 +277,6 @@ export default function StableDiffusion() {
     }
   }, [isTauriEnv]);
 
-  const handleBrowseExecutable = useCallback(async () => {
-    if (!isTauriEnv) return;
-    try {
-      const selection = await openDialog({ title: 'Select ComfyUI executable', multiple: false });
-      const path = extractDialogPath(selection);
-      if (path) {
-        setExecutableInput(path);
-        await updateComfySettings({ executablePath: path });
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatusError(message);
-    }
-  }, [isTauriEnv, updateComfySettings]);
-
-  const handleBrowseWorkingDir = useCallback(async () => {
-    if (!isTauriEnv) return;
-    try {
-      const selection = await openDialog({ title: 'Select working directory', directory: true, multiple: false });
-      const path = extractDialogPath(selection);
-      if (path) {
-        setWorkingDirInput(path);
-        await updateComfySettings({ workingDirectory: path });
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatusError(message);
-    }
-  }, [isTauriEnv, updateComfySettings]);
-
-  const handleBrowseOutputDir = useCallback(async () => {
-    if (!isTauriEnv) return;
-    try {
-      const selection = await openDialog({ title: 'Select ComfyUI output directory', directory: true, multiple: false });
-      const path = extractDialogPath(selection);
-      if (path) {
-        setOutputDirInput(path);
-        await updateComfySettings({ outputDir: path });
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setStatusError(message);
-    }
-  }, [isTauriEnv, updateComfySettings]);
-
-  const handleBaseUrlBlur = useCallback(async () => {
-    if (!isTauriEnv) return;
-    const value = baseUrlInput.trim();
-    if (!value) return;
-    await updateComfySettings({ baseUrl: value });
-  }, [isTauriEnv, baseUrlInput, updateComfySettings]);
-
-  const handleOutputDirBlur = useCallback(async () => {
-    if (!isTauriEnv) return;
-    const value = outputDirInput.trim();
-    if (!value) return;
-    await updateComfySettings({ outputDir: value });
-  }, [isTauriEnv, outputDirInput, updateComfySettings]);
-
   const toggleAutoLaunch = useCallback(async () => {
     if (!isTauriEnv) return;
     const next = !autoLaunch;
@@ -275,87 +284,202 @@ export default function StableDiffusion() {
     await updateComfySettings({ autoLaunch: next });
   }, [autoLaunch, isTauriEnv, updateComfySettings]);
 
+  const handleTemplateSelect = useCallback((event) => {
+    const name = event.target.value;
+    setSelectedTemplate(name);
+    if (!name) {
+      return;
+    }
+    const template = templates.find((item) => item.name === name);
+    if (!template) {
+      return;
+    }
+    setPrompt(template.prompt || '');
+    setNegativePrompt(template.negativePrompt || '');
+    setFilePrefix(template.fileNamePrefix || DEFAULT_FILE_PREFIX);
+    setSeconds(String(template.seconds ?? Number(DEFAULT_SECONDS)));
+    setTemplateName(template.name);
+  }, [templates]);
+
   const clearJobPolling = useCallback(() => {
     if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
+      clearTimeout(pollIntervalRef.current);
       pollIntervalRef.current = null;
     }
   }, []);
 
-  const pollJobStatus = useCallback(async (promptId) => {
-    if (!isTauriEnv) return;
+  const pollJobStatus = useCallback(async (id) => {
+    if (!id || jobIdRef.current !== id) return;
     try {
-      const result = await invoke('comfyui_job_status', { promptId });
-      if (!result) return;
-      setComfyStatus({
-        running: true,
-        pending: Number(result.pending || 0),
-        runningCount: Number(result.running || 0),
+      const data = await invoke('job_status', { jobId: id });
+      if (jobIdRef.current !== id) {
+        return;
+      }
+
+      const status = typeof data?.status === 'string' ? data.status : '';
+      const progressInfo = data?.progress || {};
+      const percent =
+        typeof progressInfo.percent === 'number'
+          ? progressInfo.percent
+          : status === 'completed'
+            ? 100
+            : 0;
+      setJobProgress(percent);
+      setJobStage(progressInfo.stage || status || '');
+      setRenderStatus(progressInfo.message || '');
+      setQueuePosition(
+        typeof progressInfo.queue_position === 'number'
+          ? progressInfo.queue_position
+          : null,
+      );
+      setQueueEtaSeconds(
+        typeof progressInfo.queue_eta_seconds === 'number'
+          ? progressInfo.queue_eta_seconds
+          : null,
+      );
+      refreshQueue();
+
+      if (status === 'queued' || status === 'running') {
+        setRendering(true);
+        clearJobPolling();
+        pollIntervalRef.current = setTimeout(() => {
+          pollJobStatus(id);
+        }, JOB_POLL_INTERVAL_MS);
+        return;
+      }
+
+      clearJobPolling();
+      setRendering(false);
+      setQueuePosition(null);
+      setQueueEtaSeconds(null);
+      jobIdRef.current = null;
+      setJobId(null);
+      setCurrentJobId(String(id));
+
+      const artifacts = Array.isArray(data?.artifacts) ? data.artifacts : [];
+      const audioArtifacts = artifacts.filter((artifact) => {
+        const path = artifact?.path;
+        return typeof path === 'string' && path.toLowerCase().endsWith('.flac');
       });
-      if (Array.isArray(result.outputs)) {
-        setAudioOutputs(result.outputs);
+
+      const outputs = [];
+      for (const artifact of audioArtifacts) {
+        const path = artifact.path;
+        let url = '';
+        try {
+          url = fileSrc(path);
+        } catch (err) {
+          console.warn('Failed to resolve audio output path', err, path);
+        }
+        outputs.push({
+          filename:
+            (typeof artifact.name === 'string' && artifact.name) ||
+            path.split(/[\/]/).pop() ||
+            path,
+          path,
+          url,
+        });
       }
-      if (result.status === 'completed') {
-        setRenderStatus('ComfyUI render complete.');
+
+      if (outputs.length === 0) {
+        try {
+          const fallback = await invoke('stable_audio_output_files', { limit: 6 });
+          if (Array.isArray(fallback)) {
+            fallback.forEach((entry) => {
+              if (typeof entry?.path !== 'string') return;
+              const path = entry.path;
+              const name =
+                (typeof entry?.name === 'string' && entry.name) ||
+                path.split(/[\/]/).pop() ||
+                path;
+              let url = '';
+              try {
+                url = fileSrc(path);
+              } catch (err) {
+                console.warn('Failed to resolve fallback audio output path', err, path);
+              }
+              outputs.push({ filename: name, path, url });
+            });
+          }
+        } catch (err) {
+          console.warn('Failed to enumerate Stable Diffusion outputs', err);
+        }
+      }
+
+      setAudioOutputs(outputs);
+
+      const cancelled = status === 'cancelled' || Boolean(data?.cancelled);
+      if (status === 'completed') {
+        setRenderStatus(progressInfo.message || 'ComfyUI render complete.');
         setRenderError('');
-        setRendering(false);
-        clearJobPolling();
-        refreshStatus(false);
-      } else if (result.status === 'error') {
-        setRenderError(result.message || 'ComfyUI reported an error while rendering.');
-        setRenderStatus('');
-        setRendering(false);
-        clearJobPolling();
-        refreshStatus(false);
-      } else if (result.status === 'offline') {
-        setRenderError(result.message || 'ComfyUI is offline.');
-        setRendering(false);
-        setComfyStatus({ running: false, pending: 0, runningCount: 0 });
-        clearJobPolling();
+      } else if (cancelled) {
+        setRenderStatus('Stable Diffusion job cancelled.');
+        setRenderError('');
       } else {
-        setRenderStatus(result.status === 'running' ? 'ComfyUI is rendering…' : 'ComfyUI job is queued…');
+        const stderrLines = Array.isArray(data?.stderr) ? data.stderr : [];
+        let lastError = typeof data?.message === 'string' ? data.message.trim() : '';
+        for (let i = stderrLines.length - 1; i >= 0 && !lastError; i -= 1) {
+          const line = stderrLines[i];
+          if (typeof line === 'string' && line.trim()) {
+            lastError = line.trim();
+          }
+        }
+        if (!lastError) {
+          lastError = 'Stable Diffusion job failed.';
+        }
+        setRenderStatus('');
+        setRenderError(lastError);
       }
+
+      refreshStatus(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setRenderError(message);
       setRendering(false);
       clearJobPolling();
+      refreshStatus(false);
     }
-  }, [clearJobPolling, isTauriEnv, refreshStatus]);
+  }, [clearJobPolling, refreshQueue, refreshStatus]);
 
-  const startJobPolling = useCallback((promptId) => {
+  const startJobPolling = useCallback((id) => {
+    if (!id) return;
     clearJobPolling();
-    pollIntervalRef.current = setInterval(() => {
-      pollJobStatus(promptId);
-    }, JOB_POLL_INTERVAL_MS);
+    jobIdRef.current = id;
+    pollIntervalRef.current = setTimeout(() => {
+      pollJobStatus(id);
+    }, 50);
   }, [clearJobPolling, pollJobStatus]);
 
   const handleRender = useCallback(async () => {
     if (!isTauriEnv || rendering) return;
-    setRenderStatus('Submitting workflow to ComfyUI…');
+    setRenderStatus('Queuing Stable Diffusion job...');
     setRenderError('');
     setAudioOutputs([]);
-    setRendering(true);
+    setJobProgress(0);
+    setJobStage('queued');
+    setCurrentJobId('');
     try {
-      const response = await invoke('comfyui_submit_stable_audio');
-      const promptId = response?.prompt_id || response?.promptId;
-      if (promptId) {
-        setCurrentPromptId(promptId);
-        setRenderStatus('ComfyUI job queued. Waiting for completion…');
-        await refreshStatus(true);
-        startJobPolling(promptId);
-      } else {
-        throw new Error('ComfyUI submission returned no prompt id.');
+      const id = await invoke('queue_stable_audio_job');
+      if (typeof id !== 'number' && typeof id !== 'string') {
+        throw new Error('Unexpected response when queuing Stable Diffusion job.');
       }
+      const numericId = typeof id === 'number' ? id : Number.parseInt(id, 10);
+      const resolvedId = Number.isNaN(numericId) ? id : numericId;
+      setJobId(resolvedId);
+      setRendering(true);
+      setRenderStatus('Job queued. Tracking progress...');
+      refreshQueue();
+      await refreshStatus(true);
+      startJobPolling(resolvedId);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setRenderError(message || 'Failed to submit workflow to ComfyUI.');
+      setRenderError(message || 'Failed to queue Stable Diffusion job.');
       setRenderStatus('');
       setRendering(false);
     }
-  }, [isTauriEnv, rendering, refreshStatus, startJobPolling]);
+  }, [isTauriEnv, refreshQueue, refreshStatus, rendering, startJobPolling]);
 
-  const handleSubmit = async (event) => {
+const handleSubmit = async (event) => {
     event.preventDefault();
     setStatusMessage('');
     setError('');
@@ -367,9 +491,17 @@ export default function StableDiffusion() {
 
     const cleanedPrompt = prompt.trim();
     const cleanedNegative = negativePrompt.trim();
+    const cleanedFilePrefix = filePrefix.trim() || DEFAULT_FILE_PREFIX;
+    const cleanedSeconds = seconds.trim();
+    const secondsValue = Number.parseFloat(cleanedSeconds);
 
     if (!cleanedPrompt) {
       setError('Prompt cannot be empty.');
+      return;
+    }
+
+    if (!Number.isFinite(secondsValue) || secondsValue <= 0) {
+      setError('Seconds must be a positive number.');
       return;
     }
 
@@ -378,12 +510,40 @@ export default function StableDiffusion() {
       const result = await invoke('update_stable_audio_prompts', {
         prompt: cleanedPrompt,
         negativePrompt: cleanedNegative,
+        fileNamePrefix: cleanedFilePrefix,
+        seconds: secondsValue,
       });
       const savedPrompt = extractPromptField(result, 'prompt') || cleanedPrompt;
       const savedNegative = extractPromptField(result, 'negativePrompt') || cleanedNegative;
+      const savedPrefix = extractPromptField(result, 'fileNamePrefix') || cleanedFilePrefix;
+      const savedSeconds = extractPromptField(result, 'seconds') || String(secondsValue);
       setPrompt(savedPrompt);
       setNegativePrompt(savedNegative);
-      setStatusMessage('Prompts updated in ' + WORKFLOW_PATH + '.');
+      setFilePrefix(savedPrefix);
+      setSeconds(savedSeconds);
+
+      const trimmedTemplateName = templateName.trim();
+      if (trimmedTemplateName) {
+        try {
+          const templatesResult = await invoke('save_stable_audio_template', {
+            template: {
+              name: trimmedTemplateName,
+              prompt: savedPrompt,
+              negativePrompt: savedNegative,
+              fileNamePrefix: savedPrefix,
+              seconds: Number.parseFloat(savedSeconds) || secondsValue,
+            },
+          });
+          setTemplates(normalizeTemplates(templatesResult));
+          setSelectedTemplate(trimmedTemplateName);
+          setTemplateName('');
+        } catch (templateErr) {
+          const message = templateErr instanceof Error ? templateErr.message : String(templateErr);
+          setStatusError(message || 'Failed to save template.');
+        }
+      }
+
+      setStatusMessage('Workflow prompt settings updated.');
       refreshStatus(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -394,111 +554,150 @@ export default function StableDiffusion() {
   };
 
   const disabled = loading || saving;
-  const submitDisabled = disabled || !isTauriEnv || !prompt.trim();
-  const renderDisabled = !isTauriEnv || rendering || !comfyStatus.running;
+  const secondsValueRaw = Number.parseFloat(seconds.trim());
+  const secondsValid = Number.isFinite(secondsValueRaw) && secondsValueRaw > 0;
+  const submitDisabled = disabled || !isTauriEnv || !prompt.trim() || !secondsValid;
+  const renderDisabled = !isTauriEnv || rendering;
 
   return (
     <>
       <BackButton />
       <h1>Stable Diffusion</h1>
 
-      <section className="card" style={{ display: 'grid', gap: '0.75rem' }}>
-        <h2>ComfyUI Integration</h2>
-        <p className="card-caption">
+            <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '0.75rem',
+          alignItems: 'center',
+          marginBottom: '1.25rem',
+        }}
+      >
+        <span className="card-caption" style={{ fontWeight: 600 }}>
           Status: {comfyStatus.running ? 'Online' : 'Offline'}{' '}
           {comfyStatus.pending > 0 && `Pending tasks: ${comfyStatus.pending}`}{' '}
           {comfyStatus.runningCount > 0 && `Running: ${comfyStatus.runningCount}`}
-        </p>
+        </span>
         {statusError && (
-          <p className="card-caption" style={{ color: 'var(--accent)' }}>{statusError}</p>
+          <span className="card-caption" style={{ color: 'var(--accent)' }}>{statusError}</span>
         )}
-        <div style={{ display: 'grid', gap: '0.5rem', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))' }}>
-          <label style={{ display: 'grid', gap: '0.25rem' }}>
-            <span>Executable</span>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <input
-                type="text"
-                value={executableInput}
-                onChange={(event) => setExecutableInput(event.target.value)}
-                onBlur={() => executableInput && updateComfySettings({ executablePath: executableInput.trim() })}
-                placeholder="Path to ComfyUI executable"
-                style={{ flex: 1 }}
-                disabled={!isTauriEnv}
-              />
-              <button type="button" className="back-button" onClick={handleBrowseExecutable} disabled={!isTauriEnv}>
-                Browse
-              </button>
-            </div>
-          </label>
-          <label style={{ display: 'grid', gap: '0.25rem' }}>
-            <span>Working Directory</span>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <input
-                type="text"
-                value={workingDirInput}
-                onChange={(event) => setWorkingDirInput(event.target.value)}
-                onBlur={() => workingDirInput && updateComfySettings({ workingDirectory: workingDirInput.trim() })}
-                placeholder="Optional working directory"
-                style={{ flex: 1 }}
-                disabled={!isTauriEnv}
-              />
-              <button type="button" className="back-button" onClick={handleBrowseWorkingDir} disabled={!isTauriEnv}>
-                Browse
-              </button>
-            </div>
-          </label>
-          <label style={{ display: 'grid', gap: '0.25rem' }}>
-            <span>Output Directory</span>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <input
-                type="text"
-                value={outputDirInput}
-                onChange={(event) => setOutputDirInput(event.target.value)}
-                onBlur={handleOutputDirBlur}
-                placeholder="Defaults to &lt;ComfyUI&gt;/output"
-                style={{ flex: 1 }}
-                disabled={!isTauriEnv}
-              />
-              <button type="button" className="back-button" onClick={handleBrowseOutputDir} disabled={!isTauriEnv}>
-                Browse
-              </button>
-            </div>
-          </label>
-          <label style={{ display: 'grid', gap: '0.25rem' }}>
-            <span>Base URL</span>
-            <input
-              type="text"
-              value={baseUrlInput}
-              onChange={(event) => setBaseUrlInput(event.target.value)}
-              onBlur={handleBaseUrlBlur}
-              placeholder="http://127.0.0.1:8188"
-              disabled={!isTauriEnv}
-            />
-          </label>
-        </div>
-        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          <button type="button" className="back-button" onClick={() => refreshStatus(true)} disabled={!isTauriEnv || isLaunching}>
-            {isLaunching ? 'Starting…' : 'Ensure ComfyUI Running'}
-          </button>
-          <button type="button" className="back-button" onClick={toggleAutoLaunch} disabled={!isTauriEnv}>
-            Auto-launch: {autoLaunch ? 'On' : 'Off'}
-          </button>
-          {currentPromptId && (
-            <span className="card-caption">Last prompt id: {currentPromptId}</span>
-          )}
-        </div>
-      </section>
+        <button type="button" className="back-button" onClick={() => refreshStatus(true)} disabled={!isTauriEnv || isLaunching}>
+          {isLaunching ? 'Starting...' : 'Activate'}
+        </button>
+        <button type="button" className="back-button" onClick={toggleAutoLaunch} disabled={!isTauriEnv}>
+          Auto-launch: {autoLaunch ? 'On' : 'Off'}
+        </button>
+        {jobId && (
+          <span className="card-caption">
+            Active job id: {jobId}
+            {queuePosition !== null && ` · Queue position ${queuePosition + 1}`}
+            {queueEtaSeconds !== null && ` · ETA ${formatEta(queueEtaSeconds)}`}
+            {jobProgress ? ` · ${Math.round(jobProgress)}%` : ''}
+          </span>
+        )}
+        {currentJobId && (
+          <span className="card-caption">Last job id: {currentJobId}</span>
+        )}
+      </div>
 
-      <p className="page-intro">
-        Update the Stable Diffusion workflow prompts used by the audio pipeline. Changes are written to{' '}
-        <code style={{ marginLeft: '0.25rem' }}>{WORKFLOW_PATH}</code> when you save.
-      </p>
+      <JobQueuePanel queue={queue} onCancel={cancelFromQueue} activeId={jobId || undefined} />
 
       <form
         className="card stable-diffusion-form"
         onSubmit={handleSubmit}
-        style={{ display: 'grid', gap: '1rem', maxWidth: '960px' }}
+        style={{
+          display: 'grid',
+          gap: '1.25rem',
+          alignItems: 'start',
+          width: 'min(95vw, 1400px)',
+          margin: '0 auto',
+        }}
       >
+        <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <label htmlFor="stable-diffusion-template" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
+            <span>Templates</span>
+            <select
+              id="stable-diffusion-template"
+              value={selectedTemplate}
+              onChange={handleTemplateSelect}
+              disabled={!isTauriEnv || templates.length === 0}
+              style={{
+                minWidth: '220px',
+                padding: '0.7rem 0.85rem',
+                borderRadius: '12px',
+                border: '1px solid rgba(15, 23, 42, 0.2)',
+                background: 'var(--card-bg)',
+                color: 'var(--text)',
+              }}
+            >
+              <option value="">Select template</option>
+              {templates.map((template) => (
+                <option key={template.name} value={template.name}>
+                  {template.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label htmlFor="stable-diffusion-template-name" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
+            <span>Template Name</span>
+            <input
+              id="stable-diffusion-template-name"
+              type="text"
+              value={templateName}
+              onChange={(event) => setTemplateName(event.target.value)}
+              placeholder="Save current prompts as..."
+              disabled={disabled}
+              style={{
+                maxWidth: '280px',
+                width: '100%',
+                padding: '0.7rem 0.85rem',
+                borderRadius: '12px',
+                border: '1px solid rgba(15, 23, 42, 0.2)',
+                background: 'var(--card-bg)',
+                color: 'var(--text)',
+              }}
+            />
+          </label>
+          <label htmlFor="stable-diffusion-prefix" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
+            <span>Filename Prefix</span>
+            <input
+              id="stable-diffusion-prefix"
+              type="text"
+              value={filePrefix}
+              onChange={(event) => setFilePrefix(event.target.value)}
+              disabled={disabled}
+              style={{
+                maxWidth: '320px',
+                width: '100%',
+                padding: '0.7rem 0.85rem',
+                borderRadius: '12px',
+                border: '1px solid rgba(15, 23, 42, 0.2)',
+                background: 'var(--card-bg)',
+                color: 'var(--text)',
+              }}
+            />
+          </label>
+          <label htmlFor="stable-diffusion-seconds" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
+            <span>Duration (seconds)</span>
+            <input
+              id="stable-diffusion-seconds"
+              type="number"
+              min="1"
+              step="0.1"
+              value={seconds}
+              onChange={(event) => setSeconds(event.target.value)}
+              disabled={disabled}
+              style={{
+                width: '140px',
+                padding: '0.7rem 0.85rem',
+                borderRadius: '12px',
+                border: '1px solid rgba(15, 23, 42, 0.2)',
+                background: 'var(--card-bg)',
+                color: 'var(--text)',
+              }}
+            />
+          </label>
+        </div>
         {comfyStatus.pending > 0 && (
           <div style={{ fontWeight: 600 }}>Pending ComfyUI tasks: {comfyStatus.pending}</div>
         )}
@@ -511,7 +710,13 @@ export default function StableDiffusion() {
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           rows={10}
-          style={{ ...TEXTAREA_BASE_STYLE, minHeight: '18rem' }}
+          style={{
+            ...TEXTAREA_BASE_STYLE,
+            width: 'min(95vw, 1300px)',
+            minHeight: '20rem',
+            fontSize: '1.05rem',
+            lineHeight: 1.6,
+          }}
           disabled={disabled}
         />
         <label htmlFor="stable-diffusion-negative" className="form-label">
@@ -522,8 +727,14 @@ export default function StableDiffusion() {
           placeholder="Optional negative prompt"
           value={negativePrompt}
           onChange={(event) => setNegativePrompt(event.target.value)}
-          rows={6}
-          style={{ ...TEXTAREA_BASE_STYLE, minHeight: '12rem' }}
+          rows={8}
+          style={{
+            ...TEXTAREA_BASE_STYLE,
+            width: 'min(95vw, 1300px)',
+            minHeight: '12rem',
+            fontSize: '1.0rem',
+            lineHeight: 1.5,
+          }}
           disabled={disabled}
         />
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
@@ -534,7 +745,7 @@ export default function StableDiffusion() {
             type="button"
             className="mt-sm"
             loading={rendering}
-            loadingText="Rendering…"
+            loadingText="Rendering..."
             disabled={renderDisabled}
             onClick={handleRender}
           >
@@ -543,10 +754,19 @@ export default function StableDiffusion() {
         </div>
       </form>
 
-      {(statusMessage || renderStatus) && (
+      {(statusMessage || renderStatus || jobId || jobStage || queuePosition !== null) && (
         <div className="card" role="status">
           {statusMessage && <p className="card-caption">{statusMessage}</p>}
           {renderStatus && <p className="card-caption">{renderStatus}</p>}
+          {(jobId || jobStage || jobProgress || queuePosition !== null || queueEtaSeconds !== null) && (
+            <p className="card-caption">
+              {jobId && `Job ${jobId}`}
+              {jobStage && ` · ${jobStage}`}
+              {jobProgress ? ` · ${Math.round(jobProgress)}%` : ''}
+              {queuePosition !== null && ` · Queue position ${queuePosition + 1}`}
+              {queueEtaSeconds !== null && ` · ETA ${formatEta(queueEtaSeconds)}`}
+            </p>
+          )}
         </div>
       )}
 
@@ -561,11 +781,11 @@ export default function StableDiffusion() {
         <section className="card" style={{ display: 'grid', gap: '0.75rem' }}>
           <h2>Latest ComfyUI Output</h2>
           {audioOutputs.map((output, index) => (
-            <div key={${output.node_id}--} style={{ display: 'grid', gap: '0.35rem' }}>
+            <div key={`${output.path ?? 'output'}-${index}`} style={{ display: 'grid', gap: '0.35rem' }}>
               <strong>{output.filename}</strong>
-              <audio controls src={output.local_path ? fileSrc(output.local_path) : undefined} />
-              {output.local_path && (
-                <span className="card-caption" style={{ wordBreak: 'break-all' }}>{output.local_path}</span>
+              <audio controls src={output.url || (output.path ? fileSrc(output.path) : undefined)} />
+              {output.path && (
+                <span className="card-caption" style={{ wordBreak: 'break-all' }}>{output.path}</span>
               )}
             </div>
           ))}
@@ -574,3 +794,5 @@ export default function StableDiffusion() {
     </>
   );
 }
+
+
