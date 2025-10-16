@@ -36,6 +36,13 @@ export default function SoundLab() {
           Generate music using spectral diffusion techniques.
         </Card>
         <Card
+          to="/ace"
+          icon="Stars"
+          title="ACE"
+        >
+          Adaptive Composition Engine for guided arrangements.
+        </Card>
+        <Card
           to="/musicgen/algorithmic"
           icon="Cpu"
           title="Algorithmic Generator"

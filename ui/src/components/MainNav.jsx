@@ -6,6 +6,7 @@ const links = [
   { to: '/dnd', label: 'D&D' },
   { to: '/games', label: 'Games' },
   { to: '/tools', label: 'Tools' },
+  { to: '/visual-generator', label: 'Visual Generator' },
   { to: '/queue', label: 'Queue' },
   { to: '/profiles', label: 'Profiles' },
   { to: '/train', label: 'Training' },

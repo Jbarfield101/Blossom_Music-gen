@@ -7,109 +7,155 @@ import { useJobQueue } from "../lib/useJobQueue.js";
 import { fileSrc } from "../lib/paths.js";
 import "./Ace.css";
 
-const SONG_TEMPLATES = [
-  {
-    value: "cinematic-rise",
-    label: "Cinematic Rise",
-    description: "Slow-building orchestral pop with soaring finales.",
-    stylePrompt:
-      "cinematic pop orchestration, warm strings, hybrid synth pulses, uplifting drums, big anthemic choruses, emotional swells",
-    songForm: [
-      "[intro]",
-      "[pulse]",
-      "[verse 1]",
-      "[pre-chorus]",
-      "[chorus]",
-      "[drop]",
-      "[verse 2]",
-      "[bridge]",
-      "[final chorus]",
-      "[outro]",
-    ].join("\n"),
-    bpm: 98,
-    guidance: 1.08,
-  },
-  {
-    value: "midnight-club",
-    label: "Midnight Club",
-    description: "Neon-soaked electronic groove with dynamic breakdowns.",
-    stylePrompt:
-      "retro synthwave, analog bass, gated reverb drums, glittering arps, midnight highway energy, cinematic sidechain",
-    songForm: [
-      "[intro]",
-      "[verse 1]",
-      "[pre-chorus]",
-      "[chorus]",
-      "[breakdown]",
-      "[build]",
-      "[chorus]",
-      "[outro stabs]",
-    ].join("\n"),
-    bpm: 112,
-    guidance: 0.96,
-  },
-  {
-    value: "glimmer-pop",
-    label: "Glimmer Pop",
-    description: "Sparkling upbeat pop with chopped fills and drops.",
-    stylePrompt:
-      "glitter pop, bright guitars, shimmering plucks, tight drums, playful vocal chops, feel-good festival energy",
-    songForm: [
-      "[count-in]",
-      "[verse 1]",
-      "[pre-chorus]",
-      "[chorus]",
-      "[turnaround]",
-      "[verse 2]",
-      "[bridge breakdown]",
-      "[double chorus]",
-      "[tag outro]",
-    ].join("\n"),
-    bpm: 118,
-    guidance: 1.02,
-  },
-  {
-    value: "lofi-narrative",
-    label: "Lo-Fi Narrative",
-    description: "Cozy storytelling beat with sectional mood shifts.",
-    stylePrompt:
-      "lofi chillhop, dusty drums, warm electric piano, mellow guitar chops, cassette noise, intimate storytelling vibe",
-    songForm: [
-      "[intro textures]",
-      "[verse 1]",
-      "[chorus]",
-      "[instrumental break]",
-      "[verse 2]",
-      "[bridge]",
-      "[final chorus]",
-      "[coda]",
-    ].join("\n"),
-    bpm: 82,
-    guidance: 0.92,
-  },
-  {
-    value: "future-rnb",
-    label: "Future R&B",
-    description: "Silky grooves with halftime flips and vocal drops.",
-    stylePrompt:
-      "future r&b, soulful pads, subby bass, syncopated drums, airy vocal chops, halftime transitions, glossy textures",
-    songForm: [
-      "[intro sweep]",
-      "[verse 1]",
-      "[chorus]",
-      "[halftime switch]",
-      "[verse 2]",
-      "[bridge]",
-      "[chorus]",
-      "[outro fade]",
-    ].join("\n"),
-    bpm: 94,
-    guidance: 1.1,
-  },
-];
+const ACE_SONGFORM = {
+  id: "ace-songform",
+  label: "ACE SongForm · Kawaii Instrumental Storyboard",
+  workflow: "audio_ace_step_1_t2a_instrumentals.json",
+  logline:
+    "Kawaii pop instrumental derived from the ACE-Step text-to-audio workflow; upbeat hooks, glitter percussion, and chopped ear candy.",
+  stylePrompt:
+    "kawaii pop instrumental, cute j-pop hooks, bouncy drums, percussive piano, plucky synth arps, glitter fx, upbeat, cheerful, lighthearted",
+  bpm: 120,
+  guidance: 0.99,
+  sections: [
+    {
+      id: "count-in",
+      tag: "[count-in sparkle]",
+      label: "Count-In Sparkle",
+      bars: 4,
+      energy: "1 -> 2",
+      focus: [
+        "Preview the tempo with filtered noise swells, stick clicks, and glitter transitions.",
+        "Hint at the main hook through distant plucks drenched in shimmer reverb.",
+      ],
+    },
+    {
+      id: "instrumental-hook",
+      tag: "[instrumental hook]",
+      label: "Instrumental Hook",
+      bars: 16,
+      energy: "3",
+      focus: [
+        "Stack bright pluck leads with toy piano to anchor the hook.",
+        "Keep a four-on-the-floor kick and sidechained bass pushing momentum.",
+      ],
+    },
+    {
+      id: "verse-a",
+      tag: "[verse bounce a]",
+      label: "Verse Bounce A",
+      bars: 16,
+      energy: "3 -> 4",
+      focus: [
+        "Switch to syncopated rim-click drums and handclaps to freshen the groove.",
+        "Trade phrases between clean guitar chops and square-wave counter melodies.",
+      ],
+    },
+    {
+      id: "breakdown",
+      tag: "[breakdown shimmer]",
+      label: "Breakdown Shimmer",
+      bars: 8,
+      energy: "2",
+      focus: [
+        "Low-pass the rhythm bed, leaving pads, bell swells, and vinyl noise textures.",
+        "Automate delay throws and gentle bitcrush sweeps to build anticipation.",
+      ],
+    },
+    {
+      id: "drum-fill",
+      tag: "[drum fill]",
+      label: "Drum Fill Launch",
+      bars: 4,
+      energy: "4",
+      focus: [
+        "Fire tom runs and snare rushes that rise in pitch toward the drop.",
+        "Accent transitions with anime shout FX or cymbal swells for extra hype.",
+      ],
+    },
+    {
+      id: "chorus-a",
+      tag: "[chorus lift]",
+      label: "Chorus Lift",
+      bars: 16,
+      energy: "5",
+      focus: [
+        "Layer saw leads, octave guitars, and glittering arps for the full hook.",
+        "Glue the mix with pumping sidechain and crisp crash punctuation.",
+      ],
+    },
+    {
+      id: "verse-b",
+      tag: "[verse bounce b]",
+      label: "Verse Bounce B",
+      bars: 16,
+      energy: "3",
+      focus: [
+        "Drop into halftime drums for four bars before snapping back to full pace.",
+        "Introduce fresh ear candy such as kalimba plucks or mallet hits to evolve the story.",
+      ],
+    },
+    {
+      id: "chops",
+      tag: "[chopped samples]",
+      label: "Chopped Samples Drop",
+      bars: 8,
+      energy: "4",
+      focus: [
+        "Let ACE-Step glitch the hook with stuttered vocal chops and tape stop tricks.",
+        "Keep drums sparse so the resampled textures take the spotlight.",
+      ],
+    },
+    {
+      id: "chorus-b",
+      tag: "[chorus finale]",
+      label: "Chorus Finale",
+      bars: 16,
+      energy: "5",
+      focus: [
+        "Return with full instrumentation plus octave stacks and counter-hooks.",
+        "Widen leads and add cymbal flourishes to signal the climax.",
+      ],
+    },
+    {
+      id: "outro",
+      tag: "[outro sparkle]",
+      label: "Outro Sparkle",
+      bars: 8,
+      energy: "2 -> 1",
+      focus: [
+        "Fade to bell arps, pads, and softened drums for a gentle landing.",
+        "Let delay and reverb tails linger to close on a dreamy texture.",
+      ],
+    },
+  ],
+  transitions: [
+    {
+      cue: "[instrumental hook] -> [verse bounce a]",
+      note: "Soften the lead into bell layers while drums add syncopation to open space for the verse groove.",
+    },
+    {
+      cue: "[breakdown shimmer] -> [drum fill]",
+      note: "Mute the low end during the breakdown so the tom run and snare rush erupt cleanly into the drop.",
+    },
+    {
+      cue: "[chopped samples] -> [chorus finale]",
+      note: "Bounce between chopped motifs and full-kit hits, then fire a final snare roll to sling back into the closing chorus.",
+    },
+  ],
+  highlights: [
+    "Keep one descriptive tag per line (for example, `[verse bounce a]` and `[breakdown shimmer]`) to guide ACE-Step.",
+    "Blend clean guitar plucks, kawaii synth leads, bubbly percussion, and glitter FX to stay on palette.",
+    "Drop `[chopped samples]` before `[chorus finale]` to request glitch edits ahead of the last lift.",
+  ],
+};
 
-const ACE_DEFAULT_GUIDANCE = 0.99;
-const ACE_DEFAULT_BPM = 120;
+const ACE_SONGFORM_LINES = ACE_SONGFORM.sections.map((section) => section.tag).join("\n");
+const ACE_SONGFORM_TOTAL_BARS = ACE_SONGFORM.sections.reduce((sum, section) => sum + section.bars, 0);
+
+const ACE_DEFAULT_GUIDANCE = ACE_SONGFORM.guidance;
+const ACE_DEFAULT_BPM = ACE_SONGFORM.bpm;
+const ACE_SONGFORM_DURATION_SECONDS = Math.round((ACE_SONGFORM_TOTAL_BARS * 240) / ACE_SONGFORM.bpm);
 
 function formatEta(value) {
   if (typeof value !== "number" || Number.isNaN(value)) return "";
@@ -143,11 +189,10 @@ function createAudioEntry(path, nameHint) {
 }
 
 export default function Ace() {
-  const [stylePrompt, setStylePrompt] = useState("");
-  const [songForm, setSongForm] = useState("");
+  const [stylePrompt, setStylePrompt] = useState(ACE_SONGFORM.stylePrompt);
+  const [songForm, setSongForm] = useState(ACE_SONGFORM_LINES);
   const [bpm, setBpm] = useState(ACE_DEFAULT_BPM);
   const [guidance, setGuidance] = useState(ACE_DEFAULT_GUIDANCE);
-  const [selectedTemplate, setSelectedTemplate] = useState("cinematic-rise");
   const [statusMessage, setStatusMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -164,15 +209,12 @@ export default function Ace() {
   const [statusError, setStatusError] = useState("");
   const [outputsLoading, setOutputsLoading] = useState(false);
 
+  const aceSongFormDurationLabel = useMemo(() => formatEta(ACE_SONGFORM_DURATION_SECONDS), []);
+
   const pollTimeoutRef = useRef(null);
   const jobIdRef = useRef(null);
 
   const { queue, refresh: refreshQueue } = useJobQueue(2000);
-
-  const activeTemplate = useMemo(
-    () => SONG_TEMPLATES.find((template) => template.value === selectedTemplate) || null,
-    [selectedTemplate],
-  );
 
   const clearPollTimeout = useCallback(() => {
     if (pollTimeoutRef.current) {
@@ -371,7 +413,7 @@ export default function Ace() {
       .filter((line) => line.length > 0)
       .join("\n");
     if (!cleanedForm) {
-      setError("Provide at least one section in the song form (e.g., [intro], [chorus]).");
+      setError("Provide at least one section in the song form (e.g., [count-in sparkle], [chorus lift]).");
       return null;
     }
     const bpmValue = Number.parseFloat(String(bpm));
@@ -391,18 +433,12 @@ export default function Ace() {
     };
   }, [stylePrompt, songForm, bpm, guidance]);
 
-  const handleApplyTemplate = useCallback((template) => {
-    if (!template) return;
-    setSelectedTemplate(template.value);
-    setStylePrompt(template.stylePrompt);
-    setSongForm(template.songForm);
-    if (typeof template.bpm === "number") {
-      setBpm(template.bpm);
-    }
-    if (typeof template.guidance === "number") {
-      setGuidance(template.guidance);
-    }
-    setStatusMessage(`Loaded ${template.label} template.`);
+  const handleApplySongForm = useCallback(() => {
+    setStylePrompt(ACE_SONGFORM.stylePrompt);
+    setSongForm(ACE_SONGFORM_LINES);
+    setBpm(ACE_SONGFORM.bpm);
+    setGuidance(ACE_SONGFORM.guidance);
+    setStatusMessage("Reset to ACE SongForm blueprint.");
     setError("");
   }, []);
 
@@ -513,8 +549,8 @@ export default function Ace() {
       <header className="ace-header">
         <h1>ACE Instrumental Studio</h1>
         <p className="ace-subtitle">
-          Craft ACE-Step instrumental blueprints, queue renders through ComfyUI, and audition the latest outputs without leaving
-          Blossom.
+          Build from the ACE SongForm derived from the ACE-Step workflow, queue renders through ComfyUI, and audition the latest
+          outputs without leaving Blossom.
         </p>
       </header>
 
@@ -541,37 +577,13 @@ export default function Ace() {
         <section className="card ace-card">
           <form onSubmit={handleSave} className="ace-form" autoComplete="off">
             <div className="ace-field">
-              <label htmlFor="ace-template">Song Template</label>
-              <select
-                id="ace-template"
-                value={selectedTemplate}
-                onChange={(event) => {
-                  const next = SONG_TEMPLATES.find((template) => template.value === event.target.value);
-                  if (next) {
-                    handleApplyTemplate(next);
-                  } else {
-                    setSelectedTemplate(event.target.value);
-                  }
-                }}
-                disabled={loading || saving || rendering}
-              >
-                {SONG_TEMPLATES.map((template) => (
-                  <option key={template.value} value={template.value}>
-                    {template.label}
-                  </option>
-                ))}
-                <option value="custom">Custom arrangement</option>
-              </select>
-            </div>
-
-            <div className="ace-field">
               <label htmlFor="ace-style">Style & Instrumentation</label>
               <textarea
                 id="ace-style"
                 rows={4}
                 value={stylePrompt}
                 onChange={(event) => setStylePrompt(event.target.value)}
-                placeholder="Describe the palette (e.g., lush synthwave pads, punchy analog drums, glassy arps)"
+                placeholder={ACE_SONGFORM.stylePrompt}
                 disabled={loading || saving || rendering}
               />
             </div>
@@ -583,7 +595,7 @@ export default function Ace() {
                 rows={10}
                 value={songForm}
                 onChange={(event) => setSongForm(event.target.value)}
-                placeholder="[intro]\n[verse 1]\n[pre-chorus]\n[chorus]\n[bridge]\n[outro]"
+                placeholder={ACE_SONGFORM_LINES}
                 disabled={loading || saving || rendering}
               />
               <p className="ace-hint">
@@ -638,34 +650,75 @@ export default function Ace() {
           </form>
         </section>
 
-        <aside className="card ace-card ace-template-card">
-          <h2>Arrangement Ideas</h2>
-          <p className="ace-hint">
-            ACE-Step responds to bracketed sections such as [intro], [verse], [breakdown], and [drum fill]. Mix and match sections
-            to storyboard energy changes across the track.
-          </p>
-          <div className="ace-template-list">
-            {SONG_TEMPLATES.map((template) => (
-              <div key={template.value} className={`ace-template${selectedTemplate === template.value ? " is-active" : ""}`}>
-                <div>
-                  <strong>{template.label}</strong>
-                  <p className="ace-hint">{template.description}</p>
-                  <ul className="ace-form-preview">
-                    {template.songForm.split("\n").map((line, idx) => (
-                      <li key={`${template.value}-${idx}`}>{line}</li>
-                    ))}
-                  </ul>
-                </div>
-                <PrimaryButton
-                  type="button"
-                  className="ace-button-sm"
-                  onClick={() => handleApplyTemplate(template)}
-                  disabled={loading || saving || rendering}
-                >
-                  Use Template
-                </PrimaryButton>
-              </div>
+        <aside className="card ace-card ace-songform-card">
+          <div className="ace-songform-header">
+            <div>
+              <h2>ACE SongForm</h2>
+              <p className="ace-hint">{ACE_SONGFORM.logline}</p>
+              <p className="ace-hint">
+                Workflow · <code className="ace-code">{ACE_SONGFORM.workflow}</code>
+              </p>
+            </div>
+            <PrimaryButton
+              type="button"
+              className="ace-button-sm"
+              onClick={handleApplySongForm}
+              disabled={loading || saving || rendering}
+            >
+              Apply to Blueprint
+            </PrimaryButton>
+          </div>
+
+          <div className="ace-songform-meta">
+            <span>{ACE_SONGFORM.bpm} BPM</span>
+            <span>Guidance {ACE_SONGFORM.guidance.toFixed(2)}</span>
+            <span>
+              {ACE_SONGFORM_TOTAL_BARS} bars · ~{aceSongFormDurationLabel}
+            </span>
+          </div>
+
+          <div className="ace-songform-grid">
+            {ACE_SONGFORM.sections.map((section, index) => (
+              <article key={section.id} className="ace-songform-section">
+                <header className="ace-songform-section-header">
+                  <span className="ace-songform-order">{String(index + 1).padStart(2, "0")}</span>
+                  <div className="ace-songform-section-meta">
+                    <span className="ace-songform-tag">{section.tag}</span>
+                    <h3>{section.label}</h3>
+                    <div className="ace-songform-stats">
+                      <span>{section.bars} bars</span>
+                      <span>Energy {section.energy}</span>
+                    </div>
+                  </div>
+                </header>
+                <ul className="ace-songform-focus">
+                  {section.focus.map((item, focusIndex) => (
+                    <li key={`${section.id}-focus-${focusIndex}`}>{item}</li>
+                  ))}
+                </ul>
+              </article>
             ))}
+          </div>
+
+          <div className="ace-songform-details">
+            <div>
+              <strong>Transitions</strong>
+              <ul>
+                {ACE_SONGFORM.transitions.map((transition, idx) => (
+                  <li key={`transition-${idx}`}>
+                    <span className="ace-songform-tag">{transition.cue}</span> · {transition.note}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <strong>Highlights</strong>
+              <ul>
+                {ACE_SONGFORM.highlights.map((highlight, idx) => (
+                  <li key={`highlight-${idx}`}>{highlight}</li>
+                ))}
+              </ul>
+            </div>
           </div>
         </aside>
       </div>

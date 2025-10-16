@@ -77,6 +77,22 @@ header {
   color: var(--accent);
 }
 
+.card.is-disabled,
+.card:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  pointer-events: none;
+  transform: none;
+  box-shadow: none;
+}
+
+.card.is-disabled:hover,
+.card.is-disabled:focus,
+.card:disabled:hover,
+.card:disabled:focus {
+  background: var(--card-bg);
+}
+
 .card-icon {
   color: var(--icon);
   width: 3rem;
