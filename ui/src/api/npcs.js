@@ -24,6 +24,7 @@ export const saveNpc = async (npc) => {
 };
 export const deleteNpc = (id) => invoke("npc_delete", { id });
 export const createNpc = (
+  id,
   name,
   region,
   purpose,
@@ -31,13 +32,22 @@ export const createNpc = (
   randomName,
   establishmentPath,
   establishmentName,
-) => invoke("npc_create", {
-  name,
-  region,
-  purpose,
-  template,
-  random_name: !!randomName,
-  establishment_path: establishmentPath ?? null,
-  establishment_name: establishmentName ?? null,
-});
+) => {
+  const parsedId = npcSchema.shape.id.safeParse(id);
+  if (!parsedId.success) {
+    const error = new Error("Invalid NPC id supplied to createNpc");
+    error.cause = parsedId.error;
+    throw error;
+  }
+  return invoke("npc_create", {
+    id: parsedId.data,
+    name,
+    region,
+    purpose,
+    template,
+    random_name: !!randomName,
+    establishment_path: establishmentPath ?? null,
+    establishment_name: establishmentName ?? null,
+  });
+};
 

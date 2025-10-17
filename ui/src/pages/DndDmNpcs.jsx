@@ -956,10 +956,18 @@ const establishmentOptions = useMemo(() => {
               const purpose = selPurpose === '__custom__' ? (customPurpose.trim()) : selPurpose;
               const estPath = selPurpose === 'Shopkeeper' ? establishmentRecord : '';
               const estDisplay = selPurpose === 'Shopkeeper' ? establishmentName.trim() : '';
+              let createdNpcRecord = null;
               try {
                 setCreating(true);
                 setCreateError('');
+                const resolvedName = randName ? (name || 'NPC') : name;
+                const idPool = npcList
+                  .map((n) => (typeof n?.id === 'string' && n.id ? n.id : null))
+                  .filter((id) => typeof id === 'string');
+                const existingIds = new Set(idPool);
+                const npcId = makeId('npc', resolvedName || 'NPC', existingIds);
                 const createdPath = await createNpc(
+                  npcId,
                   randName ? '' : name,
                   selRegion || '',
                   purpose || '',
@@ -974,28 +982,27 @@ const establishmentOptions = useMemo(() => {
                   const base = fullPath.replace(/\\/g, '/');
                   const file = base.substring(base.lastIndexOf('/') + 1);
                   const npcName = titleFromName(file);
+                  createdNpcRecord = { id: npcId, name: npcName, description: '', prompt: '', voice: '' };
                   let vv = String(voiceValue || '').trim();
                   if (vv) {
                     // Save ElevenLabs by profile name (managed in profiles list)
-                    const idPool = npcList
-                      .map((n) => (typeof n?.id === 'string' && n.id ? n.id : null))
-                      .filter((id) => typeof id === 'string');
-                    const existingIds = new Set(idPool);
-                    const npcId = makeId('npc', npcName, existingIds);
-                    const payload = { id: npcId, name: npcName, description: '', prompt: '', voice: vv };
+                    const payload = { ...createdNpcRecord, voice: vv };
                     await saveNpc(payload);
-                    setNpcList((prev) => {
-                      const next = [...prev];
-                      const idx = next.findIndex((n) => n.id === npcId);
-                      if (idx >= 0) {
-                        next[idx] = { ...next[idx], voice: vv };
-                      } else {
-                        next.push(payload);
-                      }
-                      return next;
-                    });
+                    createdNpcRecord = payload;
                   }
                 } catch (_) {}
+                if (createdNpcRecord) {
+                  setNpcList((prev) => {
+                    const next = [...prev];
+                    const idx = next.findIndex((n) => n.id === createdNpcRecord.id);
+                    if (idx >= 0) {
+                      next[idx] = { ...next[idx], ...createdNpcRecord };
+                    } else {
+                      next.push(createdNpcRecord);
+                    }
+                    return next;
+                  });
+                }
                 setShowCreate(false);
                 setNewName('');
                 setRandName(false);
