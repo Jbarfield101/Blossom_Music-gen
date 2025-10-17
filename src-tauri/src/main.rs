@@ -4132,6 +4132,7 @@ fn inbox_list(app: AppHandle, path: Option<String>) -> Result<Vec<InboxItem>, St
 #[tauri::command]
 async fn npc_create(
     app: AppHandle,
+    npc_id: String,
     name: String,
     region: Option<String>,
     purpose: Option<String>,
@@ -4140,6 +4141,10 @@ async fn npc_create(
     establishment_path: Option<String>,
     establishment_name: Option<String>,
 ) -> Result<String, String> {
+    let npc_id = npc_id.trim().to_string();
+    if !is_valid_npc_id(&npc_id) {
+        return Err("Invalid NPC id".to_string());
+    }
     let establishment_path = establishment_path
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
@@ -4147,7 +4152,8 @@ async fn npc_create(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
     eprintln!(
-        "[blossom] npc_create: start name='{}', region={:?}, purpose={:?}, template={:?}, establishment_path={:?}, establishment_name={:?}",
+        "[blossom] npc_create: start id='{}', name='{}', region={:?}, purpose={:?}, template={:?}, establishment_path={:?}, establishment_name={:?}",
+        npc_id,
         name,
         &region,
         &purpose,
@@ -4319,13 +4325,14 @@ async fn npc_create(
     };
 
     // Ensure frontmatter exists and enforce NPC metadata + sane title
-    fn ensure_npc_metadata(src: &str, npc_name: &str) -> String {
+    fn ensure_npc_metadata(src: &str, npc_name: &str, npc_id: &str) -> String {
         match parse_frontmatter(src) {
             Ok((mut mapping, body, _raw)) => {
                 // Set required keys
                 upsert_frontmatter_string(&mut mapping, "type", Some("npc"));
                 upsert_frontmatter_string(&mut mapping, "name", Some(npc_name));
                 upsert_frontmatter_string(&mut mapping, "title", Some(npc_name));
+                upsert_frontmatter_string(&mut mapping, "id", Some(npc_id));
 
                 // Build a simple, single-line frontmatter block the UI parser understands
                 let mut front = String::new();
@@ -4339,6 +4346,7 @@ async fn npc_create(
                     front.push('\n');
                 };
                 // Required first
+                push_kv("id", npc_id.to_string());
                 push_kv("title", npc_name.to_string());
                 push_kv("name", npc_name.to_string());
                 push_kv("type", "npc".to_string());
@@ -4433,7 +4441,7 @@ async fn npc_create(
             Err(_) => src.to_string(),
         }
     }
-    content = ensure_npc_metadata(&content, &initial_name);
+    content = ensure_npc_metadata(&content, &initial_name, &npc_id);
 
     // Re-extract the final NPC name from updated content/frontmatter
     let effective_name = match parse_frontmatter(&content) {
@@ -4477,6 +4485,39 @@ async fn npc_create(
 
     fs::write(&target, content.as_bytes()).map_err(|e| e.to_string())?;
     eprintln!("[blossom] npc_create: wrote '{}'", target.to_string_lossy());
+    match read_npcs(&app) {
+        Ok(mut npcs) => {
+            let mut found = false;
+            for npc in &mut npcs {
+                if npc.id == npc_id {
+                    npc.name = effective_name.clone();
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                npcs.push(Npc {
+                    id: npc_id.clone(),
+                    name: effective_name.clone(),
+                    description: String::new(),
+                    prompt: String::new(),
+                    voice: String::new(),
+                });
+            }
+            if let Err(err) = write_npcs(&app, &npcs) {
+                eprintln!(
+                    "[blossom] npc_create: failed to persist NPC index for '{}': {}",
+                    npc_id, err
+                );
+            }
+        }
+        Err(err) => {
+            eprintln!(
+                "[blossom] npc_create: failed to load existing NPC index for '{}': {}",
+                npc_id, err
+            );
+        }
+    }
     Ok(target.to_string_lossy().to_string())
 }
 #[tauri::command]
