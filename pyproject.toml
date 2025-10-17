@@ -1,6 +1,6 @@
 [project]
 name = "blossom-music-gen"
-version = "0.0.0"
+version = "0.5.6"
 requires-python = ">=3.10,<3.11"
 
 [project.optional-dependencies]
