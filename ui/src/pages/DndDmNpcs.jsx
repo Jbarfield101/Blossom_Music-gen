@@ -1,6 +1,13 @@
-import { listPiperVoices } from '../lib/piperVoices';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { Controller, useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import ReactMde from 'react-mde';
+import Showdown from 'showdown';
+import matter from 'gray-matter';
+import { writeTextFile } from '@tauri-apps/plugin-fs';
+import { invoke } from '@tauri-apps/api/core';
+
 import BackButton from '../components/BackButton.jsx';
 import { getDreadhavenRoot } from '../api/config';
 import { listDir } from '../api/dir';
@@ -9,12 +16,14 @@ import { readFileBytes } from '../api/files';
 import { createNpc, saveNpc, listNpcs } from '../api/npcs';
 import { makeId } from '../lib/dndIds';
 import { loadEstablishments } from '../api/establishments';
-import { renderMarkdown } from '../lib/markdown.jsx';
-import './Dnd.css';
-import { invoke } from '@tauri-apps/api/core';
+import { listPiperVoices } from '../lib/piperVoices';
+import { npcSchema } from '../lib/dndSchemas.js';
 import { useVaultVersion } from '../lib/vaultEvents.jsx';
 import { listEntitiesByType, getIndexEntityById, resetVaultIndexCache, resolveVaultPath } from '../lib/vaultIndex.js';
 import { loadEntity } from '../lib/vaultAdapter.js';
+
+import './Dnd.css';
+import 'react-mde/lib/styles/css/react-mde-all.css';
 
 const DEFAULT_NPC = 'D\\\\Documents\\\\DreadHaven\\\\20_DM\\\\NPC'.replace(/\\\\/g, '\\\\');
 const DEFAULT_PORTRAITS = 'D\\\\Documents\\\\DreadHaven\\\\30_Assets\\\\Images\\\\NPC_Portraits'.replace(/\\\\/g, '\\\\');
@@ -65,6 +74,119 @@ function firstChip(...values) {
   return '';
 }
 
+const NPC_FORM_SCHEMA = npcSchema
+  .pick({
+    id: true,
+    name: true,
+    region: true,
+    location: true,
+    faction: true,
+    role: true,
+    importance: true,
+    tags: true,
+    keywords: true,
+    canonical_summary: true,
+  })
+  .partial({
+    region: true,
+    location: true,
+    faction: true,
+    role: true,
+    importance: true,
+    tags: true,
+    keywords: true,
+    canonical_summary: true,
+  });
+
+const NPC_FORM_DEFAULTS = {
+  id: '',
+  name: '',
+  region: '',
+  location: '',
+  faction: '',
+  role: '',
+  importance: undefined,
+  tags: [],
+  keywords: [],
+  canonical_summary: '',
+};
+
+function coerceStringArray(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => (typeof entry === 'string' ? entry.trim() : String(entry || '').trim()))
+      .filter((entry) => entry);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(/[,;|\n]/)
+      .map((entry) => entry.trim())
+      .filter((entry) => entry);
+  }
+  return [];
+}
+
+function normalizeEntityMeta(meta = {}, fallback = {}) {
+  const base = { ...(meta || {}) };
+  if (!base.id && fallback.id) base.id = fallback.id;
+  if (!base.name && fallback.name) base.name = fallback.name;
+  if (base.tags !== undefined) base.tags = coerceStringArray(base.tags);
+  if (base.keywords !== undefined) base.keywords = coerceStringArray(base.keywords);
+  if (base.aliases !== undefined) base.aliases = coerceStringArray(base.aliases);
+  if (base.titles !== undefined) base.titles = coerceStringArray(base.titles);
+  if (typeof base.canonical_summary === 'string') {
+    base.canonical_summary = base.canonical_summary.trim();
+  }
+  return base;
+}
+
+function extractFormValues(meta = {}) {
+  return {
+    id: String(meta.id || ''),
+    name: String(meta.name || ''),
+    region: String(meta.region || ''),
+    location: String(meta.location || ''),
+    faction: String(meta.faction || ''),
+    role: String(meta.role || ''),
+    importance: typeof meta.importance === 'number' ? meta.importance : undefined,
+    tags: coerceStringArray(meta.tags),
+    keywords: coerceStringArray(meta.keywords),
+    canonical_summary: typeof meta.canonical_summary === 'string' ? meta.canonical_summary : '',
+  };
+}
+
+function sanitizeFormValues(values = {}) {
+  const next = { ...(values || {}) };
+  next.id = String(next.id || '').trim();
+  if (typeof next.name === 'string') {
+    next.name = next.name.trim();
+  }
+  const stringKeys = ['region', 'location', 'faction', 'role', 'canonical_summary'];
+  stringKeys.forEach((key) => {
+    const value = next[key];
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed) {
+        next[key] = key === 'canonical_summary' ? trimmed : trimmed;
+      } else {
+        delete next[key];
+      }
+    }
+  });
+  ['tags', 'keywords'].forEach((key) => {
+    const arr = coerceStringArray(next[key]);
+    if (arr.length) {
+      next[key] = arr;
+    } else {
+      delete next[key];
+    }
+  });
+  if (typeof next.importance !== 'number' || Number.isNaN(next.importance)) {
+    delete next.importance;
+  }
+  return next;
+}
+
 export default function DndDmNpcs() {
   const navigate = useNavigate();
   const { id: routeIdParam } = useParams();
@@ -80,9 +202,7 @@ export default function DndDmNpcs() {
   const [usingIndex, setUsingIndex] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [activeId, setActiveId] = useState('');
-  const [activeContent, setActiveContent] = useState('');
   const [activeMeta, setActiveMeta] = useState({});
-  const [activeBody, setActiveBody] = useState('');
   const [activeIndexEntry, setActiveIndexEntry] = useState(null);
   const [metaNotice, setMetaNotice] = useState('');
   const [metaDismissed, setMetaDismissed] = useState(false);
@@ -129,6 +249,198 @@ export default function DndDmNpcs() {
   const [cardVoiceValue, setCardVoiceValue] = useState('');
   const [cardVoiceSaving, setCardVoiceSaving] = useState(false);
   const [cardVoiceStatus, setCardVoiceStatus] = useState('');
+  const [bodyValue, setBodyValue] = useState('');
+  const [selectedTab, setSelectedTab] = useState('write');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [lastSavedAt, setLastSavedAt] = useState(null);
+  const [documentReady, setDocumentReady] = useState(false);
+  const [hasPendingChanges, setHasPendingChanges] = useState(false);
+
+  const entityDraftRef = useRef({});
+  const bodyRef = useRef('');
+  const activePathRef = useRef('');
+  const saveTimerRef = useRef(null);
+  const dirtyRef = useRef(false);
+  const savingRef = useRef(false);
+  const documentReadyRef = useRef(false);
+  const isValidRef = useRef(true);
+  const lastSerializedRef = useRef('');
+
+  const markdownConverter = useMemo(
+    () => new Showdown.Converter({
+      tables: true,
+      simplifiedAutoLink: true,
+      strikethrough: true,
+      tasklists: true,
+    }),
+    [],
+  );
+
+  const {
+    control,
+    register,
+    reset,
+    watch,
+    handleSubmit,
+    formState: { errors, isValid },
+  } = useForm({
+    resolver: zodResolver(NPC_FORM_SCHEMA),
+    defaultValues: NPC_FORM_DEFAULTS,
+    mode: 'onChange',
+    reValidateMode: 'onChange',
+  });
+
+  useEffect(() => {
+    documentReadyRef.current = documentReady;
+  }, [documentReady]);
+
+  useEffect(() => {
+    isValidRef.current = isValid;
+    if (isValid && /^resolve validation errors/i.test(String(saveError || ''))) {
+      setSaveError('');
+    }
+  }, [isValid, saveError]);
+
+  const runSave = useCallback(async () => {
+    if (!documentReadyRef.current) return;
+    if (!activePathRef.current) return;
+    if (!dirtyRef.current && lastSerializedRef.current) return;
+    if (!isValidRef.current) {
+      if (dirtyRef.current) {
+        setSaveError('Resolve validation errors to save changes.');
+      }
+      return;
+    }
+    if (savingRef.current) return;
+
+    const draftMeta = entityDraftRef.current || {};
+    const serialized = matter.stringify(bodyRef.current || '', draftMeta);
+    if (!dirtyRef.current && serialized === lastSerializedRef.current) {
+      return;
+    }
+
+    savingRef.current = true;
+    setIsSaving(true);
+    setSaveError('');
+    try {
+      await writeTextFile(activePathRef.current, serialized);
+      lastSerializedRef.current = serialized;
+      dirtyRef.current = false;
+      setLastSavedAt(Date.now());
+      setHasPendingChanges(false);
+    } catch (err) {
+      console.error('Failed to save NPC file', err);
+      setSaveError(err?.message || 'Failed to save NPC file.');
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
+  }, []);
+
+  const scheduleSave = useCallback(
+    (immediate = false) => {
+      if (!documentReadyRef.current || !activePathRef.current) return;
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      const delay = immediate ? 0 : 2500;
+      saveTimerRef.current = setTimeout(() => {
+        saveTimerRef.current = null;
+        runSave();
+      }, delay);
+    },
+    [runSave],
+  );
+
+  const flushPendingChanges = useCallback(async () => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    await runSave();
+  }, [runSave]);
+
+  const handleBodyChange = useCallback(
+    (value) => {
+      setBodyValue(value);
+      bodyRef.current = value;
+      if (!documentReadyRef.current) return;
+      dirtyRef.current = true;
+      setHasPendingChanges(true);
+      scheduleSave(false);
+    },
+    [scheduleSave],
+  );
+
+  useEffect(() => {
+    const subscription = watch((value) => {
+      if (!documentReadyRef.current) return;
+      const normalized = sanitizeFormValues(value || {});
+      const keysToSync = ['id', 'name', 'region', 'location', 'faction', 'role', 'importance', 'tags', 'keywords', 'canonical_summary'];
+      const draft = { ...entityDraftRef.current };
+      keysToSync.forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(normalized, key)) {
+          draft[key] = normalized[key];
+        } else if (['region', 'location', 'faction', 'role', 'importance', 'tags', 'keywords', 'canonical_summary'].includes(key)) {
+          delete draft[key];
+        }
+      });
+      entityDraftRef.current = draft;
+      setActiveMeta((prev) => {
+        const next = { ...(prev || {}) };
+        keysToSync.forEach((key) => {
+          if (Object.prototype.hasOwnProperty.call(normalized, key)) {
+            next[key] = normalized[key];
+          } else if (['region', 'location', 'faction', 'role', 'importance', 'tags', 'keywords', 'canonical_summary'].includes(key)) {
+            delete next[key];
+          }
+        });
+        return next;
+      });
+      dirtyRef.current = true;
+      setHasPendingChanges(true);
+      scheduleSave(false);
+    });
+    return () => subscription.unsubscribe();
+  }, [watch, scheduleSave]);
+
+  useEffect(() => {
+    const handleBlur = () => {
+      flushPendingChanges();
+    };
+    const handleVisibility = () => {
+      if (typeof document !== 'undefined' && document.hidden) {
+        flushPendingChanges();
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('blur', handleBlur);
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibility);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('blur', handleBlur);
+      }
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibility);
+      }
+    };
+  }, [flushPendingChanges]);
+
+  useEffect(
+    () => () => {
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      flushPendingChanges();
+    },
+    [flushPendingChanges],
+  );
   const npcVersion = useVaultVersion(['20_dm/npc']);
   const regionVersion = useVaultVersion(['10_world/regions']);
   const portraitAssetsVersion = useVaultVersion(['30_assets/images']);
@@ -655,14 +967,13 @@ const establishmentOptions = useMemo(() => {
     const meta = activeMeta || {};
     if (meta.title) return sanitizeChip(meta.title);
     if (meta.name) return sanitizeChip(meta.name);
-    const src = String(activeContent || '');
-    // First markdown H1 heading
+    const src = String(bodyValue || '');
     const h1 = src.match(/^\s*#\s+([^\r\n]+)$/m);
     if (h1 && h1[1]) return sanitizeChip(h1[1]);
     const nm = src.match(/\b(?:NPC\s+Name|Name)\s*:\s*([^\r\n]+)/i);
     if (nm && nm[1]) return sanitizeChip(nm[1]);
     return String(selected?.title || selected?.name || '');
-  }, [activeMeta, activeContent, selected]);
+  }, [activeMeta, bodyValue, selected]);
   const selectedId = typeof selected?.id === 'string' ? selected.id : '';
   const copyNpcId = useCallback(async () => {
     const id = selectedId.trim();
@@ -798,28 +1109,53 @@ const establishmentOptions = useMemo(() => {
     return locations[selected.id] || relLocation(usingPath, selected.path) || '';
   }, [selected, activeMeta.location, locations, usingPath]);
 
-  const markdownSource = useMemo(() => {
-    const fallback = typeof activeContent === 'string' ? activeContent : '';
-    return activeBody || fallback;
-  }, [activeBody, activeContent]);
+  const formattedLastSaved = useMemo(() => {
+    if (!lastSavedAt) return '';
+    try {
+      return new Date(lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    } catch (_) {
+      return '';
+    }
+  }, [lastSavedAt]);
+
+  const metadataFormDisabled = !documentReady;
 
   useEffect(() => {
     let cancelled = false;
+    flushPendingChanges();
     if (!activeId) {
-      setActiveContent('');
+      activePathRef.current = '';
+      entityDraftRef.current = {};
+      lastSerializedRef.current = '';
+      setLastSavedAt(null);
       setActiveMeta({});
-      setActiveBody('');
       setActiveIndexEntry(null);
       setMetaNotice('');
       setMetaDismissed(false);
+      setSaveError('');
+      setBodyValue('');
+      bodyRef.current = '';
+      reset(NPC_FORM_DEFAULTS);
+      setDocumentReady(false);
+      documentReadyRef.current = false;
+      dirtyRef.current = false;
+      setHasPendingChanges(false);
       return () => { cancelled = true; };
     }
-    setActiveContent('');
-    setActiveMeta({});
-    setActiveBody('');
-    setActiveIndexEntry(null);
+
     setMetaNotice('');
     setMetaDismissed(false);
+    setSaveError('');
+    setLastSavedAt(null);
+    setDocumentReady(false);
+    documentReadyRef.current = false;
+    dirtyRef.current = false;
+    setActiveIndexEntry(null);
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+
     (async () => {
       let indexEntry = null;
       let entityPath = selected?.path || '';
@@ -839,49 +1175,93 @@ const establishmentOptions = useMemo(() => {
           }
         }
       }
+
       const fallbackPath = entityPath || selected?.path;
       if (!fallbackPath) {
         if (!cancelled) {
+          setActiveMeta({});
+          entityDraftRef.current = {};
+          setBodyValue('');
+          bodyRef.current = '';
+          reset(NPC_FORM_DEFAULTS);
           setMetaNotice('NPC file not found.');
+          lastSerializedRef.current = '';
+          setHasPendingChanges(false);
+          activePathRef.current = '';
+          dirtyRef.current = false;
         }
         return;
       }
+
+      const applyLoadedEntity = (entity, body, entryMeta) => {
+        const normalizedEntity = normalizeEntityMeta(entity || {}, selected || {});
+        const formValues = extractFormValues(normalizedEntity);
+        const sanitizedForm = sanitizeFormValues(formValues);
+        const draft = { ...normalizedEntity };
+        const keysToSync = ['id', 'name', 'region', 'location', 'faction', 'role', 'importance', 'tags', 'keywords', 'canonical_summary'];
+        keysToSync.forEach((key) => {
+          if (Object.prototype.hasOwnProperty.call(sanitizedForm, key)) {
+            draft[key] = sanitizedForm[key];
+          } else if (['region', 'location', 'faction', 'role', 'importance', 'tags', 'keywords', 'canonical_summary'].includes(key)) {
+            delete draft[key];
+          }
+        });
+        entityDraftRef.current = draft;
+        const combinedMeta = {
+          ...((entryMeta && entryMeta.metadata) || {}),
+          ...((entryMeta && entryMeta.fields) || {}),
+          ...normalizedEntity,
+        };
+        setActiveMeta(combinedMeta);
+        reset({ ...NPC_FORM_DEFAULTS, ...formValues });
+        setBodyValue(body || '');
+        bodyRef.current = body || '';
+        const serialized = matter.stringify(bodyRef.current || '', entityDraftRef.current || {});
+        lastSerializedRef.current = serialized;
+        dirtyRef.current = false;
+        setMetaNotice('');
+        setDocumentReady(true);
+        documentReadyRef.current = true;
+        setHasPendingChanges(false);
+      };
+
       try {
         const result = await loadEntity(fallbackPath);
         if (cancelled) return;
-        const body = result?.body || '';
-        setActiveContent(body);
-        setActiveBody(body);
-        const entryMeta = indexEntry || selected?.index || {};
-        const combinedMeta = {
-          ...(entryMeta.metadata || {}),
-          ...(entryMeta.fields || {}),
-          ...(result?.entity || {}),
-        };
-        setActiveMeta(combinedMeta);
-        setMetaNotice('');
+        activePathRef.current = result?.path || fallbackPath;
+        applyLoadedEntity(result?.entity || {}, result?.body || '', indexEntry || selected?.index || {});
       } catch (err) {
         if (cancelled) return;
         try {
           const text = await readInbox(fallbackPath);
           if (cancelled) return;
           const [meta, body, issue] = parseNpcFrontmatter(text || '');
-          setActiveContent(text || '');
-          setActiveBody(body || '');
-          const entryMeta = indexEntry || selected?.index || {};
-          setActiveMeta({ ...(entryMeta.metadata || {}), ...meta });
-          setMetaNotice(issue || err?.message || '');
+          activePathRef.current = fallbackPath;
+          applyLoadedEntity(meta || {}, body || '', indexEntry || selected?.index || {});
+          if (issue || err?.message) {
+            setMetaNotice(issue || err?.message || '');
+          }
         } catch (innerErr) {
           if (cancelled) return;
-          setActiveContent('Failed to load file.');
-          setActiveBody('');
           setActiveMeta({});
+          entityDraftRef.current = {};
+          setBodyValue('');
+          bodyRef.current = '';
+          reset(NPC_FORM_DEFAULTS);
+          lastSerializedRef.current = '';
+          dirtyRef.current = false;
+          setHasPendingChanges(false);
+          setDocumentReady(false);
+          documentReadyRef.current = false;
           setMetaNotice(innerErr?.message || err?.message || 'Failed to load NPC file.');
         }
       }
     })();
-    return () => { cancelled = true; };
-  }, [activeId, usingIndex, selected, vaultRoot, parseNpcFrontmatter]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeId, usingIndex, selected, vaultRoot, parseNpcFrontmatter, flushPendingChanges, reset]);
 
   useEffect(() => {
     if (!metaNotice) {
@@ -1203,13 +1583,143 @@ const establishmentOptions = useMemo(() => {
                     <button type="button" onClick={() => setMetaDismissed(true)}>Dismiss</button>
                   </div>
                 )}
-                <article className="inbox-reader-body">
-                  {/\.(md|mdx|markdown)$/i.test(selected.name || '') ? (
-                    renderMarkdown(markdownSource || 'Loading.')
-                  ) : (
-                    <pre className="inbox-reader-content">{markdownSource || 'Loading.'}</pre>
-                  )}
-                </article>
+                <section className="npc-editor">
+                  <form
+                    className="npc-metadata-form"
+                    onSubmit={handleSubmit(async () => {
+                      await flushPendingChanges();
+                    })}
+                  >
+                    <div className="npc-form-grid">
+                      <label className="npc-form-field">
+                        <span>NPC ID</span>
+                        <input type="text" {...register('id')} readOnly />
+                      </label>
+                      <label className="npc-form-field">
+                        <span>Name</span>
+                        <input type="text" {...register('name')} disabled={metadataFormDisabled} autoComplete="off" />
+                        {errors.name && <span className="error">{errors.name.message}</span>}
+                      </label>
+                      <label className="npc-form-field">
+                        <span>Region</span>
+                        <input type="text" {...register('region')} disabled={metadataFormDisabled} autoComplete="off" />
+                      </label>
+                      <label className="npc-form-field">
+                        <span>Location</span>
+                        <input type="text" {...register('location')} disabled={metadataFormDisabled} autoComplete="off" />
+                      </label>
+                      <label className="npc-form-field">
+                        <span>Faction</span>
+                        <input type="text" {...register('faction')} disabled={metadataFormDisabled} autoComplete="off" />
+                      </label>
+                      <label className="npc-form-field">
+                        <span>Role</span>
+                        <input type="text" {...register('role')} disabled={metadataFormDisabled} autoComplete="off" />
+                      </label>
+                      <Controller
+                        name="importance"
+                        control={control}
+                        render={({ field }) => (
+                          <label className="npc-form-field">
+                            <span>Importance (1-5)</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={5}
+                              value={field.value ?? ''}
+                              onChange={(event) => {
+                                const raw = event.target.value;
+                                field.onChange(raw === '' ? undefined : Number(raw));
+                              }}
+                              onBlur={field.onBlur}
+                              disabled={metadataFormDisabled}
+                            />
+                            {errors.importance && <span className="error">{errors.importance.message}</span>}
+                          </label>
+                        )}
+                      />
+                      <Controller
+                        name="tags"
+                        control={control}
+                        render={({ field }) => (
+                          <label className="npc-form-field">
+                            <span>Tags</span>
+                            <input
+                              type="text"
+                              value={Array.isArray(field.value) ? field.value.join(', ') : ''}
+                              onChange={(event) => field.onChange(coerceStringArray(event.target.value))}
+                              onBlur={field.onBlur}
+                              placeholder="Comma separated"
+                              disabled={metadataFormDisabled}
+                            />
+                            <span className="npc-field-hint">Comma separated keywords used for filtering.</span>
+                          </label>
+                        )}
+                      />
+                      <Controller
+                        name="keywords"
+                        control={control}
+                        render={({ field }) => (
+                          <label className="npc-form-field">
+                            <span>Story Keywords</span>
+                            <input
+                              type="text"
+                              value={Array.isArray(field.value) ? field.value.join(', ') : ''}
+                              onChange={(event) => field.onChange(coerceStringArray(event.target.value))}
+                              onBlur={field.onBlur}
+                              placeholder="Comma separated"
+                              disabled={metadataFormDisabled}
+                            />
+                            <span className="npc-field-hint">Optional extra search metadata.</span>
+                          </label>
+                        )}
+                      />
+                      <label className="npc-form-field npc-form-field--full">
+                        <span>Canonical Summary</span>
+                        <textarea
+                          rows={4}
+                          {...register('canonical_summary')}
+                          disabled={metadataFormDisabled}
+                          placeholder="Single paragraph reference summary"
+                        />
+                      </label>
+                    </div>
+                    <div className="npc-save-row">
+                      <div className="npc-save-status-text">
+                        {saveError ? (
+                          <span className="error">{saveError}</span>
+                        ) : (
+                          <span className="muted">
+                            {!documentReady
+                              ? 'Loading metadata…'
+                              : isSaving
+                                ? 'Saving…'
+                                : hasPendingChanges
+                                  ? 'Unsaved changes'
+                                  : formattedLastSaved
+                                    ? `Saved at ${formattedLastSaved}`
+                                    : 'Awaiting changes'}
+                          </span>
+                        )}
+                      </div>
+                      <button type="submit" className="secondary" disabled={!documentReady || isSaving}>
+                        Save now
+                      </button>
+                    </div>
+                  </form>
+                  <div className="npc-markdown-pane">
+                    <ReactMde
+                      value={bodyValue}
+                      onChange={handleBodyChange}
+                      selectedTab={selectedTab}
+                      onTabChange={setSelectedTab}
+                      generateMarkdownPreview={(markdown) => Promise.resolve(markdownConverter.makeHtml(markdown))}
+                      minEditorHeight={360}
+                      maxEditorHeight={Infinity}
+                      className="npc-markdown-editor"
+                    />
+                  </div>
+                </section>
               </>
             ) : (
               <div className="muted">Loading.</div>
