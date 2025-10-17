@@ -47,6 +47,11 @@ def test_bootstrap_creates_index(tmp_path: Path) -> None:
     assert entity["path"] == "npcs/alice.md"
     assert entity["aliases"] == ["Ally"]
     assert entity["tags"] == ["hero"]
+    assert isinstance(entity["mtime"], (int, float))
+    assert entity["mtime"] > 0
+    assert entity["region"] is None
+    assert entity["location"] is None
+    assert entity["links"] == []
 
 
 def test_process_events_updates_index_on_rename_and_delete(tmp_path: Path) -> None:
@@ -71,6 +76,8 @@ def test_process_events_updates_index_on_rename_and_delete(tmp_path: Path) -> No
     entity = watchdog.get_index_entity(vault, "npc_alice")
     assert entity is not None
     assert entity["path"] == renamed_rel
+    assert "mtime" in entity
+    assert "links" in entity
 
     target.unlink()
     watchdog.process_events(vault, [{"kind": "remove", "path": renamed_rel}], rebuild=False)
@@ -87,6 +94,10 @@ def test_modify_event_refreshes_cached_entity(tmp_path: Path) -> None:
 
     watchdog.bootstrap_vault(vault)
 
+    initial_entity = watchdog.get_index_entity(vault, "npc_alice")
+    assert initial_entity is not None
+    initial_mtime = initial_entity["mtime"]
+
     # Update aliases and title, then fire a modify event.
     _write_note(note_path, "npc_alice", "Alice", alias="Ace")
     watchdog.process_events(
@@ -100,6 +111,9 @@ def test_modify_event_refreshes_cached_entity(tmp_path: Path) -> None:
     assert entity is not None
     assert entity["aliases"] == ["Ace"]
     assert entity["name"] == "Alice"
+    assert entity["mtime"] >= initial_mtime
+    assert entity["links"] == []
 
     stored = indexer.load_index(vault)
     assert stored["entities"]["npc_alice"]["aliases"] == ["Ace"]
+    assert stored["entities"]["npc_alice"]["links"] == []
