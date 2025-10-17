@@ -198,6 +198,98 @@
   padding: 0.25rem 0.6rem;
 }
 
+.npc-editor {
+  display: grid;
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+
+@media (min-width: 960px) {
+  .npc-editor {
+    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.npc-metadata-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.npc-form-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.npc-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.npc-form-field span {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.npc-form-field input,
+.npc-form-field textarea {
+  width: 100%;
+  padding: 0.5rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.65);
+  color: inherit;
+}
+
+.npc-form-field textarea {
+  resize: vertical;
+  min-height: 5rem;
+}
+
+.npc-form-field--full {
+  grid-column: 1 / -1;
+}
+
+.npc-field-hint {
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.9);
+}
+
+.npc-save-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.npc-save-status-text {
+  flex: 1;
+  min-width: 200px;
+  font-size: 0.85rem;
+}
+
+.npc-markdown-pane {
+  min-height: 360px;
+}
+
+.npc-markdown-editor .mde-textarea-wrapper,
+.npc-markdown-editor .mde-preview {
+  background: rgba(15, 23, 42, 0.65);
+  color: inherit;
+}
+
+.npc-markdown-editor .mde-textarea-wrapper textarea {
+  background: transparent;
+  color: inherit;
+}
+
+.npc-markdown-editor .mde-preview-content {
+  color: inherit;
+}
+
 .repair-category-toggle {
   display: inline-flex;
   gap: 0.75rem;
