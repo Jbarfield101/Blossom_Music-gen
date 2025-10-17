@@ -1,4 +1,4 @@
-import matter from 'gray-matter';
+import matter from '../../vendor/gray-matter/index.js';
 import * as fsPlugin from '@tauri-apps/plugin-fs';
 import {
   npcSchema,
