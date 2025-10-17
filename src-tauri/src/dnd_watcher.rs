@@ -11,12 +11,13 @@ use chrono::Utc;
 use notify::event::{DataChange, ModifyKind, RenameMode};
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde_json::{json, Map, Value};
-use tauri::{AppHandle, Emitter};
+use tauri::{async_runtime, AppHandle, Emitter};
 
 use crate::{config, python_command};
 
 const DEFAULT_DB_PATH: &str = "chunks.sqlite";
 const DEFAULT_INDEX_PATH: &str = "obsidian_index.faiss";
+const BLOSSOM_INDEX_FILENAME: &str = ".blossom_index.json";
 const DEBOUNCE_MS: u64 = 350;
 const WATCH_POLL_MS: u64 = 125;
 
@@ -108,9 +109,10 @@ pub(crate) fn start(app: &AppHandle) -> Result<(), String> {
 
     let db_path = root.join(DEFAULT_DB_PATH);
     let index_path = root.join(DEFAULT_INDEX_PATH);
+    let cache_path = root.join(BLOSSOM_INDEX_FILENAME);
 
     // Ensure the chunks database is primed before watching.
-    if let Err(err) = bootstrap_vault(&root, &db_path, &index_path) {
+    if let Err(err) = bootstrap_vault(&root, &db_path, &index_path, &cache_path) {
         eprintln!("[blossom] dnd_watcher bootstrap error: {}", err);
     }
 
@@ -143,7 +145,7 @@ pub(crate) fn start(app: &AppHandle) -> Result<(), String> {
     let app_handle = app.clone();
     let root_for_thread = root.clone();
     std::thread::spawn(move || {
-        run_event_loop(app_handle, root_for_thread, db_path, index_path, rx)
+        run_event_loop(app_handle, root_for_thread, db_path, index_path, cache_path, rx)
     });
 
     Ok(())
@@ -154,6 +156,7 @@ fn run_event_loop(
     root: PathBuf,
     db_path: PathBuf,
     index_path: PathBuf,
+    cache_path: PathBuf,
     rx: mpsc::Receiver<notify::Result<Event>>,
 ) {
     let mut signatures: HashMap<String, FileSignature> = HashMap::new();
@@ -173,8 +176,14 @@ fn run_event_loop(
             }
             Err(RecvTimeoutError::Timeout) => {
                 if !pending.is_empty() && last_event.elapsed() >= debounce {
-                    if let Err(err) =
-                        flush_events(&app, &root, &db_path, &index_path, pending.drain(..))
+                    if let Err(err) = flush_events(
+                        &app,
+                        &root,
+                        &db_path,
+                        &index_path,
+                        &cache_path,
+                        pending.drain(..),
+                    )
                     {
                         eprintln!("[blossom] dnd_watcher flush error: {}", err);
                     }
@@ -326,6 +335,7 @@ fn flush_events(
     root: &Path,
     db_path: &Path,
     index_path: &Path,
+    cache_path: &Path,
     events: impl Iterator<Item = Delta>,
 ) -> Result<(), String> {
     let mut unique_paths = Vec::new();
@@ -359,11 +369,15 @@ fn flush_events(
         "vault": root.to_string_lossy(),
         "db_path": db_path.to_string_lossy(),
         "index_path": index_path.to_string_lossy(),
+        "cache_path": cache_path.to_string_lossy(),
         "rebuild": false,
         "events": events_json,
     });
 
     run_python_watchdog(payload)?;
+
+    // Trigger a debounced index save now that the in-memory cache is updated.
+    trigger_index_save(root, index_path, cache_path, false)?;
 
     let event_payload = json!({
         "paths": unique_paths,
@@ -424,7 +438,7 @@ fn file_signature(path: &Path) -> Option<FileSignature> {
 fn run_python_watchdog(payload: Value) -> Result<(), String> {
     let mut cmd = python_command();
     cmd.arg("-c")
-        .arg("import json, sys, notes.watchdog as w; payload=json.load(sys.stdin); w.process_events(payload['vault'], payload['events'], payload.get('db_path'), payload.get('index_path'), rebuild=payload.get('rebuild', True))")
+        .arg("import json, sys, notes.watchdog as w; payload=json.load(sys.stdin); w.process_events(payload['vault'], payload['events'], payload.get('db_path'), payload.get('index_path'), cache_path=payload.get('cache_path'), rebuild=payload.get('rebuild', True))")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -449,16 +463,62 @@ fn run_python_watchdog(payload: Value) -> Result<(), String> {
     Ok(())
 }
 
-fn bootstrap_vault(root: &Path, db_path: &Path, index_path: &Path) -> Result<(), String> {
+fn trigger_index_save(
+    root: &Path,
+    index_path: &Path,
+    cache_path: &Path,
+    force: bool,
+) -> Result<(), String> {
     let payload = json!({
         "vault": root.to_string_lossy(),
-        "db_path": db_path.to_string_lossy(),
         "index_path": index_path.to_string_lossy(),
+        "cache_path": cache_path.to_string_lossy(),
+        "force": force,
     });
 
     let mut cmd = python_command();
     cmd.arg("-c")
-        .arg("import json, sys, notes.watchdog as w; payload=json.load(sys.stdin); w.bootstrap_vault(payload['vault'], payload.get('db_path'), payload.get('index_path'))")
+        .arg("import json, sys, notes.watchdog as w; payload=json.load(sys.stdin); w.save_index(payload['vault'], payload.get('index_path'), payload.get('cache_path'), force=payload.get('force', False))")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("failed to spawn python save_index: {e}"))?;
+
+    if let Some(stdin) = child.stdin.as_mut() {
+        stdin
+            .write_all(payload.to_string().as_bytes())
+            .map_err(|e| e.to_string())?;
+    } else {
+        return Err(String::from("failed to open python stdin"));
+    }
+
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("python save_index failed: {}", stderr.trim()));
+    }
+    Ok(())
+}
+
+fn bootstrap_vault(
+    root: &Path,
+    db_path: &Path,
+    index_path: &Path,
+    cache_path: &Path,
+) -> Result<(), String> {
+    let payload = json!({
+        "vault": root.to_string_lossy(),
+        "db_path": db_path.to_string_lossy(),
+        "index_path": index_path.to_string_lossy(),
+        "cache_path": cache_path.to_string_lossy(),
+    });
+
+    let mut cmd = python_command();
+    cmd.arg("-c")
+        .arg("import json, sys, notes.watchdog as w; payload=json.load(sys.stdin); w.bootstrap_vault(payload['vault'], payload.get('db_path'), payload.get('index_path'), payload.get('cache_path'))")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -481,4 +541,70 @@ fn bootstrap_vault(root: &Path, db_path: &Path, index_path: &Path) -> Result<(),
         return Err(format!("python bootstrap_vault failed: {}", stderr.trim()));
     }
     Ok(())
+}
+
+fn python_index_get_by_id(
+    root: &Path,
+    index_path: &Path,
+    cache_path: &Path,
+    entity_id: &str,
+) -> Result<Option<Value>, String> {
+    let payload = json!({
+        "vault": root.to_string_lossy(),
+        "index_path": index_path.to_string_lossy(),
+        "cache_path": cache_path.to_string_lossy(),
+        "entity_id": entity_id,
+    });
+
+    let mut cmd = python_command();
+    cmd.arg("-c")
+        .arg("import json, sys, notes.watchdog as w; payload=json.load(sys.stdin); result = w.get_index_entity(payload['vault'], payload['entity_id'], payload.get('index_path'), payload.get('cache_path')); json.dump(result, sys.stdout)")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("failed to spawn python get_index_entity: {e}"))?;
+
+    if let Some(stdin) = child.stdin.as_mut() {
+        stdin
+            .write_all(payload.to_string().as_bytes())
+            .map_err(|e| e.to_string())?;
+    } else {
+        return Err(String::from("failed to open python stdin"));
+    }
+
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("python get_index_entity failed: {}", stderr.trim()));
+    }
+
+    if output.stdout.is_empty() {
+        return Ok(None);
+    }
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    let value: Value = serde_json::from_str(text.trim())
+        .map_err(|e| format!("failed to decode index entity: {e}"))?;
+    if value.is_null() {
+        Ok(None)
+    } else {
+        Ok(Some(value))
+    }
+}
+
+#[tauri::command]
+pub async fn vault_index_get_by_id(entity_id: String) -> Result<Option<Value>, String> {
+    let root = PathBuf::from(config::DEFAULT_DREADHAVEN_ROOT);
+    let index_path = root.join(DEFAULT_INDEX_PATH);
+    let cache_path = root.join(BLOSSOM_INDEX_FILENAME);
+    let entity = entity_id;
+
+    async_runtime::spawn_blocking(move || {
+        python_index_get_by_id(&root, &index_path, &cache_path, &entity)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

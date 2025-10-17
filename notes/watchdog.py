@@ -37,11 +37,13 @@ except Exception:  # pragma: no cover - optional import fallback
     def rebuild_index(*_args: Any, **_kwargs: Any) -> None:  # type: ignore[override]
         raise RuntimeError("Embedding dependencies are not installed")
 from .parser import NoteParseError, ParsedNote, parse_note
-from .indexer import (
-    remove_by_path as index_remove_by_path,
+from .index_cache import (
+    INDEX_FILENAME,
+    get_by_id as cache_get_by_id,
+    remove_by_path as cache_remove_by_path,
     reset_index as reset_note_index,
-    save_index as save_note_index,
-    upsert_from_file as index_upsert_from_file,
+    save_index as cache_save_index,
+    upsert_from_file as cache_upsert_from_file,
 )
 
 # Default location of the chunks database relative to the vault
@@ -63,12 +65,20 @@ _IGNORED_NAMES = frozenset({"thumbs.db", ".ds_store"})
 
 
 def _resolve_paths(
-    vault: Path, db_path: Path | None = None, index_path: Path | None = None
-) -> tuple[Path, Path, Path]:
+    vault: Path,
+    db_path: Path | None = None,
+    index_path: Path | None = None,
+    cache_path: Path | None = None,
+) -> tuple[Path, Path, Path, Path]:
     resolved_vault = Path(vault).expanduser().resolve()
     resolved_db = Path(db_path) if db_path else resolved_vault / DEFAULT_DB_PATH
     resolved_index = Path(index_path) if index_path else resolved_vault / DEFAULT_INDEX_PATH
-    return resolved_vault, resolved_db, resolved_index
+    resolved_cache = (
+        Path(cache_path).expanduser().resolve()
+        if cache_path
+        else resolved_vault / INDEX_FILENAME
+    )
+    return resolved_vault, resolved_db, resolved_index, resolved_cache
 
 
 def _ensure_tables(db_path: Path) -> None:
@@ -113,11 +123,16 @@ def _delete_note(rel: str, db_path: Path) -> None:
 
 
 def bootstrap_vault(
-    vault: Path, db_path: Path | None = None, index_path: Path | None = None
+    vault: Path,
+    db_path: Path | None = None,
+    index_path: Path | None = None,
+    cache_path: Path | None = None,
 ) -> None:
     """Populate the chunks/index database for ``vault`` from scratch."""
 
-    vault, db_path, index_path = _resolve_paths(vault, db_path, index_path)
+    vault, db_path, index_path, cache_path = _resolve_paths(
+        vault, db_path, index_path, cache_path
+    )
     _ensure_tables(db_path)
 
     conn = sqlite3.connect(db_path)
@@ -128,20 +143,26 @@ def bootstrap_vault(
     finally:
         conn.close()
 
-    reset_note_index(vault)
+    reset_note_index(vault, cache_path)
 
-    for note_path in sorted(vault.rglob("*.md")):
+    for note_path in sorted(vault.rglob("*")):
         if not note_path.is_file() or _should_ignore(note_path):
+            continue
+        suffix = note_path.suffix.lower()
+        if suffix not in {".md", ".json"}:
             continue
         try:
             rel_path = note_path.relative_to(vault).as_posix()
         except ValueError:
             continue
-        parsed = _store_note(note_path, rel_path, db_path)
-        if parsed:
-            index_upsert_from_file(vault, rel_path, parsed)
+        parsed = None
+        if suffix == ".md":
+            parsed = _store_note(note_path, rel_path, db_path)
+            if not parsed:
+                continue
+        cache_upsert_from_file(vault, rel_path, parsed, index_path=cache_path)
 
-    save_note_index(vault, force=True)
+    cache_save_index(vault, index_path=cache_path, force=True)
 
     try:
         rebuild_index(db_path, index_path)
@@ -155,6 +176,7 @@ def process_events(
     events: Sequence[Mapping[str, Any]],
     db_path: Path | None = None,
     index_path: Path | None = None,
+    cache_path: Path | None = None,
     *,
     rebuild: bool = True,
 ) -> bool:
@@ -168,7 +190,9 @@ def process_events(
     if not events:
         return False
 
-    vault, db_path, index_path = _resolve_paths(vault, db_path, index_path)
+    vault, db_path, index_path, cache_path = _resolve_paths(
+        vault, db_path, index_path, cache_path
+    )
     _ensure_tables(db_path)
 
     updated = False
@@ -187,44 +211,60 @@ def process_events(
             # Outside the vault; ignore the event
             continue
 
+        suffix = target_path.suffix.lower()
+
         if kind in {"create", "modify"}:
-            if target_path.suffix.lower() != ".md" or not target_path.exists():
+            if suffix not in {".md", ".json"} or not target_path.exists():
                 continue
             if _should_ignore(target_path):
                 continue
-            parsed = _store_note(target_path, rel_path, db_path)
-            if parsed:
+            parsed = None
+            if suffix == ".md":
+                parsed = _store_note(target_path, rel_path, db_path)
+                if not parsed:
+                    continue
                 updated = True
-                if index_upsert_from_file(vault, rel_path, parsed):
-                    index_changed = True
-        elif kind == "remove":
-            if not rel_path.lower().endswith(".md"):
-                continue
-            _delete_note(rel_path, db_path)
-            updated = True
-            if index_remove_by_path(vault, rel_path):
+            if cache_upsert_from_file(
+                vault, rel_path, parsed, index_path=cache_path
+            ):
                 index_changed = True
+        elif kind == "remove":
+            if suffix == ".md":
+                _delete_note(rel_path, db_path)
+                updated = True
+            if suffix in {".md", ".json"}:
+                if cache_remove_by_path(vault, rel_path, index_path=cache_path):
+                    index_changed = True
         elif kind == "rename":
             old_path = event.get("old_path")
             if old_path:
                 old_rel = Path(old_path).as_posix()
-                if old_rel.lower().endswith(".md"):
+                old_suffix = Path(old_rel).suffix.lower()
+                if old_suffix == ".md":
                     _delete_note(old_rel, db_path)
                     updated = True
-                    if index_remove_by_path(vault, old_rel):
+                if old_suffix in {".md", ".json"}:
+                    if cache_remove_by_path(
+                        vault, old_rel, index_path=cache_path
+                    ):
                         index_changed = True
-            if target_path.suffix.lower() != ".md" or not target_path.exists():
+            if suffix not in {".md", ".json"} or not target_path.exists():
                 continue
             if _should_ignore(target_path):
                 continue
-            parsed = _store_note(target_path, rel_path, db_path)
-            if parsed:
+            parsed = None
+            if suffix == ".md":
+                parsed = _store_note(target_path, rel_path, db_path)
+                if not parsed:
+                    continue
                 updated = True
-                if index_upsert_from_file(vault, rel_path, parsed):
-                    index_changed = True
+            if cache_upsert_from_file(
+                vault, rel_path, parsed, index_path=cache_path
+            ):
+                index_changed = True
 
     if index_changed:
-        save_note_index(vault)
+        cache_save_index(vault, index_path=cache_path)
 
     if updated and rebuild:
         try:
@@ -235,11 +275,43 @@ def process_events(
     return updated
 
 
-def _handle_changes(vault: Path, db_path: Path, index_path: Path, changes) -> bool:
+def save_index(
+    vault: Path,
+    index_path: Path | None = None,
+    cache_path: Path | None = None,
+    *,
+    force: bool = False,
+) -> None:
+    """Persist the vault index immediately or schedule a debounced flush."""
+
+    resolved_vault, _, _, resolved_cache = _resolve_paths(
+        vault, None, index_path, cache_path
+    )
+    cache_save_index(resolved_vault, index_path=resolved_cache, force=force)
+
+
+def get_index_entity(
+    vault: Path,
+    entity_id: str,
+    index_path: Path | None = None,
+    cache_path: Path | None = None,
+) -> dict[str, Any] | None:
+    """Return the cached entity ``entity_id`` if present."""
+
+    resolved_vault, _, _, resolved_cache = _resolve_paths(
+        vault, None, index_path, cache_path
+    )
+    return cache_get_by_id(resolved_vault, entity_id, index_path=resolved_cache)
+
+
+def _handle_changes(
+    vault: Path, db_path: Path, index_path: Path, cache_path: Path, changes
+) -> bool:
     events: list[dict[str, Any]] = []
     for change, path_str in changes:
         path = Path(path_str)
-        if path.suffix.lower() != ".md" or _should_ignore(path):
+        suffix = path.suffix.lower()
+        if suffix not in {".md", ".json"} or _should_ignore(path):
             continue
         try:
             rel = path.relative_to(vault).as_posix()
@@ -253,15 +325,17 @@ def _handle_changes(vault: Path, db_path: Path, index_path: Path, changes) -> bo
             events.append({"kind": "remove", "path": rel})
     if not events:
         return False
-    return process_events(vault, events, db_path, index_path)
+    return process_events(vault, events, db_path, index_path, cache_path)
 
 
-def _watch_loop(vault: Path, db_path: Path, index_path: Path, stop: threading.Event) -> None:
+def _watch_loop(
+    vault: Path, db_path: Path, index_path: Path, cache_path: Path, stop: threading.Event
+) -> None:
     for changes in watch(vault, recursive=True):
         if stop.is_set():
             break
         try:
-            _handle_changes(vault, db_path, index_path, changes)
+            _handle_changes(vault, db_path, index_path, cache_path, changes)
         except Exception:
             # Ignore watcher errors; logging is handled by the caller.
             continue
@@ -292,12 +366,16 @@ def start_watchdog(
             return
         stop_watchdog()
 
-    vault, db_path, index_path = _resolve_paths(vault, db_path, index_path)
-    bootstrap_vault(vault, db_path, index_path)
+    vault, db_path, index_path, cache_path = _resolve_paths(
+        vault, db_path, index_path
+    )
+    bootstrap_vault(vault, db_path, index_path, cache_path)
 
     stop_event = threading.Event()
     thread = threading.Thread(
-        target=_watch_loop, args=(vault, db_path, index_path, stop_event), daemon=True
+        target=_watch_loop,
+        args=(vault, db_path, index_path, cache_path, stop_event),
+        daemon=True,
     )
     thread.start()
     _watch_thread = thread
