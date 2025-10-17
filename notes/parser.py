@@ -35,12 +35,15 @@ class ParsedNote:
         Tags from the frontmatter. Always a list.
     fields:
         Custom fields collected from ``npc`` blocks.
+    metadata:
+        Normalised frontmatter metadata.
     """
 
     text: str
     aliases: List[str]
     tags: List[str]
     fields: Dict[str, Any]
+    metadata: Dict[str, Any]
 
 
 # Regex to capture fenced npc blocks.  The pattern allows blocks at the start of
@@ -70,7 +73,8 @@ def parse_note(path: Path) -> ParsedNote:
 
     post = _parse_frontmatter(path)
     text = post.content or ""
-    metadata = post.metadata or {}
+    metadata_raw = post.metadata or {}
+    metadata = dict(metadata_raw) if isinstance(metadata_raw, dict) else {}
 
     aliases = metadata.get("aliases", [])
     if isinstance(aliases, str):
@@ -84,6 +88,9 @@ def parse_note(path: Path) -> ParsedNote:
     elif not isinstance(tags, list):
         tags = []
 
+    metadata["aliases"] = list(aliases)
+    metadata["tags"] = list(tags)
+
     fields: Dict[str, Any] = {}
     for block in _NPC_BLOCK_RE.findall(text):
         try:
@@ -95,4 +102,10 @@ def parse_note(path: Path) -> ParsedNote:
     # Remove npc blocks from body text
     clean_text = _NPC_BLOCK_RE.sub("", text).strip()
 
-    return ParsedNote(text=clean_text, aliases=aliases, tags=tags, fields=fields)
+    return ParsedNote(
+        text=clean_text,
+        aliases=aliases,
+        tags=tags,
+        fields=fields,
+        metadata=metadata,
+    )

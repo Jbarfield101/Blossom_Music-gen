@@ -1,6 +1,7 @@
 """Note parsing utilities."""
 from .parser import ParsedNote, NoteParseError, parse_note
 from .chunker import NoteChunk, chunk_note, store_chunks
+from . import indexer
 
 try:  # Optional dependency: numpy
     from .search import search_chunks  # type: ignore[assignment]
@@ -14,6 +15,7 @@ __all__ = [
     "NoteChunk",
     "chunk_note",
     "store_chunks",
+    "indexer",
 ]
 if search_chunks is not None:
     __all__.append("search_chunks")
