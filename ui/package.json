@@ -12,6 +12,7 @@
     "@tauri-apps/api": "^2.8.0",
     "@tauri-apps/plugin-dialog": "^2.4.0",
     "@tauri-apps/plugin-fs": "^2.x",
+    "gray-matter": "file:vendor/gray-matter",
     "lucide-react": "^0.379.0",
     "prop-types": "^15.8.1",
     "react": "^18",
