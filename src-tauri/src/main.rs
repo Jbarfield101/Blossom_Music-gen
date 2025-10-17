@@ -9068,6 +9068,7 @@ fn main() {
             commands::comfyui_job_status,
             queue_stable_audio_job,
             queue_ace_audio_job,
+            dnd_watcher::vault_index_get_by_id,
             stable_audio_output_files,
             ace_output_files,
             discord_listen_logs_tail,

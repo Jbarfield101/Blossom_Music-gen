@@ -1,10 +1,11 @@
-from __future__ import annotations
-
 import json
+import sys
 from pathlib import Path
 
-from notes import watchdog
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
 from notes import indexer
+from notes import watchdog
 
 
 NOTE_TEMPLATE = """---
@@ -18,7 +19,9 @@ Body content.
 """
 
 
-def _write_note(path: Path, note_id: str, name: str, alias: str = "Alias", tag: str = "tag") -> None:
+def _write_note(
+    path: Path, note_id: str, name: str, alias: str = "Alias", tag: str = "tag"
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         NOTE_TEMPLATE.format(note_id=note_id, name=name, alias=alias, tag=tag),
@@ -63,19 +66,40 @@ def test_process_events_updates_index_on_rename_and_delete(tmp_path: Path) -> No
         [{"kind": "rename", "path": renamed_rel, "old_path": original_rel}],
         rebuild=False,
     )
-    indexer.save_index(vault, force=True)
+    watchdog.save_index(vault, force=True)
 
-    entity = indexer.get_by_id(vault, "npc_alice")
+    entity = watchdog.get_index_entity(vault, "npc_alice")
     assert entity is not None
     assert entity["path"] == renamed_rel
 
-    data = indexer.load_index(vault)
-    assert data["entities"]["npc_alice"]["path"] == renamed_rel
-
     target.unlink()
     watchdog.process_events(vault, [{"kind": "remove", "path": renamed_rel}], rebuild=False)
-    indexer.save_index(vault, force=True)
+    watchdog.save_index(vault, force=True)
 
-    assert indexer.get_by_id(vault, "npc_alice") is None
-    data_after = indexer.load_index(vault)
-    assert "npc_alice" not in data_after["entities"]
+    assert watchdog.get_index_entity(vault, "npc_alice") is None
+
+
+def test_modify_event_refreshes_cached_entity(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    note_rel = "npcs/alice.md"
+    note_path = vault / note_rel
+    _write_note(note_path, "npc_alice", "Alice", alias="Ally")
+
+    watchdog.bootstrap_vault(vault)
+
+    # Update aliases and title, then fire a modify event.
+    _write_note(note_path, "npc_alice", "Alice", alias="Ace")
+    watchdog.process_events(
+        vault,
+        [{"kind": "modify", "path": note_rel}],
+        rebuild=False,
+    )
+    watchdog.save_index(vault, force=True)
+
+    entity = watchdog.get_index_entity(vault, "npc_alice")
+    assert entity is not None
+    assert entity["aliases"] == ["Ace"]
+    assert entity["name"] == "Alice"
+
+    stored = indexer.load_index(vault)
+    assert stored["entities"]["npc_alice"]["aliases"] == ["Ace"]
