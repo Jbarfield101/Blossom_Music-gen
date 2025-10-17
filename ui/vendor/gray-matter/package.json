@@ -1,0 +1,6 @@
+{
+  "name": "gray-matter",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "index.js"
+}
