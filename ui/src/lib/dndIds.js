@@ -1,6 +1,7 @@
 const ENTITY_TYPES = new Set(['npc', 'quest', 'loc', 'faction', 'monster', 'encounter', 'session']);
 const ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz';
-export const ENTITY_ID_PATTERN = /^(npc|quest|loc|faction|monster|encounter|session)_[a-z0-9-]{1,24}_[a-z0-9]{4}$/;
+export const ENTITY_ID_PATTERN =
+  /^(npc|quest|loc|faction|monster|encounter|session)_[a-z0-9-]{1,24}_[a-z0-9]{4,6}$/;
 
 function defaultRng() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto && typeof globalThis.crypto.getRandomValues === 'function') {
