@@ -1219,6 +1219,69 @@
   flex-direction: column;
   gap: 0.5rem;
   min-width: 0;
+  position: relative;
+}
+
+.npc-header-subline {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.npc-header-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  min-height: 1.75rem;
+}
+
+.npc-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.npc-id-chip {
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: rgba(30, 41, 59, 0.6);
+  color: inherit;
+  border-radius: 999px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  min-height: 1.5rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.npc-id-chip:hover,
+.npc-id-chip:focus {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.6);
+  outline: none;
+}
+
+.npc-copy-toast {
+  position: absolute;
+  top: -0.5rem;
+  right: 0;
+  transform: translateY(-100%);
+  background: rgba(15, 118, 110, 0.92);
+  color: #ecfeff;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  box-shadow: 0 10px 25px rgba(13, 148, 136, 0.25);
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 1;
 }
 
 .npc-name {
