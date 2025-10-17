@@ -1,5 +1,6 @@
 import { listPiperVoices } from '../lib/piperVoices';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import BackButton from '../components/BackButton.jsx';
 import { getDreadhavenRoot } from '../api/config';
 import { listDir } from '../api/dir';
@@ -12,6 +13,8 @@ import { renderMarkdown } from '../lib/markdown.jsx';
 import './Dnd.css';
 import { invoke } from '@tauri-apps/api/core';
 import { useVaultVersion } from '../lib/vaultEvents.jsx';
+import { listEntitiesByType, getIndexEntityById, resetVaultIndexCache, resolveVaultPath } from '../lib/vaultIndex.js';
+import { loadEntity } from '../lib/vaultAdapter.js';
 
 const DEFAULT_NPC = 'D\\\\Documents\\\\DreadHaven\\\\20_DM\\\\NPC'.replace(/\\\\/g, '\\\\');
 const DEFAULT_PORTRAITS = 'D\\\\Documents\\\\DreadHaven\\\\30_Assets\\\\Images\\\\NPC_Portraits'.replace(/\\\\/g, '\\\\');
@@ -37,7 +40,34 @@ function sanitizeChip(s) {
   return s;
 }
 
+function extractChip(value) {
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const candidate = extractChip(entry);
+      if (candidate) return candidate;
+    }
+    return '';
+  }
+  if (value && typeof value === 'object') {
+    if (typeof value.value !== 'undefined') {
+      return extractChip(value.value);
+    }
+    return '';
+  }
+  return sanitizeChip(value);
+}
+
+function firstChip(...values) {
+  for (const value of values) {
+    const candidate = extractChip(value);
+    if (candidate) return candidate;
+  }
+  return '';
+}
+
 export default function DndDmNpcs() {
+  const navigate = useNavigate();
+  const { id: routeIdParam } = useParams();
   const [items, setItems] = useState([]);
   const [filterText, setFilterText] = useState('');
   const [filterType, setFilterType] = useState('');
@@ -46,11 +76,14 @@ export default function DndDmNpcs() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [usingPath, setUsingPath] = useState('');
+  const [vaultRoot, setVaultRoot] = useState('');
+  const [usingIndex, setUsingIndex] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
-  const [activePath, setActivePath] = useState('');
+  const [activeId, setActiveId] = useState('');
   const [activeContent, setActiveContent] = useState('');
   const [activeMeta, setActiveMeta] = useState({});
   const [activeBody, setActiveBody] = useState('');
+  const [activeIndexEntry, setActiveIndexEntry] = useState(null);
   const [metaNotice, setMetaNotice] = useState('');
   const [metaDismissed, setMetaDismissed] = useState(false);
   const [locations, setLocations] = useState({});
@@ -87,6 +120,21 @@ export default function DndDmNpcs() {
   const npcVersion = useVaultVersion(['20_dm/npc']);
   const regionVersion = useVaultVersion(['10_world/regions']);
   const portraitAssetsVersion = useVaultVersion(['30_assets/images']);
+  useEffect(() => {
+    let decoded = '';
+    if (typeof routeIdParam === 'string' && routeIdParam) {
+      try {
+        decoded = decodeURIComponent(routeIdParam);
+      } catch {
+        decoded = routeIdParam;
+      }
+    }
+    setActiveId((prev) => (prev === decoded ? prev : decoded));
+  }, [routeIdParam]);
+
+  useEffect(() => {
+    setModalOpen(Boolean(activeId));
+  }, [activeId]);
 const establishmentOptions = useMemo(() => {
     if (!Array.isArray(establishments) || establishments.length === 0) return [];
     return establishments.map((entry) => {
@@ -190,33 +238,142 @@ const establishmentOptions = useMemo(() => {
   const fetchItems = useCallback(async () => {
     setLoading(true);
     setError('');
+    setLocations({});
+    setTypeMap({});
+    setPortraitUrls({});
+    resetVaultIndexCache();
     try {
+      try {
+      const { root, entries } = await listEntitiesByType('npc', { force: true });
+      const normalizedRoot = typeof root === 'string' ? root : '';
+      setVaultRoot(normalizedRoot);
+      if (normalizedRoot) {
+        setUsingPath(resolveVaultPath(normalizedRoot, '20_dm/npc'));
+      }
+      const locMap = {};
+      const typeMapNext = {};
+      const normalizedItems = entries.map((entry) => {
+        const safeId = String(entry.id || '').trim();
+        const indexMeta = entry.index || {};
+        const metadata = indexMeta.metadata || {};
+        const fields = indexMeta.fields || {};
+        const location = firstChip(indexMeta.location, metadata.location, fields.location, indexMeta.region, metadata.region, fields.region);
+        if (safeId && location) {
+          locMap[safeId] = location;
+        }
+        const typeValue = firstChip(
+          metadata.purpose,
+          metadata.occupation,
+          metadata.role,
+          metadata.job,
+          metadata.profession,
+          metadata.type,
+          fields.purpose,
+          fields.occupation,
+          fields.role,
+          fields.job,
+          fields.profession,
+          fields.type,
+        );
+        if (safeId && typeValue) {
+          typeMapNext[safeId] = typeValue;
+        }
+        return {
+          id: safeId,
+          name: entry.name || metadata.name || '',
+          title: entry.title || entry.name || metadata.name || '',
+          path: entry.path,
+          relPath: entry.relPath,
+          modified_ms: entry.modified_ms,
+          index: indexMeta,
+        };
+      });
+        setItems(normalizedItems);
+        setLocations(locMap);
+        setTypeMap(typeMapNext);
+        setUsingIndex(true);
+        return;
+      } catch (err) {
+        console.warn('Failed to load NPC index, falling back to directory scan', err);
+      }
+
+      const loadFromScan = async (basePath) => {
+      if (!basePath) return false;
+      try {
+        const list = await crawl(basePath);
+        const locMap = {};
+        const typeMapNext = {};
+        const normalizedItems = [];
+        for (const entry of Array.isArray(list) ? list : []) {
+          let meta = {};
+          let id = '';
+          try {
+            const text = await readInbox(entry.path);
+            const [parsedMeta] = parseNpcFrontmatter(text);
+            meta = parsedMeta || {};
+            id = String(meta.id || meta.Id || '').trim();
+          } catch {
+            meta = {};
+            id = '';
+          }
+          if (!id) {
+            id = entry.path ? `path:${entry.path}` : `npc:${entry.name || entry.title || Math.random().toString(36).slice(2)}`;
+          }
+          const location = firstChip(meta.location, meta.region) || relLocation(basePath, entry.path);
+          if (id && location) {
+            locMap[id] = location;
+          }
+          const typeValue = firstChip(
+            meta.purpose,
+            meta.occupation,
+            meta.role,
+            meta.job,
+            meta.profession,
+            meta.type,
+          );
+          if (id && typeValue) {
+            typeMapNext[id] = typeValue;
+          }
+          normalizedItems.push({
+            ...entry,
+            id,
+            relPath: entry.path,
+            index: { metadata: meta },
+          });
+        }
+        setUsingIndex(false);
+        setVaultRoot('');
+        setUsingPath(basePath);
+        setItems(normalizedItems);
+        setLocations(locMap);
+        setTypeMap(typeMapNext);
+        return true;
+      } catch (err) {
+        console.error(err);
+        return false;
+      }
+    };
+
+      try {
       const vault = await getDreadhavenRoot();
-      const base = (typeof vault === 'string' && vault.trim())
-        ? `${vault.trim()}\\\\20_DM\\\\NPC`.replace(/\\\\/g, '\\\\')
-        : '';
-      if (base) {
-        const list = await crawl(base);
-        setUsingPath(base);
-        setItems(Array.isArray(list) ? list : []);
+      const base = (typeof vault === 'string' && vault.trim()) ? resolveVaultPath(vault.trim(), '20_dm/npc') : '';
+      if (await loadFromScan(base)) {
         return;
       }
-      throw new Error('no vault');
-    } catch (e1) {
-      try {
-        const fallback = 'D:\\Documents\\DreadHaven\\20_DM\\NPC';
-        const list = await crawl(fallback);
-        setUsingPath(fallback);
-        setItems(Array.isArray(list) ? list : []);
-      } catch (e2) {
-        console.error(e2);
-        setError(e2?.message || String(e2));
-        setItems([]);
-      }
+      } catch (err) {
+      // ignore
+    }
+
+    if (await loadFromScan(DEFAULT_NPC)) {
+      return;
+    }
+
+    setError('Failed to locate NPC directory.');
+    setItems([]);
     } finally {
       setLoading(false);
     }
-  }, [crawl]);
+  }, [crawl, parseNpcFrontmatter]);
 
   useEffect(() => { fetchItems(); }, [fetchItems, npcVersion]);
 
@@ -382,7 +539,8 @@ const establishmentOptions = useMemo(() => {
       .replace(/^_+|_+$/g, '');
     (async () => {
       for (const it of items) {
-        if (portraitUrls[it.path]) continue;
+        if (!it || !it.id) continue;
+        if (portraitUrls[it.id]) continue;
         const key = normalize((it.title || it.name || ''));
         const imgPath = portraitIndex[key];
         if (!imgPath) continue;
@@ -400,7 +558,7 @@ const establishmentOptions = useMemo(() => {
           const blob = new Blob([new Uint8Array(bytes)], { type: mime });
           const url = URL.createObjectURL(blob);
           if (!cancelled) {
-            setPortraitUrls((prev) => ({ ...prev, [it.path]: url }));
+            setPortraitUrls((prev) => ({ ...prev, [it.id]: url }));
           }
         } catch (e) {/* ignore */}
       }
@@ -410,10 +568,14 @@ const establishmentOptions = useMemo(() => {
 
   // Extract optional location from frontmatter or KV; fallback to relative folder path
   useEffect(() => {
+    if (usingIndex) {
+      return () => {};
+    }
     let cancelled = false;
     (async () => {
       for (const it of items) {
-        if (locations[it.path] !== undefined) continue;
+        if (!it || !it.id || !it.path) continue;
+        if (locations[it.id] !== undefined && typeMap[it.id] !== undefined) continue;
         try {
           const text = await readInbox(it.path);
           if (cancelled) return;
@@ -439,15 +601,38 @@ const establishmentOptions = useMemo(() => {
           if (!loc) {
             loc = relLocation(usingPath, it.path);
           }
-          setLocations((prev) => ({ ...prev, [it.path]: sanitizeChip(loc) }));
-          if (typ) setTypeMap((prev) => ({ ...prev, [it.path]: sanitizeChip(typ) }));
+          if (loc) {
+            setLocations((prev) => ({ ...prev, [it.id]: sanitizeChip(loc) }));
+          }
+          if (typ) {
+            setTypeMap((prev) => ({ ...prev, [it.id]: sanitizeChip(typ) }));
+          }
         } catch {/* ignore */}
       }
     })();
     return () => { cancelled = true; };
-  }, [items, usingPath]);
+  }, [items, usingPath, usingIndex]);
 
-  const selected = useMemo(() => items.find((i) => i.path === activePath), [items, activePath]);
+  const selected = useMemo(() => {
+    if (activeId) {
+      const match = items.find((i) => i.id === activeId);
+      if (match) return match;
+      if (activeIndexEntry) {
+        const relPath = activeIndexEntry.path || activeIndexEntry.relPath || '';
+        const absolute = vaultRoot ? resolveVaultPath(vaultRoot, relPath) : relPath;
+        return {
+          id: activeIndexEntry.id || activeId,
+          name: activeIndexEntry.name || '',
+          title: activeIndexEntry.name || '',
+          path: absolute,
+          relPath,
+          modified_ms: typeof activeIndexEntry.mtime === 'number' ? Math.round(activeIndexEntry.mtime * 1000) : null,
+          index: activeIndexEntry,
+        };
+      }
+    }
+    return null;
+  }, [items, activeId, activeIndexEntry, vaultRoot]);
 
   const derivedTitle = useMemo(() => {
     const meta = activeMeta || {};
@@ -476,11 +661,11 @@ const establishmentOptions = useMemo(() => {
     const q = filterText.trim().toLowerCase();
     let arr = items.filter((it) => {
       const title = String(it.title || it.name || '').toLowerCase();
-      const loc = String(locations[it.path] || '').toLowerCase();
+      const loc = String(locations[it.id] || '').toLowerCase();
       const textHit = !q || title.includes(q) || loc.includes(q);
       if (!textHit) return false;
       if (filterType) {
-        const t = String(typeMap[it.path] || '').toLowerCase();
+        const t = String(typeMap[it.id] || '').toLowerCase();
         if (t !== filterType.toLowerCase()) return false;
       }
       if (filterLocation) {
@@ -576,7 +761,7 @@ const establishmentOptions = useMemo(() => {
     if (!selected) return '';
     const metaLoc = sanitizeChip(activeMeta.location);
     if (metaLoc) return metaLoc;
-    return locations[selected.path] || relLocation(usingPath, selected.path) || '';
+    return locations[selected.id] || relLocation(usingPath, selected.path) || '';
   }, [selected, activeMeta.location, locations, usingPath]);
 
   const markdownSource = useMemo(() => {
@@ -586,10 +771,11 @@ const establishmentOptions = useMemo(() => {
 
   useEffect(() => {
     let cancelled = false;
-    if (!activePath) {
+    if (!activeId) {
       setActiveContent('');
       setActiveMeta({});
       setActiveBody('');
+      setActiveIndexEntry(null);
       setMetaNotice('');
       setMetaDismissed(false);
       return () => { cancelled = true; };
@@ -597,38 +783,71 @@ const establishmentOptions = useMemo(() => {
     setActiveContent('');
     setActiveMeta({});
     setActiveBody('');
+    setActiveIndexEntry(null);
     setMetaNotice('');
     setMetaDismissed(false);
     (async () => {
+      let indexEntry = null;
+      let entityPath = selected?.path || '';
+      if (usingIndex) {
+        try {
+          indexEntry = await getIndexEntityById(activeId, { force: false });
+        } catch (err) {
+          console.warn('Failed to hydrate NPC from index', err);
+        }
+        if (indexEntry && !cancelled) {
+          setActiveIndexEntry(indexEntry);
+          const relPath = indexEntry.path || indexEntry.relPath || '';
+          if (vaultRoot) {
+            entityPath = resolveVaultPath(vaultRoot, relPath);
+          } else if (relPath) {
+            entityPath = relPath;
+          }
+        }
+      }
+      const fallbackPath = entityPath || selected?.path;
+      if (!fallbackPath) {
+        if (!cancelled) {
+          setMetaNotice('NPC file not found.');
+        }
+        return;
+      }
       try {
-        const text = await readInbox(activePath);
-        if (!cancelled) setActiveContent(text || '');
-      } catch (e) {
-        if (!cancelled) setActiveContent('Failed to load file.');
+        const result = await loadEntity(fallbackPath);
+        if (cancelled) return;
+        const body = result?.body || '';
+        setActiveContent(body);
+        setActiveBody(body);
+        const entryMeta = indexEntry || selected?.index || {};
+        const combinedMeta = {
+          ...(entryMeta.metadata || {}),
+          ...(entryMeta.fields || {}),
+          ...(result?.entity || {}),
+        };
+        setActiveMeta(combinedMeta);
+        setMetaNotice('');
+      } catch (err) {
+        if (cancelled) return;
+        try {
+          const text = await readInbox(fallbackPath);
+          if (cancelled) return;
+          const [meta, body, issue] = parseNpcFrontmatter(text || '');
+          setActiveContent(text || '');
+          setActiveBody(body || '');
+          const entryMeta = indexEntry || selected?.index || {};
+          setActiveMeta({ ...(entryMeta.metadata || {}), ...meta });
+          setMetaNotice(issue || err?.message || '');
+        } catch (innerErr) {
+          if (cancelled) return;
+          setActiveContent('Failed to load file.');
+          setActiveBody('');
+          setActiveMeta({});
+          setMetaNotice(innerErr?.message || err?.message || 'Failed to load NPC file.');
+        }
       }
     })();
     return () => { cancelled = true; };
-  }, [activePath]);
-
-  useEffect(() => {
-    if (!selected) {
-      setActiveMeta({});
-      setActiveBody('');
-      if (metaNotice) setMetaNotice('');
-      return;
-    }
-    const text = typeof activeContent === 'string' ? activeContent : '';
-    if (!text.trim()) {
-      setActiveMeta({});
-      setActiveBody('');
-      if (metaNotice) setMetaNotice('');
-      return;
-    }
-    const [meta, body, issue] = parseNpcFrontmatter(text);
-    setActiveMeta(meta);
-    setActiveBody(body);
-    setMetaNotice(issue);
-  }, [selected, activeContent, parseNpcFrontmatter]);
+  }, [activeId, usingIndex, selected, vaultRoot, parseNpcFrontmatter]);
 
   useEffect(() => {
     if (!metaNotice) {
@@ -819,23 +1038,26 @@ const establishmentOptions = useMemo(() => {
       <section className="pantheon-grid">
         {visibleItems.map((item) => (
           <button
-            key={item.path}
+            key={item.id || item.path}
             className="pantheon-card"
             onClick={() => {
-              setActivePath(item.path);
+              if (!item.id) return;
+              setActiveId(item.id);
               setModalOpen(true);
+              const encoded = encodeURIComponent(item.id);
+              navigate(`/dnd/npc/${encoded}`);
               setMetaDismissed(false);
               setMetaNotice('');
             }}
             title={item.path}
           >
-            {portraitUrls[item.path] ? (
-              <img src={portraitUrls[item.path]} alt={item.title || item.name} className="monster-portrait" />
+            {portraitUrls[item.id] ? (
+              <img src={portraitUrls[item.id]} alt={item.title || item.name} className="monster-portrait" />
             ) : (
               <div className="monster-portrait placeholder">?</div>
             )}
             <div className="pantheon-card-title">{item.title || item.name}</div>
-            <div className="pantheon-card-meta">Location: {locations[item.path] || relLocation(usingPath, item.path) || '-'}</div>
+            <div className="pantheon-card-meta">Location: {locations[item.id] || relLocation(usingPath, item.path) || '-'}</div>
           </button>
         ))}
         {!loading && visibleItems.length === 0 && (
@@ -844,14 +1066,14 @@ const establishmentOptions = useMemo(() => {
       </section>
 
       {modalOpen && (
-        <div className="lightbox" onClick={() => { setModalOpen(false); }}>
+        <div className="lightbox" onClick={() => { setModalOpen(false); setActiveId(''); navigate('/dnd/npc'); }}>
           <div className="lightbox-panel" onClick={(e) => e.stopPropagation()}>
             {selected ? (
               <>
                 <header className="inbox-reader-header npc-header">
-                  {portraitUrls[selected.path] ? (
+                  {portraitUrls[selected.id] ? (
                     <img
-                      src={portraitUrls[selected.path]}
+                      src={portraitUrls[selected.id]}
                       alt={selected.title || selected.name}
                       className="npc-portrait"
                     />
@@ -868,7 +1090,7 @@ const establishmentOptions = useMemo(() => {
                           <span>{locationLabel}</span>
                         </>
                       )}
-                    <span style={{ marginLeft: "auto" }} /><button type="button" className="danger" onClick={async () => { if (!selected?.path) return; const ok = confirm(`Delete NPC file?\n\n${selected.path}`); if (!ok) return; try { await deleteInbox(selected.path); setModalOpen(false); setActivePath(""); await fetchItems(); } catch (err) { alert(err?.message || String(err)); } }}>Delete</button></div>
+                    <span style={{ marginLeft: "auto" }} /><button type="button" className="danger" onClick={async () => { if (!selected?.path) return; const ok = confirm(`Delete NPC file?\n\n${selected.path}`); if (!ok) return; try { await deleteInbox(selected.path); setModalOpen(false); setActiveId(''); navigate('/dnd/npc'); await fetchItems(); } catch (err) { alert(err?.message || String(err)); } }}>Delete</button></div>
                     {metadataChips.length > 0 && (
                       <div className="npc-chips">
                         {metadataChips.map((chip) => (

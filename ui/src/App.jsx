@@ -1,4 +1,4 @@
-import { Routes, Route, useLocation } from 'react-router-dom';
+import { Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import AppLayout from './components/AppLayout.jsx';
 import Dashboard from './pages/Dashboard.jsx';
 import Dnd from './pages/Dnd.jsx';
@@ -396,7 +396,9 @@ export default function App() {
             <Route path="/dnd/dungeon-master" element={<DndDungeonMaster />} />
             <Route path="/dnd/dungeon-master/events" element={<DndDmEvents />} />
             <Route path="/dnd/dungeon-master/monsters" element={<DndDmMonsters />} />
-            <Route path="/dnd/dungeon-master/npcs" element={<DndDmNpcs />} />
+            <Route path="/dnd/dungeon-master/npcs" element={<Navigate to="/dnd/npc" replace />} />
+            <Route path="/dnd/npc" element={<DndDmNpcs />} />
+            <Route path="/dnd/npc/:id" element={<DndDmNpcs />} />
             <Route path="/dnd/dungeon-master/players" element={<DndDmPlayersHome />} />
             <Route path="/dnd/dungeon-master/players/sheet" element={<DndDmPlayers />} />
             <Route path="/dnd/dungeon-master/players/new" element={<DndDmPlayerCreate />} />
