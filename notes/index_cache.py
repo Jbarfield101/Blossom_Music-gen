@@ -172,7 +172,13 @@ def _serialise_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
     return {str(key): convert(val) for key, val in metadata.items()}
 
 
-def _build_entity_from_parsed(rel_path: str, parsed: ParsedNote) -> Optional[Dict[str, Any]]:
+def _build_entity_from_parsed(
+    rel_path: str,
+    parsed: ParsedNote,
+    source_path: Path,
+    *,
+    mtime: float | None = None,
+) -> Optional[Dict[str, Any]]:
     metadata = parsed.metadata or {}
     entity_id = _coerce_str(metadata.get("id"))
     if not entity_id:
@@ -187,6 +193,22 @@ def _build_entity_from_parsed(rel_path: str, parsed: ParsedNote) -> Optional[Dic
     tags = _normalise_str_list(parsed.tags)
     titles = _normalise_str_list(metadata.get("titles"))
     keywords = _normalise_str_list(metadata.get("keywords"))
+    region = _coerce_str(metadata.get("region")) or _coerce_str(parsed.fields.get("region"))
+    location = _coerce_str(metadata.get("location")) or _coerce_str(
+        parsed.fields.get("location")
+    )
+
+    links = _normalise_str_list(metadata.get("links"))
+    extra_links = _normalise_str_list(parsed.fields.get("links"))
+    for link in extra_links:
+        if link not in links:
+            links.append(link)
+
+    if mtime is None:
+        try:
+            mtime = source_path.stat().st_mtime
+        except OSError:
+            mtime = None
 
     entity = {
         "id": entity_id,
@@ -199,11 +221,17 @@ def _build_entity_from_parsed(rel_path: str, parsed: ParsedNote) -> Optional[Dic
         "keywords": keywords,
         "fields": copy.deepcopy(parsed.fields),
         "metadata": _serialise_metadata(metadata),
+        "mtime": mtime,
+        "region": region,
+        "location": location,
+        "links": links,
     }
     return entity
 
 
-def _build_entity_from_json(rel_path: str, path: Path) -> Optional[Dict[str, Any]]:
+def _build_entity_from_json(
+    rel_path: str, path: Path, *, mtime: float | None = None
+) -> Optional[Dict[str, Any]]:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -246,6 +274,31 @@ def _build_entity_from_json(rel_path: str, path: Path) -> Optional[Dict[str, Any
     fields_raw = raw.get("fields")
     fields = copy.deepcopy(fields_raw) if isinstance(fields_raw, dict) else {}
 
+    region = (
+        _coerce_str(raw.get("region"))
+        or _coerce_str(metadata.get("region"))
+        or _coerce_str(fields.get("region"))
+    )
+    location = (
+        _coerce_str(raw.get("location"))
+        or _coerce_str(metadata.get("location"))
+        or _coerce_str(fields.get("location"))
+    )
+
+    links = _normalise_str_list(raw.get("links"))
+    if not links:
+        links = _normalise_str_list(metadata.get("links"))
+    extra_links = _normalise_str_list(fields.get("links"))
+    for link in extra_links:
+        if link not in links:
+            links.append(link)
+
+    if mtime is None:
+        try:
+            mtime = path.stat().st_mtime
+        except OSError:
+            mtime = None
+
     entity = {
         "id": entity_id,
         "type": entity_type,
@@ -257,6 +310,10 @@ def _build_entity_from_json(rel_path: str, path: Path) -> Optional[Dict[str, Any
         "keywords": keywords,
         "fields": fields,
         "metadata": _serialise_metadata(metadata),
+        "mtime": mtime,
+        "region": region,
+        "location": location,
+        "links": links,
     }
     return entity
 
@@ -287,6 +344,12 @@ def upsert_from_file(
     if not absolute.exists():
         return False
 
+    try:
+        file_stat = absolute.stat()
+    except OSError:
+        return False
+
+    file_mtime = file_stat.st_mtime
     suffix = absolute.suffix.lower()
     entity: Optional[Dict[str, Any]]
     if suffix == ".md":
@@ -295,9 +358,11 @@ def upsert_from_file(
                 parsed = parse_note(absolute)
             except NoteParseError:
                 return False
-        entity = _build_entity_from_parsed(rel, parsed)
+        entity = _build_entity_from_parsed(
+            rel, parsed, absolute, mtime=file_mtime
+        )
     elif suffix == ".json":
-        entity = _build_entity_from_json(rel, absolute)
+        entity = _build_entity_from_json(rel, absolute, mtime=file_mtime)
     else:
         return False
 
