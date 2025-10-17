@@ -17,6 +17,7 @@ use crate::{config, python_command};
 
 const DEFAULT_DB_PATH: &str = "chunks.sqlite";
 const DEFAULT_INDEX_PATH: &str = "obsidian_index.faiss";
+const DEFAULT_BLOSSOM_INDEX_PATH: &str = ".blossom_index.json";
 const DEBOUNCE_MS: u64 = 350;
 const WATCH_POLL_MS: u64 = 125;
 
@@ -108,9 +109,10 @@ pub(crate) fn start(app: &AppHandle) -> Result<(), String> {
 
     let db_path = root.join(DEFAULT_DB_PATH);
     let index_path = root.join(DEFAULT_INDEX_PATH);
+    let blossom_index_path = root.join(DEFAULT_BLOSSOM_INDEX_PATH);
 
     // Ensure the chunks database is primed before watching.
-    if let Err(err) = bootstrap_vault(&root, &db_path, &index_path) {
+    if let Err(err) = bootstrap_vault(&root, &db_path, &index_path, &blossom_index_path) {
         eprintln!("[blossom] dnd_watcher bootstrap error: {}", err);
     }
 
@@ -143,7 +145,14 @@ pub(crate) fn start(app: &AppHandle) -> Result<(), String> {
     let app_handle = app.clone();
     let root_for_thread = root.clone();
     std::thread::spawn(move || {
-        run_event_loop(app_handle, root_for_thread, db_path, index_path, rx)
+        run_event_loop(
+            app_handle,
+            root_for_thread,
+            db_path,
+            index_path,
+            blossom_index_path,
+            rx,
+        )
     });
 
     Ok(())
@@ -154,6 +163,7 @@ fn run_event_loop(
     root: PathBuf,
     db_path: PathBuf,
     index_path: PathBuf,
+    blossom_index_path: PathBuf,
     rx: mpsc::Receiver<notify::Result<Event>>,
 ) {
     let mut signatures: HashMap<String, FileSignature> = HashMap::new();
@@ -174,7 +184,14 @@ fn run_event_loop(
             Err(RecvTimeoutError::Timeout) => {
                 if !pending.is_empty() && last_event.elapsed() >= debounce {
                     if let Err(err) =
-                        flush_events(&app, &root, &db_path, &index_path, pending.drain(..))
+                        flush_events(
+                            &app,
+                            &root,
+                            &db_path,
+                            &index_path,
+                            &blossom_index_path,
+                            pending.drain(..),
+                        )
                     {
                         eprintln!("[blossom] dnd_watcher flush error: {}", err);
                     }
@@ -326,6 +343,7 @@ fn flush_events(
     root: &Path,
     db_path: &Path,
     index_path: &Path,
+    blossom_index_path: &Path,
     events: impl Iterator<Item = Delta>,
 ) -> Result<(), String> {
     let mut unique_paths = Vec::new();
@@ -359,6 +377,7 @@ fn flush_events(
         "vault": root.to_string_lossy(),
         "db_path": db_path.to_string_lossy(),
         "index_path": index_path.to_string_lossy(),
+        "blossom_index_path": blossom_index_path.to_string_lossy(),
         "rebuild": false,
         "events": events_json,
     });
@@ -424,7 +443,7 @@ fn file_signature(path: &Path) -> Option<FileSignature> {
 fn run_python_watchdog(payload: Value) -> Result<(), String> {
     let mut cmd = python_command();
     cmd.arg("-c")
-        .arg("import json, sys, notes.watchdog as w; payload=json.load(sys.stdin); w.process_events(payload['vault'], payload['events'], payload.get('db_path'), payload.get('index_path'), rebuild=payload.get('rebuild', True))")
+        .arg("import json, sys, notes.watchdog as w; payload=json.load(sys.stdin); w.process_events(payload['vault'], payload['events'], payload.get('db_path'), payload.get('index_path'), payload.get('blossom_index_path'), rebuild=payload.get('rebuild', True))")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -449,16 +468,22 @@ fn run_python_watchdog(payload: Value) -> Result<(), String> {
     Ok(())
 }
 
-fn bootstrap_vault(root: &Path, db_path: &Path, index_path: &Path) -> Result<(), String> {
+fn bootstrap_vault(
+    root: &Path,
+    db_path: &Path,
+    index_path: &Path,
+    blossom_index_path: &Path,
+) -> Result<(), String> {
     let payload = json!({
         "vault": root.to_string_lossy(),
         "db_path": db_path.to_string_lossy(),
         "index_path": index_path.to_string_lossy(),
+        "blossom_index_path": blossom_index_path.to_string_lossy(),
     });
 
     let mut cmd = python_command();
     cmd.arg("-c")
-        .arg("import json, sys, notes.watchdog as w; payload=json.load(sys.stdin); w.bootstrap_vault(payload['vault'], payload.get('db_path'), payload.get('index_path'))")
+        .arg("import json, sys, notes.watchdog as w; payload=json.load(sys.stdin); w.bootstrap_vault(payload['vault'], payload.get('db_path'), payload.get('index_path'), payload.get('blossom_index_path'))")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

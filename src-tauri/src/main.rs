@@ -1819,6 +1819,28 @@ fn normalize_npc_id(
     if let Some(raw) = candidate {
         let trimmed = raw.trim().to_string();
         if is_valid_npc_id(&trimmed) && !existing.contains(&trimmed) {
+            let desired_slug = npc_slug(name);
+            if let Some(first) = trimmed.find('_') {
+                if let Some(last) = trimmed.rfind('_') {
+                    if last > first {
+                        let prefix = &trimmed[..first];
+                        let current_slug = &trimmed[first + 1..last];
+                        let short_id = &trimmed[last + 1..];
+                        if current_slug != desired_slug {
+                            let candidate = format!(
+                                "{prefix}_{slug}_{short}",
+                                prefix = prefix,
+                                slug = desired_slug,
+                                short = short_id
+                            );
+                            if !existing.contains(&candidate) {
+                                existing.insert(candidate.clone());
+                                return (candidate, true);
+                            }
+                        }
+                    }
+                }
+            }
             existing.insert(trimmed.clone());
             return (trimmed, false);
         }
@@ -4132,6 +4154,7 @@ fn inbox_list(app: AppHandle, path: Option<String>) -> Result<Vec<InboxItem>, St
 #[tauri::command]
 async fn npc_create(
     app: AppHandle,
+    npc_id: Option<String>,
     name: String,
     region: Option<String>,
     purpose: Option<String>,
@@ -4147,7 +4170,8 @@ async fn npc_create(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
     eprintln!(
-        "[blossom] npc_create: start name='{}', region={:?}, purpose={:?}, template={:?}, establishment_path={:?}, establishment_name={:?}",
+        "[blossom] npc_create: start id={:?}, name='{}', region={:?}, purpose={:?}, template={:?}, establishment_path={:?}, establishment_name={:?}",
+        &npc_id,
         name,
         &region,
         &purpose,
@@ -4319,13 +4343,16 @@ async fn npc_create(
     };
 
     // Ensure frontmatter exists and enforce NPC metadata + sane title
-    fn ensure_npc_metadata(src: &str, npc_name: &str) -> String {
+    fn ensure_npc_metadata(src: &str, npc_name: &str, npc_id: Option<&str>) -> String {
         match parse_frontmatter(src) {
             Ok((mut mapping, body, _raw)) => {
                 // Set required keys
                 upsert_frontmatter_string(&mut mapping, "type", Some("npc"));
                 upsert_frontmatter_string(&mut mapping, "name", Some(npc_name));
                 upsert_frontmatter_string(&mut mapping, "title", Some(npc_name));
+                if let Some(id_value) = npc_id {
+                    upsert_frontmatter_string(&mut mapping, "id", Some(id_value));
+                }
 
                 // Build a simple, single-line frontmatter block the UI parser understands
                 let mut front = String::new();
@@ -4339,6 +4366,9 @@ async fn npc_create(
                     front.push('\n');
                 };
                 // Required first
+                if let Some(id_value) = npc_id {
+                    push_kv("id", id_value.to_string());
+                }
                 push_kv("title", npc_name.to_string());
                 push_kv("name", npc_name.to_string());
                 push_kv("type", "npc".to_string());
@@ -4433,7 +4463,7 @@ async fn npc_create(
             Err(_) => src.to_string(),
         }
     }
-    content = ensure_npc_metadata(&content, &initial_name);
+    content = ensure_npc_metadata(&content, &initial_name, None);
 
     // Re-extract the final NPC name from updated content/frontmatter
     let effective_name = match parse_frontmatter(&content) {
@@ -4449,6 +4479,18 @@ async fn npc_create(
         }
         Err(_) => extract_title(&content).unwrap_or_else(|| initial_name.clone()),
     };
+
+    let mut stored_npcs = match read_npcs(&app) {
+        Ok(list) => list,
+        Err(_) => Vec::new(),
+    };
+    let mut existing_ids: HashSet<String> = stored_npcs.iter().map(|npc| npc.id.clone()).collect();
+    let provided_id = npc_id
+        .as_ref()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let (final_id, _) = normalize_npc_id(provided_id, &effective_name, &mut existing_ids);
+    content = ensure_npc_metadata(&content, &effective_name, Some(&final_id));
 
     // Safe filename and unique path
     let mut fname = effective_name
@@ -4476,6 +4518,21 @@ async fn npc_create(
     }
 
     fs::write(&target, content.as_bytes()).map_err(|e| e.to_string())?;
+    let summary = Npc {
+        id: final_id.clone(),
+        name: effective_name.clone(),
+        description: String::new(),
+        prompt: String::new(),
+        voice: String::new(),
+    };
+    if let Some(existing) = stored_npcs.iter_mut().find(|npc| npc.id == summary.id) {
+        *existing = summary.clone();
+    } else {
+        stored_npcs.push(summary);
+    }
+    if let Err(err) = write_npcs(&app, &stored_npcs) {
+        eprintln!("[blossom] npc_create: failed to persist npc summary: {}", err);
+    }
     eprintln!("[blossom] npc_create: wrote '{}'", target.to_string_lossy());
     Ok(target.to_string_lossy().to_string())
 }

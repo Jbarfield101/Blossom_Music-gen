@@ -1,5 +1,18 @@
 import { readFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import { transform } from 'esbuild';
+
+const grayMatterUrl = new URL('../src/lib/vendor/gray-matter.js', import.meta.url);
+
+export async function resolve(specifier, context, defaultResolve) {
+  if (specifier === 'gray-matter') {
+    return {
+      url: grayMatterUrl.href,
+      shortCircuit: true,
+    };
+  }
+  return defaultResolve(specifier, context, defaultResolve);
+}
 
 export async function load(url, context, defaultLoad) {
   if (url.endsWith('.css')) {

@@ -34,6 +34,7 @@ export default defineConfig({
       '@tauri-apps/api/dialog': '@tauri-apps/plugin-dialog',
       '@tauri-apps/api/shell': '@tauri-apps/plugin-shell',
       '@tauri-apps/api/store': '@tauri-apps/plugin-store',
+      'gray-matter': '/src/lib/vendor/gray-matter.js',
     },
     // Ensure a single React instance (fixes invalid hook call with linked deps)
     dedupe: ['react', 'react-dom'],
