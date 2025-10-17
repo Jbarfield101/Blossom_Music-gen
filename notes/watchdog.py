@@ -10,14 +10,39 @@ helpers defined here.
 
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from enum import Enum
 import sqlite3
 import threading
 
-from watchfiles import Change, watch
+try:  # Optional dependency used for live filesystem watching
+    from watchfiles import Change, watch
+except Exception:  # pragma: no cover - optional import fallback
+    class _FallbackChange(Enum):
+        added = "added"
+        modified = "modified"
+        deleted = "deleted"
+
+    Change = _FallbackChange  # type: ignore[assignment]
+
+    def watch(*_args: Any, **_kwargs: Any):  # type: ignore[override]
+        raise RuntimeError("watchfiles is not installed")
 
 from .chunker import chunk_note, ensure_chunk_tables, store_chunks
-from .embedding import DEFAULT_INDEX_PATH, rebuild_index
-from .parser import NoteParseError, parse_note
+
+try:  # Optional heavy dependency for embeddings
+    from .embedding import DEFAULT_INDEX_PATH, rebuild_index
+except Exception:  # pragma: no cover - optional import fallback
+    DEFAULT_INDEX_PATH = "obsidian_index.faiss"
+
+    def rebuild_index(*_args: Any, **_kwargs: Any) -> None:  # type: ignore[override]
+        raise RuntimeError("Embedding dependencies are not installed")
+from .parser import NoteParseError, ParsedNote, parse_note
+from .indexer import (
+    remove_by_path as index_remove_by_path,
+    reset_index as reset_note_index,
+    save_index as save_note_index,
+    upsert_from_file as index_upsert_from_file,
+)
 
 # Default location of the chunks database relative to the vault
 DEFAULT_DB_PATH = "chunks.sqlite"
@@ -64,14 +89,14 @@ def _should_ignore(path: Path) -> bool:
     return any(lower.endswith(suffix) for suffix in _IGNORED_SUFFIXES)
 
 
-def _store_note(path: Path, rel: str, db_path: Path) -> bool:
+def _store_note(path: Path, rel: str, db_path: Path) -> ParsedNote | None:
     try:
         parsed = parse_note(path)
     except NoteParseError:
-        return False
+        return None
     chunks = chunk_note(parsed, rel)
     store_chunks(chunks, db_path)
-    return True
+    return parsed
 
 
 def _delete_note(rel: str, db_path: Path) -> None:
@@ -103,6 +128,8 @@ def bootstrap_vault(
     finally:
         conn.close()
 
+    reset_note_index(vault)
+
     for note_path in sorted(vault.rglob("*.md")):
         if not note_path.is_file() or _should_ignore(note_path):
             continue
@@ -110,7 +137,11 @@ def bootstrap_vault(
             rel_path = note_path.relative_to(vault).as_posix()
         except ValueError:
             continue
-        _store_note(note_path, rel_path, db_path)
+        parsed = _store_note(note_path, rel_path, db_path)
+        if parsed:
+            index_upsert_from_file(vault, rel_path, parsed)
+
+    save_note_index(vault, force=True)
 
     try:
         rebuild_index(db_path, index_path)
@@ -141,6 +172,7 @@ def process_events(
     _ensure_tables(db_path)
 
     updated = False
+    index_changed = False
     for event in events:
         kind = str(event.get("kind", "")).lower()
         raw_path = event.get("path")
@@ -160,13 +192,18 @@ def process_events(
                 continue
             if _should_ignore(target_path):
                 continue
-            if _store_note(target_path, rel_path, db_path):
+            parsed = _store_note(target_path, rel_path, db_path)
+            if parsed:
                 updated = True
+                if index_upsert_from_file(vault, rel_path, parsed):
+                    index_changed = True
         elif kind == "remove":
             if not rel_path.lower().endswith(".md"):
                 continue
             _delete_note(rel_path, db_path)
             updated = True
+            if index_remove_by_path(vault, rel_path):
+                index_changed = True
         elif kind == "rename":
             old_path = event.get("old_path")
             if old_path:
@@ -174,12 +211,20 @@ def process_events(
                 if old_rel.lower().endswith(".md"):
                     _delete_note(old_rel, db_path)
                     updated = True
+                    if index_remove_by_path(vault, old_rel):
+                        index_changed = True
             if target_path.suffix.lower() != ".md" or not target_path.exists():
                 continue
             if _should_ignore(target_path):
                 continue
-            if _store_note(target_path, rel_path, db_path):
+            parsed = _store_note(target_path, rel_path, db_path)
+            if parsed:
                 updated = True
+                if index_upsert_from_file(vault, rel_path, parsed):
+                    index_changed = True
+
+    if index_changed:
+        save_note_index(vault)
 
     if updated and rebuild:
         try:
