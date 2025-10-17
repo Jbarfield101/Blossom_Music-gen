@@ -2733,6 +2733,15 @@ fn run_npc_repair_job(app: AppHandle, helper_path: PathBuf, run_id: u64, npc_ids
 
     let mut status_map = statuses.lock().unwrap().clone();
     let mut error_map = errors.lock().unwrap().clone();
+
+    if let Some(err_msg) = run_error.as_ref() {
+        for id in &npc_ids {
+            if !error_map.contains_key(id) {
+                error_map.insert(id.clone(), err_msg.clone());
+                status_map.insert(id.clone(), "error".to_string());
+            }
+        }
+    }
     let mut final_status_map = HashMap::new();
     let mut verified = Vec::new();
     let mut failed = Vec::new();
@@ -2773,7 +2782,11 @@ fn run_npc_repair_job(app: AppHandle, helper_path: PathBuf, run_id: u64, npc_ids
                 run_id,
                 npc_id: Some(id.clone()),
                 status: Some(final_status),
-                message: None,
+                message: if final_status == "error" {
+                    error_map.get(id).cloned()
+                } else {
+                    None
+                },
                 error: error_map.get(id).cloned(),
                 summary: None,
             },
