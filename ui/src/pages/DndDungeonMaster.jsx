@@ -17,7 +17,7 @@ const sections = [
     description: 'Bestiary and custom creature notes.',
   },
   {
-    to: '/dnd/dungeon-master/npcs',
+    to: '/dnd/npc',
     icon: 'Users',
     title: 'NPCs',
     description: 'Quick access to important NPC notes.',

@@ -1,6 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import { transform } from 'esbuild';
 
+export async function resolve(specifier, context, defaultResolve) {
+  if (specifier === '@testing-library/react') {
+    const url = new URL('./vendor/testing-library-react.js', import.meta.url);
+    return { url: url.href, shortCircuit: true };
+  }
+  return defaultResolve(specifier, context, defaultResolve);
+}
+
 export async function load(url, context, defaultLoad) {
   if (url.endsWith('.css')) {
     return {
