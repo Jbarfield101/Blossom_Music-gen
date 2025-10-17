@@ -63,6 +63,7 @@ import BrickBreaker from './pages/BrickBreaker.jsx';
 import Calendar from './pages/Calendar.jsx';
 import GeneralChat from './pages/GeneralChat.jsx';
 import DndTasks from './pages/DndTasks.jsx';
+import DndRepair from './pages/DndRepair.jsx';
 import DndDmWorldInventory from './pages/DndDmWorldInventory.jsx';
 import DndLoreSecrets from './pages/DndLoreSecrets.jsx';
 import DndLoreJournal from './pages/DndLoreJournal.jsx';
@@ -393,6 +394,7 @@ export default function App() {
             <Route path="/dnd/lore/rules" element={<DndLoreRules />} />
             <Route path="/dnd/lore/background-rules" element={<DndLoreBackgroundRules />} />
             <Route path="/dnd/tasks" element={<DndTasks />} />
+            <Route path="/dnd/tasks/repair" element={<DndRepair />} />
             <Route path="/dnd/dungeon-master" element={<DndDungeonMaster />} />
             <Route path="/dnd/dungeon-master/events" element={<DndDmEvents />} />
             <Route path="/dnd/dungeon-master/monsters" element={<DndDmMonsters />} />

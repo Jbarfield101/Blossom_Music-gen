@@ -324,6 +324,13 @@ export default function DndTasks() {
         }}>
           Find NPCs and Gods missing portrait images; attach images and get auto-generated prompts.
         </Card>
+        <Card
+          icon="Wrench"
+          title="Repair Records"
+          to="/dnd/tasks/repair"
+        >
+          Verify NPC metadata, trigger batch repairs, and monitor progress in real time.
+        </Card>
       </section>
 
       {modalOpen && (
