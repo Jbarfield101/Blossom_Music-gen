@@ -6,6 +6,7 @@ import { listDir } from '../api/dir';
 import { readInbox, deleteInbox } from '../api/inbox';
 import { readFileBytes } from '../api/files';
 import { createNpc, saveNpc, listNpcs } from '../api/npcs';
+import { makeId } from '../lib/dndIds';
 import { loadEstablishments } from '../api/establishments';
 import { renderMarkdown } from '../lib/markdown.jsx';
 import './Dnd.css';
@@ -726,14 +727,35 @@ const establishmentOptions = useMemo(() => {
     setCardVoiceSaving(true);
     setCardVoiceStatus('');
     try {
-      await saveNpc({ name: npcName, description: '', prompt: '', voice });
+      const existing = npcList.find(
+        (n) => (n?.name || '').toLowerCase() === npcName.toLowerCase(),
+      );
+      const idPool = npcList
+        .map((n) => (typeof n?.id === 'string' && n.id ? n.id : null))
+        .filter((id) => typeof id === 'string');
+      const existingIds = new Set(idPool);
+      let npcId = existing?.id;
+      if (!npcId) {
+        npcId = makeId('npc', npcName, existingIds);
+      }
+      const payload = {
+        id: npcId,
+        name: npcName,
+        description: existing?.description || '',
+        prompt: existing?.prompt || '',
+        voice,
+      };
+      await saveNpc(payload);
       setCardVoiceStatus(voice ? 'Saved' : 'Cleared');
       // reflect in local cache
       setNpcList((prev) => {
-        const idx = prev.findIndex((n) => (n?.name || '').toLowerCase() === npcName.toLowerCase());
         const next = [...prev];
-        if (idx >= 0) next[idx] = { ...next[idx], voice };
-        else next.push({ name: npcName, description: '', prompt: '', voice });
+        const idx = next.findIndex((n) => n.id === npcId);
+        if (idx >= 0) {
+          next[idx] = { ...next[idx], voice };
+        } else {
+          next.push(payload);
+        }
         return next;
       });
       setTimeout(() => setCardVoiceStatus(''), 1500);
@@ -742,7 +764,7 @@ const establishmentOptions = useMemo(() => {
     } finally {
       setCardVoiceSaving(false);
     }
-  }, [selected]);
+  }, [npcList, selected]);
 
   return (
     <div>
@@ -955,7 +977,23 @@ const establishmentOptions = useMemo(() => {
                   let vv = String(voiceValue || '').trim();
                   if (vv) {
                     // Save ElevenLabs by profile name (managed in profiles list)
-                    await saveNpc({ name: npcName, description: '', prompt: '', voice: vv });
+                    const idPool = npcList
+                      .map((n) => (typeof n?.id === 'string' && n.id ? n.id : null))
+                      .filter((id) => typeof id === 'string');
+                    const existingIds = new Set(idPool);
+                    const npcId = makeId('npc', npcName, existingIds);
+                    const payload = { id: npcId, name: npcName, description: '', prompt: '', voice: vv };
+                    await saveNpc(payload);
+                    setNpcList((prev) => {
+                      const next = [...prev];
+                      const idx = next.findIndex((n) => n.id === npcId);
+                      if (idx >= 0) {
+                        next[idx] = { ...next[idx], voice: vv };
+                      } else {
+                        next.push(payload);
+                      }
+                      return next;
+                    });
                   }
                 } catch (_) {}
                 setShowCreate(false);

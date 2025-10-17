@@ -32,6 +32,7 @@ use tauri_plugin_store::{Builder, Store, StoreBuilder};
 use tempfile::NamedTempFile;
 use tokio::time::sleep;
 use url::Url;
+use uuid::Uuid;
 use walkdir::WalkDir;
 mod commands;
 mod config;
@@ -1707,8 +1708,138 @@ fn list_bundled_voices(app: AppHandle) -> Result<Value, String> {
     Ok(Value::Array(items))
 }
 
+const NPC_ID_ALPHABET: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
+const NPC_ID_SHORT_LEN: usize = 4;
+const NPC_ID_PREFIX: &str = "npc";
+const NPC_ID_SLUG_MAX_LEN: usize = 24;
+static NPC_ID_REGEX: OnceLock<Regex> = OnceLock::new();
+
+fn npc_id_regex() -> &'static Regex {
+    NPC_ID_REGEX.get_or_init(|| {
+        Regex::new(r"^npc_[a-z0-9-]{1,24}_[a-z0-9]{4}$").expect("valid npc id regex")
+    })
+}
+
+fn is_valid_npc_id(id: &str) -> bool {
+    npc_id_regex().is_match(id)
+}
+
+fn npc_slug(name: &str) -> String {
+    let base = name.trim().to_ascii_lowercase();
+    if base.is_empty() {
+        return "entity".to_string();
+    }
+    let mut replaced = String::with_capacity(base.len());
+    for ch in base.chars() {
+        match ch {
+            'a'..='z' | '0'..='9' => replaced.push(ch),
+            '-' => replaced.push('-'),
+            ' ' | '_' => replaced.push('-'),
+            _ => replaced.push('-'),
+        }
+    }
+    let mut collapsed = String::with_capacity(replaced.len());
+    let mut prev_dash = false;
+    for ch in replaced.chars() {
+        if ch == '-' {
+            if !prev_dash {
+                collapsed.push('-');
+                prev_dash = true;
+            }
+        } else {
+            collapsed.push(ch);
+            prev_dash = false;
+        }
+    }
+    let mut slug = collapsed.trim_matches('-').to_string();
+    if slug.is_empty() {
+        slug = "entity".to_string();
+    }
+    if slug.len() > NPC_ID_SLUG_MAX_LEN {
+        slug.truncate(NPC_ID_SLUG_MAX_LEN);
+        while slug.ends_with('-') {
+            slug.pop();
+        }
+        if slug.is_empty() {
+            slug = "entity".to_string();
+        }
+    }
+    slug
+}
+
+fn make_short_id(len: usize) -> String {
+    if len == 0 {
+        return String::new();
+    }
+    let mut out = String::with_capacity(len);
+    let mut pool: Vec<u8> = Vec::new();
+    while out.len() < len {
+        if pool.is_empty() {
+            pool.extend_from_slice(Uuid::new_v4().as_bytes());
+        }
+        if let Some(byte) = pool.pop() {
+            let idx = (byte as usize) % NPC_ID_ALPHABET.len();
+            out.push(NPC_ID_ALPHABET[idx] as char);
+        }
+    }
+    out
+}
+
+fn generate_unique_npc_id(name: &str, existing: &mut HashSet<String>) -> String {
+    let slug = npc_slug(name);
+    for _ in 0..5 {
+        let candidate = format!(
+            "{prefix}_{slug}_{short}",
+            prefix = NPC_ID_PREFIX,
+            slug = slug,
+            short = make_short_id(NPC_ID_SHORT_LEN)
+        );
+        if existing.insert(candidate.clone()) {
+            return candidate;
+        }
+    }
+    loop {
+        let candidate = format!(
+            "{prefix}_{slug}_{short}",
+            prefix = NPC_ID_PREFIX,
+            slug = slug,
+            short = make_short_id(NPC_ID_SHORT_LEN + 4)
+        );
+        if existing.insert(candidate.clone()) {
+            return candidate;
+        }
+    }
+}
+
+fn normalize_npc_id(
+    candidate: Option<String>,
+    name: &str,
+    existing: &mut HashSet<String>,
+) -> (String, bool) {
+    if let Some(raw) = candidate {
+        let trimmed = raw.trim().to_string();
+        if is_valid_npc_id(&trimmed) && !existing.contains(&trimmed) {
+            existing.insert(trimmed.clone());
+            return (trimmed, false);
+        }
+    }
+    let generated = generate_unique_npc_id(name, existing);
+    (generated, true)
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 struct Npc {
+    id: String,
+    name: String,
+    description: String,
+    prompt: String,
+    voice: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct StoredNpc {
+    #[serde(default)]
+    id: Option<String>,
     name: String,
     description: String,
     prompt: String,
@@ -1740,7 +1871,26 @@ fn read_npcs(app: &AppHandle) -> Result<Vec<Npc>, String> {
         return Ok(Vec::new());
     }
     let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let npcs = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+    let stored = serde_json::from_str::<Vec<StoredNpc>>(&text).map_err(|e| e.to_string())?;
+    let mut existing_ids: HashSet<String> = HashSet::new();
+    let mut changed = false;
+    let mut npcs: Vec<Npc> = Vec::with_capacity(stored.len());
+    for entry in stored {
+        let (id, generated) = normalize_npc_id(entry.id, &entry.name, &mut existing_ids);
+        if generated {
+            changed = true;
+        }
+        npcs.push(Npc {
+            id,
+            name: entry.name,
+            description: entry.description,
+            prompt: entry.prompt,
+            voice: entry.voice,
+        });
+    }
+    if changed {
+        let _ = write_npcs(app, &npcs);
+    }
     Ok(npcs)
 }
 
@@ -1844,6 +1994,7 @@ fn npc_list(app: AppHandle) -> Result<Vec<Npc>, String> {
         .iter()
         .map(|npc| npc.name.to_ascii_lowercase())
         .collect();
+    let mut existing_ids: HashSet<String> = npcs.iter().map(|npc| npc.id.clone()).collect();
 
     let mut service_had_entries = false;
     let mut cmd = python_command();
@@ -1889,7 +2040,30 @@ fn npc_list(app: AppHandle) -> Result<Vec<Npc>, String> {
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("")
                                 .to_string();
+                            let candidate_id = note
+                                .get("id")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())
+                                .or_else(|| {
+                                    note.get("npcId")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string())
+                                })
+                                .or_else(|| {
+                                    fields
+                                        .and_then(|f| f.get("id"))
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string())
+                                })
+                                .or_else(|| {
+                                    fields
+                                        .and_then(|f| f.get("npcId"))
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.to_string())
+                                });
+                            let (id, _) = normalize_npc_id(candidate_id, &name, &mut existing_ids);
                             npcs.push(Npc {
+                                id,
                                 name,
                                 description,
                                 prompt,
@@ -1908,7 +2082,9 @@ fn npc_list(app: AppHandle) -> Result<Vec<Npc>, String> {
                 for name in fallback_names {
                     let key = name.to_ascii_lowercase();
                     if seen.insert(key) {
+                        let (id, _) = normalize_npc_id(None, &name, &mut existing_ids);
                         npcs.push(Npc {
+                            id,
                             name,
                             description: String::new(),
                             prompt: String::new(),
@@ -2045,21 +2221,51 @@ except Exception as exc:
 }
 
 #[tauri::command]
-fn npc_save(app: AppHandle, npc: Npc) -> Result<(), String> {
+fn npc_save(app: AppHandle, mut npc: Npc) -> Result<(), String> {
     let mut npcs = read_npcs(&app)?;
-    if let Some(existing) = npcs.iter_mut().find(|n| n.name == npc.name) {
-        *existing = npc;
-    } else {
-        npcs.push(npc);
+    let trimmed_id = npc.id.trim().to_string();
+    if !trimmed_id.is_empty() {
+        if let Some(existing) = npcs.iter_mut().find(|n| n.id == trimmed_id) {
+            npc.id = trimmed_id;
+            *existing = npc;
+            return write_npcs(&app, &npcs);
+        }
     }
+    if let Some(existing) = npcs.iter_mut().find(|n| n.name == npc.name) {
+        npc.id = existing.id.clone();
+        *existing = npc;
+        return write_npcs(&app, &npcs);
+    }
+    let mut existing_ids: HashSet<String> = npcs.iter().map(|n| n.id.clone()).collect();
+    let candidate = if trimmed_id.is_empty() {
+        None
+    } else {
+        Some(trimmed_id)
+    };
+    let (id, _) = normalize_npc_id(candidate, &npc.name, &mut existing_ids);
+    npc.id = id;
+    npcs.push(npc);
     write_npcs(&app, &npcs)
 }
 
 #[tauri::command]
-fn npc_delete(app: AppHandle, name: String) -> Result<(), String> {
+fn npc_delete(app: AppHandle, id: String) -> Result<(), String> {
     let mut npcs = read_npcs(&app)?;
-    npcs.retain(|n| n.name != name);
-    write_npcs(&app, &npcs)
+    let trimmed = id.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    let original_len = npcs.len();
+    if is_valid_npc_id(trimmed) {
+        npcs.retain(|n| n.id != trimmed);
+    } else {
+        npcs.retain(|n| n.name != trimmed);
+    }
+    if npcs.len() != original_len {
+        write_npcs(&app, &npcs)
+    } else {
+        Ok(())
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]

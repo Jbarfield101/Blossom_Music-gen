@@ -353,27 +353,28 @@ export default function DndDiscord() {
   const persistNpcVoice = useCallback(
     async (npc, voice) => {
       const trimmed = voice.trim();
-      setNpcSaving((prev) => ({ ...prev, [npc.name]: true }));
-      setNpcStatus((prev) => ({ ...prev, [npc.name]: '' }));
+      const key = npc.id || npc.name;
+      setNpcSaving((prev) => ({ ...prev, [key]: true }));
+      setNpcStatus((prev) => ({ ...prev, [key]: '' }));
       try {
         await saveNpc({ ...npc, voice: trimmed });
-        setNpcs((prev) => prev.map((item) => (item.name === npc.name ? { ...item, voice: trimmed } : item)));
-        setNpcStatus((prev) => ({ ...prev, [npc.name]: trimmed ? 'Saved' : 'Cleared' }));
-        if (statusTimeouts.current[npc.name]) {
-          clearTimeout(statusTimeouts.current[npc.name]);
+        setNpcs((prev) => prev.map((item) => (item.id === npc.id ? { ...item, voice: trimmed } : item)));
+        setNpcStatus((prev) => ({ ...prev, [key]: trimmed ? 'Saved' : 'Cleared' }));
+        if (statusTimeouts.current[key]) {
+          clearTimeout(statusTimeouts.current[key]);
         }
-        statusTimeouts.current[npc.name] = setTimeout(() => {
+        statusTimeouts.current[key] = setTimeout(() => {
           setNpcStatus((prev) => {
             const next = { ...prev };
-            delete next[npc.name];
+            delete next[key];
             return next;
           });
         }, 2000);
       } catch (err) {
         console.error('Failed to save NPC voice', err);
-        setNpcStatus((prev) => ({ ...prev, [npc.name]: err?.message || 'Failed to save voice' }));
+        setNpcStatus((prev) => ({ ...prev, [key]: err?.message || 'Failed to save voice' }));
       } finally {
-        setNpcSaving((prev) => ({ ...prev, [npc.name]: false }));
+        setNpcSaving((prev) => ({ ...prev, [key]: false }));
       }
     },
     [],
