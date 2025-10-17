@@ -13,9 +13,6 @@ export default function Tools() {
         <Card to="/fusion" icon="Atom" title="Fusion">
           Concept Combiner
         </Card>
-        <Card to="/ace" icon="Sparkles" title="ACE">
-          ACE-Step Instrumental Studio
-        </Card>
         <Card to="/queue" icon="ListTodo" title="Job Queue">
           Queued + Running Jobs
         </Card>
@@ -27,9 +24,6 @@ export default function Tools() {
         </Card>
         <Card to="/beatmaker" icon="AudioWaveform" title="Beat Maker">
           Audio Loop Builder
-        </Card>
-        <Card to="/album" icon="Disc3" title="Album Maker">
-          Cover + Tracklist Generator
         </Card>
         <Card to="/train" icon="Sliders" title="Train Model">
           Custom Model Trainer

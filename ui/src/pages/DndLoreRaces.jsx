@@ -8,6 +8,7 @@ import { loadRaces, createRace, saveRacePortrait } from '../api/races';
 import { readInbox } from '../api/inbox';
 import { renderMarkdown } from '../lib/markdown.jsx';
 import './Dnd.css';
+import { useVaultVersion } from '../lib/vaultEvents.jsx';
 
 export default function DndLoreRaces() {
   const [items, setItems] = useState([]);
@@ -26,6 +27,8 @@ export default function DndLoreRaces() {
   const [activePath, setActivePath] = useState('');
   const [activeContent, setActiveContent] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
+  const racesVersion = useVaultVersion(['10_world/races']);
+  const racePortraitsVersion = useVaultVersion(['30_assets/images']);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -44,7 +47,7 @@ export default function DndLoreRaces() {
     }
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { refresh(); }, [refresh, racesVersion]);
 
   // Resolve portrait path for a race (Portrait_<RaceName>.*)
   const resolvePortrait = useCallback(async (raceName) => {
@@ -92,7 +95,7 @@ export default function DndLoreRaces() {
       if (!cancelled) setPortraits(map);
     })();
     return () => { cancelled = true; };
-  }, [itemsWithMeta, resolvePortrait]);
+  }, [itemsWithMeta, resolvePortrait, racePortraitsVersion]);
 
   useEffect(() => {
     let cancelled = false;

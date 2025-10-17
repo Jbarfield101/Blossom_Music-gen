@@ -3,6 +3,7 @@ import BackButton from '../components/BackButton.jsx';
 import { listInbox, readInbox, createInbox, updateInbox, deleteInbox } from '../api/inbox';
 import './Dnd.css';
 import { renderMarkdown } from '../lib/markdown.jsx';
+import { useVaultVersion } from '../lib/vaultEvents.jsx';
 
 const DEFAULT_INBOX = 'D:\\Documents\\DreadHaven\\00_Inbox';
 
@@ -49,6 +50,7 @@ export default function DndInbox() {
   const [editing, setEditing] = useState(false);
   const [editBody, setEditBody] = useState('');
   const [editError, setEditError] = useState('');
+  const inboxVersion = useVaultVersion(['00_inbox']);
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -81,7 +83,7 @@ export default function DndInbox() {
 
   useEffect(() => {
     fetchItems();
-  }, [fetchItems]);
+  }, [fetchItems, inboxVersion]);
 
   useEffect(() => {
     if (!activePath) {

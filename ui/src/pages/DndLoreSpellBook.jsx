@@ -5,6 +5,7 @@ import { listInbox, readInbox } from '../api/inbox';
 import { createSpell } from '../api/spells';
 import { renderMarkdown } from '../lib/markdown.jsx';
 import './Dnd.css';
+import { useVaultVersion } from '../lib/vaultEvents.jsx';
 
 const DEFAULT_SPELL_BOOK = 'D\\\\Documents\\\\DreadHaven\\\\10_World\\\\SpellBook';
 const MARKDOWN_RE = /\.(md|mdx|markdown)$/i;
@@ -52,6 +53,7 @@ export default function DndLoreSpellBook() {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [createError, setCreateError] = useState('');
+  const spellBookVersion = useVaultVersion(['10_world/spellbook']);
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -92,7 +94,7 @@ export default function DndLoreSpellBook() {
     }
   }, [activePath]);
 
-  useEffect(() => { fetchItems(); }, [fetchItems]);
+  useEffect(() => { fetchItems(); }, [fetchItems, spellBookVersion]);
 
   useEffect(() => {
     if (!activePath) {

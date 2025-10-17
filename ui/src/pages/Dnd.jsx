@@ -37,7 +37,7 @@ const sections = [
     to: '/dnd/tasks',
     icon: 'ListTodo',
     title: 'Tasks',
-    description: 'Track campaign todos and session tasks. (WIP)',
+    description: 'Track campaign todos and session tasks.',
   },
   {
     to: '/dnd/whisper',

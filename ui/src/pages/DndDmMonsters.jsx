@@ -7,6 +7,7 @@ import { readFileBytes } from '../api/files';
 import { createMonster } from '../api/monsters';
 import { renderMarkdown } from '../lib/markdown.jsx';
 import './Dnd.css';
+import { useVaultVersion } from '../lib/vaultEvents.jsx';
 
 const DEFAULT_MONSTERS = 'D\\\\Documents\\\\DreadHaven\\\\20_DM\\\\Monsters'.replace(/\\\\/g, '\\\\');
 const DEFAULT_PORTRAITS = 'D\\\\Documents\\\\DreadHaven\\\\30_Assets\\\\Images\\\\Monster_Portraits'.replace(/\\\\/g, '\\\\');
@@ -49,6 +50,8 @@ export default function DndDmMonsters() {
   const [modalOpen, setModalOpen] = useState(false);
   const [portraitIndex, setPortraitIndex] = useState({});
   const [portraitUrls, setPortraitUrls] = useState({});
+  const monstersVersion = useVaultVersion(['20_dm/monsters']);
+  const portraitsVersion = useVaultVersion(['30_assets/images']);
   const [creating, setCreating] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
@@ -142,7 +145,7 @@ export default function DndDmMonsters() {
     }
   };
 
-  useEffect(() => { fetchItems(); }, [fetchItems]);
+  useEffect(() => { fetchItems(); }, [fetchItems, monstersVersion]);
 
   // Build portrait index from Assets folder
   useEffect(() => {
@@ -171,7 +174,7 @@ export default function DndDmMonsters() {
         setPortraitIndex({});
       }
     })();
-  }, []);
+  }, [portraitsVersion]);
 
   useEffect(() => {
     if (!activePath) { setActiveContent(''); return; }

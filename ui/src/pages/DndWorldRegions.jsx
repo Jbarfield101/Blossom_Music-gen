@@ -6,6 +6,7 @@ import { listDir } from '../api/dir';
 import { readInbox } from '../api/inbox';
 import { renderMarkdown } from '../lib/markdown.jsx';
 import './Dnd.css';
+import { useVaultVersion } from '../lib/vaultEvents.jsx';
 
 const DEFAULT_REGIONS = 'D:\\Documents\\DreadHaven\\10_World\\Regions';
 
@@ -27,6 +28,7 @@ export default function DndWorldRegions() {
   const [error, setError] = useState('');
   const [activePath, setActivePath] = useState('');
   const [activeContent, setActiveContent] = useState('');
+  const regionsVersion = useVaultVersion(['10_world/regions']);
 
   const initBase = useCallback(async () => {
     setLoading(true);
@@ -65,7 +67,7 @@ export default function DndWorldRegions() {
   }, []);
 
   useEffect(() => { initBase(); }, [initBase]);
-  useEffect(() => { if (currentPath) fetchList(currentPath); }, [currentPath, fetchList]);
+  useEffect(() => { if (currentPath) fetchList(currentPath); }, [currentPath, fetchList, regionsVersion]);
 
   useEffect(() => {
     if (!activePath) return;

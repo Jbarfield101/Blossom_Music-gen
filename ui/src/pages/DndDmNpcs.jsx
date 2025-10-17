@@ -10,6 +10,7 @@ import { loadEstablishments } from '../api/establishments';
 import { renderMarkdown } from '../lib/markdown.jsx';
 import './Dnd.css';
 import { invoke } from '@tauri-apps/api/core';
+import { useVaultVersion } from '../lib/vaultEvents.jsx';
 
 const DEFAULT_NPC = 'D\\\\Documents\\\\DreadHaven\\\\20_DM\\\\NPC'.replace(/\\\\/g, '\\\\');
 const DEFAULT_PORTRAITS = 'D\\\\Documents\\\\DreadHaven\\\\30_Assets\\\\Images\\\\NPC_Portraits'.replace(/\\\\/g, '\\\\');
@@ -82,6 +83,9 @@ export default function DndDmNpcs() {
   const [cardVoiceValue, setCardVoiceValue] = useState('');
   const [cardVoiceSaving, setCardVoiceSaving] = useState(false);
   const [cardVoiceStatus, setCardVoiceStatus] = useState('');
+  const npcVersion = useVaultVersion(['20_dm/npc']);
+  const regionVersion = useVaultVersion(['10_world/regions']);
+  const portraitAssetsVersion = useVaultVersion(['30_assets/images']);
 const establishmentOptions = useMemo(() => {
     if (!Array.isArray(establishments) || establishments.length === 0) return [];
     return establishments.map((entry) => {
@@ -213,7 +217,7 @@ const establishmentOptions = useMemo(() => {
     }
   }, [crawl]);
 
-  useEffect(() => { fetchItems(); }, [fetchItems]);
+  useEffect(() => { fetchItems(); }, [fetchItems, npcVersion]);
 
   // Build region options by crawling directories under Regions (exclude Establishments)
   useEffect(() => {
@@ -247,7 +251,7 @@ const establishmentOptions = useMemo(() => {
         setRegionOptions(['']);
       }
     })();
-  }, []);
+  }, [regionVersion]);
 
   // Load establishments scoped to the selected region (faster, clearer)
   useEffect(() => {
@@ -308,7 +312,7 @@ const establishmentOptions = useMemo(() => {
       }
     })();
     return () => { cancelled = true; };
-  }, [showCreate, selPurpose, selRegion]);
+  }, [showCreate, selPurpose, selRegion, regionVersion]);
 
   useEffect(() => {
     if (selPurpose !== 'Shopkeeper') {
@@ -365,7 +369,7 @@ const establishmentOptions = useMemo(() => {
         setPortraitIndex({});
       }
     })();
-  }, []);
+  }, [portraitAssetsVersion]);
 
   // Load portraits on demand
   useEffect(() => {

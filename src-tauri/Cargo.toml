@@ -23,6 +23,7 @@ serde_yaml = "0.9"
 walkdir = "2"
 base64 = "0.21"
 uuid = { version = "1", features = ["v4"] }
+notify = "6"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

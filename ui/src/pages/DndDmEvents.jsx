@@ -4,6 +4,7 @@ import { getDreadhavenRoot } from '../api/config';
 import { listInbox, readInbox } from '../api/inbox';
 import { renderMarkdown } from '../lib/markdown.jsx';
 import './Dnd.css';
+import { useVaultVersion } from '../lib/vaultEvents.jsx';
 
 const DEFAULT_EVENTS = 'D:\\Documents\\DreadHaven\\20_DM\\Events';
 
@@ -35,6 +36,7 @@ export default function DndDmEvents() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [usingPath, setUsingPath] = useState('');
+  const eventsVersion = useVaultVersion(['20_dm/events']);
   const [activePath, setActivePath] = useState('');
   const [activeContent, setActiveContent] = useState('');
 
@@ -69,7 +71,7 @@ export default function DndDmEvents() {
     }
   }, [activePath]);
 
-  useEffect(() => { fetchItems(); }, [fetchItems]);
+  useEffect(() => { fetchItems(); }, [fetchItems, eventsVersion]);
 
   useEffect(() => {
     if (!activePath) { setActiveContent(''); return; }

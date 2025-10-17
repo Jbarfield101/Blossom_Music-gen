@@ -60,7 +60,6 @@ import RainBlocks from './pages/RainBlocks.jsx';
 import SandBlocks from './pages/SandBlocks.jsx';
 import Snake from './pages/Snake.jsx';
 import BrickBreaker from './pages/BrickBreaker.jsx';
-import AlbumMaker from './pages/AlbumMaker.jsx';
 import Calendar from './pages/Calendar.jsx';
 import GeneralChat from './pages/GeneralChat.jsx';
 import DndTasks from './pages/DndTasks.jsx';
@@ -81,6 +80,7 @@ import { setPiper as apiSetPiper, listPiper as apiListPiper } from './api/models
 import { synthWithPiper } from './lib/piperSynth';
 import { fileSrc } from './lib/paths.js';
 import { listPiperVoices, resolveVoiceResources } from './lib/piperVoices';
+import { VaultEventProvider } from './lib/vaultEvents.jsx';
 
 function UserSelectorOverlay({ onClose }) {
   const [users, setUsers] = useState([]);
@@ -361,9 +361,10 @@ export default function App() {
       {needsUser && (
         <UserSelectorOverlay onClose={() => setNeedsUser(false)} />
       )}
-      <div className="route-fade" key={location.pathname}>
-        <Routes location={location} key={location.pathname}>
-          <Route element={<AppLayout />}>
+      <VaultEventProvider>
+        <div className="route-fade" key={location.pathname}>
+          <Routes location={location} key={location.pathname}>
+            <Route element={<AppLayout />}>
             <Route path="/" element={<Dashboard />} />
           <Route path="/musicgen" element={<SoundLab />}>
             <Route path="musicgen" element={<MusicGen />} />
@@ -441,7 +442,6 @@ export default function App() {
             <Route path="/fusion" element={<Fusion />} />
             <Route path="/loopmaker" element={<LoopMaker />} />
             <Route path="/beatmaker" element={<BeatMaker />} />
-            <Route path="/album" element={<AlbumMaker />} />
             <Route path="/games" element={<Games />} />
             <Route path="/games/rain-blocks" element={<RainBlocks />} />
             <Route path="/games/sand-blocks" element={<SandBlocks />} />
@@ -449,7 +449,8 @@ export default function App() {
             <Route path="/games/snake" element={<Snake />} />
           </Route>
         </Routes>
-      </div>
+        </div>
+      </VaultEventProvider>
     </>
   );
 }

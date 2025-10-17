@@ -5,6 +5,7 @@ import { getDreadhavenRoot } from '../api/config';
 import { listDir } from '../api/dir';
 import { readFileBytes, openPath } from '../api/files';
 import './Dnd.css';
+import { useVaultVersion } from '../lib/vaultEvents.jsx';
 
 const DEFAULT_ASSETS = 'D\\\\Documents\\\\DreadHaven\\\\30_Assets'.replace(/\\\\/g, '\\\\');
 const IMG_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
@@ -24,6 +25,7 @@ export default function DndAssets() {
   const [lightbox, setLightbox] = useState({ open: false, url: '', name: '' });
   const [previews, setPreviews] = useState({});
   const urlsRef = useRef(new Map());
+  const assetsVersion = useVaultVersion(['30_assets']);
 
   // Cleanup blob URLs
   useEffect(() => () => {
@@ -108,7 +110,11 @@ export default function DndAssets() {
   }, [items]);
 
   useEffect(() => { initBase(); }, [initBase]);
-  useEffect(() => { if (currentPath) fetchList(currentPath); }, [currentPath, fetchList]);
+  useEffect(() => {
+    if (currentPath) {
+      fetchList(currentPath);
+    }
+  }, [currentPath, fetchList, assetsVersion]);
 
   const crumbs = useMemo(() => {
     if (!basePath || !currentPath) return [];

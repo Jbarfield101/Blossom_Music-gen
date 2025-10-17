@@ -7,6 +7,7 @@ import { readFileBytes } from '../api/files';
 import { createGod } from '../api/gods';
 import { renderMarkdown } from '../lib/markdown.jsx';
 import './Dnd.css';
+import { useVaultVersion } from '../lib/vaultEvents.jsx';
 
 const DEFAULT_PANTHEON = 'D\\\\Documents\\\\DreadHaven\\\\10_World\\\\Gods of the Realm'.replace(/\\\\/g, '\\\\');
 const DEFAULT_GOD_PORTRAITS = 'D\\\\Documents\\\\DreadHaven\\\\30_Assets\\\\Images\\\\God_Portraits'.replace(/\\\\/g, '\\\\');
@@ -55,6 +56,8 @@ export default function DndWorldPantheon() {
   const [godMeta, setGodMeta] = useState({});
   const [portraitIndex, setPortraitIndex] = useState({});
   const [portraitUrls, setPortraitUrls] = useState({});
+  const pantheonVersion = useVaultVersion(['10_world/gods of the realm']);
+  const godPortraitsVersion = useVaultVersion(['30_assets/images']);
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -89,7 +92,7 @@ export default function DndWorldPantheon() {
 
   useEffect(() => {
     fetchItems();
-  }, [fetchItems]);
+  }, [fetchItems, pantheonVersion]);
 
   useEffect(() => {
     if (!activePath) {
@@ -144,7 +147,7 @@ export default function DndWorldPantheon() {
         setPortraitIndex({});
       }
     })();
-  }, []);
+  }, [godPortraitsVersion]);
 
   // Load portrait thumbnails for listed gods
   useEffect(() => {

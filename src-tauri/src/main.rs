@@ -35,6 +35,7 @@ use url::Url;
 use walkdir::WalkDir;
 mod commands;
 mod config;
+mod dnd_watcher;
 mod musiclang;
 mod util;
 use crate::commands::{album_concat, generate_musicgen, musicgen_env, riffusion_generate};
@@ -1405,7 +1406,7 @@ fn write_discord_token(token: String) -> Result<(), String> {
     Ok(())
 }
 
-fn python_command() -> Command {
+pub(crate) fn python_command() -> Command {
     // Resolution priority:
     // 1) BLOSSOM_PY (explicit override)
     // 2) VIRTUAL_ENV python (active venv)
@@ -8662,6 +8663,9 @@ fn main() {
                 }
                 let app_handle = app.handle();
                 registry.resume_pending(&app_handle);
+            }
+            if let Err(err) = dnd_watcher::start(&app.handle()) {
+                eprintln!("[blossom] failed to start D&D vault watcher: {}", err);
             }
             // Prefer a repo-root virtualenv (../.venv) when running from src-tauri
             let venv_base = if Path::new(".venv").exists() {

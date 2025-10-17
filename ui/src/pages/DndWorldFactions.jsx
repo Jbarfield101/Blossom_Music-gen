@@ -6,6 +6,7 @@ import { listDir } from '../api/dir';
 import { readInbox } from '../api/inbox';
 import { renderMarkdown } from '../lib/markdown.jsx';
 import './Dnd.css';
+import { useVaultVersion } from '../lib/vaultEvents.jsx';
 
 const DEFAULT_FACTIONS = 'D\\\\Documents\\\\DreadHaven\\\\10_World\\\\Factions'.replace(/\\\\/g, '\\\\');
 
@@ -27,6 +28,7 @@ export default function DndWorldFactions() {
   const [error, setError] = useState('');
   const [activePath, setActivePath] = useState('');
   const [activeContent, setActiveContent] = useState('');
+  const factionsVersion = useVaultVersion(['10_world/factions']);
 
   const initBase = useCallback(async () => {
     setLoading(true);
@@ -64,7 +66,7 @@ export default function DndWorldFactions() {
   }, []);
 
   useEffect(() => { initBase(); }, [initBase]);
-  useEffect(() => { if (currentPath) fetchList(currentPath); }, [currentPath, fetchList]);
+  useEffect(() => { if (currentPath) fetchList(currentPath); }, [currentPath, fetchList, factionsVersion]);
 
   useEffect(() => {
     if (!activePath) return;
