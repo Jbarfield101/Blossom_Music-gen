@@ -11,6 +11,7 @@ import {
   configureRelationshipIdLookup,
   resetRelationshipIdLookup,
 } from '../src/lib/dndIds.js';
+import { configureVaultIndex, resetVaultIndexCache } from '../src/lib/vaultIndex.js';
 
 const MARKDOWN_FIXTURE = `---\nid: npc_ember_fl4m3\ntype: npc\nname: Ember Thorn\naliases:\n  - Flame\nimportance: 3\nknowledge_scope:\n  true_facts:\n    - Guards the heartflame ember.\nrelationship_ledger:\n  allies:\n    - id: npc_sage_mn0p\n      notes: Mentor\n---\nEmber Thorn stands watch over the forge.\n`;
 
@@ -25,12 +26,44 @@ const JSON_FIXTURE = JSON.stringify(
   2
 );
 
+function stubVaultIndex(t, entities = {}) {
+  resetVaultIndexCache();
+  configureVaultIndex({
+    readIndexFile: async () => ({
+      root: 'C:/vault',
+      raw: JSON.stringify({ entities }),
+    }),
+    invokeCommand: async () => null,
+  });
+  t.after(() => {
+    configureVaultIndex();
+    resetVaultIndexCache();
+  });
+}
+
 test('loadEntity parses Markdown front matter and body', async (t) => {
   configureRelationshipIdLookup((value) => {
     const text = String(value || '').trim();
     return /^(npc|quest|loc|faction|monster|encounter|session)_[a-z0-9-]+_[a-z0-9]{4,6}$/i.test(text)
       ? text.toLowerCase()
       : null;
+  });
+  stubVaultIndex(t, {
+    quest_flame_watch: {
+      id: 'quest_flame_watch',
+      type: 'quest',
+      name: 'Guard the Forge',
+      path: '20_dm/quests/guard.md',
+      metadata: {
+        related_npc: 'npc_ember_fl4m3',
+      },
+    },
+    npc_ember_fl4m3: {
+      id: 'npc_ember_fl4m3',
+      type: 'npc',
+      name: 'Ember Thorn',
+      path: '20_dm/npc/ember.md',
+    },
   });
   configureVaultFileSystem({ readTextFile: async () => MARKDOWN_FIXTURE });
   t.after(() => {
@@ -46,6 +79,10 @@ test('loadEntity parses Markdown front matter and body', async (t) => {
   assert.deepEqual(result.entity.aliases, ['Flame']);
   assert.equal(result.entity.knowledge_scope.true_facts[0], 'Guards the heartflame ember.');
   assert.equal(result.entity.relationship_ledger.allies[0].notes, 'Mentor');
+  assert.ok(Array.isArray(result.backlinks));
+  assert.equal(result.backlinks.length, 1);
+  assert.equal(result.backlinks[0].id, 'quest_flame_watch');
+  assert.equal(result.backlinks[0].type, 'quest');
 });
 
 test('loadEntity parses JSON entities and preserves the source text', async (t) => {
@@ -55,6 +92,7 @@ test('loadEntity parses JSON entities and preserves the source text', async (t) 
       ? text.toLowerCase()
       : null;
   });
+  stubVaultIndex(t, {});
   configureVaultFileSystem({ readTextFile: async () => `${JSON_FIXTURE}\n` });
   t.after(() => {
     configureVaultFileSystem();
@@ -65,6 +103,8 @@ test('loadEntity parses JSON entities and preserves the source text', async (t) 
   assert.equal(result.body, `${JSON_FIXTURE}\n`);
   assert.equal(result.entity.name, 'Ash Veil');
   assert.deepEqual(result.entity.aliases, ['Shade']);
+  assert.ok(Array.isArray(result.backlinks));
+  assert.equal(result.backlinks.length, 0);
 });
 
 test('loadEntity throws a structured error when validation fails', async (t) => {
@@ -75,6 +115,7 @@ test('loadEntity throws a structured error when validation fails', async (t) => 
       ? text.toLowerCase()
       : null;
   });
+  stubVaultIndex(t, {});
   configureVaultFileSystem({ readTextFile: async () => invalidMarkdown });
   t.after(() => {
     configureVaultFileSystem();
