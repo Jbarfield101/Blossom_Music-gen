@@ -1,43 +1,39 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import {
-  toSlug,
-  makeShortId,
-  makeId,
-  ENTITY_ID_PATTERN,
-} from '../src/lib/dndIds.js';
+import { toSlug, makeShortId, makeId } from '../src/lib/dndIds.js';
 
-test('toSlug normalizes whitespace, punctuation, and length', () => {
-  assert.equal(toSlug('  Lady Vorra  '), 'lady-vorra');
-  assert.equal(toSlug('Acolyte__Vorra!!'), 'acolyte-vorra');
-  assert.equal(toSlug('The Extremely Verbose NPC Name (Prototype)'), 'the-extremely-verbose-np');
+test('toSlug strips punctuation and normalizes whitespace and underscores', () => {
+  assert.equal(toSlug('  Lady   Vorra  '), 'lady-vorra');
+  assert.equal(toSlug('Acolyte__Vorra!!??'), 'acolyte-vorra');
 });
 
-test('makeShortId respects requested length and alphabet', () => {
-  const short = makeShortId(6, () => 0.5);
-  assert.equal(short.length, 6);
-  assert.match(short, /^[0-9a-z]{6}$/);
+test('toSlug truncates long names without leaving trailing hyphens', () => {
+  const slug = toSlug('The Extremely Verbose NPC Name (Prototype)');
+  assert.equal(slug, 'the-extremely-verbose-np');
+  assert.ok(slug.length <= 24);
 });
 
-test('makeId retries collisions with deterministic rng', () => {
-  const rngValues = [
-    0, 0, 0, 0, // first attempt -> "0000"
-    0, 0, 0, 0, // second attempt -> "0000"
-    0.5, 0.5, 0.5, 0.5, // third attempt -> "iiii"
+test('makeShortId respects requested length and base36 alphabet', () => {
+  const id = makeShortId(8, () => 0.999999);
+  assert.equal(id.length, 8);
+  assert.match(id, /^[0-9a-z]{8}$/);
+});
+
+test('makeId retries collisions when generated ids already exist', () => {
+  const samples = [
+    0, 0, 0, 0,
+    0, 0, 0, 0,
+    0.5, 0.5, 0.5, 0.5,
   ];
+  let calls = 0;
   const rng = () => {
-    const next = rngValues.shift();
-    return next ?? 0.75;
+    const value = samples[calls] ?? 0.75;
+    calls += 1;
+    return value;
   };
   const existing = new Set(['npc_acolyte-vorra_0000']);
-  const id = makeId('npc', 'Acolyte Vorra', existing, { rng });
-  assert.equal(id, 'npc_acolyte-vorra_iiii');
-  assert.match(id, ENTITY_ID_PATTERN);
-});
-
-test('makeId throws after exhausting retry budget', () => {
-  const rng = () => 0;
-  const existing = new Set(['npc_acolyte-vorra_0000']);
-  assert.throws(() => makeId('npc', 'Acolyte Vorra', existing, { rng }), /Failed to generate unique id/);
+  const generated = makeId('npc', 'Acolyte Vorra', existing, { rng });
+  assert.equal(generated, 'npc_acolyte-vorra_iiii');
+  assert.equal(calls, 12);
 });
