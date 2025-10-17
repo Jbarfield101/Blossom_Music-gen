@@ -4,16 +4,13 @@ import { ENTITY_ID_PATTERN } from './dndIds.js';
 
 const stringArray = z.array(z.string());
 
-const ledgerEntrySchema = z.union([
-  z.string(),
-  z
-    .object({
-      id: z.string().regex(ENTITY_ID_PATTERN),
-      notes: z.string().optional(),
-    })
-    .strict()
-    .partial({ notes: true }),
-]);
+const ledgerEntrySchema = z
+  .object({
+    id: z.string().regex(ENTITY_ID_PATTERN),
+    notes: z.string().optional(),
+  })
+  .strict()
+  .partial({ notes: true });
 
 const baseEntitySchema = z
   .object({

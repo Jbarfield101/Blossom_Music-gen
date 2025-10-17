@@ -7,6 +7,10 @@ import {
   EntityValidationError,
   configureVaultFileSystem,
 } from '../src/lib/vaultAdapter.js';
+import {
+  configureRelationshipIdLookup,
+  resetRelationshipIdLookup,
+} from '../src/lib/dndIds.js';
 
 const MARKDOWN_FIXTURE = `---\nid: npc_ember_fl4m3\ntype: npc\nname: Ember Thorn\naliases:\n  - Flame\nimportance: 3\nknowledge_scope:\n  true_facts:\n    - Guards the heartflame ember.\nrelationship_ledger:\n  allies:\n    - id: npc_sage_mn0p\n      notes: Mentor\n---\nEmber Thorn stands watch over the forge.\n`;
 
@@ -22,8 +26,17 @@ const JSON_FIXTURE = JSON.stringify(
 );
 
 test('loadEntity parses Markdown front matter and body', async (t) => {
+  configureRelationshipIdLookup((value) => {
+    const text = String(value || '').trim();
+    return /^(npc|quest|loc|faction|monster|encounter|session)_[a-z0-9-]+_[a-z0-9]{4,6}$/i.test(text)
+      ? text.toLowerCase()
+      : null;
+  });
   configureVaultFileSystem({ readTextFile: async () => MARKDOWN_FIXTURE });
-  t.after(() => configureVaultFileSystem());
+  t.after(() => {
+    configureVaultFileSystem();
+    resetRelationshipIdLookup();
+  });
 
   const result = await loadEntity('/vault/npcs/ember.md');
   assert.equal(result.path, '/vault/npcs/ember.md');
@@ -36,8 +49,17 @@ test('loadEntity parses Markdown front matter and body', async (t) => {
 });
 
 test('loadEntity parses JSON entities and preserves the source text', async (t) => {
+  configureRelationshipIdLookup((value) => {
+    const text = String(value || '').trim();
+    return /^(npc|quest|loc|faction|monster|encounter|session)_[a-z0-9-]+_[a-z0-9]{4,6}$/i.test(text)
+      ? text.toLowerCase()
+      : null;
+  });
   configureVaultFileSystem({ readTextFile: async () => `${JSON_FIXTURE}\n` });
-  t.after(() => configureVaultFileSystem());
+  t.after(() => {
+    configureVaultFileSystem();
+    resetRelationshipIdLookup();
+  });
 
   const result = await loadEntity('C:/vault/npcs/ash.json');
   assert.equal(result.body, `${JSON_FIXTURE}\n`);
@@ -47,8 +69,17 @@ test('loadEntity parses JSON entities and preserves the source text', async (t) 
 
 test('loadEntity throws a structured error when validation fails', async (t) => {
   const invalidMarkdown = `---\nid: npc-broken\ntype: npc\n---\nMissing the required name.\n`;
+  configureRelationshipIdLookup((value) => {
+    const text = String(value || '').trim();
+    return /^(npc|quest|loc|faction|monster|encounter|session)_[a-z0-9-]+_[a-z0-9]{4,6}$/i.test(text)
+      ? text.toLowerCase()
+      : null;
+  });
   configureVaultFileSystem({ readTextFile: async () => invalidMarkdown });
-  t.after(() => configureVaultFileSystem());
+  t.after(() => {
+    configureVaultFileSystem();
+    resetRelationshipIdLookup();
+  });
 
   await assert.rejects(
     loadEntity('/vault/npcs/broken.md'),
@@ -70,7 +101,16 @@ test('saveEntity writes Markdown with front matter and preserves the body text',
       writes.push(args);
     },
   });
-  t.after(() => configureVaultFileSystem());
+  configureRelationshipIdLookup((value) => {
+    const text = String(value || '').trim();
+    return /^(npc|quest|loc|faction|monster|encounter|session)_[a-z0-9-]+_[a-z0-9]{4,6}$/i.test(text)
+      ? text.toLowerCase()
+      : null;
+  });
+  t.after(() => {
+    configureVaultFileSystem();
+    resetRelationshipIdLookup();
+  });
 
   const entity = {
     id: 'npc_wisp_gl0w',
@@ -99,7 +139,16 @@ test('saveEntity writes sorted JSON with stable ordering', async (t) => {
       writes.push(args);
     },
   });
-  t.after(() => configureVaultFileSystem());
+  configureRelationshipIdLookup((value) => {
+    const text = String(value || '').trim();
+    return /^(npc|quest|loc|faction|monster|encounter|session)_[a-z0-9-]+_[a-z0-9]{4,6}$/i.test(text)
+      ? text.toLowerCase()
+      : null;
+  });
+  t.after(() => {
+    configureVaultFileSystem();
+    resetRelationshipIdLookup();
+  });
 
   const entity = {
     name: 'Sable',

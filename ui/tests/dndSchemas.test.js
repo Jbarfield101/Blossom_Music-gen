@@ -2,6 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { npcSchema } from '../src/lib/dndSchemas.js';
+import {
+  configureRelationshipIdLookup,
+  resetRelationshipIdLookup,
+  resolveRelationshipIds,
+} from '../src/lib/dndIds.js';
 
 test('npcSchema rejects NPCs without an id', () => {
   const result = npcSchema.safeParse({
@@ -36,7 +41,7 @@ test('npcSchema accepts template-aligned NPCs', () => {
     gm_secrets: ['Vorra works for a rival faction.'],
     relationship_ledger: {
       allies: [{ id: 'npc_master-ila_8ab3', notes: 'Mentor' }],
-      rivals: ['npc_shadow-broker_44df'],
+      rivals: [{ id: 'npc_shadow-broker_44df' }],
       debts_owed_to_npc: [],
       debts_owed_by_npc: [],
     },
@@ -100,4 +105,86 @@ test('npcSchema accepts template-aligned NPCs', () => {
   const result = npcSchema.safeParse(payload);
   assert.equal(result.success, true, result.success ? undefined : result.error.message);
   assert.equal(result.success && result.data.id, payload.id);
+});
+
+test('npcSchema rejects legacy ledger string entries', () => {
+  const payload = {
+    id: 'npc_example_1a2b',
+    type: 'npc',
+    name: 'Example NPC',
+    relationship_ledger: {
+      allies: ['npc_helper_9z9z'],
+    },
+  };
+  const result = npcSchema.safeParse(payload);
+  assert.equal(result.success, false);
+});
+
+test('resolveRelationshipIds normalizes mixed legacy entries for npcSchema', async (t) => {
+  configureRelationshipIdLookup((value) => {
+    const map = new Map([
+      ['npc_helper_9z9z', 'npc_helper_9z9z'],
+      ['Shadow Broker', 'npc_shadow-broker_44df'],
+      ['npc_shadow-broker', 'npc_shadow-broker_44df'],
+      ['npc_shadow-broker_44df', 'npc_shadow-broker_44df'],
+    ]);
+    return map.get(String(value).trim()) ?? null;
+  });
+  t.after(() => resetRelationshipIdLookup());
+
+  const payload = {
+    id: 'npc_example_1a2b',
+    type: 'npc',
+    name: 'Example NPC',
+    relationship_ledger: {
+      allies: ['npc_helper_9z9z', { id: 'npc_master-ila_8ab3', notes: 'Mentor' }],
+      rivals: ['Shadow Broker', { id: 'npc_shadow-broker_44df', notes: 'Nemesis' }],
+    },
+  };
+
+  const resultBefore = npcSchema.safeParse(payload);
+  assert.equal(resultBefore.success, false);
+
+  const normalized = await resolveRelationshipIds(payload);
+  const resultAfter = npcSchema.safeParse(normalized);
+  assert.equal(resultAfter.success, true, resultAfter.success ? undefined : resultAfter.error?.message);
+  assert.deepEqual(
+    resultAfter.data.relationship_ledger.allies,
+    [
+      { id: 'npc_helper_9z9z' },
+      { id: 'npc_master-ila_8ab3', notes: 'Mentor' },
+    ]
+  );
+  assert.deepEqual(
+    resultAfter.data.relationship_ledger.rivals,
+    [
+      { id: 'npc_shadow-broker_44df' },
+      { id: 'npc_shadow-broker_44df', notes: 'Nemesis' },
+    ]
+  );
+});
+
+test('resolveRelationshipIds throws when references cannot be resolved', async (t) => {
+  configureRelationshipIdLookup(() => null);
+  const originalWarn = console.warn;
+  console.warn = () => {};
+  t.after(() => {
+    console.warn = originalWarn;
+    resetRelationshipIdLookup();
+  });
+
+  const payload = {
+    id: 'npc_example_1a2b',
+    type: 'npc',
+    name: 'Example NPC',
+    relationship_ledger: {
+      allies: ['Unknown Ally'],
+    },
+  };
+
+  await assert.rejects(resolveRelationshipIds(payload), (err) => {
+    assert.match(String(err.message || err), /Unable to resolve relationship references/);
+    assert.deepEqual(err.unresolved, ['Unknown Ally']);
+    return true;
+  });
 });
