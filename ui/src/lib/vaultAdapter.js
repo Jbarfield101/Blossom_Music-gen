@@ -9,6 +9,7 @@ import {
   encounterSchema,
   sessionSchema,
 } from './dndSchemas.js';
+import { resolveRelationshipIds } from './dndIds.js';
 
 const SCHEMA_MAP = new Map([
   ['npc', npcSchema],
@@ -145,8 +146,20 @@ export async function loadEntity(path) {
   if (format === 'markdown') {
     const parsed = matter(raw || '');
     const { schema, entityType } = resolveSchema(parsed.data || {}, path);
+    let normalized = parsed.data || {};
+    if (entityType === 'npc') {
+      try {
+        normalized = await resolveRelationshipIds(normalized);
+      } catch (err) {
+        throw new EntityValidationError('Failed to normalize NPC relationships', {
+          path,
+          entityType,
+          cause: err,
+        });
+      }
+    }
     try {
-      const entity = schema.parse(parsed.data || {});
+      const entity = schema.parse(normalized);
       return {
         entity,
         body: parsed.content || '',
@@ -174,8 +187,20 @@ export async function loadEntity(path) {
   }
 
   const { schema, entityType } = resolveSchema(data, path);
+  let normalized = data;
+  if (entityType === 'npc') {
+    try {
+      normalized = await resolveRelationshipIds(data);
+    } catch (err) {
+      throw new EntityValidationError('Failed to normalize NPC relationships', {
+        path,
+        entityType,
+        cause: err,
+      });
+    }
+  }
   try {
-    const entity = schema.parse(data);
+    const entity = schema.parse(normalized);
     return {
       entity,
       body: raw || '',
@@ -197,9 +222,21 @@ export async function saveEntity({ entity, body = '', path, format }) {
   }
   const resolvedFormat = detectFormat(path, format);
   const { schema, entityType } = resolveSchema(entity || {}, path);
+  let normalized = entity || {};
+  if (entityType === 'npc') {
+    try {
+      normalized = await resolveRelationshipIds(normalized);
+    } catch (err) {
+      throw new EntityValidationError('Failed to normalize NPC relationships', {
+        path,
+        entityType,
+        cause: err,
+      });
+    }
+  }
   let validated;
   try {
-    validated = schema.parse(entity || {});
+    validated = schema.parse(normalized);
   } catch (err) {
     throw new EntityValidationError('Entity validation failed', {
       path,
