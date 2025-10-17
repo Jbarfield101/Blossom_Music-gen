@@ -1,5 +1,5 @@
 import { listPiperVoices } from '../lib/piperVoices';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import BackButton from '../components/BackButton.jsx';
 import { getDreadhavenRoot } from '../api/config';
@@ -106,6 +106,18 @@ export default function DndDmNpcs() {
   const [establishmentsLoading, setEstablishmentsLoading] = useState(false);
   const [establishmentsError, setEstablishmentsError] = useState('');
   const [establishmentsLoaded, setEstablishmentsLoaded] = useState(false);
+  const [copyToast, setCopyToast] = useState('');
+  const copyToastTimerRef = useRef(null);
+  const showCopyToast = useCallback((message) => {
+    setCopyToast(message);
+    if (copyToastTimerRef.current) {
+      clearTimeout(copyToastTimerRef.current);
+    }
+    copyToastTimerRef.current = setTimeout(() => {
+      setCopyToast('');
+      copyToastTimerRef.current = null;
+    }, 2000);
+  }, []);
 
   const [voiceProvider, setVoiceProvider] = useState('piper');
   const [voiceValue, setVoiceValue] = useState('');
@@ -135,6 +147,11 @@ export default function DndDmNpcs() {
   useEffect(() => {
     setModalOpen(Boolean(activeId));
   }, [activeId]);
+  useEffect(() => () => {
+    if (copyToastTimerRef.current) {
+      clearTimeout(copyToastTimerRef.current);
+    }
+  }, []);
 const establishmentOptions = useMemo(() => {
     if (!Array.isArray(establishments) || establishments.length === 0) return [];
     return establishments.map((entry) => {
@@ -646,6 +663,23 @@ const establishmentOptions = useMemo(() => {
     if (nm && nm[1]) return sanitizeChip(nm[1]);
     return String(selected?.title || selected?.name || '');
   }, [activeMeta, activeContent, selected]);
+  const selectedId = typeof selected?.id === 'string' ? selected.id : '';
+  const copyNpcId = useCallback(async () => {
+    const id = selectedId.trim();
+    if (!id) return;
+    const clipboard = typeof navigator !== 'undefined' ? navigator.clipboard : null;
+    try {
+      if (clipboard?.writeText) {
+        await clipboard.writeText(id);
+        showCopyToast('NPC ID copied to clipboard.');
+      } else {
+        throw new Error('Clipboard API unavailable');
+      }
+    } catch (err) {
+      console.warn('Failed to copy NPC ID', err);
+      showCopyToast(`NPC ID ready: ${id}`);
+    }
+  }, [selectedId, showCopyToast]);
 
   const typeOptions = useMemo(() => {
     const vals = Object.values(typeMap).map((v) => sanitizeChip(v)).filter(Boolean);
@@ -1081,16 +1115,34 @@ const establishmentOptions = useMemo(() => {
                     <div className="npc-portrait placeholder">?</div>
                   )}
                   <div className="npc-header-main">
+                    {copyToast && (
+                      <div className="npc-copy-toast" role="status">{copyToast}</div>
+                    )}
                     <h2 className="npc-name">{derivedTitle}</h2>
-                    <div className="inbox-reader-meta" style={{ gap: "0.5rem" }}>
-                      <span>{selected.name}</span>
-                      {locationLabel && (
-                        <>
-                          <span>·</span>
-                          <span>{locationLabel}</span>
-                        </>
-                      )}
-                    <span style={{ marginLeft: "auto" }} /><button type="button" className="danger" onClick={async () => { if (!selected?.path) return; const ok = confirm(`Delete NPC file?\n\n${selected.path}`); if (!ok) return; try { await deleteInbox(selected.path); setModalOpen(false); setActiveId(''); navigate('/dnd/npc'); await fetchItems(); } catch (err) { alert(err?.message || String(err)); } }}>Delete</button></div>
+                    <div className="npc-header-subline">
+                      <div className="npc-header-info">
+                        <span>{selected.name}</span>
+                        {locationLabel && (
+                          <>
+                            <span aria-hidden="true">·</span>
+                            <span>{locationLabel}</span>
+                          </>
+                        )}
+                      </div>
+                      <div className="npc-header-actions">
+                        {selectedId && (
+                          <button
+                            type="button"
+                            className="npc-id-chip"
+                            onClick={copyNpcId}
+                            title="Copy NPC ID"
+                          >
+                            ID: {selectedId}
+                          </button>
+                        )}
+                        <button type="button" className="danger" onClick={async () => { if (!selected?.path) return; const ok = confirm(`Delete NPC file?\n\n${selected.path}`); if (!ok) return; try { await deleteInbox(selected.path); setModalOpen(false); setActiveId(''); navigate('/dnd/npc'); await fetchItems(); } catch (err) { alert(err?.message || String(err)); } }}>Delete</button>
+                      </div>
+                    </div>
                     {metadataChips.length > 0 && (
                       <div className="npc-chips">
                         {metadataChips.map((chip) => (
