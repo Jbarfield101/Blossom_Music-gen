@@ -3,7 +3,7 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     env, fs,
-    io::{BufRead, BufReader, ErrorKind},
+    io::{BufRead, BufReader, ErrorKind, Write},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{
@@ -67,6 +67,10 @@ static DISCORD_BOT_KEEPALIVE: OnceLock<Mutex<bool>> = OnceLock::new();
 static DISCORD_LISTEN_CHILD: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
 static DISCORD_LISTEN_LOGS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
 static DISCORD_LISTEN_EXIT: OnceLock<Mutex<Option<i32>>> = OnceLock::new();
+
+static NPC_REPAIR_RUN_COUNTER: AtomicU64 = AtomicU64::new(1);
+
+const NPC_REPAIR_EVENT_NAME: &str = "repair::npc-progress";
 
 fn discord_bot_store() -> &'static Mutex<Option<Child>> {
     DISCORD_BOT_CHILD.get_or_init(|| Mutex::new(None))
@@ -2266,6 +2270,606 @@ fn npc_delete(app: AppHandle, id: String) -> Result<(), String> {
     } else {
         Ok(())
     }
+}
+
+#[derive(Serialize, Clone)]
+struct NpcRepairProgressPayload {
+    run_id: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    npc_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    summary: Option<NpcRepairSummary>,
+}
+
+#[derive(Serialize, Clone)]
+struct NpcRepairSummary {
+    run_id: u64,
+    total: usize,
+    requested: Vec<String>,
+    status_map: HashMap<String, String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    verified: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    failed: Vec<String>,
+    duration_ms: u64,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    errors: HashMap<String, String>,
+}
+
+#[derive(Serialize)]
+struct NpcRepairLaunch {
+    run_id: u64,
+    requested: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct NpcRepairRequest {
+    run_id: u64,
+    npc_ids: Vec<String>,
+}
+
+fn emit_npc_repair_event(app: &AppHandle, payload: NpcRepairProgressPayload) {
+    if let Err(err) = app.emit(NPC_REPAIR_EVENT_NAME, payload) {
+        eprintln!("[npc_repair] failed to emit event: {}", err);
+    }
+}
+
+fn normalize_repair_status_text(status: &str) -> &'static str {
+    let normalized = status.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "verified" | "complete" | "completed" | "success" | "succeeded" | "done" => "verified",
+        "error" | "failed" | "failure" | "invalid" | "broken" | "missing" => "error",
+        "not_verified" | "unverified" | "idle" | "unknown" => "not_verified",
+        "pending" | "running" | "processing" | "queued" | "in-progress" | "working" | "started"
+        | "starting" => "pending",
+        other => {
+            if other.is_empty() {
+                "not_verified"
+            } else {
+                "pending"
+            }
+        }
+    }
+}
+
+fn extract_string_field(map: &Map<String, Value>, keys: &[&str]) -> Option<String> {
+    for key in keys {
+        if let Some(value) = map.get(*key) {
+            if let Some(text) = value.as_str() {
+                let trimmed = text.trim();
+                if !trimmed.is_empty() {
+                    return Some(trimmed.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+fn derive_repair_status(map: &Map<String, Value>) -> String {
+    if map
+        .get("verified")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+    {
+        return "verified".to_string();
+    }
+    if map
+        .get("failed")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+    {
+        return "error".to_string();
+    }
+    if let Some(value) = map.get("error") {
+        match value {
+            Value::Bool(true) => return "error".to_string(),
+            Value::String(text) if !text.trim().is_empty() => {
+                return "error".to_string()
+            }
+            _ => {}
+        }
+    }
+    if map
+        .get("pending")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+    {
+        return "pending".to_string();
+    }
+    if let Some(value) = map.get("status").and_then(|value| value.as_str()) {
+        return normalize_repair_status_text(value).to_string();
+    }
+    if let Some(value) = map.get("state").and_then(|value| value.as_str()) {
+        return normalize_repair_status_text(value).to_string();
+    }
+    if let Some(value) = map.get("stage").and_then(|value| value.as_str()) {
+        return normalize_repair_status_text(value).to_string();
+    }
+    if map
+        .get("not_verified")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+    {
+        return "not_verified".to_string();
+    }
+    "pending".to_string()
+}
+
+fn extract_repair_error(map: &Map<String, Value>) -> Option<String> {
+    if let Some(value) = map.get("error") {
+        match value {
+            Value::String(text) if !text.trim().is_empty() => {
+                return Some(text.trim().to_string());
+            }
+            Value::Bool(true) => return Some("Repair failed".to_string()),
+            _ => {}
+        }
+    }
+    if let Some(value) = map.get("failure") {
+        if let Some(text) = value.as_str() {
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+        if value.as_bool().unwrap_or(false) {
+            return Some("Repair failed".to_string());
+        }
+    }
+    extract_string_field(
+        map,
+        &["errorMessage", "error_message", "failure_reason", "failureReason"],
+    )
+}
+
+fn extract_repair_message(map: &Map<String, Value>) -> Option<String> {
+    extract_string_field(map, &["message", "detail", "details", "note", "description"])
+}
+
+fn fail_entire_repair_run(
+    app: &AppHandle,
+    run_id: u64,
+    npc_ids: &[String],
+    message: &str,
+    duration_ms: u64,
+) {
+    let mut status_map = HashMap::new();
+    let mut errors = HashMap::new();
+    for id in npc_ids {
+        status_map.insert(id.clone(), "error".to_string());
+        errors.insert(id.clone(), message.to_string());
+        emit_npc_repair_event(
+            app,
+            NpcRepairProgressPayload {
+                run_id,
+                npc_id: Some(id.clone()),
+                status: Some("error".to_string()),
+                message: Some(message.to_string()),
+                error: Some(message.to_string()),
+                summary: None,
+            },
+        );
+    }
+    let summary = NpcRepairSummary {
+        run_id,
+        total: npc_ids.len(),
+        requested: npc_ids.to_vec(),
+        status_map: status_map.clone(),
+        verified: Vec::new(),
+        failed: npc_ids.to_vec(),
+        duration_ms,
+        errors,
+    };
+    emit_npc_repair_event(
+        app,
+        NpcRepairProgressPayload {
+            run_id,
+            npc_id: None,
+            status: Some("error".to_string()),
+            message: Some(message.to_string()),
+            error: Some(message.to_string()),
+            summary: Some(summary),
+        },
+    );
+}
+
+fn spawn_npc_repair_job(app: AppHandle, helper_path: PathBuf, run_id: u64, npc_ids: Vec<String>) {
+    std::thread::spawn(move || {
+        run_npc_repair_job(app, helper_path, run_id, npc_ids);
+    });
+}
+
+fn run_npc_repair_job(app: AppHandle, helper_path: PathBuf, run_id: u64, npc_ids: Vec<String>) {
+    if npc_ids.is_empty() {
+        return;
+    }
+    let start = Instant::now();
+    for id in &npc_ids {
+        emit_npc_repair_event(
+            &app,
+            NpcRepairProgressPayload {
+                run_id,
+                npc_id: Some(id.clone()),
+                status: Some("pending".to_string()),
+                message: Some("Starting repair".to_string()),
+                error: None,
+                summary: None,
+            },
+        );
+    }
+
+    let mut cmd = python_command();
+    cmd.arg(&helper_path);
+    let mut child = match cmd
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(err) => {
+            let msg = format!("Failed to start repair helper: {}", err);
+            let elapsed_ms = start.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+            fail_entire_repair_run(&app, run_id, &npc_ids, &msg, elapsed_ms);
+            return;
+        }
+    };
+
+    let request = NpcRepairRequest {
+        run_id,
+        npc_ids: npc_ids.clone(),
+    };
+    if let Some(stdin) = child.stdin.as_mut() {
+        if let Err(err) = serde_json::to_vec(&request)
+            .map_err(|e| e.to_string())
+            .and_then(|payload| {
+                stdin.write_all(&payload).map_err(|e| e.to_string())
+            })
+        {
+            let msg = format!("Failed to communicate with repair helper: {}", err);
+            let _ = child.kill();
+            let _ = child.wait();
+            let elapsed_ms = start.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+            fail_entire_repair_run(&app, run_id, &npc_ids, &msg, elapsed_ms);
+            return;
+        }
+    }
+    drop(child.stdin.take());
+
+    let stdout = match child.stdout.take() {
+        Some(pipe) => pipe,
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            let elapsed_ms = start.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+            fail_entire_repair_run(
+                &app,
+                run_id,
+                &npc_ids,
+                "Repair helper did not provide stdout",
+                elapsed_ms,
+            );
+            return;
+        }
+    };
+    let stderr_pipe = child.stderr.take();
+
+    let statuses: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(
+        npc_ids
+            .iter()
+            .map(|id| (id.clone(), "pending".to_string()))
+            .collect(),
+    ));
+    let errors: Arc<Mutex<HashMap<String, String>>> = Arc::new(Mutex::new(HashMap::new()));
+
+    let stdout_statuses = statuses.clone();
+    let stdout_errors = errors.clone();
+    let stdout_app = app.clone();
+    let stdout_handle = std::thread::spawn(move || -> Result<(), String> {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines() {
+            let line = line.map_err(|e| e.to_string())?;
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            match serde_json::from_str::<Value>(trimmed) {
+                Ok(Value::Object(map)) => {
+                    if let Some(npc_id) = map
+                        .get("npc_id")
+                        .or_else(|| map.get("npcId"))
+                        .or_else(|| map.get("id"))
+                        .and_then(|value| value.as_str())
+                    {
+                        let id = npc_id.trim();
+                        if id.is_empty() {
+                            continue;
+                        }
+                        let status = derive_repair_status(&map);
+                        let message = extract_repair_message(&map);
+                        let error_text = extract_repair_error(&map);
+                        {
+                            let mut guard = stdout_statuses.lock().unwrap();
+                            guard.insert(id.to_string(), status.clone());
+                        }
+                        if let Some(ref err) = error_text {
+                            let mut guard = stdout_errors.lock().unwrap();
+                            guard.insert(id.to_string(), err.clone());
+                        }
+                        emit_npc_repair_event(
+                            &stdout_app,
+                            NpcRepairProgressPayload {
+                                run_id,
+                                npc_id: Some(id.to_string()),
+                                status: Some(status),
+                                message,
+                                error: error_text,
+                                summary: None,
+                            },
+                        );
+                    } else if let Some(summary) = map.get("summary").and_then(|value| value.as_object()) {
+                        if let Some(status_map) = summary.get("status_map").and_then(|value| value.as_object()) {
+                            let mut updates = Vec::new();
+                            for (id, value) in status_map {
+                                if let Some(text) = value.as_str() {
+                                    updates.push((id.clone(), normalize_repair_status_text(text).to_string()));
+                                }
+                            }
+                            if !updates.is_empty() {
+                                let mut guard = stdout_statuses.lock().unwrap();
+                                for (id, status) in updates {
+                                    guard.insert(id, status);
+                                }
+                            }
+                        }
+                        if let Some(verified) = summary.get("verified").and_then(|value| value.as_array()) {
+                            let mut guard = stdout_statuses.lock().unwrap();
+                            for entry in verified {
+                                if let Some(id) = entry.as_str() {
+                                    guard.insert(id.to_string(), "verified".to_string());
+                                }
+                            }
+                        }
+                        if let Some(failed) = summary.get("failed").and_then(|value| value.as_array()) {
+                            let mut guard = stdout_statuses.lock().unwrap();
+                            for entry in failed {
+                                if let Some(id) = entry.as_str() {
+                                    guard.insert(id.to_string(), "error".to_string());
+                                }
+                            }
+                        }
+                        if let Some(errors_obj) = summary.get("errors").and_then(|value| value.as_object()) {
+                            let mut guard = stdout_errors.lock().unwrap();
+                            for (id, value) in errors_obj {
+                                if let Some(text) = value.as_str() {
+                                    guard.insert(id.clone(), text.to_string());
+                                }
+                            }
+                        }
+                    } else {
+                        eprintln!("[npc_repair] helper log: {}", trimmed);
+                    }
+                }
+                Ok(other) => {
+                    eprintln!("[npc_repair] unexpected helper output: {:?}", other);
+                }
+                Err(_) => {
+                    eprintln!("[npc_repair] non-JSON helper output: {}", trimmed);
+                }
+            }
+        }
+        Ok(())
+    });
+
+    let stderr_buffer: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+    let stderr_buffer_clone = stderr_buffer.clone();
+    let stderr_handle = std::thread::spawn(move || {
+        if let Some(pipe) = stderr_pipe {
+            let reader = BufReader::new(pipe);
+            for line in reader.lines().flatten() {
+                eprintln!("[npc_repair stderr] {}", line);
+                let mut guard = stderr_buffer_clone.lock().unwrap();
+                guard.push_str(&line);
+                guard.push('\n');
+            }
+        }
+    });
+
+    let exit_status = match child.wait() {
+        Ok(status) => status,
+        Err(err) => {
+            let msg = format!("Failed to wait for repair helper: {}", err);
+            let elapsed_ms = start.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+            fail_entire_repair_run(&app, run_id, &npc_ids, &msg, elapsed_ms);
+            return;
+        }
+    };
+
+    let mut run_error: Option<String> = None;
+    match stdout_handle.join() {
+        Ok(Ok(())) => {}
+        Ok(Err(err)) => {
+            run_error = Some(err);
+        }
+        Err(_) => {
+            run_error = Some("Repair helper thread panicked".to_string());
+        }
+    }
+    let _ = stderr_handle.join();
+    let stderr_output = stderr_buffer.lock().unwrap().clone();
+    if !exit_status.success() {
+        let status_text = exit_status
+            .code()
+            .map(|code| format!("Repair helper exited with code {}", code))
+            .unwrap_or_else(|| "Repair helper terminated by signal".to_string());
+        if let Some(existing) = run_error.as_mut() {
+            existing.push_str("; ");
+            existing.push_str(&status_text);
+        } else {
+            run_error = Some(status_text);
+        }
+    }
+    let stderr_trimmed = stderr_output.trim();
+    if let Some((first_line, _)) = stderr_trimmed.split_once('\n') {
+        if let Some(existing) = run_error.as_mut() {
+            existing.push_str("; stderr: ");
+            existing.push_str(first_line);
+        }
+    } else if !stderr_trimmed.is_empty() {
+        if let Some(existing) = run_error.as_mut() {
+            existing.push_str("; stderr: ");
+            existing.push_str(stderr_trimmed);
+        } else {
+            run_error = Some(stderr_trimmed.to_string());
+        }
+    }
+
+    let mut status_map = statuses.lock().unwrap().clone();
+    let mut error_map = errors.lock().unwrap().clone();
+    let mut final_status_map = HashMap::new();
+    let mut verified = Vec::new();
+    let mut failed = Vec::new();
+
+    for id in &npc_ids {
+        let raw = status_map
+            .get(id)
+            .cloned()
+            .unwrap_or_else(|| "pending".to_string());
+        let mut final_status = match raw.as_str() {
+            "verified" => "verified".to_string(),
+            "error" => "error".to_string(),
+            "not_verified" => "error".to_string(),
+            _ => {
+                if !error_map.contains_key(id) {
+                    let msg = match raw.as_str() {
+                        "pending" => "Repair did not complete for this record".to_string(),
+                        other => format!("Repair ended with status '{}'.", other),
+                    };
+                    error_map.insert(id.clone(), msg);
+                }
+                "error".to_string()
+            }
+        };
+        if final_status == "verified" {
+            verified.push(id.clone());
+        } else {
+            failed.push(id.clone());
+            if !error_map.contains_key(id) {
+                error_map.insert(id.clone(), "Repair failed".to_string());
+            }
+            final_status = "error".to_string();
+        }
+        final_status_map.insert(id.clone(), final_status.clone());
+        emit_npc_repair_event(
+            &app,
+            NpcRepairProgressPayload {
+                run_id,
+                npc_id: Some(id.clone()),
+                status: Some(final_status),
+                message: None,
+                error: error_map.get(id).cloned(),
+                summary: None,
+            },
+        );
+    }
+
+    let duration_ms = start.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    let summary = NpcRepairSummary {
+        run_id,
+        total: npc_ids.len(),
+        requested: npc_ids.clone(),
+        status_map: final_status_map,
+        verified: verified.clone(),
+        failed: failed.clone(),
+        duration_ms,
+        errors: error_map.clone(),
+    };
+
+    let (run_status, run_message, run_error_field) = if let Some(err) = run_error.clone() {
+        ("error".to_string(), Some(err.clone()), Some(err))
+    } else if failed.is_empty() {
+        (
+            "completed".to_string(),
+            Some("Repair run completed successfully.".to_string()),
+            None,
+        )
+    } else {
+        (
+            "completed".to_string(),
+            Some("Repair run completed with failures.".to_string()),
+            None,
+        )
+    };
+
+    emit_npc_repair_event(
+        &app,
+        NpcRepairProgressPayload {
+            run_id,
+            npc_id: None,
+            status: Some(run_status),
+            message: run_message,
+            error: run_error_field,
+            summary: Some(summary),
+        },
+    );
+}
+
+#[tauri::command]
+async fn npc_repair_run(app: AppHandle, npc_ids: Vec<String>) -> Result<NpcRepairLaunch, String> {
+    let mut normalized: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for id in npc_ids {
+        let trimmed = id.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let candidate = trimmed.to_string();
+        if seen.insert(candidate.clone()) {
+            normalized.push(candidate);
+        }
+    }
+    if normalized.is_empty() {
+        return Err("At least one NPC must be selected for repair.".to_string());
+    }
+
+    let helper_path = env::var("BLOSSOM_REPAIR_HELPER")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| project_root().join("scripts").join("dnd_repair_helper.py"));
+    if !helper_path.exists() {
+        return Err(format!(
+            "Repair helper not found at {}. Install the helper before running repairs.",
+            helper_path.display()
+        ));
+    }
+
+    let run_id = NPC_REPAIR_RUN_COUNTER.fetch_add(1, Ordering::SeqCst);
+    for id in &normalized {
+        emit_npc_repair_event(
+            &app,
+            NpcRepairProgressPayload {
+                run_id,
+                npc_id: Some(id.clone()),
+                status: Some("not_verified".to_string()),
+                message: Some("Queued for repair".to_string()),
+                error: None,
+                summary: None,
+            },
+        );
+    }
+
+    spawn_npc_repair_job(app, helper_path, run_id, normalized.clone());
+
+    Ok(NpcRepairLaunch {
+        run_id,
+        requested: normalized,
+    })
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -9082,6 +9686,7 @@ fn main() {
             npc_list,
             npc_save,
             npc_delete,
+            npc_repair_run,
             update_section_tags,
             list_devices,
             set_devices,

@@ -11,6 +11,7 @@ const CATEGORY_OPTIONS = [
 ];
 
 const STATUS_META = {
+  not_verified: { label: 'Not Verified', className: 'idle' },
   idle: { label: 'Not Verified', className: 'idle' },
   pending: { label: 'Pending', className: 'pending' },
   verified: { label: 'Verified', className: 'verified' },
@@ -44,12 +45,16 @@ function normalizeRepairStatus(payload) {
   if (!payload) return null;
   if (payload.verified === true) return 'verified';
   if (payload.error === true || payload.failed === true) return 'error';
+  if (payload.not_verified === true) return 'not_verified';
   if (payload.pending === true) return 'pending';
   const sources = [payload.status, payload.state, payload.phase, payload.stage];
   for (const source of sources) {
     if (!source) continue;
     const text = String(source).trim().toLowerCase();
     if (!text) continue;
+    if (['not_verified', 'unverified', 'idle', 'unknown'].includes(text)) {
+      return 'not_verified';
+    }
     if (['pending', 'running', 'processing', 'queued', 'in-progress', 'working'].includes(text)) {
       return 'pending';
     }
@@ -110,7 +115,7 @@ export default function DndRepair() {
           const next = { ...prev };
           for (const npc of normalized) {
             if (npc?.id && !next[npc.id]) {
-              next[npc.id] = 'idle';
+              next[npc.id] = 'not_verified';
             }
           }
           return next;
@@ -136,27 +141,120 @@ export default function DndRepair() {
     let unlisten = null;
     listenToNpcRepair((event) => {
       const payload = event?.payload ?? {};
-      const eventRunId = parseRunId(payload.runId ?? payload.run_id ?? payload.jobId ?? payload.job_id);
+      const summary = payload?.summary;
+      const runIdCandidates = [
+        payload?.runId,
+        payload?.run_id,
+        payload?.jobId,
+        payload?.job_id,
+        summary?.runId,
+        summary?.run_id,
+      ];
+      let eventRunId = null;
+      for (const candidate of runIdCandidates) {
+        const parsed = parseRunId(candidate);
+        if (parsed) {
+          eventRunId = parsed;
+          break;
+        }
+      }
       if (eventRunId && runIdRef.current && eventRunId !== runIdRef.current) {
         return;
       }
       if (eventRunId && !runIdRef.current) {
         runIdRef.current = eventRunId;
       }
+
+      if (summary) {
+        const statusMap = summary.status_map || summary.statusMap || {};
+        const verifiedList = Array.isArray(summary.verified) ? summary.verified : [];
+        const failedList = Array.isArray(summary.failed) ? summary.failed : [];
+        const errorsMap = (summary.errors || summary.Errors) ?? {};
+
+        const normalizedEntries = [];
+        if (statusMap && typeof statusMap === 'object') {
+          for (const [id, statusValue] of Object.entries(statusMap)) {
+            const normalized = normalizeRepairStatus({ status: statusValue });
+            normalizedEntries.push([id, normalized]);
+          }
+        }
+
+        setStatuses((prev) => {
+          const next = { ...prev };
+          const applyStatus = (id, status) => {
+            if (!id || !status) return;
+            next[id] = status;
+          };
+          normalizedEntries.forEach(([id, status]) => applyStatus(id, status));
+          verifiedList.forEach((id) => applyStatus(id, 'verified'));
+          failedList.forEach((id) => applyStatus(id, 'error'));
+          if (errorsMap && typeof errorsMap === 'object') {
+            Object.keys(errorsMap).forEach((id) => applyStatus(id, 'error'));
+          }
+          if (Array.isArray(summary.requested)) {
+            summary.requested.forEach((id) => {
+              if (!id) return;
+              if (!next[id]) {
+                const hasError =
+                  (errorsMap && typeof errorsMap === 'object' && errorsMap[id]) ||
+                  failedList.includes(id);
+                applyStatus(id, hasError ? 'error' : 'not_verified');
+              }
+            });
+          }
+          return next;
+        });
+
+        const hasFailure =
+          failedList.length > 0 ||
+          normalizedEntries.some(([, status]) => status === 'error') ||
+          (errorsMap && typeof errorsMap === 'object' && Object.keys(errorsMap).length > 0);
+        if (hasFailure) {
+          if (errorsMap && typeof errorsMap === 'object') {
+            const firstError = Object.values(errorsMap).find(
+              (value) => typeof value === 'string' && value.trim(),
+            );
+            if (firstError) {
+              setRunError(String(firstError));
+            } else if (typeof payload.error === 'string' && payload.error.trim()) {
+              setRunError(String(payload.error));
+            } else {
+              setRunError('Some NPCs failed verification.');
+            }
+          } else if (typeof payload.error === 'string' && payload.error.trim()) {
+            setRunError(String(payload.error));
+          } else {
+            setRunError('Some NPCs failed verification.');
+          }
+        } else {
+          setRunError('');
+        }
+
+        activeSetRef.current = new Set();
+        setRunning(false);
+        return;
+      }
+
       if (isStartEvent(payload)) {
         setRunning(true);
       }
-      const entityId = payload.npcId || payload.npc_id || payload.entityId || payload.entity_id || payload.id;
+
+      const entityId =
+        payload.npcId || payload.npc_id || payload.entityId || payload.entity_id || payload.id;
       const status = normalizeRepairStatus(payload);
       if (entityId && status) {
         setStatuses((prev) => ({ ...prev, [entityId]: status }));
       }
-      if (isCompletionEvent(payload)) {
+
+      if (!entityId && typeof payload.error === 'string' && payload.error.trim()) {
+        setRunError(String(payload.error));
+      } else if (entityId && typeof payload.error === 'string' && payload.error.trim()) {
+        setRunError(String(payload.error));
+      }
+
+      if (!entityId && isCompletionEvent(payload)) {
         activeSetRef.current = new Set();
         setRunning(false);
-      }
-      if (payload.error && typeof payload.error === 'string') {
-        setRunError(String(payload.error));
       }
     })
       .then((stopListening) => {
@@ -261,7 +359,7 @@ export default function DndRepair() {
         const next = { ...prev };
         for (const id of selected) {
           if (next[id] === 'pending') {
-            next[id] = 'idle';
+            next[id] = 'not_verified';
           }
         }
         return next;
@@ -337,7 +435,7 @@ export default function DndRepair() {
         ) : (
           <ul className="repair-entity-list">
             {filteredEntities.map((npc) => {
-              const statusKey = statuses[npc.id] || 'idle';
+              const statusKey = statuses[npc.id] || 'not_verified';
               const status = STATUS_META[statusKey] ?? STATUS_META.idle;
               const isSelected = selectedSet.has(npc.id);
               return (
