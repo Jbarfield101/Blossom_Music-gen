@@ -1,9 +1,10 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
-export const NPC_REPAIR_EVENT = 'npc-repair::progress';
+export const NPC_REPAIR_EVENT = 'repair::npc-progress';
 
 const COMMAND_CANDIDATES = [
+  { name: 'npc_repair_run', buildArgs: (npcIds) => ({ npcIds }) },
   { name: 'npc_repair_start', buildArgs: (npcIds) => ({ npcIds }) },
   { name: 'npc_repair', buildArgs: (npcIds) => ({ npcIds }) },
   { name: 'repair_npcs', buildArgs: (npcIds) => ({ ids: npcIds }) },
