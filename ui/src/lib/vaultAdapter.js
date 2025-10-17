@@ -10,6 +10,7 @@ import {
   sessionSchema,
 } from './dndSchemas.js';
 import { resolveRelationshipIds } from './dndIds.js';
+import { loadVaultIndex } from './vaultIndex.js';
 
 const SCHEMA_MAP = new Map([
   ['npc', npcSchema],
@@ -122,6 +123,64 @@ function resolveSchema(data, path) {
   return { schema, entityType };
 }
 
+function valueContainsEntityId(value, targetId) {
+  if (!value) {
+    return false;
+  }
+  if (typeof value === 'string') {
+    return value.trim() === targetId;
+  }
+  if (Array.isArray(value)) {
+    return value.some((item) => valueContainsEntityId(item, targetId));
+  }
+  if (value && typeof value === 'object') {
+    return Object.values(value).some((item) => valueContainsEntityId(item, targetId));
+  }
+  return false;
+}
+
+async function computeBacklinksForEntity(entityId) {
+  const targetId = typeof entityId === 'string' ? entityId.trim() : '';
+  if (!targetId) {
+    return [];
+  }
+  let snapshot;
+  try {
+    snapshot = await loadVaultIndex({ force: false });
+  } catch (err) {
+    console.warn('computeBacklinksForEntity: failed to load vault index', err);
+    return [];
+  }
+  const entities = snapshot?.entities && typeof snapshot.entities === 'object' ? snapshot.entities : {};
+  const candidateKeys = ['metadata', 'fields', 'relationships', 'relationship_ledger', 'links', 'references'];
+  const backlinks = [];
+  const seen = new Set();
+
+  Object.values(entities).forEach((entry) => {
+    if (!entry || typeof entry !== 'object') return;
+    const id = typeof entry.id === 'string' ? entry.id : entry?.index?.id;
+    if (!id || id === targetId) return;
+    if (seen.has(id)) return;
+    const hasReference = candidateKeys.some((key) => valueContainsEntityId(entry[key], targetId));
+    if (!hasReference) return;
+    seen.add(id);
+    const type = typeof entry.type === 'string' ? entry.type : entry?.metadata?.type;
+    const name = entry.name || entry.title || entry?.metadata?.name || '';
+    const relPath = entry.relPath || entry.path || '';
+    backlinks.push({ id, type, name, relPath });
+  });
+
+  backlinks.sort((a, b) => {
+    const labelA = (a.name || a.id || '').toLowerCase();
+    const labelB = (b.name || b.id || '').toLowerCase();
+    if (labelA < labelB) return -1;
+    if (labelA > labelB) return 1;
+    return (a.id || '').localeCompare(b.id || '');
+  });
+
+  return backlinks;
+}
+
 function sortKeys(value) {
   if (Array.isArray(value)) {
     return value.map((item) => sortKeys(item));
@@ -160,10 +219,12 @@ export async function loadEntity(path) {
     }
     try {
       const entity = schema.parse(normalized);
+      const backlinks = await computeBacklinksForEntity(entity.id);
       return {
         entity,
         body: parsed.content || '',
         path,
+        backlinks,
       };
     } catch (err) {
       throw new EntityValidationError('Entity validation failed', {
@@ -201,10 +262,12 @@ export async function loadEntity(path) {
   }
   try {
     const entity = schema.parse(normalized);
+    const backlinks = await computeBacklinksForEntity(entity.id);
     return {
       entity,
       body: raw || '',
       path,
+      backlinks,
     };
   } catch (err) {
     throw new EntityValidationError('Entity validation failed', {

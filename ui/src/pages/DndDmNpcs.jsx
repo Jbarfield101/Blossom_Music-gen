@@ -9,12 +9,13 @@ import { writeTextFile } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
 
 import BackButton from '../components/BackButton.jsx';
+import EntityLinkPicker from '../components/EntityLinkPicker.jsx';
 import { getDreadhavenRoot } from '../api/config';
 import { listDir } from '../api/dir';
 import { readInbox, deleteInbox } from '../api/inbox';
 import { readFileBytes } from '../api/files';
 import { createNpc, saveNpc, listNpcs } from '../api/npcs';
-import { makeId } from '../lib/dndIds';
+import { makeId, ENTITY_ID_PATTERN } from '../lib/dndIds';
 import { loadEstablishments } from '../api/establishments';
 import { listPiperVoices } from '../lib/piperVoices';
 import { npcSchema } from '../lib/dndSchemas.js';
@@ -74,6 +75,277 @@ function firstChip(...values) {
   return '';
 }
 
+const LEDGER_FIELDS = [
+  { key: 'allies', label: 'Allies', helper: 'Trusted companions, supporters, and partners.' },
+  { key: 'rivals', label: 'Rivals', helper: 'Individuals or groups opposed to this NPC.' },
+  {
+    key: 'debts_owed_to_npc',
+    label: 'Debts Owed To NPC',
+    helper: 'Who owes this NPC a favor, payment, or obligation.',
+  },
+  {
+    key: 'debts_owed_by_npc',
+    label: 'Debts Owed By NPC',
+    helper: 'Debts, favors, or obligations this NPC must repay.',
+  },
+];
+
+const LEDGER_KEYS = LEDGER_FIELDS.map((entry) => entry.key);
+
+const ENTITY_TYPE_LABELS = new Map([
+  ['npc', 'NPC'],
+  ['quest', 'Quest'],
+  ['loc', 'Location'],
+  ['location', 'Location'],
+  ['faction', 'Faction'],
+  ['monster', 'Monster'],
+  ['encounter', 'Encounter'],
+  ['session', 'Session'],
+]);
+
+function cloneLedgerForForm(source = {}) {
+  if (!source || typeof source !== 'object') {
+    return {};
+  }
+  const result = {};
+  LEDGER_KEYS.forEach((key) => {
+    if (!Object.prototype.hasOwnProperty.call(source, key)) {
+      return;
+    }
+    const entries = Array.isArray(source[key]) ? source[key] : [];
+    result[key] = entries.map((entry) => ({
+      id: typeof entry?.id === 'string' ? entry.id : '',
+      notes: typeof entry?.notes === 'string' ? entry.notes : '',
+    }));
+  });
+  return result;
+}
+
+function sanitizeLedgerForDraft(source = {}) {
+  if (!source || typeof source !== 'object') {
+    return undefined;
+  }
+  const normalized = {};
+  LEDGER_KEYS.forEach((key) => {
+    const entries = Array.isArray(source[key]) ? source[key] : [];
+    const sanitized = [];
+    entries.forEach((entry) => {
+      const rawId = typeof entry?.id === 'string' ? entry.id.trim() : '';
+      if (!rawId || !ENTITY_ID_PATTERN.test(rawId)) {
+        return;
+      }
+      const normalizedEntry = { id: rawId };
+      if (typeof entry?.notes === 'string') {
+        const notes = entry.notes.trim();
+        if (notes) {
+          normalizedEntry.notes = notes;
+        }
+      }
+      sanitized.push(normalizedEntry);
+    });
+    if (sanitized.length > 0) {
+      normalized[key] = sanitized;
+    }
+  });
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function normalizeLedgerFromSource(source = {}) {
+  if (!source || typeof source !== 'object') {
+    return undefined;
+  }
+  const normalized = {};
+  LEDGER_KEYS.forEach((key) => {
+    const entries = Array.isArray(source[key]) ? source[key] : [];
+    const mapped = [];
+    entries.forEach((entry) => {
+      const rawId = typeof entry?.id === 'string' ? entry.id.trim() : '';
+      if (!rawId) return;
+      const normalizedEntry = { id: rawId };
+      if (typeof entry?.notes === 'string') {
+        const notes = entry.notes.trim();
+        if (notes) {
+          normalizedEntry.notes = notes;
+        }
+      }
+      mapped.push(normalizedEntry);
+    });
+    if (mapped.length > 0) {
+      normalized[key] = mapped;
+    }
+  });
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function formatEntityTypeLabel(type) {
+  if (!type) return '';
+  const key = String(type).toLowerCase();
+  return ENTITY_TYPE_LABELS.get(key) || key.charAt(0).toUpperCase() + key.slice(1);
+}
+
+function RelationshipLedgerEditor({ value, onChange, disabled }) {
+  const ledger = useMemo(() => cloneLedgerForForm(value || {}), [value]);
+
+  const cloneForUpdate = useCallback(() => {
+    const next = {};
+    LEDGER_KEYS.forEach((key) => {
+      if (Array.isArray(ledger[key])) {
+        next[key] = ledger[key].map((entry) => ({
+          id: typeof entry?.id === 'string' ? entry.id : '',
+          notes: typeof entry?.notes === 'string' ? entry.notes : '',
+        }));
+      }
+    });
+    return next;
+  }, [ledger]);
+
+  const commit = useCallback(
+    (nextLedger) => {
+      if (typeof onChange !== 'function') return;
+      const payload = {};
+      LEDGER_KEYS.forEach((key) => {
+        if (Array.isArray(nextLedger[key])) {
+          payload[key] = nextLedger[key].map((entry) => ({
+            id: typeof entry?.id === 'string' ? entry.id : '',
+            notes: typeof entry?.notes === 'string' ? entry.notes : '',
+          }));
+        }
+      });
+      onChange(payload);
+    },
+    [onChange],
+  );
+
+  const handleAdd = useCallback(
+    (key) => {
+      if (disabled) return;
+      const next = cloneForUpdate();
+      const existing = Array.isArray(next[key]) ? next[key] : [];
+      next[key] = [...existing, { id: '', notes: '' }];
+      commit(next);
+    },
+    [cloneForUpdate, commit, disabled],
+  );
+
+  const handleIdChange = useCallback(
+    (key, index, nextId) => {
+      const normalizedId = typeof nextId === 'string' ? nextId : '';
+      const next = cloneForUpdate();
+      const entries = Array.isArray(next[key]) ? next[key] : [];
+      if (entries[index]) {
+        entries[index] = { ...entries[index], id: normalizedId };
+      } else {
+        const padded = [...entries];
+        while (padded.length <= index) {
+          padded.push({ id: '', notes: '' });
+        }
+        padded[index] = { ...padded[index], id: normalizedId };
+        next[key] = padded;
+        commit(next);
+        return;
+      }
+      next[key] = entries;
+      commit(next);
+    },
+    [cloneForUpdate, commit],
+  );
+
+  const handleNotesChange = useCallback(
+    (key, index, notes) => {
+      const next = cloneForUpdate();
+      const entries = Array.isArray(next[key]) ? next[key] : [];
+      if (entries[index]) {
+        entries[index] = { ...entries[index], notes };
+      } else {
+        const padded = [...entries];
+        while (padded.length <= index) {
+          padded.push({ id: '', notes: '' });
+        }
+        padded[index] = { ...padded[index], notes };
+        next[key] = padded;
+        commit(next);
+        return;
+      }
+      next[key] = entries;
+      commit(next);
+    },
+    [cloneForUpdate, commit],
+  );
+
+  const handleRemove = useCallback(
+    (key, index) => {
+      if (disabled) return;
+      const next = cloneForUpdate();
+      const entries = Array.isArray(next[key]) ? next[key] : [];
+      const updated = entries.filter((_, idx) => idx !== index);
+      if (updated.length > 0) {
+        next[key] = updated;
+      } else {
+        delete next[key];
+      }
+      commit(next);
+    },
+    [cloneForUpdate, commit, disabled],
+  );
+
+  return (
+    <fieldset className="npc-ledger-section">
+      <legend>Relationship Ledger</legend>
+      {LEDGER_FIELDS.map((field) => {
+        const entries = Array.isArray(ledger[field.key]) ? ledger[field.key] : [];
+        return (
+          <div key={field.key} className="npc-ledger-group">
+            <div className="npc-ledger-header">
+              <div>
+                <div className="npc-ledger-title">{field.label}</div>
+                {field.helper && <div className="npc-ledger-helper muted">{field.helper}</div>}
+              </div>
+              <button type="button" onClick={() => handleAdd(field.key)} disabled={disabled} className="npc-ledger-add">
+                Add link
+              </button>
+            </div>
+            {entries.length === 0 ? (
+              <div className="npc-ledger-empty muted">No {field.label.toLowerCase()} linked yet.</div>
+            ) : (
+              <div className="npc-ledger-rows">
+                {entries.map((entry, index) => (
+                  <div key={`${field.key}-${index}`} className="npc-ledger-row">
+                    <div className="npc-ledger-cell">
+                      <EntityLinkPicker
+                        value={entry.id}
+                        onChange={(id) => handleIdChange(field.key, index, id)}
+                        disabled={disabled}
+                        helperText="Type a name or paste an entity ID."
+                      />
+                    </div>
+                    <div className="npc-ledger-cell npc-ledger-cell--notes">
+                      <textarea
+                        value={entry.notes || ''}
+                        onChange={(event) => handleNotesChange(field.key, index, event.target.value)}
+                        placeholder="Notes"
+                        rows={2}
+                        disabled={disabled}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="npc-ledger-remove"
+                      onClick={() => handleRemove(field.key, index)}
+                      disabled={disabled}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </fieldset>
+  );
+}
+
 const NPC_FORM_SCHEMA = npcSchema
   .pick({
     id: true,
@@ -86,6 +358,7 @@ const NPC_FORM_SCHEMA = npcSchema
     tags: true,
     keywords: true,
     canonical_summary: true,
+    relationship_ledger: true,
   })
   .partial({
     region: true,
@@ -96,6 +369,7 @@ const NPC_FORM_SCHEMA = npcSchema
     tags: true,
     keywords: true,
     canonical_summary: true,
+    relationship_ledger: true,
   });
 
 const NPC_FORM_DEFAULTS = {
@@ -109,6 +383,7 @@ const NPC_FORM_DEFAULTS = {
   tags: [],
   keywords: [],
   canonical_summary: '',
+  relationship_ledger: {},
 };
 
 function coerceStringArray(value) {
@@ -137,6 +412,12 @@ function normalizeEntityMeta(meta = {}, fallback = {}) {
   if (typeof base.canonical_summary === 'string') {
     base.canonical_summary = base.canonical_summary.trim();
   }
+  const normalizedLedger = normalizeLedgerFromSource(base.relationship_ledger);
+  if (normalizedLedger) {
+    base.relationship_ledger = normalizedLedger;
+  } else if (base.relationship_ledger !== undefined) {
+    delete base.relationship_ledger;
+  }
   return base;
 }
 
@@ -152,6 +433,7 @@ function extractFormValues(meta = {}) {
     tags: coerceStringArray(meta.tags),
     keywords: coerceStringArray(meta.keywords),
     canonical_summary: typeof meta.canonical_summary === 'string' ? meta.canonical_summary : '',
+    relationship_ledger: cloneLedgerForForm(meta.relationship_ledger || {}),
   };
 }
 
@@ -183,6 +465,14 @@ function sanitizeFormValues(values = {}) {
   });
   if (typeof next.importance !== 'number' || Number.isNaN(next.importance)) {
     delete next.importance;
+  }
+  if (next.relationship_ledger !== undefined) {
+    const sanitizedLedger = sanitizeLedgerForDraft(next.relationship_ledger || {});
+    if (sanitizedLedger) {
+      next.relationship_ledger = sanitizedLedger;
+    } else {
+      delete next.relationship_ledger;
+    }
   }
   return next;
 }
@@ -256,6 +546,8 @@ export default function DndDmNpcs() {
   const [lastSavedAt, setLastSavedAt] = useState(null);
   const [documentReady, setDocumentReady] = useState(false);
   const [hasPendingChanges, setHasPendingChanges] = useState(false);
+  const [backlinks, setBacklinks] = useState([]);
+  const [backlinksLoading, setBacklinksLoading] = useState(false);
 
   const entityDraftRef = useRef({});
   const bodyRef = useRef('');
@@ -378,12 +670,36 @@ export default function DndDmNpcs() {
     const subscription = watch((value) => {
       if (!documentReadyRef.current) return;
       const normalized = sanitizeFormValues(value || {});
-      const keysToSync = ['id', 'name', 'region', 'location', 'faction', 'role', 'importance', 'tags', 'keywords', 'canonical_summary'];
+      const keysToSync = [
+        'id',
+        'name',
+        'region',
+        'location',
+        'faction',
+        'role',
+        'importance',
+        'tags',
+        'keywords',
+        'canonical_summary',
+        'relationship_ledger',
+      ];
       const draft = { ...entityDraftRef.current };
       keysToSync.forEach((key) => {
         if (Object.prototype.hasOwnProperty.call(normalized, key)) {
           draft[key] = normalized[key];
-        } else if (['region', 'location', 'faction', 'role', 'importance', 'tags', 'keywords', 'canonical_summary'].includes(key)) {
+        } else if (
+          [
+            'region',
+            'location',
+            'faction',
+            'role',
+            'importance',
+            'tags',
+            'keywords',
+            'canonical_summary',
+            'relationship_ledger',
+          ].includes(key)
+        ) {
           delete draft[key];
         }
       });
@@ -393,7 +709,19 @@ export default function DndDmNpcs() {
         keysToSync.forEach((key) => {
           if (Object.prototype.hasOwnProperty.call(normalized, key)) {
             next[key] = normalized[key];
-          } else if (['region', 'location', 'faction', 'role', 'importance', 'tags', 'keywords', 'canonical_summary'].includes(key)) {
+          } else if (
+            [
+              'region',
+              'location',
+              'faction',
+              'role',
+              'importance',
+              'tags',
+              'keywords',
+              'canonical_summary',
+              'relationship_ledger',
+            ].includes(key)
+          ) {
             delete next[key];
           }
         });
@@ -1140,6 +1468,8 @@ const establishmentOptions = useMemo(() => {
       documentReadyRef.current = false;
       dirtyRef.current = false;
       setHasPendingChanges(false);
+      setBacklinks([]);
+      setBacklinksLoading(false);
       return () => { cancelled = true; };
     }
 
@@ -1155,6 +1485,8 @@ const establishmentOptions = useMemo(() => {
       clearTimeout(saveTimerRef.current);
       saveTimerRef.current = null;
     }
+    setBacklinks([]);
+    setBacklinksLoading(true);
 
     (async () => {
       let indexEntry = null;
@@ -1189,20 +1521,46 @@ const establishmentOptions = useMemo(() => {
           setHasPendingChanges(false);
           activePathRef.current = '';
           dirtyRef.current = false;
+          setBacklinks([]);
+          setBacklinksLoading(false);
         }
         return;
       }
 
-      const applyLoadedEntity = (entity, body, entryMeta) => {
+      const applyLoadedEntity = (entity, body, entryMeta, backlinksList = []) => {
         const normalizedEntity = normalizeEntityMeta(entity || {}, selected || {});
         const formValues = extractFormValues(normalizedEntity);
         const sanitizedForm = sanitizeFormValues(formValues);
         const draft = { ...normalizedEntity };
-        const keysToSync = ['id', 'name', 'region', 'location', 'faction', 'role', 'importance', 'tags', 'keywords', 'canonical_summary'];
+        const keysToSync = [
+          'id',
+          'name',
+          'region',
+          'location',
+          'faction',
+          'role',
+          'importance',
+          'tags',
+          'keywords',
+          'canonical_summary',
+          'relationship_ledger',
+        ];
         keysToSync.forEach((key) => {
           if (Object.prototype.hasOwnProperty.call(sanitizedForm, key)) {
             draft[key] = sanitizedForm[key];
-          } else if (['region', 'location', 'faction', 'role', 'importance', 'tags', 'keywords', 'canonical_summary'].includes(key)) {
+          } else if (
+            [
+              'region',
+              'location',
+              'faction',
+              'role',
+              'importance',
+              'tags',
+              'keywords',
+              'canonical_summary',
+              'relationship_ledger',
+            ].includes(key)
+          ) {
             delete draft[key];
           }
         });
@@ -1223,13 +1581,20 @@ const establishmentOptions = useMemo(() => {
         setDocumentReady(true);
         documentReadyRef.current = true;
         setHasPendingChanges(false);
+        setBacklinks(Array.isArray(backlinksList) ? backlinksList : []);
+        setBacklinksLoading(false);
       };
 
       try {
         const result = await loadEntity(fallbackPath);
         if (cancelled) return;
         activePathRef.current = result?.path || fallbackPath;
-        applyLoadedEntity(result?.entity || {}, result?.body || '', indexEntry || selected?.index || {});
+        applyLoadedEntity(
+          result?.entity || {},
+          result?.body || '',
+          indexEntry || selected?.index || {},
+          Array.isArray(result?.backlinks) ? result.backlinks : [],
+        );
       } catch (err) {
         if (cancelled) return;
         try {
@@ -1237,7 +1602,7 @@ const establishmentOptions = useMemo(() => {
           if (cancelled) return;
           const [meta, body, issue] = parseNpcFrontmatter(text || '');
           activePathRef.current = fallbackPath;
-          applyLoadedEntity(meta || {}, body || '', indexEntry || selected?.index || {});
+          applyLoadedEntity(meta || {}, body || '', indexEntry || selected?.index || {}, []);
           if (issue || err?.message) {
             setMetaNotice(issue || err?.message || '');
           }
@@ -1254,6 +1619,8 @@ const establishmentOptions = useMemo(() => {
           setDocumentReady(false);
           documentReadyRef.current = false;
           setMetaNotice(innerErr?.message || err?.message || 'Failed to load NPC file.');
+          setBacklinks([]);
+          setBacklinksLoading(false);
         }
       }
     })();
@@ -1683,6 +2050,48 @@ const establishmentOptions = useMemo(() => {
                           placeholder="Single paragraph reference summary"
                         />
                       </label>
+                    </div>
+                    <Controller
+                      name="relationship_ledger"
+                      control={control}
+                      render={({ field }) => (
+                        <RelationshipLedgerEditor
+                          value={field.value}
+                          onChange={field.onChange}
+                          disabled={metadataFormDisabled}
+                        />
+                      )}
+                    />
+                    <div className="npc-backlinks">
+                      <div className="npc-backlinks-header">
+                        <div className="npc-backlinks-title">Backlinks</div>
+                        {backlinks.length > 0 && !backlinksLoading && (
+                          <div className="npc-backlinks-count">{backlinks.length}</div>
+                        )}
+                      </div>
+                      {backlinksLoading ? (
+                        <div className="npc-backlinks-empty muted">Scanning vault index…</div>
+                      ) : backlinks.length === 0 ? (
+                        <div className="npc-backlinks-empty muted">No backlinks found.</div>
+                      ) : (
+                        <ul className="npc-backlinks-list">
+                          {backlinks.map((link, index) => {
+                            const key = link?.id ? `${link.id}-${link.type || 'entity'}-${index}` : `link-${index}`;
+                            const displayName = link?.name || link?.title || link?.id || 'Unnamed entity';
+                            const typeLabel = formatEntityTypeLabel(link?.type);
+                            return (
+                              <li key={key} className="npc-backlink-item">
+                                <div className="npc-backlink-name">{displayName}</div>
+                                <div className="npc-backlink-meta">
+                                  <span>{typeLabel || 'Entity'}</span>
+                                  <span aria-hidden="true">·</span>
+                                  <span className="npc-backlink-id">{link?.id || 'unknown'}</span>
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
                     </div>
                     <div className="npc-save-row">
                       <div className="npc-save-status-text">
