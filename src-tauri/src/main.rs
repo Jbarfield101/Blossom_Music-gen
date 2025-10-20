@@ -4653,6 +4653,8 @@ struct InboxItem {
     size: u64,
     modified_ms: i64,
     preview: Option<String>,
+    #[serde(default)]
+    markers: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -4783,6 +4785,20 @@ fn read_first_paragraph(text: &str, max_len: usize) -> Option<String> {
     Some(snippet)
 }
 
+fn detect_inbox_markers(text: &str) -> Vec<String> {
+    let mut markers = Vec::new();
+    if text.contains("![[") {
+        markers.push("embed".to_string());
+    }
+    if text.contains("```") {
+        markers.push("code".to_string());
+    }
+    if text.contains("http://") || text.contains("https://") {
+        markers.push("link".to_string());
+    }
+    markers
+}
+
 #[tauri::command]
 fn inbox_list(app: AppHandle, path: Option<String>) -> Result<Vec<InboxItem>, String> {
     // Resolve base path: explicit param > vaultPath + 00_Inbox
@@ -4839,10 +4855,14 @@ fn inbox_list(app: AppHandle, path: Option<String>) -> Result<Vec<InboxItem>, St
             })
             .unwrap_or_else(|| Utc::now().timestamp_millis());
 
-        // Try to read small preview
-        let preview = fs::read_to_string(&path)
-            .ok()
-            .and_then(|t| read_first_paragraph(&t, 280));
+        // Try to read small preview and detect lightweight markers
+        let (preview, markers) = if let Ok(text) = fs::read_to_string(&path) {
+            let preview = read_first_paragraph(&text, 280);
+            let markers = detect_inbox_markers(&text);
+            (preview, markers)
+        } else {
+            (None, Vec::new())
+        };
 
         items.push(InboxItem {
             path: path.to_string_lossy().to_string(),
@@ -4851,6 +4871,7 @@ fn inbox_list(app: AppHandle, path: Option<String>) -> Result<Vec<InboxItem>, St
             size,
             modified_ms,
             preview,
+            markers,
         });
     }
 
