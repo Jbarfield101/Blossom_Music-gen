@@ -50,6 +50,7 @@ import DndWorldBankTransactions from './pages/DndWorldBankTransactions.jsx';
 import DndWorldCalendar from './pages/DndWorldCalendar.jsx';
 import SoundLab from './pages/SoundLab.jsx';
 import VisualGenerator from './pages/VisualGenerator.jsx';
+import Gallery from './pages/Gallery.jsx';
 import LofiSceneMaker from './pages/LofiSceneMaker.jsx';
 import Queue from './pages/Queue.jsx';
 import Tools from './pages/Tools.jsx';
@@ -442,6 +443,7 @@ export default function App() {
             <Route path="/visual-generator" element={<VisualGenerator />}>
               <Route path="lofi-scene-maker" element={<LofiSceneMaker />} />
             </Route>
+            <Route path="/gallery" element={<Gallery />} />
             <Route path="/ace" element={<Ace />} />
             <Route path="/calendar" element={<Calendar />} />
             <Route path="/chat" element={<GeneralChat />} />

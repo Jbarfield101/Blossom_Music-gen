@@ -26,6 +26,7 @@ export default function Dashboard() {
     { to: '/dnd', icon: 'Dice5', title: 'Dungeons & Dragons' },
     { to: '/games', icon: 'Gamepad2', title: 'Games' },
     { to: '/tools', icon: 'Wrench', title: 'Tools' },
+    { to: '/gallery', icon: 'Images', title: 'Gallery' },
     { to: '/visual-generator', icon: 'Palette', title: 'Visual Generator' },
     { to: '/settings', icon: 'Settings', title: 'Settings' },
   ];

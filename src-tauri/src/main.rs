@@ -8568,6 +8568,94 @@ fn queue_lofi_scene_job(app: AppHandle, registry: State<JobRegistry>) -> Result<
     Ok(job_id)
 }
 
+fn gallery_category_for_extension(ext: &str) -> Option<&'static str> {
+    match ext {
+        "png" | "jpg" | "jpeg" | "webp" | "bmp" | "gif" => Some("image"),
+        "wav" | "mp3" | "ogg" | "flac" | "m4a" | "aac" => Some("audio"),
+        "mp4" | "mov" | "webm" | "mkv" | "avi" | "m4v" => Some("video"),
+        _ => None,
+    }
+}
+
+fn copy_artifact_into_gallery(
+    job_id: u64,
+    artifact: &JobArtifact,
+) -> Result<Option<JobArtifact>, String> {
+    let source = Path::new(&artifact.path);
+    if !source.exists() || !source.is_file() {
+        return Ok(None);
+    }
+
+    let extension = source
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())
+        .unwrap_or_default();
+    let Some(category) = gallery_category_for_extension(&extension) else {
+        return Ok(None);
+    };
+
+    let gallery_dir = project_root().join("assets").join("gallery").join(category);
+    if !gallery_dir.exists() {
+        fs::create_dir_all(&gallery_dir).map_err(|err| {
+            format!(
+                "Unable to create gallery directory {}: {}",
+                gallery_dir.to_string_lossy(),
+                err
+            )
+        })?;
+    }
+
+    let file_name = source
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("output");
+    let mut candidate = gallery_dir.join(file_name);
+
+    if candidate.exists() {
+        let stem = source
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("output");
+        let original_ext = source
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("");
+        let mut counter = 1usize;
+        loop {
+            let new_name = if original_ext.is_empty() {
+                format!("{}-{}-{}", stem, job_id, counter)
+            } else {
+                format!("{}-{}-{}.{}", stem, job_id, counter, original_ext)
+            };
+            candidate = gallery_dir.join(new_name);
+            if !candidate.exists() {
+                break;
+            }
+            counter += 1;
+        }
+    }
+
+    fs::copy(source, &candidate).map_err(|err| {
+        format!(
+            "Failed to copy {} to gallery: {}",
+            source.to_string_lossy(),
+            err
+        )
+    })?;
+
+    let stored_name = candidate
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(file_name)
+        .to_string();
+
+    Ok(Some(JobArtifact {
+        name: stored_name,
+        path: candidate.to_string_lossy().to_string(),
+    }))
+}
+
 async fn run_lofi_scene_job(
     app_handle: AppHandle,
     job_id: u64,
@@ -8704,6 +8792,41 @@ async fn run_lofi_scene_job(
                                     }
                                 }
 
+                                let mut gallery_artifacts: Vec<JobArtifact> = Vec::new();
+                                for artifact in &artifacts {
+                                    match copy_artifact_into_gallery(job_id, artifact) {
+                                        Ok(Some(copy)) => gallery_artifacts.push(copy),
+                                        Ok(None) => {}
+                                        Err(err) => {
+                                            let registry = app_handle.state::<JobRegistry>();
+                                            registry.append_job_stderr(
+                                                job_id,
+                                                &format!(
+                                                    "Failed to copy artifact into gallery: {}",
+                                                    err
+                                                ),
+                                            );
+                                        }
+                                    }
+                                }
+
+                                if !gallery_artifacts.is_empty() {
+                                    if let Err(err) = register_job_artifacts(
+                                        app_handle.state::<JobRegistry>(),
+                                        job_id,
+                                        gallery_artifacts.clone(),
+                                    ) {
+                                        let registry = app_handle.state::<JobRegistry>();
+                                        registry.append_job_stderr(
+                                            job_id,
+                                            &format!(
+                                                "Failed to register gallery artifacts: {}",
+                                                err
+                                            ),
+                                        );
+                                    }
+                                }
+
                                 {
                                     let registry = app_handle.state::<JobRegistry>();
                                     if !artifacts.is_empty() {
@@ -8711,6 +8834,14 @@ async fn run_lofi_scene_job(
                                             registry.append_job_stdout(
                                                 job_id,
                                                 &format!("Artifact saved: {}", artifact.path),
+                                            );
+                                        }
+                                    }
+                                    if !gallery_artifacts.is_empty() {
+                                        for artifact in &gallery_artifacts {
+                                            registry.append_job_stdout(
+                                                job_id,
+                                                &format!("Gallery copy saved: {}", artifact.path),
                                             );
                                         }
                                     }
@@ -8723,6 +8854,7 @@ async fn run_lofi_scene_job(
                                         "steps": steps,
                                         "cfg": cfg,
                                         "outputs": artifacts.iter().map(|a| a.path.clone()).collect::<Vec<_>>(),
+                                        "galleryCopies": gallery_artifacts.iter().map(|a| a.path.clone()).collect::<Vec<_>>(),
                                     });
                                     registry.append_job_stdout(
                                         job_id,
