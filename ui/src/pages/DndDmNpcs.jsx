@@ -5,7 +5,13 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import ReactMde from 'react-mde';
 import Showdown from 'showdown';
 import matter from 'gray-matter';
-import { writeTextFile } from '@tauri-apps/plugin-fs';
+import {
+  copyFile,
+  exists,
+  mkdir,
+  writeFile as writeBinaryFile,
+  writeTextFile,
+} from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
 
 import BackButton from '../components/BackButton.jsx';
@@ -22,6 +28,7 @@ import { npcSchema } from '../lib/dndSchemas.js';
 import { useVaultVersion } from '../lib/vaultEvents.jsx';
 import { listEntitiesByType, getIndexEntityById, resetVaultIndexCache, resolveVaultPath } from '../lib/vaultIndex.js';
 import { loadEntity } from '../lib/vaultAdapter.js';
+import { fileSrc } from '../lib/paths.js';
 
 import './Dnd.css';
 import 'react-mde/lib/styles/css/react-mde-all.css';
@@ -29,6 +36,111 @@ import 'react-mde/lib/styles/css/react-mde-all.css';
 const DEFAULT_NPC = 'D\\\\Documents\\\\DreadHaven\\\\20_DM\\\\NPC'.replace(/\\\\/g, '\\\\');
 const DEFAULT_PORTRAITS = 'D\\\\Documents\\\\DreadHaven\\\\30_Assets\\\\Images\\\\NPC_Portraits'.replace(/\\\\/g, '\\\\');
 const IMG_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
+
+function normalizePortraitKey(source) {
+  const base = String(source || '').split(/[\\/]/).pop() || '';
+  return base
+    .replace(/\.[^.]+$/, '')
+    .replace(/^portrait[_\-\s]+/i, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function sanitizePortraitStem(source, fallback = 'npc_portrait') {
+  const base = String(source || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\.[^.]+$/, '')
+    .replace(/^portrait[_\-\s]+/i, '')
+    .replace(/[^A-Za-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 80);
+  return base || fallback;
+}
+
+function joinPathSegments(base, ...segments) {
+  if (!base) return segments.filter(Boolean).join('/');
+  const useBackslash = /\\/.test(base) && !/\//.test(base);
+  const separator = useBackslash ? '\\' : '/';
+  let result = String(base).replace(/[\\/]+$/, '');
+  for (const segment of segments) {
+    if (!segment) continue;
+    const cleaned = String(segment)
+      .replace(/[\\/]+/g, separator)
+      .replace(new RegExp(`^${separator}+`), '');
+    if (!cleaned) continue;
+    result = `${result}${separator}${cleaned}`;
+  }
+  return result;
+}
+
+function normalizePathSlashes(path) {
+  return String(path || '').replace(/\\/g, '/');
+}
+
+function formatUpdatedTimestamp(ms) {
+  if (!ms) return '—';
+  try {
+    const date = new Date(ms);
+    const now = Date.now();
+    const delta = Math.abs(now - ms);
+    if (delta < 1000 * 60 * 60 * 12) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return '—';
+  }
+}
+
+function formatDisplayLabel(key) {
+  return String(key || '')
+    .replace(/[_\s]+/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map((part) => (part ? part.charAt(0).toUpperCase() + part.slice(1) : ''))
+    .join(' ');
+}
+
+function resolveVaultAsset(raw, vaultRoot, selectedPath) {
+  const str = String(raw ?? '').trim();
+  if (!str) {
+    return { display: '', resolved: '', url: '' };
+  }
+  const normalized = normalizePathSlashes(str);
+  let absolute = '';
+  if (/^[a-zA-Z]+:\/\//.test(str)) {
+    return {
+      display: str,
+      resolved: str,
+      url: str,
+    };
+  }
+  if (/^[a-zA-Z]:/.test(normalized) || normalized.startsWith('/')) {
+    absolute = normalized;
+  } else if (vaultRoot) {
+    absolute = resolveVaultPath(vaultRoot, normalized);
+  } else if (selectedPath) {
+    const parent = normalizePathSlashes(selectedPath).split('/').slice(0, -1).join('/');
+    absolute = parent ? joinPathSegments(parent, normalized) : normalized;
+  } else {
+    absolute = normalized;
+  }
+  let url = '';
+  if (absolute) {
+    try {
+      url = fileSrc(absolute);
+    } catch {
+      url = '';
+    }
+  }
+  return {
+    display: str,
+    resolved: absolute,
+    url,
+  };
+}
 
 function titleFromName(name) {
   try { return String(name || '').replace(/\.[^.]+$/, ''); } catch { return String(name || ''); }
@@ -359,6 +471,7 @@ const NPC_FORM_SCHEMA = npcSchema
     keywords: true,
     canonical_summary: true,
     relationship_ledger: true,
+    portrait: true,
   })
   .partial({
     region: true,
@@ -370,6 +483,7 @@ const NPC_FORM_SCHEMA = npcSchema
     keywords: true,
     canonical_summary: true,
     relationship_ledger: true,
+    portrait: true,
   });
 
 const NPC_FORM_DEFAULTS = {
@@ -384,6 +498,7 @@ const NPC_FORM_DEFAULTS = {
   keywords: [],
   canonical_summary: '',
   relationship_ledger: {},
+  portrait: '',
 };
 
 function coerceStringArray(value) {
@@ -412,6 +527,14 @@ function normalizeEntityMeta(meta = {}, fallback = {}) {
   if (typeof base.canonical_summary === 'string') {
     base.canonical_summary = base.canonical_summary.trim();
   }
+  if (typeof base.portrait === 'string') {
+    const trimmed = base.portrait.trim();
+    if (trimmed) {
+      base.portrait = trimmed;
+    } else {
+      delete base.portrait;
+    }
+  }
   const normalizedLedger = normalizeLedgerFromSource(base.relationship_ledger);
   if (normalizedLedger) {
     base.relationship_ledger = normalizedLedger;
@@ -434,6 +557,7 @@ function extractFormValues(meta = {}) {
     keywords: coerceStringArray(meta.keywords),
     canonical_summary: typeof meta.canonical_summary === 'string' ? meta.canonical_summary : '',
     relationship_ledger: cloneLedgerForForm(meta.relationship_ledger || {}),
+    portrait: typeof meta.portrait === 'string' ? meta.portrait : '',
   };
 }
 
@@ -443,7 +567,7 @@ function sanitizeFormValues(values = {}) {
   if (typeof next.name === 'string') {
     next.name = next.name.trim();
   }
-  const stringKeys = ['region', 'location', 'faction', 'role', 'canonical_summary'];
+  const stringKeys = ['region', 'location', 'faction', 'role', 'canonical_summary', 'portrait'];
   stringKeys.forEach((key) => {
     const value = next[key];
     if (typeof value === 'string') {
@@ -484,6 +608,8 @@ export default function DndDmNpcs() {
   const [filterText, setFilterText] = useState('');
   const [filterType, setFilterType] = useState('');
   const [filterLocation, setFilterLocation] = useState('');
+  const [filterFaction, setFilterFaction] = useState('');
+  const [filterTag, setFilterTag] = useState('');
   const [sortOrder, setSortOrder] = useState('az');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -498,8 +624,14 @@ export default function DndDmNpcs() {
   const [metaDismissed, setMetaDismissed] = useState(false);
   const [locations, setLocations] = useState({});
   const [typeMap, setTypeMap] = useState({});
+  const [factionMap, setFactionMap] = useState({});
+  const [tagMap, setTagMap] = useState({});
   const [portraitIndex, setPortraitIndex] = useState({});
   const [portraitUrls, setPortraitUrls] = useState({});
+  const [portraitDragActive, setPortraitDragActive] = useState(false);
+  const [portraitDropping, setPortraitDropping] = useState(false);
+  const [portraitDropFeedback, setPortraitDropFeedback] = useState(null);
+  const portraitDropTimerRef = useRef(null);
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
@@ -548,6 +680,13 @@ export default function DndDmNpcs() {
   const [hasPendingChanges, setHasPendingChanges] = useState(false);
   const [backlinks, setBacklinks] = useState([]);
   const [backlinksLoading, setBacklinksLoading] = useState(false);
+  const [viewMode, setViewMode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const stored = window.localStorage.getItem('npc.viewMode');
+      return stored === 'table' ? 'table' : 'grid';
+    }
+    return 'grid';
+  });
 
   const entityDraftRef = useRef({});
   const bodyRef = useRef('');
@@ -582,6 +721,7 @@ export default function DndDmNpcs() {
     mode: 'onChange',
     reValidateMode: 'onChange',
   });
+  const currentPortraitValue = watch('portrait');
 
   useEffect(() => {
     documentReadyRef.current = documentReady;
@@ -654,6 +794,227 @@ export default function DndDmNpcs() {
     await runSave();
   }, [runSave]);
 
+  const showPortraitFeedback = useCallback(
+    (message, tone = 'info', duration = 2400) => {
+      if (!message) {
+        setPortraitDropFeedback(null);
+        if (portraitDropTimerRef.current) {
+          clearTimeout(portraitDropTimerRef.current);
+          portraitDropTimerRef.current = null;
+        }
+        return;
+      }
+      setPortraitDropFeedback({ message, tone });
+      if (portraitDropTimerRef.current) {
+        clearTimeout(portraitDropTimerRef.current);
+      }
+      portraitDropTimerRef.current = setTimeout(() => {
+        setPortraitDropFeedback(null);
+        portraitDropTimerRef.current = null;
+      }, duration);
+    },
+    [],
+  );
+
+  const resolvePortraitRoots = useCallback(async () => {
+    let root = vaultRoot;
+    if (!root) {
+      try {
+        const resolved = await getDreadhavenRoot();
+        if (typeof resolved === 'string' && resolved.trim()) {
+          root = resolved.trim();
+        }
+      } catch (_) {
+        root = '';
+      }
+    }
+    const normalizedRoot = typeof root === 'string' ? root.trim() : '';
+    if (normalizedRoot) {
+      return {
+        root: normalizedRoot,
+        baseDir: joinPathSegments(normalizedRoot, '30_Assets', 'Images', 'NPC_Portraits'),
+      };
+    }
+    return {
+      root: '',
+      baseDir: DEFAULT_PORTRAITS,
+    };
+  }, [vaultRoot]);
+
+  const handlePortraitDragEnter = useCallback((event) => {
+    if (event?.dataTransfer?.types?.includes('Files')) {
+      event.preventDefault();
+      setPortraitDragActive(true);
+    }
+  }, []);
+
+  const handlePortraitDragOver = useCallback((event) => {
+    if (event?.dataTransfer?.types?.includes('Files')) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+      setPortraitDragActive(true);
+    }
+  }, []);
+
+  const handlePortraitDragLeave = useCallback((event) => {
+    if (event) {
+      event.preventDefault();
+      const related = event.relatedTarget;
+      if (related && event.currentTarget && event.currentTarget.contains(related)) {
+        return;
+      }
+    }
+    setPortraitDragActive(false);
+  }, []);
+
+  const handlePortraitDrop = useCallback(
+    async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setPortraitDragActive(false);
+      if (!selected || !selected.id) {
+        showPortraitFeedback('Select an NPC before dropping a portrait.', 'error');
+        return;
+      }
+      const files = event.dataTransfer?.files;
+      if (!files || files.length === 0) {
+        showPortraitFeedback('No files detected in drop.', 'error');
+        return;
+      }
+      const file = files[0];
+      const fileName = file?.name || file?.path || '';
+      if (!fileName || !IMG_RE.test(fileName)) {
+        showPortraitFeedback('Drop an image file (png, jpg, webp, gif, bmp, svg).', 'error');
+        return;
+      }
+      setPortraitDropping(true);
+      try {
+        const { root: resolvedRoot, baseDir } = await resolvePortraitRoots();
+        await mkdir(baseDir, { recursive: true }).catch(() => {});
+        const trimmedPortrait =
+          typeof currentPortraitValue === 'string' ? currentPortraitValue.trim() : '';
+        const stemSource = selected?.title || selected?.name || fileName;
+        const sanitizedStem = sanitizePortraitStem(stemSource, 'npc_portrait');
+        let extension = '';
+        if (fileName.includes('.')) {
+          extension = (fileName.split('.').pop() || '').toLowerCase();
+        }
+        if (!extension && typeof file.type === 'string') {
+          if (file.type === 'image/png') extension = 'png';
+          else if (file.type === 'image/jpeg') extension = 'jpg';
+          else if (file.type === 'image/webp') extension = 'webp';
+          else if (file.type === 'image/gif') extension = 'gif';
+          else if (file.type === 'image/svg+xml') extension = 'svg';
+          else if (file.type === 'image/bmp') extension = 'bmp';
+        }
+        if (!extension) {
+          extension = 'png';
+        }
+        let targetPath = '';
+        if (trimmedPortrait) {
+          const normalizedPortrait = normalizePathSlashes(trimmedPortrait);
+          if (/^[a-zA-Z]:/.test(normalizedPortrait) || normalizedPortrait.startsWith('/')) {
+            targetPath = normalizedPortrait;
+          } else if (resolvedRoot) {
+            targetPath = joinPathSegments(resolvedRoot, normalizedPortrait);
+          } else {
+            targetPath = joinPathSegments(baseDir, normalizedPortrait);
+          }
+        }
+        if (!targetPath) {
+          const stem = sanitizedStem || 'npc_portrait';
+          let attempt = 0;
+          while (attempt < 50) {
+            const suffix = attempt === 0 ? '' : `_${attempt + 1}`;
+            const filename = `${stem}${suffix}.${extension}`;
+            const candidate = joinPathSegments(baseDir, filename);
+            // eslint-disable-next-line no-await-in-loop
+            const existsAlready = await exists(candidate).catch(() => false);
+            if (!existsAlready) {
+              targetPath = candidate;
+              break;
+            }
+            attempt += 1;
+          }
+          if (!targetPath) {
+            throw new Error('Unable to choose a portrait filename.');
+          }
+        }
+        if (file.path) {
+          await copyFile(file.path, targetPath, { overwrite: true });
+        } else {
+          const buffer = await file.arrayBuffer();
+          await writeBinaryFile(targetPath, new Uint8Array(buffer));
+        }
+        const destName = targetPath.split(/[/\\]/).pop() || '';
+        if (destName) {
+          const key = normalizePortraitKey(destName);
+          if (key) {
+            setPortraitIndex((prev) => ({ ...prev, [key]: targetPath }));
+          }
+        }
+        const normalizedDest = normalizePathSlashes(targetPath);
+        const normalizedRoot = resolvedRoot
+          ? normalizePathSlashes(resolvedRoot).replace(/\/+$/, '')
+          : '';
+        const portraitFieldValue =
+          normalizedRoot && normalizedDest.startsWith(`${normalizedRoot}/`)
+            ? normalizedDest.slice(normalizedRoot.length + 1)
+            : normalizedDest;
+        setValue('portrait', portraitFieldValue, { shouldDirty: true, shouldTouch: true });
+        setActiveMeta((prev) => ({ ...(prev || {}), portrait: portraitFieldValue }));
+        try {
+          const bytes = await readFileBytes(targetPath);
+          const ext = extension || (destName.includes('.') ? destName.split('.').pop() : '');
+          const lowered = typeof ext === 'string' ? ext.toLowerCase() : '';
+          const mime =
+            lowered === 'png'
+              ? 'image/png'
+              : lowered === 'jpg' || lowered === 'jpeg'
+                ? 'image/jpeg'
+                : lowered === 'gif'
+                  ? 'image/gif'
+                  : lowered === 'webp'
+                    ? 'image/webp'
+                    : lowered === 'bmp'
+                      ? 'image/bmp'
+                      : lowered === 'svg'
+                        ? 'image/svg+xml'
+                        : 'application/octet-stream';
+          const blob = new Blob([new Uint8Array(bytes)], { type: mime });
+          const url = URL.createObjectURL(blob);
+          setPortraitUrls((prev) => {
+            const prevUrl = prev[selected.id];
+            if (prevUrl) {
+              URL.revokeObjectURL(prevUrl);
+            }
+            return { ...prev, [selected.id]: url };
+          });
+        } catch (previewErr) {
+          console.warn('Failed to refresh portrait preview', previewErr);
+        }
+        showPortraitFeedback('Portrait attached.');
+      } catch (err) {
+        console.error('Failed to ingest portrait', err);
+        showPortraitFeedback(err?.message || 'Failed to attach portrait.', 'error');
+      } finally {
+        setPortraitDropping(false);
+        setPortraitDragActive(false);
+      }
+    },
+    [
+      selected,
+      resolvePortraitRoots,
+      currentPortraitValue,
+      setValue,
+      setActiveMeta,
+      setPortraitIndex,
+      setPortraitUrls,
+      readFileBytes,
+      showPortraitFeedback,
+    ],
+  );
+
   const handleBodyChange = useCallback(
     (value) => {
       setBodyValue(value);
@@ -682,6 +1043,7 @@ export default function DndDmNpcs() {
         'keywords',
         'canonical_summary',
         'relationship_ledger',
+        'portrait',
       ];
       const draft = { ...entityDraftRef.current };
       keysToSync.forEach((key) => {
@@ -698,6 +1060,7 @@ export default function DndDmNpcs() {
             'keywords',
             'canonical_summary',
             'relationship_ledger',
+            'portrait',
           ].includes(key)
         ) {
           delete draft[key];
@@ -720,6 +1083,7 @@ export default function DndDmNpcs() {
               'keywords',
               'canonical_summary',
               'relationship_ledger',
+              'portrait',
             ].includes(key)
           ) {
             delete next[key];
@@ -792,6 +1156,16 @@ export default function DndDmNpcs() {
       clearTimeout(copyToastTimerRef.current);
     }
   }, []);
+  useEffect(() => () => {
+    if (portraitDropTimerRef.current) {
+      clearTimeout(portraitDropTimerRef.current);
+    }
+  }, []);
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('npc.viewMode', viewMode);
+    }
+  }, [viewMode]);
 const establishmentOptions = useMemo(() => {
     if (!Array.isArray(establishments) || establishments.length === 0) return [];
     return establishments.map((entry) => {
@@ -897,6 +1271,8 @@ const establishmentOptions = useMemo(() => {
     setError('');
     setLocations({});
     setTypeMap({});
+    setFactionMap({});
+    setTagMap({});
     setPortraitUrls({});
     resetVaultIndexCache();
     try {
@@ -909,6 +1285,8 @@ const establishmentOptions = useMemo(() => {
       }
       const locMap = {};
       const typeMapNext = {};
+      const factionMapNext = {};
+      const tagMapNext = {};
       const normalizedItems = entries.map((entry) => {
         const safeId = String(entry.id || '').trim();
         const indexMeta = entry.index || {};
@@ -935,6 +1313,25 @@ const establishmentOptions = useMemo(() => {
         if (safeId && typeValue) {
           typeMapNext[safeId] = typeValue;
         }
+        const factionValue = firstChip(
+          metadata.faction,
+          metadata.factions,
+          fields.faction,
+          fields.factions,
+        );
+        if (safeId && factionValue) {
+          const cleanedFaction = sanitizeChip(factionValue);
+          if (cleanedFaction) {
+            factionMapNext[safeId] = cleanedFaction;
+          }
+        }
+        const tagsValue = coerceStringArray(metadata.tags ?? fields.tags ?? []);
+        if (safeId && tagsValue.length) {
+          const cleanedTags = tagsValue.map((tag) => sanitizeChip(tag)).filter(Boolean);
+          if (cleanedTags.length) {
+            tagMapNext[safeId] = cleanedTags;
+          }
+        }
         return {
           id: safeId,
           name: entry.name || metadata.name || '',
@@ -948,6 +1345,8 @@ const establishmentOptions = useMemo(() => {
         setItems(normalizedItems);
         setLocations(locMap);
         setTypeMap(typeMapNext);
+        setFactionMap(factionMapNext);
+        setTagMap(tagMapNext);
         setUsingIndex(true);
         return;
       } catch (err) {
@@ -960,6 +1359,8 @@ const establishmentOptions = useMemo(() => {
         const list = await crawl(basePath);
         const locMap = {};
         const typeMapNext = {};
+        const factionMapNext = {};
+        const tagMapNext = {};
         const normalizedItems = [];
         for (const entry of Array.isArray(list) ? list : []) {
           let meta = {};
@@ -991,6 +1392,17 @@ const establishmentOptions = useMemo(() => {
           if (id && typeValue) {
             typeMapNext[id] = typeValue;
           }
+          const factionValue = firstChip(
+            meta.faction,
+            meta.factions,
+          );
+          if (id && factionValue) {
+            factionMapNext[id] = factionValue;
+          }
+          const tagsValue = coerceStringArray(meta.tags);
+          if (id && tagsValue.length) {
+            tagMapNext[id] = tagsValue;
+          }
           normalizedItems.push({
             ...entry,
             id,
@@ -1004,6 +1416,8 @@ const establishmentOptions = useMemo(() => {
         setItems(normalizedItems);
         setLocations(locMap);
         setTypeMap(typeMapNext);
+        setFactionMap(factionMapNext);
+        setTagMap(tagMapNext);
         return true;
       } catch (err) {
         console.error(err);
@@ -1158,12 +1572,6 @@ const establishmentOptions = useMemo(() => {
         const stack = [base];
         const idx = {};
         const seen = new Set();
-        const normalize = (s) => String(s || '')
-          .replace(/\.[^.]+$/, '')
-          .replace(/^portrait[_\-\s]+/i, '')
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '_')
-          .replace(/^_+|_+$/g, '');
         while (stack.length) {
           const dir = stack.pop();
           if (!dir || seen.has(dir)) continue;
@@ -1174,7 +1582,7 @@ const establishmentOptions = useMemo(() => {
             if (e.is_dir) {
               stack.push(e.path);
             } else if (IMG_RE.test(e.name)) {
-              const key = normalize(e.name);
+              const key = normalizePortraitKey(e.name);
               if (key && !idx[key]) idx[key] = e.path;
             }
           }
@@ -1189,17 +1597,32 @@ const establishmentOptions = useMemo(() => {
   // Load portraits on demand
   useEffect(() => {
     let cancelled = false;
-    const normalize = (s) => String(s || '')
-      .replace(/\.[^.]+$/, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '');
     (async () => {
       for (const it of items) {
         if (!it || !it.id) continue;
         if (portraitUrls[it.id]) continue;
-        const key = normalize((it.title || it.name || ''));
-        const imgPath = portraitIndex[key];
+        const portraitField =
+          it.index?.metadata?.portrait || it.index?.fields?.portrait || it.portrait || '';
+        let imgPath = '';
+        if (portraitField) {
+          const normalizedPortrait = normalizePathSlashes(portraitField);
+          if (/^[a-zA-Z]:/.test(normalizedPortrait) || normalizedPortrait.startsWith('/')) {
+            imgPath = normalizedPortrait;
+          } else if (vaultRoot) {
+            imgPath = resolveVaultPath(vaultRoot, normalizedPortrait);
+          } else {
+            const directKey = normalizePortraitKey(portraitField);
+            if (directKey && portraitIndex[directKey]) {
+              imgPath = portraitIndex[directKey];
+            }
+          }
+        }
+        if (!imgPath) {
+          const fallbackKey = normalizePortraitKey(it.title || it.name || '');
+          if (fallbackKey) {
+            imgPath = portraitIndex[fallbackKey];
+          }
+        }
         if (!imgPath) continue;
         try {
           const bytes = await readFileBytes(imgPath);
@@ -1221,7 +1644,7 @@ const establishmentOptions = useMemo(() => {
       }
     })();
     return () => { cancelled = true; };
-  }, [items, portraitIndex]);
+  }, [items, portraitIndex, portraitUrls, vaultRoot]);
 
   // Extract optional location from frontmatter or KV; fallback to relative folder path
   useEffect(() => {
@@ -1263,6 +1686,24 @@ const establishmentOptions = useMemo(() => {
           }
           if (typ) {
             setTypeMap((prev) => ({ ...prev, [it.id]: sanitizeChip(typ) }));
+          }
+          const faction = firstChip(
+            meta.faction,
+            meta.factions,
+            meta.affiliation,
+            meta.affiliations,
+            meta.organization,
+            meta.organizations,
+          );
+          if (faction) {
+            setFactionMap((prev) => ({ ...prev, [it.id]: sanitizeChip(faction) }));
+          }
+          const tagsList = coerceStringArray(meta.tags);
+          if (tagsList.length) {
+            const cleaned = tagsList.map((tag) => sanitizeChip(tag)).filter(Boolean);
+            if (cleaned.length) {
+              setTagMap((prev) => ({ ...prev, [it.id]: cleaned }));
+            }
           }
         } catch {/* ignore */}
       }
@@ -1330,6 +1771,24 @@ const establishmentOptions = useMemo(() => {
     return Array.from(new Set(vals)).sort((a,b)=>a.localeCompare(b));
   }, [locations]);
 
+  const factionOptions = useMemo(() => {
+    const vals = Object.values(factionMap).map((v) => sanitizeChip(v)).filter(Boolean);
+    return Array.from(new Set(vals)).sort((a, b) => a.localeCompare(b));
+  }, [factionMap]);
+
+  const tagOptions = useMemo(() => {
+    const allTags = [];
+    for (const list of Object.values(tagMap)) {
+      if (Array.isArray(list)) {
+        for (const entry of list) {
+          const tag = sanitizeChip(entry);
+          if (tag) allTags.push(tag);
+        }
+      }
+    }
+    return Array.from(new Set(allTags)).sort((a, b) => a.localeCompare(b));
+  }, [tagMap]);
+
   const visibleItems = useMemo(() => {
     const q = filterText.trim().toLowerCase();
     let arr = items.filter((it) => {
@@ -1345,6 +1804,14 @@ const establishmentOptions = useMemo(() => {
         const l = String(loc || '').toLowerCase();
         if (l !== filterLocation.toLowerCase()) return false;
       }
+      if (filterFaction) {
+        const faction = String(factionMap[it.id] || '').toLowerCase();
+        if (faction !== filterFaction.toLowerCase()) return false;
+      }
+      if (filterTag) {
+        const tags = (tagMap[it.id] || []).map((tag) => String(tag).toLowerCase());
+        if (!tags.includes(filterTag.toLowerCase())) return false;
+      }
       return true;
     });
     const out = arr.slice();
@@ -1356,10 +1823,112 @@ const establishmentOptions = useMemo(() => {
       out.sort((a, b) => String(a.title || a.name || '').localeCompare(String(b.title || b.name || '')));
     }
     return out;
-  }, [items, filterText, filterType, filterLocation, sortOrder, locations, typeMap]);
+  }, [items, filterText, filterType, filterLocation, filterFaction, filterTag, sortOrder, locations, typeMap, factionMap, tagMap]);
 
   // Back-compat alias to avoid any lingering references during hot reloads
   const filteredItems = visibleItems;
+
+  const audioSources = useMemo(() => {
+    const audioMeta = activeMeta?.audio;
+    if (!audioMeta || typeof audioMeta !== 'object') return [];
+    const seen = new Set();
+    const sources = [];
+    const pushEntry = (label, value) => {
+      if (value === undefined || value === null) return;
+      if (Array.isArray(value)) {
+        value.forEach((entry, index) => pushEntry(`${label} ${index + 1}`, entry));
+        return;
+      }
+      if (typeof value === 'object') {
+        const pathLike = value.path ?? value.url ?? value.src ?? '';
+        if (pathLike) {
+          pushEntry(label, pathLike);
+        }
+        return;
+      }
+      const str = String(value).trim();
+      if (!str) return;
+      const key = `${label}:${str}`;
+      if (seen.has(key)) return;
+      const resolved = resolveVaultAsset(str, vaultRoot, selected?.path);
+      sources.push({
+        id: key,
+        label,
+        displayPath: resolved.display || str,
+        resolvedPath: resolved.resolved || '',
+        url: resolved.url || '',
+      });
+      seen.add(key);
+    };
+    pushEntry('Theme', audioMeta.theme);
+    pushEntry('SFX', audioMeta.sfx);
+    Object.entries(audioMeta).forEach(([key, value]) => {
+      if (key === 'theme' || key === 'sfx') return;
+      pushEntry(formatDisplayLabel(key), value);
+    });
+    return sources;
+  }, [activeMeta?.audio, selected, vaultRoot]);
+
+  const linkEntries = useMemo(() => {
+    const linksMeta = activeMeta?.links;
+    if (!linksMeta) return [];
+    const entries = [];
+    const seen = new Set();
+    const pushLink = (value, fallbackLabel = 'Link') => {
+      if (value === undefined || value === null) return;
+      if (Array.isArray(value)) {
+        value.forEach((entry, index) => pushLink(entry, `${fallbackLabel} ${index + 1}`));
+        return;
+      }
+      if (typeof value === 'object') {
+        const urlCandidate = value.url ?? value.href ?? value.link ?? value.path ?? '';
+        const labelCandidate = value.label ?? value.name ?? fallbackLabel ?? urlCandidate;
+        const asset = urlCandidate ? resolveVaultAsset(urlCandidate, vaultRoot, selected?.path) : { display: '', url: '', resolved: '' };
+        const label = String(labelCandidate || asset.display || 'Link').trim();
+        const displayPath = asset.display || String(urlCandidate || '').trim() || label;
+        const key = `${label}:${displayPath}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        entries.push({
+          id: key,
+          label,
+          displayPath,
+          url: asset.url || (typeof urlCandidate === 'string' && /^[a-zA-Z]+:\/\//.test(urlCandidate) ? urlCandidate : ''),
+        });
+        return;
+      }
+      const str = String(value).trim();
+      if (!str) return;
+      const asset = resolveVaultAsset(str, vaultRoot, selected?.path);
+      const key = `${fallbackLabel}:${str}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      entries.push({
+        id: key,
+        label: /^[a-zA-Z]+:\/\//.test(str) ? str : fallbackLabel,
+        displayPath: asset.display || str,
+        url: asset.url || (str && /^[a-zA-Z]+:\/\//.test(str) ? str : ''),
+      });
+    };
+    if (Array.isArray(linksMeta) || typeof linksMeta === 'object') {
+      if (Array.isArray(linksMeta)) {
+        linksMeta.forEach((entry, index) => pushLink(entry, `Link ${index + 1}`));
+      } else if (typeof linksMeta === 'object') {
+        Object.entries(linksMeta).forEach(([key, value]) => {
+          const label = formatDisplayLabel(key);
+          pushLink(value, label || 'Link');
+        });
+      }
+    } else if (typeof linksMeta === 'string') {
+      const items = linksMeta.split(/[\n,]+/).map((entry) => entry.trim()).filter(Boolean);
+      if (items.length) {
+        items.forEach((entry, index) => pushLink(entry, `Link ${index + 1}`));
+      } else {
+        pushLink(linksMeta, 'Link');
+      }
+    }
+    return entries;
+  }, [activeMeta?.links, selected, vaultRoot]);
 
   const metadataChips = useMemo(() => {
     const meta = activeMeta || {};
@@ -1544,6 +2113,7 @@ const establishmentOptions = useMemo(() => {
           'keywords',
           'canonical_summary',
           'relationship_ledger',
+          'portrait',
         ];
         keysToSync.forEach((key) => {
           if (Object.prototype.hasOwnProperty.call(sanitizedForm, key)) {
@@ -1559,6 +2129,7 @@ const establishmentOptions = useMemo(() => {
               'keywords',
               'canonical_summary',
               'relationship_ledger',
+              'portrait',
             ].includes(key)
           ) {
             delete draft[key];
@@ -1805,7 +2376,41 @@ const establishmentOptions = useMemo(() => {
             ))}
           </select>
         </label>
+        <label>
+          Faction
+          <select value={filterFaction} onChange={(e) => setFilterFaction(e.target.value)}>
+            <option value="">(all factions)</option>
+            {factionOptions.map((faction) => (
+              <option key={faction} value={faction}>{faction}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Tag
+          <select value={filterTag} onChange={(e) => setFilterTag(e.target.value)}>
+            <option value="">(all tags)</option>
+            {tagOptions.map((tag) => (
+              <option key={tag} value={tag}>{tag}</option>
+            ))}
+          </select>
+        </label>
       </div>
+        <div className="npc-view-toggle" role="group" aria-label="View mode">
+          <button
+            type="button"
+            className={viewMode === 'grid' ? 'active' : ''}
+            onClick={() => setViewMode('grid')}
+          >
+            Grid
+          </button>
+          <button
+            type="button"
+            className={viewMode === 'table' ? 'active' : ''}
+            onClick={() => setViewMode('table')}
+          >
+            Table
+          </button>
+        </div>
         <button type="button" onClick={fetchItems} disabled={loading}>
           {loading ? 'Loading.' : 'Refresh'}
         </button>
@@ -1816,35 +2421,103 @@ const establishmentOptions = useMemo(() => {
         {error && <span className="error">{error}</span>}
       </div>
 
-      <section className="pantheon-grid">
-        {visibleItems.map((item) => (
-          <button
-            key={item.id || item.path}
-            className="pantheon-card"
-            onClick={() => {
-              if (!item.id) return;
-              setActiveId(item.id);
-              setModalOpen(true);
-              const encoded = encodeURIComponent(item.id);
-              navigate(`/dnd/npc/${encoded}`);
-              setMetaDismissed(false);
-              setMetaNotice('');
-            }}
-            title={item.path}
-          >
-            {portraitUrls[item.id] ? (
-              <img src={portraitUrls[item.id]} alt={item.title || item.name} className="monster-portrait" />
-            ) : (
-              <div className="monster-portrait placeholder">?</div>
-            )}
-            <div className="pantheon-card-title">{item.title || item.name}</div>
-            <div className="pantheon-card-meta">Location: {locations[item.id] || relLocation(usingPath, item.path) || '-'}</div>
-          </button>
-        ))}
-        {!loading && visibleItems.length === 0 && (
-          <div className="muted">No NPC files found.</div>
-        )}
-      </section>
+      {visibleItems.length === 0 ? (
+        <div className="npc-empty-state">
+          {loading ? 'Loading NPC files…' : 'No NPCs match your filters.'}
+        </div>
+      ) : viewMode === 'grid' ? (
+        <section className="pantheon-grid npc-grid-view">
+          {visibleItems.map((item) => (
+            <button
+              key={item.id || item.path}
+              className="pantheon-card"
+              onClick={() => {
+                if (!item.id) return;
+                setActiveId(item.id);
+                setModalOpen(true);
+                const encoded = encodeURIComponent(item.id);
+                navigate(`/dnd/npc/${encoded}`);
+                setMetaDismissed(false);
+                setMetaNotice('');
+              }}
+              title={item.path}
+            >
+              {portraitUrls[item.id] ? (
+                <img src={portraitUrls[item.id]} alt={item.title || item.name} className="monster-portrait" />
+              ) : (
+                <div className="monster-portrait placeholder">?</div>
+              )}
+              <div className="pantheon-card-title">{item.title || item.name}</div>
+              <div className="pantheon-card-meta">
+                <span>Location: {locations[item.id] || relLocation(usingPath, item.path) || '-'}</span>
+              </div>
+            </button>
+          ))}
+        </section>
+      ) : (
+        <section className="npc-table-wrapper">
+          <table className="npc-table">
+            <thead>
+              <tr>
+                <th scope="col">Name</th>
+                <th scope="col">Location</th>
+                <th scope="col">Faction</th>
+                <th scope="col">Tags</th>
+                <th scope="col">Type</th>
+                <th scope="col">Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleItems.map((item) => {
+                const faction = factionMap[item.id] || '';
+                const tags = tagMap[item.id] || [];
+                const location = locations[item.id] || relLocation(usingPath, item.path) || '';
+                const typeLabel = typeMap[item.id] || '';
+                return (
+                  <tr
+                    key={item.id || item.path}
+                    className="npc-table-row"
+                    tabIndex={0}
+                    onClick={() => {
+                      if (!item.id) return;
+                      setActiveId(item.id);
+                      setModalOpen(true);
+                      const encoded = encodeURIComponent(item.id);
+                      navigate(`/dnd/npc/${encoded}`);
+                      setMetaDismissed(false);
+                      setMetaNotice('');
+                    }}
+                    onKeyDown={(event) => {
+                      if (!item.id) return;
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setActiveId(item.id);
+                        setModalOpen(true);
+                        const encoded = encodeURIComponent(item.id);
+                        navigate(`/dnd/npc/${encoded}`);
+                        setMetaDismissed(false);
+                        setMetaNotice('');
+                      }
+                    }}
+                  >
+                    <td data-label="Name">
+                      <div className="npc-table-name">{item.title || item.name}</div>
+                      <div className="npc-table-subtitle">{item.id}</div>
+                    </td>
+                    <td data-label="Location">{location || '—'}</td>
+                    <td data-label="Faction">{faction || '—'}</td>
+                    <td data-label="Tags">
+                      {tags.length ? tags.slice(0, 3).join(', ') + (tags.length > 3 ? '…' : '') : '—'}
+                    </td>
+                    <td data-label="Type">{typeLabel || '—'}</td>
+                    <td data-label="Updated">{formatUpdatedTimestamp(item.modified_ms)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </section>
+      )}
 
       {modalOpen && (
         <div className="lightbox" onClick={() => { setModalOpen(false); setActiveId(''); navigate('/dnd/npc'); }}>
@@ -1852,15 +2525,47 @@ const establishmentOptions = useMemo(() => {
             {selected ? (
               <>
                 <header className="inbox-reader-header npc-header">
-                  {portraitUrls[selected.id] ? (
-                    <img
-                      src={portraitUrls[selected.id]}
-                      alt={selected.title || selected.name}
-                      className="npc-portrait"
-                    />
-                  ) : (
-                    <div className="npc-portrait placeholder">?</div>
-                  )}
+                  <div className="npc-portrait-wrapper">
+                    <div
+                      className={[
+                        'npc-portrait-dropzone',
+                        portraitDragActive ? 'drag-active' : '',
+                        portraitUrls[selected.id] ? '' : 'is-empty',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      onDragEnter={handlePortraitDragEnter}
+                      onDragOver={handlePortraitDragOver}
+                      onDragLeave={handlePortraitDragLeave}
+                      onDrop={handlePortraitDrop}
+                      onDragEnd={() => setPortraitDragActive(false)}
+                    >
+                      {portraitUrls[selected.id] ? (
+                        <img
+                          src={portraitUrls[selected.id]}
+                          alt={selected.title || selected.name}
+                          className="npc-portrait"
+                        />
+                      ) : (
+                        <div className="npc-portrait placeholder">?</div>
+                      )}
+                      <div className="npc-portrait-drop-hint">
+                        {portraitDropping ? 'Copying portrait…' : 'Drop an image to set portrait'}
+                      </div>
+                    </div>
+                    {portraitDropFeedback && (
+                      <div
+                        className={[
+                          'npc-portrait-status',
+                          portraitDropFeedback.tone === 'error' ? 'error' : 'info',
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                      >
+                        {portraitDropFeedback.message}
+                      </div>
+                    )}
+                  </div>
                   <div className="npc-header-main">
                     {copyToast && (
                       <div className="npc-copy-toast" role="status">{copyToast}</div>
@@ -1895,6 +2600,52 @@ const establishmentOptions = useMemo(() => {
                         {metadataChips.map((chip) => (
                           <span key={chip.id} className="chip">{chip.label}</span>
                         ))}
+                      </div>
+                    )}
+                    {audioSources.length > 0 && (
+                      <div className="npc-audio-block">
+                        <div className="npc-audio-title">Audio</div>
+                        <ul className="npc-audio-list">
+                          {audioSources.map((entry) => (
+                            <li key={entry.id} className="npc-audio-item">
+                              <div className="npc-audio-meta">
+                                <span className="npc-audio-label">{entry.label}</span>
+                                {entry.displayPath && (
+                                  <span className="npc-audio-path">{entry.displayPath}</span>
+                                )}
+                              </div>
+                              {entry.url ? (
+                                <audio controls src={entry.url} preload="metadata" />
+                              ) : (
+                                <span className="muted">Unable to preview audio.</span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {linkEntries.length > 0 && (
+                      <div className="npc-links-block">
+                        <div className="npc-links-title">Links</div>
+                        <ul className="npc-links-list">
+                          {linkEntries.map((link) => (
+                            <li key={link.id}>
+                              {link.url ? (
+                                <a href={link.url} target="_blank" rel="noreferrer">
+                                  {link.label}
+                                </a>
+                              ) : (
+                                <span className="npc-link-text">{link.label}</span>
+                              )}
+                              {link.displayPath && !link.url && (
+                                <span className="npc-link-path">{link.displayPath}</span>
+                              )}
+                              {link.url && link.displayPath && link.displayPath !== link.label && (
+                                <span className="npc-link-path">{link.displayPath}</span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
                       </div>
                     )}
                   </div>
@@ -2049,6 +2800,17 @@ const establishmentOptions = useMemo(() => {
                           disabled={metadataFormDisabled}
                           placeholder="Single paragraph reference summary"
                         />
+                      </label>
+                      <label className="npc-form-field npc-form-field--full">
+                        <span>Portrait Asset Path</span>
+                        <input
+                          type="text"
+                          {...register('portrait')}
+                          disabled={metadataFormDisabled}
+                          autoComplete="off"
+                          placeholder="30_Assets/Images/NPC_Portraits/Filename.png"
+                        />
+                        <span className="npc-field-hint">Filled automatically when you drop an image; edit to point at a custom portrait.</span>
                       </label>
                     </div>
                     <Controller

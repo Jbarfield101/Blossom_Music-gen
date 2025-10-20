@@ -78,46 +78,8 @@ export default function CommandPalette() {
   const panelRef = useRef(null);
   const inputRef = useRef(null);
   const previousFocusRef = useRef(null);
-
-  useEffect(() => {
-    const handler = (event) => {
-      if (event.defaultPrevented) return;
-      if ((event.key === 'k' || event.key === 'K') && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        setOpen((prev) => !prev);
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, []);
-
-  useEffect(() => {
-    if (open) {
-      previousFocusRef.current = document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-      setQuery('');
-      setHighlightIndex(0);
-      setError('');
-      setBusy(false);
-      const frame = requestAnimationFrame(() => {
-        focusFirstElement(panelRef.current);
-        if (inputRef.current) {
-          inputRef.current.focus();
-        }
-      });
-      return () => cancelAnimationFrame(frame);
-    }
-    const previous = previousFocusRef.current;
-    if (previous && typeof previous.focus === 'function') {
-      previous.focus();
-    }
-    return undefined;
-  }, [open]);
-
-  const closePalette = useCallback(() => {
-    setOpen(false);
-  }, []);
+  const openPayloadRef = useRef(null);
+  const templatesRef = useRef([]);
 
   const createNpcFromPalette = useCallback(
     async (name) => {
@@ -185,6 +147,104 @@ export default function CommandPalette() {
     ],
     [createEncounter, createFaction, createLocation, createNpcFromPalette, createQuest, createSession],
   );
+
+  useEffect(() => {
+    templatesRef.current = templates;
+  }, [templates]);
+
+  useEffect(() => {
+    const handler = (event) => {
+      if (event.defaultPrevented) return;
+      if ((event.key === 'k' || event.key === 'K') && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        setOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  useEffect(() => {
+    if (open) {
+      const payload = openPayloadRef.current || {};
+      previousFocusRef.current = document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+      const templateList = templatesRef.current || templates;
+      const initialQuery = typeof payload.query === 'string' ? payload.query : '';
+      setQuery(initialQuery);
+      if (payload.templateId) {
+        const idx = templateList.findIndex((template) => template.id === payload.templateId);
+        setHighlightIndex(idx >= 0 ? idx : 0);
+      } else {
+        setHighlightIndex(0);
+      }
+      setError('');
+      setBusy(false);
+      const frame = requestAnimationFrame(() => {
+        focusFirstElement(panelRef.current);
+        if (inputRef.current) {
+          inputRef.current.focus();
+          if (initialQuery) {
+            const cursor = initialQuery.length;
+            inputRef.current.setSelectionRange(cursor, cursor);
+          }
+        }
+      });
+      openPayloadRef.current = null;
+      return () => cancelAnimationFrame(frame);
+    }
+    const previous = previousFocusRef.current;
+    if (previous && typeof previous.focus === 'function') {
+      previous.focus();
+    }
+    return undefined;
+  }, [open, templates]);
+
+  useEffect(() => {
+    let frame = null;
+    const handleExternalOpen = (event) => {
+      const detail = event?.detail || {};
+      const normalized = {
+        query: typeof detail.query === 'string' ? detail.query : '',
+        templateId: typeof detail.templateId === 'string' ? detail.templateId : '',
+      };
+      const templateList = templatesRef.current || templates;
+      if (open) {
+        setQuery(normalized.query);
+        if (normalized.templateId) {
+          const idx = templateList.findIndex((template) => template.id === normalized.templateId);
+          setHighlightIndex(idx >= 0 ? idx : 0);
+        } else {
+          setHighlightIndex(0);
+        }
+        setError('');
+        setBusy(false);
+        if (frame) cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(() => {
+          if (inputRef.current) {
+            inputRef.current.focus();
+            if (normalized.query) {
+              const cursor = normalized.query.length;
+              inputRef.current.setSelectionRange(cursor, cursor);
+            }
+          }
+        });
+      } else {
+        openPayloadRef.current = normalized;
+        setOpen(true);
+      }
+    };
+    window.addEventListener('command-palette:open', handleExternalOpen);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener('command-palette:open', handleExternalOpen);
+    };
+  }, [open, templates]);
+
+  const closePalette = useCallback(() => {
+    setOpen(false);
+  }, []);
 
   const filteredTemplates = useMemo(() => {
     const term = query.trim().toLowerCase();

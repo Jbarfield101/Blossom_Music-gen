@@ -23,10 +23,13 @@ const DEFAULT_SECONDS: f64 = 120.0;
 const ACE_DEFAULT_GUIDANCE: f64 = 0.99;
 const ACE_DEFAULT_BPM: f64 = 120.0;
 const ACE_WORKFLOW_FILENAME: &str = "audio_ace_step_1_t2a_instrumentals.json";
+const LOFI_WORKFLOW_FILENAME: &str = "Lofi_Scene_Maker.json";
 const TEMPLATES_KEY: &str = "stableAudioTemplates";
 const COMFY_SETTINGS_KEY: &str = "comfyuiSettings";
 const DEFAULT_BASE_URL: &str = "http://127.0.0.1:8188";
 const DEFAULT_AUTO_LAUNCH: bool = true;
+const ALLOWED_LOFI_SEED_BEHAVIORS: &[&str] =
+    &["fixed", "increment", "decrement", "randomize"];
 const CLIENT_NAMESPACE: &str = "blossom";
 const QUEUE_ENDPOINT: &str = "/queue";
 const PROMPT_ENDPOINT: &str = "/prompt";
@@ -136,6 +139,39 @@ pub struct StableAudioTemplatePayload {
     pub negative_prompt: String,
     pub file_name_prefix: String,
     pub seconds: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LofiScenePrompts {
+    pub prompt: String,
+    pub negative_prompt: String,
+    pub file_name_prefix: String,
+    pub seed: i64,
+    pub seed_behavior: String,
+    pub steps: f64,
+    pub cfg: f64,
+    pub batch_size: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LofiScenePromptUpdate {
+    pub prompt: String,
+    #[serde(default)]
+    pub negative_prompt: Option<String>,
+    #[serde(default)]
+    pub file_name_prefix: Option<String>,
+    #[serde(default)]
+    pub seed: Option<i64>,
+    #[serde(default)]
+    pub seed_behavior: Option<String>,
+    #[serde(default)]
+    pub steps: Option<f64>,
+    #[serde(default)]
+    pub cfg: Option<f64>,
+    #[serde(default)]
+    pub batch_size: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -495,6 +531,129 @@ fn build_link_map(links: &[Value]) -> Result<HashMap<i64, (i64, usize)>, String>
     Ok(map)
 }
 
+fn widget_input_names(node_type: &str) -> Option<&'static [&'static str]> {
+    match node_type {
+        "CLIPLoader" => Some(&["clip_name", "type", "clip"]),
+        "CLIPTextEncode" => Some(&["text"]),
+        "EmptySD3LatentImage" => Some(&["width", "height", "batch_size"]),
+        "KSampler" => Some(&[
+            "seed",
+            "seed_behavior",
+            "steps",
+            "cfg",
+            "sampler_name",
+            "scheduler",
+            "denoise",
+        ]),
+        "LoraLoaderModelOnly" => Some(&["lora_name", "strength_model"]),
+        "ModelSamplingAuraFlow" => Some(&["shift"]),
+        "SaveImage" => Some(&["filename_prefix"]),
+        "UNETLoader" => Some(&["unet_name", "weight_dtype"]),
+        "VAELoader" => Some(&["vae_name", "vae_type"]),
+        _ => None,
+    }
+}
+
+fn locate_ksampler_node_id(data: &Value) -> Result<i64, String> {
+    data.get("nodes")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Workflow is missing a nodes array".to_string())?
+        .iter()
+        .find_map(|node| {
+            if node.get("type").and_then(Value::as_str) == Some("KSampler") {
+                node.get("id").and_then(Value::as_i64)
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| "KSampler node not found in workflow".to_string())
+}
+
+fn extract_ksampler_settings(
+    data: &Value,
+    node_id: i64,
+) -> Result<(i64, String, f64, f64), String> {
+    let nodes = data
+        .get("nodes")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Workflow is missing a nodes array".to_string())?;
+    let node = nodes
+        .iter()
+        .find(|node| node.get("id").and_then(Value::as_i64) == Some(node_id))
+        .ok_or_else(|| format!("Unable to locate KSampler node {}", node_id))?;
+    let values = node
+        .get("widgets_values")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "KSampler node is missing widgets_values".to_string())?;
+
+    let seed = values
+        .get(0)
+        .and_then(Value::as_i64)
+        .or_else(|| values.get(0).and_then(Value::as_f64).map(|v| v as i64))
+        .unwrap_or(0);
+    let seed_behavior = values
+        .get(1)
+        .and_then(Value::as_str)
+        .unwrap_or("fixed")
+        .to_string();
+    let steps = values
+        .get(2)
+        .and_then(Value::as_f64)
+        .or_else(|| values.get(2).and_then(Value::as_i64).map(|v| v as f64))
+        .unwrap_or(20.0);
+    let cfg = values
+        .get(3)
+        .and_then(Value::as_f64)
+        .or_else(|| values.get(3).and_then(Value::as_i64).map(|v| v as f64))
+        .unwrap_or(2.5);
+
+    Ok((seed, seed_behavior, steps, cfg))
+}
+
+fn set_ksampler_settings(
+    data: &mut Value,
+    node_id: i64,
+    seed: i64,
+    seed_behavior: &str,
+    steps: f64,
+    cfg: f64,
+) -> Result<(), String> {
+    let nodes = data
+        .get_mut("nodes")
+        .and_then(Value::as_array_mut)
+        .ok_or_else(|| "Workflow is missing a nodes array".to_string())?;
+
+    let node = nodes
+        .iter_mut()
+        .find(|node| node.get("id").and_then(Value::as_i64) == Some(node_id))
+        .ok_or_else(|| format!("Unable to locate KSampler node {}", node_id))?;
+
+    let node_obj = node
+        .as_object_mut()
+        .ok_or_else(|| "KSampler node is not an object".to_string())?;
+    let widgets_value = node_obj
+        .entry("widgets_values".to_string())
+        .or_insert_with(|| Value::Array(Vec::new()));
+    let arr = widgets_value
+        .as_array_mut()
+        .ok_or_else(|| "KSampler widgets_values is not an array".to_string())?;
+
+    while arr.len() < 7 {
+        arr.push(Value::Null);
+    }
+
+    arr[0] = Value::Number(Number::from_i128(seed as i128).unwrap());
+    arr[1] = Value::String(seed_behavior.to_string());
+    arr[2] = Value::Number(
+        Number::from_f64(steps).ok_or_else(|| "Invalid steps value provided".to_string())?,
+    );
+    arr[3] = Value::Number(
+        Number::from_f64(cfg).ok_or_else(|| "Invalid cfg value provided".to_string())?,
+    );
+
+    Ok(())
+}
+
 fn convert_node_to_prompt(
     node: &Value,
     link_map: &HashMap<i64, (i64, usize)>,
@@ -510,7 +669,7 @@ fn convert_node_to_prompt(
         .get("type")
         .and_then(Value::as_str)
         .ok_or_else(|| "Workflow node missing type".to_string())?;
-    if node_type == "MarkdownNote" {
+    if matches!(node_type, "MarkdownNote" | "Note") {
         return Ok(None);
     }
 
@@ -520,25 +679,63 @@ fn convert_node_to_prompt(
         Value::String(node_type.to_string()),
     );
 
-    if let Some(inputs) = node_obj.get("inputs").and_then(Value::as_object) {
-        let mut inputs_map = Map::new();
-        for (key, value) in inputs {
-            let input_value = if let Some(link_id) = value.get("link").and_then(Value::as_i64) {
-                if let Some((origin, index)) = link_map.get(&link_id) {
-                    Value::Array(vec![
-                        Value::Number((*origin).into()),
-                        Value::Number((*index).into()),
-                    ])
-                } else {
-                    Value::Null
+    let mut inputs_map = Map::new();
+
+    if let Some(inputs_value) = node_obj.get("inputs") {
+        match inputs_value {
+            Value::Object(inputs) => {
+                for (key, value) in inputs {
+                    let input_value = if let Some(link_id) = value.get("link").and_then(Value::as_i64) {
+                        if let Some((origin, index)) = link_map.get(&link_id) {
+                            Value::Array(vec![
+                                Value::String(origin.to_string()),
+                                Value::Number((*index).into()),
+                            ])
+                        } else {
+                            Value::Null
+                        }
+                    } else {
+                        value.clone()
+                    };
+                    inputs_map.insert(key.clone(), input_value);
                 }
-            } else {
-                value.clone()
-            };
-            inputs_map.insert(key.clone(), input_value);
+            }
+            Value::Array(items) => {
+                for entry in items {
+                    if let Some(name) = entry.get("name").and_then(Value::as_str) {
+                        let input_value = if let Some(link_id) = entry.get("link").and_then(Value::as_i64) {
+                            if let Some((origin, index)) = link_map.get(&link_id) {
+                                Value::Array(vec![
+                                    Value::String(origin.to_string()),
+                                    Value::Number((*index).into()),
+                                ])
+                            } else {
+                                Value::Null
+                            }
+                        } else if let Some(value) = entry.get("value") {
+                            value.clone()
+                        } else {
+                            Value::Null
+                        };
+                        inputs_map.insert(name.to_string(), input_value);
+                    }
+                }
+            }
+            _ => {}
         }
-        prompt_node.insert("inputs".to_string(), Value::Object(inputs_map));
     }
+
+    if let Some(widget_names) = widget_input_names(node_type) {
+        if let Some(Value::Array(widget_values)) = node_obj.get("widgets_values") {
+            for (index, name) in widget_names.iter().enumerate() {
+                if let Some(value) = widget_values.get(index) {
+                    inputs_map.insert(name.to_string(), value.clone());
+                }
+            }
+        }
+    }
+
+    prompt_node.insert("inputs".to_string(), Value::Object(inputs_map.clone()));
 
     if let Some(widgets) = node_obj.get("widgets_values") {
         prompt_node.insert("widgets_values".to_string(), widgets.clone());
@@ -700,6 +897,144 @@ fn extract_save_audio_prefix(data: &Value, node_id: i64) -> String {
         .unwrap_or_else(|| DEFAULT_FILE_PREFIX.to_string())
 }
 
+fn locate_save_image_node(data: &Value) -> Result<i64, String> {
+    let nodes = data
+        .get("nodes")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Workflow is missing a nodes array".to_string())?;
+    nodes
+        .iter()
+        .find(|node| node.get("type").and_then(Value::as_str) == Some("SaveImage"))
+        .and_then(|node| node.get("id").and_then(Value::as_i64))
+        .ok_or_else(|| "SaveImage node not found in workflow".to_string())
+}
+
+fn locate_empty_latent_image_node(data: &Value) -> Result<i64, String> {
+    let nodes = data
+        .get("nodes")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Workflow is missing a nodes array".to_string())?;
+    nodes
+        .iter()
+        .find(|node| node.get("type").and_then(Value::as_str) == Some("EmptySD3LatentImage"))
+        .and_then(|node| node.get("id").and_then(Value::as_i64))
+        .ok_or_else(|| "EmptySD3LatentImage node not found in workflow".to_string())
+}
+
+fn extract_latent_batch_size(data: &Value, node_id: i64) -> i64 {
+    data.get("nodes")
+        .and_then(Value::as_array)
+        .and_then(|nodes| {
+            nodes.iter().find_map(|node| {
+                if node.get("id").and_then(Value::as_i64) != Some(node_id) {
+                    return None;
+                }
+                node.get("widgets_values")
+                    .and_then(Value::as_array)
+                    .and_then(|vals| vals.get(2))
+                    .and_then(|value| {
+                        value.as_i64().or_else(|| value.as_f64().map(|v| v.round() as i64))
+                    })
+            })
+        })
+        .filter(|value| *value > 0)
+        .unwrap_or(1)
+}
+
+fn set_latent_batch_size(data: &mut Value, node_id: i64, batch_size: i64) -> Result<(), String> {
+    if batch_size <= 0 {
+        return Err("Batch size must be positive.".to_string());
+    }
+
+    let nodes = data
+        .get_mut("nodes")
+        .and_then(Value::as_array_mut)
+        .ok_or_else(|| "Workflow is missing a nodes array".to_string())?;
+
+    let node = nodes
+        .iter_mut()
+        .find(|node| node.get("id").and_then(Value::as_i64) == Some(node_id))
+        .ok_or_else(|| format!("EmptySD3LatentImage node {} not found in workflow", node_id))?;
+
+    let obj = node
+        .as_object_mut()
+        .ok_or_else(|| format!("EmptySD3LatentImage node {} is not an object", node_id))?;
+
+    let value = obj
+        .entry("widgets_values".to_string())
+        .or_insert_with(|| Value::Array(Vec::new()));
+
+    let arr = match value {
+        Value::Array(arr) => arr,
+        _ => {
+            *value = Value::Array(Vec::new());
+            value
+                .as_array_mut()
+                .ok_or_else(|| "Failed to initialize widgets_values array".to_string())?
+        }
+    };
+
+    while arr.len() < 3 {
+        arr.push(Value::Null);
+    }
+
+    arr[2] = Value::Number(Number::from(batch_size));
+
+    Ok(())
+}
+
+fn extract_save_image_prefix(data: &Value, node_id: i64) -> String {
+    data.get("nodes")
+        .and_then(Value::as_array)
+        .and_then(|nodes| {
+            nodes.iter().find_map(|node| {
+                if node.get("id").and_then(Value::as_i64) != Some(node_id) {
+                    return None;
+                }
+                node.get("widgets_values")
+                    .and_then(Value::as_array)
+                    .and_then(|vals| vals.get(0))
+                    .and_then(Value::as_str)
+                    .map(|s| s.to_string())
+            })
+        })
+        .unwrap_or_else(|| "LofiScene".to_string())
+}
+
+fn set_save_image_prefix(data: &mut Value, node_id: i64, prefix: &str) -> Result<(), String> {
+    let nodes = data
+        .get_mut("nodes")
+        .and_then(Value::as_array_mut)
+        .ok_or_else(|| "Workflow is missing a nodes array".to_string())?;
+
+    let node = nodes
+        .iter_mut()
+        .find(|node| node.get("id").and_then(Value::as_i64) == Some(node_id))
+        .ok_or_else(|| format!("SaveImage node {} not found in workflow", node_id))?;
+
+    let obj = node
+        .as_object_mut()
+        .ok_or_else(|| format!("SaveImage node {} is not an object", node_id))?;
+
+    match obj.get_mut("widgets_values") {
+        Some(Value::Array(arr)) => {
+            if arr.is_empty() {
+                arr.push(Value::String(prefix.to_owned()));
+            } else {
+                arr[0] = Value::String(prefix.to_owned());
+            }
+        }
+        _ => {
+            obj.insert(
+                "widgets_values".to_string(),
+                Value::Array(vec![Value::String(prefix.to_owned())]),
+            );
+        }
+    }
+
+    Ok(())
+}
+
 fn set_prompt_text(data: &mut Value, node_id: i64, text: &str) -> Result<(), String> {
     let nodes = data
         .get_mut("nodes")
@@ -802,6 +1137,28 @@ fn persist_ace_workflow(data: &Value) -> Result<(), String> {
     let payload = serde_json::to_string_pretty(data)
         .map_err(|e| format!("Failed to serialize ACE workflow: {}", e))?;
     fs::write(&path, payload).map_err(|e| format!("Failed to write ACE workflow: {}", e))
+}
+
+fn lofi_workflow_path() -> PathBuf {
+    project_root()
+        .join("assets")
+        .join("workflows")
+        .join(LOFI_WORKFLOW_FILENAME)
+}
+
+fn load_lofi_workflow() -> Result<Value, String> {
+    let path = lofi_workflow_path();
+    let raw = fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read {}: {}", LOFI_WORKFLOW_FILENAME, e))?;
+    serde_json::from_str(&raw)
+        .map_err(|e| format!("Failed to parse {}: {}", LOFI_WORKFLOW_FILENAME, e))
+}
+
+fn persist_lofi_workflow(data: &Value) -> Result<(), String> {
+    let path = lofi_workflow_path();
+    let payload = serde_json::to_string_pretty(data)
+        .map_err(|e| format!("Failed to serialize Lofi workflow: {}", e))?;
+    fs::write(&path, payload).map_err(|e| format!("Failed to write Lofi workflow: {}", e))
 }
 
 fn locate_ace_text_node<'a>(data: &'a Value) -> Result<&'a Value, String> {
@@ -1049,6 +1406,111 @@ pub fn update_stable_audio_prompts(
         negative_prompt: negative,
         file_name_prefix: prefix,
         seconds,
+    })
+}
+
+#[tauri::command]
+pub fn get_lofi_scene_prompts() -> Result<LofiScenePrompts, String> {
+    let data = load_lofi_workflow()?;
+    let (positive_id, negative_id) = locate_stable_audio_nodes(&data)?;
+    let save_node = locate_save_image_node(&data)?;
+    let latent_node = locate_empty_latent_image_node(&data)?;
+    let ksampler_id = locate_ksampler_node_id(&data)?;
+    let (seed, behavior_raw, steps, cfg) = extract_ksampler_settings(&data, ksampler_id)?;
+    let batch_size = extract_latent_batch_size(&data, latent_node);
+    let normalized_behavior = {
+        let lower = behavior_raw.to_lowercase();
+        if ALLOWED_LOFI_SEED_BEHAVIORS.contains(&lower.as_str()) {
+            lower
+        } else {
+            "fixed".to_string()
+        }
+    };
+    Ok(LofiScenePrompts {
+        prompt: extract_prompt_text(&data, positive_id),
+        negative_prompt: extract_prompt_text(&data, negative_id),
+        file_name_prefix: extract_save_image_prefix(&data, save_node),
+        seed,
+        seed_behavior: normalized_behavior,
+        steps,
+        cfg,
+        batch_size,
+    })
+}
+
+#[tauri::command]
+pub fn update_lofi_scene_prompts(
+    payload: LofiScenePromptUpdate,
+) -> Result<LofiScenePrompts, String> {
+    let mut data = load_lofi_workflow()?;
+    let (positive_id, negative_id) = locate_stable_audio_nodes(&data)?;
+    let save_node = locate_save_image_node(&data)?;
+    let latent_node = locate_empty_latent_image_node(&data)?;
+    let ksampler_id = locate_ksampler_node_id(&data)?;
+    let (current_seed, current_behavior, current_steps, current_cfg) =
+        extract_ksampler_settings(&data, ksampler_id)?;
+    let current_batch_size = extract_latent_batch_size(&data, latent_node);
+
+    let prompt = payload.prompt.trim().to_string();
+    let negative = payload
+        .negative_prompt
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| extract_prompt_text(&data, negative_id));
+    let prefix = payload
+        .file_name_prefix
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("LofiScene")
+        .to_string();
+
+    let seed = payload.seed.unwrap_or(current_seed);
+    let behavior = payload
+        .seed_behavior
+        .as_ref()
+        .map(|value| value.trim().to_lowercase())
+        .filter(|value| !value.is_empty())
+        .filter(|value| ALLOWED_LOFI_SEED_BEHAVIORS.contains(&value.as_str()))
+        .unwrap_or_else(|| {
+            if ALLOWED_LOFI_SEED_BEHAVIORS.contains(&current_behavior.as_str()) {
+                current_behavior.clone()
+            } else {
+                "fixed".to_string()
+            }
+        });
+    let steps = payload
+        .steps
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .unwrap_or(current_steps);
+    let cfg = payload
+        .cfg
+        .filter(|value| value.is_finite() && *value > 0.0)
+        .unwrap_or(current_cfg);
+    let batch_size = match payload.batch_size {
+        Some(value) if value > 0 => value,
+        Some(_) => return Err("Batch size must be positive.".into()),
+        None => current_batch_size,
+    };
+
+    set_prompt_text(&mut data, positive_id, &prompt)?;
+    set_prompt_text(&mut data, negative_id, &negative)?;
+    set_save_image_prefix(&mut data, save_node, &prefix)?;
+    set_ksampler_settings(&mut data, ksampler_id, seed, &behavior, steps, cfg)?;
+    set_latent_batch_size(&mut data, latent_node, batch_size)?;
+    persist_lofi_workflow(&data)?;
+
+    Ok(LofiScenePrompts {
+        prompt,
+        negative_prompt: negative,
+        file_name_prefix: prefix,
+        seed,
+        seed_behavior: behavior,
+        steps,
+        cfg,
+        batch_size,
     })
 }
 
@@ -1307,6 +1769,39 @@ pub async fn comfyui_submit_stable_audio(app: AppHandle) -> Result<ComfyUISubmit
     }
 
     let workflow = load_stable_audio_workflow()?;
+    let prompt_map = convert_workflow_to_prompt(&workflow)?;
+    let prompt_value = Value::Object(prompt_map);
+    let client_id = format!("{}-{}", CLIENT_NAMESPACE, Uuid::new_v4());
+    let base_url = settings.base_url();
+    let url = format!("{}{}", base_url, PROMPT_ENDPOINT);
+    let response = post_json(
+        url,
+        json!({
+            "prompt": prompt_value,
+            "client_id": client_id,
+        }),
+    )
+    .await?;
+    let prompt_id = response
+        .get("prompt_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "ComfyUI submission did not return a prompt_id.".to_string())?;
+
+    Ok(ComfyUISubmitResponse {
+        prompt_id: prompt_id.to_string(),
+        client_id,
+    })
+}
+
+#[tauri::command]
+pub async fn comfyui_submit_lofi_scene(app: AppHandle) -> Result<ComfyUISubmitResponse, String> {
+    let store = settings_store(&app)?;
+    let mut settings = load_comfyui_settings_from_store(store.as_ref());
+    if ensure_settings_defaults(&mut settings) {
+        persist_comfyui_settings(store.as_ref(), &settings)?;
+    }
+
+    let workflow = load_lofi_workflow()?;
     let prompt_map = convert_workflow_to_prompt(&workflow)?;
     let prompt_value = Value::Object(prompt_map);
     let client_id = format!("{}-{}", CLIENT_NAMESPACE, Uuid::new_v4());

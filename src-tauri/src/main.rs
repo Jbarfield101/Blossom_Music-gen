@@ -2775,6 +2775,8 @@ fn run_npc_repair_job(app: AppHandle, helper_path: PathBuf, run_id: u64, npc_ids
             }
             final_status = "error".to_string();
         }
+        let is_error = final_status == "error";
+        let error_entry = error_map.get(id).cloned();
         final_status_map.insert(id.clone(), final_status.clone());
         emit_npc_repair_event(
             &app,
@@ -2782,12 +2784,12 @@ fn run_npc_repair_job(app: AppHandle, helper_path: PathBuf, run_id: u64, npc_ids
                 run_id,
                 npc_id: Some(id.clone()),
                 status: Some(final_status),
-                message: if final_status == "error" {
-                    error_map.get(id).cloned()
+                message: if is_error {
+                    error_entry.clone()
                 } else {
                     None
                 },
-                error: error_map.get(id).cloned(),
+                error: error_entry,
                 summary: None,
             },
         );
@@ -4861,7 +4863,7 @@ async fn npc_create(
             Err(_) => {}
         }
     }
-    let now = Utc::now().format("%Y-%m-%d").to_string();
+    let current_date = Utc::now().format("%Y-%m-%d").to_string();
     let location_str = target_dir
         .strip_prefix(&base_dir)
         .ok()
@@ -4895,6 +4897,7 @@ async fn npc_create(
     eprintln!("[blossom] npc_create: invoking LLM generation (ollama)");
     let content = generate_llm(prompt, system, None, None).await?;
     let mut content = strip_code_fence(&content).to_string();
+    content = content.replace("{{DATE}}", &current_date);
 
     if establishment_path.is_some() || establishment_name.is_some() {
         content = add_establishment_metadata(
@@ -5736,7 +5739,7 @@ async fn player_create(
         .filter(|s| !s.is_empty())
         .map(|s| normalize_windows_path(s));
 
-    let mut players_dir = if let Some(ref override_path) = directory_override {
+    let players_dir = if let Some(ref override_path) = directory_override {
         let candidate = PathBuf::from(override_path);
         if candidate.is_absolute() {
             candidate
@@ -5961,7 +5964,7 @@ async fn player_create(
 
 #[tauri::command]
 async fn monster_create(
-    app: AppHandle,
+    _app: AppHandle,
     name: String,
     template: Option<String>,
 ) -> Result<String, String> {
@@ -6133,7 +6136,7 @@ async fn monster_create(
 
 #[tauri::command]
 async fn god_create(
-    app: AppHandle,
+    _app: AppHandle,
     name: String,
     template: Option<String>,
 ) -> Result<String, String> {
@@ -6294,7 +6297,7 @@ async fn god_create(
 
 #[tauri::command]
 async fn spell_create(
-    app: AppHandle,
+    _app: AppHandle,
     name: String,
     template: Option<String>,
 ) -> Result<String, String> {
@@ -8125,6 +8128,13 @@ struct AudioOutputEntry {
     modified_ms: i64,
 }
 
+#[derive(Clone, Serialize)]
+struct ImageOutputEntry {
+    name: String,
+    path: String,
+    modified_ms: i64,
+}
+
 fn comfy_audio_search_dirs(settings: Option<&commands::ComfyUISettings>) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
     if let Some(settings) = settings {
@@ -8210,6 +8220,100 @@ fn resolve_comfy_audio_path(
     }
 
     for dir in comfy_audio_search_dirs(settings) {
+        let candidate = dir.join(filename);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
+fn comfy_image_search_dirs(settings: Option<&commands::ComfyUISettings>) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Some(settings) = settings {
+        if let Some(ref output_dir) = settings
+            .output_dir
+            .as_ref()
+            .and_then(|s| Some(s.trim().to_string()))
+            .filter(|s| !s.is_empty())
+        {
+            let base = PathBuf::from(output_dir);
+            if base.exists() {
+                dirs.push(base.clone());
+            }
+            let images_dir = base.join("images");
+            if images_dir.exists() {
+                dirs.push(images_dir);
+            }
+        }
+        if let Some(ref working_dir) = settings
+            .working_directory
+            .as_ref()
+            .and_then(|s| Some(s.trim().to_string()))
+            .filter(|s| !s.is_empty())
+        {
+            let working = PathBuf::from(working_dir);
+            let output = working.join("output");
+            if output.exists() {
+                dirs.push(output.clone());
+            }
+            let images = output.join("images");
+            if images.exists() {
+                dirs.push(images);
+            }
+        }
+    }
+    if cfg!(target_os = "windows") {
+        let win_base = PathBuf::from(r"C:\Comfy\output");
+        if win_base.exists() {
+            dirs.push(win_base.clone());
+        }
+        let win_images = win_base.join("images");
+        if win_images.exists() {
+            dirs.push(win_images);
+        }
+    }
+    let default_output = PathBuf::from("output");
+    if default_output.exists() {
+        dirs.push(default_output.clone());
+    }
+    let default_images = default_output.join("images");
+    if default_images.exists() {
+        dirs.push(default_images);
+    }
+
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut unique = Vec::new();
+    for dir in dirs {
+        let display = dir.to_string_lossy().to_string();
+        if seen.insert(display.clone()) {
+            unique.push(dir);
+        }
+    }
+    unique
+}
+
+fn resolve_comfy_image_path(
+    settings: Option<&commands::ComfyUISettings>,
+    existing: Option<&str>,
+    filename: &str,
+) -> Option<PathBuf> {
+    if let Some(candidate) = existing
+        .and_then(|raw| {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(PathBuf::from(trimmed))
+            }
+        })
+        .filter(|path| path.exists())
+    {
+        return Some(candidate);
+    }
+
+    for dir in comfy_image_search_dirs(settings) {
         let candidate = dir.join(filename);
         if candidate.exists() {
             return Some(candidate);
@@ -8376,6 +8480,366 @@ fn stable_audio_job_label(prompt: &str) -> String {
     } else {
         format!("Stable Diffusion · {}", snippet)
     }
+}
+
+fn lofi_scene_job_label(prompt: &str) -> String {
+    let snippet = preview_text(prompt, 42);
+    if snippet.is_empty() {
+        "Lofi Scene Maker Render".to_string()
+    } else {
+        format!("Lofi Scene Maker - {}", snippet)
+    }
+}
+
+#[tauri::command]
+fn queue_lofi_scene_job(app: AppHandle, registry: State<JobRegistry>) -> Result<u64, String> {
+    let prompts = commands::get_lofi_scene_prompts()?;
+    let label = lofi_scene_job_label(&prompts.prompt);
+
+    let context = JobContext {
+        kind: Some("lofi_scene_render".into()),
+        label: Some(label),
+        source: Some("Lofi Scene Maker".into()),
+        artifact_candidates: Vec::new(),
+    };
+
+    let job_id = registry.next_id();
+    let job = JobInfo::new_pending(Vec::new(), &context);
+    let initial_snapshot = JobProgressSnapshot {
+        stage: Some("preparing".into()),
+        percent: Some(0),
+        message: Some("Preparing Lofi Scene Maker workflow.".into()),
+        eta: None,
+        step: None,
+        total: None,
+        queue_position: None,
+        queue_eta_seconds: None,
+    };
+    registry.register_running_job(&app, job_id, job, initial_snapshot);
+
+    let prompt_preview = preview_text(&prompts.prompt, 160);
+    if !prompt_preview.is_empty() {
+        registry.append_job_stdout(job_id, &format!("Prompt: {}", prompt_preview));
+    }
+    let negative_preview = preview_text(&prompts.negative_prompt, 160);
+    if !negative_preview.is_empty() {
+        registry.append_job_stdout(job_id, &format!("Negative prompt: {}", negative_preview));
+    }
+    if !prompts.file_name_prefix.trim().is_empty() {
+        registry.append_job_stdout(
+            job_id,
+            &format!("Filename prefix: {}", prompts.file_name_prefix.trim()),
+        );
+    }
+    registry.append_job_stdout(job_id, &format!("Seed: {}", prompts.seed));
+    registry.append_job_stdout(
+        job_id,
+        &format!("Seed behavior: {}", prompts.seed_behavior),
+    );
+    registry.append_job_stdout(job_id, &format!("Steps: {}", prompts.steps));
+    registry.append_job_stdout(job_id, &format!("Batch size: {}", prompts.batch_size));
+    registry.append_job_stdout(job_id, &format!("CFG: {:.3}", prompts.cfg));
+    registry.append_job_stdout(job_id, "Submitting Lofi Scene Maker workflow to ComfyUI...");
+
+    let app_handle = app.clone();
+    let prompt_text = prompts.prompt;
+    let negative_prompt = prompts.negative_prompt;
+    let file_prefix = prompts.file_name_prefix;
+    let seed = prompts.seed;
+    let seed_behavior = prompts.seed_behavior.clone();
+    let steps = prompts.steps;
+    let cfg = prompts.cfg;
+
+    async_runtime::spawn(async move {
+        run_lofi_scene_job(
+            app_handle,
+            job_id,
+            prompt_text,
+            negative_prompt,
+            file_prefix,
+            seed,
+            seed_behavior,
+            steps,
+            cfg,
+        )
+        .await;
+    });
+
+    Ok(job_id)
+}
+
+async fn run_lofi_scene_job(
+    app_handle: AppHandle,
+    job_id: u64,
+    prompt_text: String,
+    negative_prompt: String,
+    file_prefix: String,
+    seed: i64,
+    seed_behavior: String,
+    steps: f64,
+    cfg: f64,
+) {
+    let comfy_settings = commands::get_comfyui_settings(app_handle.clone()).ok();
+    let mut final_success = false;
+    let mut final_message = String::new();
+
+    match commands::comfyui_submit_lofi_scene(app_handle.clone()).await {
+        Ok(response) => {
+            {
+                let registry = app_handle.state::<JobRegistry>();
+                registry.append_job_stdout(
+                    job_id,
+                    &format!("ComfyUI prompt id: {}", response.prompt_id),
+                );
+                registry.update_job_progress(
+                    &app_handle,
+                    job_id,
+                    JobProgressSnapshot {
+                        stage: Some("submitted".into()),
+                        percent: Some(15),
+                        message: Some("Workflow submitted to ComfyUI.".into()),
+                        eta: None,
+                        step: None,
+                        total: None,
+                        queue_position: None,
+                        queue_eta_seconds: None,
+                    },
+                );
+            }
+
+            let prompt_id = response.prompt_id.clone();
+            let mut consecutive_errors = 0usize;
+            loop {
+                if app_handle.state::<JobRegistry>().is_job_done(job_id) {
+                    return;
+                }
+
+                match commands::comfyui_job_status(app_handle.clone(), prompt_id.clone()).await {
+                    Ok(status) => {
+                        consecutive_errors = 0;
+                        let status_lower = status.status.to_ascii_lowercase();
+                        match status_lower.as_str() {
+                            "queued" => {
+                                let message = if status.pending > 0 {
+                                    format!("ComfyUI queue · {} pending", status.pending)
+                                } else {
+                                    "ComfyUI queue".to_string()
+                                };
+                                let registry = app_handle.state::<JobRegistry>();
+                                registry.update_job_progress(
+                                    &app_handle,
+                                    job_id,
+                                    JobProgressSnapshot {
+                                        stage: Some("queued".into()),
+                                        percent: Some(20),
+                                        message: Some(message),
+                                        eta: None,
+                                        step: None,
+                                        total: None,
+                                        queue_position: None,
+                                        queue_eta_seconds: None,
+                                    },
+                                );
+                            }
+                            "running" => {
+                                let message = if status.pending > 0 {
+                                    format!(
+                                        "ComfyUI rendering · {} pending, {} active",
+                                        status.pending, status.running
+                                    )
+                                } else {
+                                    "ComfyUI rendering".to_string()
+                                };
+                                let registry = app_handle.state::<JobRegistry>();
+                                registry.update_job_progress(
+                                    &app_handle,
+                                    job_id,
+                                    JobProgressSnapshot {
+                                        stage: Some("running".into()),
+                                        percent: Some(55),
+                                        message: Some(message),
+                                        eta: None,
+                                        step: None,
+                                        total: None,
+                                        queue_position: None,
+                                        queue_eta_seconds: None,
+                                    },
+                                );
+                            }
+                            "completed" => {
+                                let message = status
+                                    .message
+                                    .clone()
+                                    .unwrap_or_else(|| "ComfyUI render complete.".to_string());
+                                let artifacts: Vec<JobArtifact> = status
+                                    .outputs
+                                    .iter()
+                                    .filter_map(|output| {
+                                        resolve_comfy_image_path(
+                                            comfy_settings.as_ref(),
+                                            output.local_path.as_deref(),
+                                            &output.filename,
+                                        )
+                                        .map(|path| JobArtifact {
+                                            name: output.filename.clone(),
+                                            path: path.to_string_lossy().to_string(),
+                                        })
+                                    })
+                                    .collect();
+
+                                if !artifacts.is_empty() {
+                                    if let Err(err) = register_job_artifacts(
+                                        app_handle.state::<JobRegistry>(),
+                                        job_id,
+                                        artifacts.clone(),
+                                    ) {
+                                        let registry = app_handle.state::<JobRegistry>();
+                                        registry.append_job_stderr(
+                                            job_id,
+                                            &format!(
+                                                "Failed to register ComfyUI artifacts: {}",
+                                                err
+                                            ),
+                                        );
+                                    }
+                                }
+
+                                {
+                                    let registry = app_handle.state::<JobRegistry>();
+                                    if !artifacts.is_empty() {
+                                        for artifact in &artifacts {
+                                            registry.append_job_stdout(
+                                                job_id,
+                                                &format!("Artifact saved: {}", artifact.path),
+                                            );
+                                        }
+                                    }
+                                    let summary = json!({
+                                        "prompt": prompt_text,
+                                        "negativePrompt": negative_prompt,
+                                        "fileNamePrefix": file_prefix,
+                                        "seed": seed,
+                                        "seedBehavior": seed_behavior,
+                                        "steps": steps,
+                                        "cfg": cfg,
+                                        "outputs": artifacts.iter().map(|a| a.path.clone()).collect::<Vec<_>>(),
+                                    });
+                                    registry.append_job_stdout(
+                                        job_id,
+                                        &format!("SUMMARY: {}", summary.to_string()),
+                                    );
+                                    registry.update_job_progress(
+                                        &app_handle,
+                                        job_id,
+                                        JobProgressSnapshot {
+                                            stage: Some("completed".into()),
+                                            percent: Some(100),
+                                            message: Some(message.clone()),
+                                            eta: None,
+                                            step: None,
+                                            total: None,
+                                            queue_position: None,
+                                            queue_eta_seconds: None,
+                                        },
+                                    );
+                                }
+
+                                final_success = true;
+                                final_message = message;
+                                break;
+                            }
+                            "error" => {
+                                final_message = status
+                                    .message
+                                    .unwrap_or_else(|| "ComfyUI reported an error.".to_string());
+                                break;
+                            }
+                            "offline" => {
+                                final_message = status
+                                    .message
+                                    .unwrap_or_else(|| "ComfyUI appears offline.".to_string());
+                                break;
+                            }
+                            other => {
+                                let registry = app_handle.state::<JobRegistry>();
+                                registry.update_job_progress(
+                                    &app_handle,
+                                    job_id,
+                                    JobProgressSnapshot {
+                                        stage: Some(other.to_string()),
+                                        percent: Some(40),
+                                        message: status.message.clone(),
+                                        eta: None,
+                                        step: None,
+                                        total: None,
+                                        queue_position: None,
+                                        queue_eta_seconds: None,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        consecutive_errors += 1;
+                        let message = format!("Failed to poll ComfyUI status: {}", err);
+                        {
+                            let registry = app_handle.state::<JobRegistry>();
+                            registry.append_job_stderr(job_id, &message);
+                        }
+                        if consecutive_errors >= 3 {
+                            final_message = message;
+                            break;
+                        }
+                    }
+                }
+
+                sleep(Duration::from_millis(1500)).await;
+            }
+        }
+        Err(err) => {
+            final_message = format!("Failed to submit workflow to ComfyUI: {}", err);
+        }
+    }
+
+    if app_handle.state::<JobRegistry>().is_job_done(job_id) {
+        return;
+    }
+
+    if final_success {
+        let registry = app_handle.state::<JobRegistry>();
+        if final_message.is_empty() {
+            final_message = "ComfyUI render complete.".into();
+        }
+        registry.append_job_stdout(job_id, &final_message);
+        registry.complete_job(&app_handle, job_id, true, Some(0), false);
+        return;
+    }
+
+    if final_message.is_empty() {
+        final_message = "Lofi Scene Maker job failed.".into();
+    }
+
+    {
+        let registry = app_handle.state::<JobRegistry>();
+        registry.append_job_stderr(job_id, &final_message);
+        registry.update_job_progress(
+            &app_handle,
+            job_id,
+            JobProgressSnapshot {
+                stage: Some("error".into()),
+                percent: Some(100),
+                message: Some(final_message.clone()),
+                eta: None,
+                step: None,
+                total: None,
+                queue_position: None,
+                queue_eta_seconds: None,
+            },
+        );
+    }
+
+    let registry = app_handle.state::<JobRegistry>();
+    registry.complete_job(&app_handle, job_id, false, Some(1), false);
 }
 
 #[tauri::command]
@@ -9673,6 +10137,8 @@ fn main() {
             commands::read_file_bytes,
             commands::get_stable_audio_prompts,
             commands::update_stable_audio_prompts,
+            commands::get_lofi_scene_prompts,
+            commands::update_lofi_scene_prompts,
             commands::get_ace_workflow_prompts,
             commands::update_ace_workflow_prompts,
             commands::get_stable_audio_templates,
@@ -9681,12 +10147,15 @@ fn main() {
             commands::update_comfyui_settings,
             commands::comfyui_status,
             commands::comfyui_submit_stable_audio,
+            commands::comfyui_submit_lofi_scene,
             commands::comfyui_submit_ace_audio,
             commands::comfyui_job_status,
             queue_stable_audio_job,
+            queue_lofi_scene_job,
             queue_ace_audio_job,
             dnd_watcher::vault_index_get_by_id,
             stable_audio_output_files,
+            lofi_scene_output_files,
             ace_output_files,
             discord_listen_logs_tail,
             album_concat,
@@ -9832,4 +10301,73 @@ fn main() {
     {
         eprintln!("error while running tauri application: {}", e);
     }
+}
+
+#[tauri::command]
+fn lofi_scene_output_files(
+    app: AppHandle,
+    limit: Option<usize>,
+) -> Result<Vec<ImageOutputEntry>, String> {
+    let settings = commands::get_comfyui_settings(app)
+        .map(Some)
+        .unwrap_or(None);
+    let mut files: Vec<ImageOutputEntry> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for dir in comfy_image_search_dirs(settings.as_ref()) {
+        let entries = match fs::read_dir(&dir) {
+            Ok(iter) => iter,
+            Err(err) => {
+                eprintln!(
+                    "[blossom] lofi_scene_output_files: failed to read {}: {}",
+                    dir.to_string_lossy(),
+                    err
+                );
+                continue;
+            }
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let extension = path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext.to_lowercase());
+            let is_image = matches!(
+                extension.as_deref(),
+                Some("png" | "jpg" | "jpeg" | "webp" | "bmp" | "gif")
+            );
+            if !is_image {
+                continue;
+            }
+            let path_str = path.to_string_lossy().to_string();
+            if !seen.insert(path_str.clone()) {
+                continue;
+            }
+            let name = path
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| path_str.clone());
+            let modified_ms = entry
+                .metadata()
+                .ok()
+                .and_then(|meta| meta.modified().ok())
+                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                .map(|duration| duration.as_millis() as i64)
+                .unwrap_or(0);
+            files.push(ImageOutputEntry {
+                name,
+                path: path_str,
+                modified_ms,
+            });
+        }
+    }
+    files.sort_by(|a, b| b.modified_ms.cmp(&a.modified_ms));
+    if let Some(limit) = limit {
+        if files.len() > limit {
+            files.truncate(limit);
+        }
+    }
+    Ok(files)
 }
