@@ -261,26 +261,81 @@ export default function DndInbox() {
       </div>
       <div className="inbox">
         <aside className="inbox-list" role="listbox" aria-label="Inbox">
-          {items.map((item) => (
-            <button
-              key={item.path}
-              className={`inbox-item${item.path === activePath ? ' active' : ''}`}
-              onClick={() => setActivePath(item.path)}
-              title={item.path}
-            >
-              <div className="inbox-item-head">
-                <div className="inbox-item-title">{item.title || item.name}</div>
-                <time className="inbox-item-date" title={formatDate(item.modified_ms)}>
-                  {formatRelative(item.modified_ms)}
-                </time>
-              </div>
-            </button>
-          ))}
+          {items.map((item) => {
+            const previewText =
+              typeof item.preview === 'string' ? item.preview.trim() : '';
+            const previewDisplay = previewText || 'No preview available';
+            const markers = Array.isArray(item.markers) ? item.markers : [];
+            const markersDescription =
+              markers.length > 0
+                ? `. Contains ${markers
+                    .map((marker) => marker.replace(/_/g, ' '))
+                    .join(', ')}`
+                : '';
+            const ariaLabel = `${item.title || item.name}. ${previewDisplay}${markersDescription}`;
+            const previewTooltip = previewText
+              ? `${item.path}\n${previewText}`
+              : item.path;
+            const markerMeta = {
+              embed: {
+                icon: '🖼️',
+                label: 'Contains embedded asset',
+              },
+              link: {
+                icon: '🔗',
+                label: 'Contains external link',
+              },
+              code: {
+                icon: '⌘',
+                label: 'Contains code snippet',
+              },
+            };
+            return (
+              <button
+                key={item.path}
+                className={`inbox-item${item.path === activePath ? ' active' : ''}`}
+                onClick={() => setActivePath(item.path)}
+                title={previewTooltip}
+                aria-label={ariaLabel}
+              >
+                <div className="inbox-item-head">
+                  <div className="inbox-item-title">{item.title || item.name}</div>
+                  <time className="inbox-item-date" title={formatDate(item.modified_ms)}>
+                    {formatRelative(item.modified_ms)}
+                  </time>
+                </div>
+                <div className="inbox-item-preview">
+                  {markers.map((marker, index) => {
+                    const meta = markerMeta[marker] || {
+                      icon: '•',
+                      label: marker.replace(/_/g, ' '),
+                    };
+                    return (
+                      <span
+                        key={`${marker}-${index}`}
+                        className="inbox-item-marker"
+                        aria-label={meta.label}
+                        title={meta.label}
+                      >
+                        {meta.icon}
+                      </span>
+                    );
+                  })}
+                  <span
+                    className={`inbox-item-preview-text${previewText ? '' : ' muted'}`}
+                    title={previewText || undefined}
+                  >
+                    {previewDisplay}
+                  </span>
+                </div>
+              </button>
+            );
+          })}
           {!loading && items.length === 0 && (
             <div className="muted">No files found in this folder.</div>
           )}
         </aside>
-                <section className="inbox-reader">
+        <section className="inbox-reader">
           {selected ? (
             <>
               <header className="inbox-reader-header">
