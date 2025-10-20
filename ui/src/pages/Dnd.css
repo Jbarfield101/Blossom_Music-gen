@@ -198,6 +198,55 @@
   padding: 0.25rem 0.6rem;
 }
 
+.inbox-convert-menu > button {
+  white-space: nowrap;
+}
+
+.inbox-convert-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.35rem);
+  min-width: 240px;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 12px;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.45);
+  z-index: 35;
+}
+
+.inbox-convert-option {
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  padding: 0.45rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  color: inherit;
+  transition: background 0.15s ease, border 0.15s ease;
+}
+
+.inbox-convert-option:hover,
+.inbox-convert-option:focus {
+  background: rgba(59, 130, 246, 0.15);
+  outline: none;
+}
+
+.inbox-convert-option strong {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.inbox-convert-option span {
+  font-size: 0.8rem;
+  color: rgba(226, 232, 240, 0.75);
+}
+
 .npc-editor {
   display: grid;
   gap: 1.5rem;
