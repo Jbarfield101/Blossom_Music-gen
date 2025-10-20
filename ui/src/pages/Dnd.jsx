@@ -16,10 +16,16 @@ const sections = [
     description: 'Regions, locations, factions, and worldbuilding.',
   },
   {
+    to: '/dnd/campaign-dashboard',
+    icon: 'LayoutDashboard',
+    title: 'Campaign Dashboard',
+    description: 'Review recent prep, launch quick creates, and resume active sessions.',
+  },
+  {
     to: '/dnd/dungeon-master',
     icon: 'Crown',
     title: 'Dungeon Master',
-    description: 'Session notes, encounters, initiatives, and tools.',
+    description: 'Navigate tools, trackers, and references for running the table.',
   },
   {
     to: '/dnd/assets',

@@ -7,6 +7,7 @@ import DndDiscord from './pages/DndDiscord.jsx';
 import DndLore from './pages/DndLore.jsx';
 import DndInbox from './pages/DndInbox.jsx';
 import DndWorld from './pages/DndWorld.jsx';
+import DndCampaignDashboard from './pages/DndCampaignDashboard.jsx';
 import DndDungeonMaster from './pages/DndDungeonMaster.jsx';
 import DndAssets from './pages/DndAssets.jsx';
 import DndDmEvents from './pages/DndDmEvents.jsx';
@@ -396,6 +397,7 @@ export default function App() {
             <Route path="/dnd/lore/background-rules" element={<DndLoreBackgroundRules />} />
             <Route path="/dnd/tasks" element={<DndTasks />} />
             <Route path="/dnd/tasks/repair" element={<DndRepair />} />
+            <Route path="/dnd/campaign-dashboard" element={<DndCampaignDashboard />} />
             <Route path="/dnd/dungeon-master" element={<DndDungeonMaster />} />
             <Route path="/dnd/dungeon-master/events" element={<DndDmEvents />} />
             <Route path="/dnd/dungeon-master/monsters" element={<DndDmMonsters />} />
