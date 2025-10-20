@@ -1,6 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
-import { listInbox, readInbox, createInbox, updateInbox, deleteInbox } from '../api/inbox';
+import {
+  listInbox,
+  readInbox,
+  createInbox,
+  updateInbox,
+  deleteInbox,
+  moveInboxItem,
+} from '../api/inbox';
 import './Dnd.css';
 import { renderMarkdown } from '../lib/markdown.jsx';
 import { useVaultVersion } from '../lib/vaultEvents.jsx';
@@ -50,7 +57,127 @@ export default function DndInbox() {
   const [editing, setEditing] = useState(false);
   const [editBody, setEditBody] = useState('');
   const [editError, setEditError] = useState('');
+  const [convertMenuOpen, setConvertMenuOpen] = useState(false);
+  const [convertTarget, setConvertTarget] = useState(null);
+  const [convertTitle, setConvertTitle] = useState('');
+  const [convertTags, setConvertTags] = useState('');
+  const [convertBody, setConvertBody] = useState('');
+  const [convertError, setConvertError] = useState('');
+  const [convertLoading, setConvertLoading] = useState(false);
   const inboxVersion = useVaultVersion(['00_inbox']);
+  const menuRef = useRef(null);
+
+  const convertOptions = useMemo(
+    () => [
+      {
+        id: 'npc',
+        label: 'Create NPC from note',
+        dialogTitle: 'Create NPC from inbox note',
+        submitLabel: 'Create NPC',
+        description: 'Move this note into 20_DM/NPC and tag it as an NPC record.',
+        defaultTags: ['npc'],
+      },
+      {
+        id: 'lore',
+        label: 'Move to Lore',
+        dialogTitle: 'Move note to Lore',
+        submitLabel: 'Move to Lore',
+        description: 'File this note inside 10_Lore with lore tags.',
+        defaultTags: ['lore'],
+      },
+      {
+        id: 'quest',
+        label: 'Move to Quest Log',
+        dialogTitle: 'Move note to Quest log',
+        submitLabel: 'Move to Quest Log',
+        description: 'Place this entry under 20_DM/Quests for follow-up tracking.',
+        defaultTags: ['quest'],
+      },
+      {
+        id: 'faction',
+        label: 'Move to Faction',
+        dialogTitle: 'Move note to Factions',
+        submitLabel: 'Move to Faction',
+        description: 'Organise the note beneath 10_World/Factions.',
+        defaultTags: ['faction'],
+      },
+      {
+        id: 'location',
+        label: 'Move to Location',
+        dialogTitle: 'Move note to Locations',
+        submitLabel: 'Move to Location',
+        description: 'Send the note to 10_World/Regions as a location entry.',
+        defaultTags: ['location'],
+      },
+      {
+        id: 'session',
+        label: 'Move to Session Log',
+        dialogTitle: 'Move note to Session log',
+        submitLabel: 'Move to Session Log',
+        description: 'Archive this entry inside 20_DM/Sessions.',
+        defaultTags: ['session'],
+      },
+    ],
+    []
+  );
+
+  useEffect(() => {
+    if (!convertMenuOpen) return;
+    const handleClick = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setConvertMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [convertMenuOpen]);
+
+  const deriveTitle = useCallback(
+    (content, fallback) => {
+      if (typeof content !== 'string' || !content.trim()) {
+        return fallback;
+      }
+      if (content.trimStart().startsWith('---')) {
+        const match = content.match(/---\s*[\r\n]+([\s\S]*?)\r?\n---/);
+        if (match && match[1]) {
+          const lines = match[1].split(/\r?\n/);
+          for (const raw of lines) {
+            const line = raw.trim();
+            if (!line) continue;
+            const lower = line.toLowerCase();
+            if (lower.startsWith('title:')) {
+              return line.split(/:(.+)/)[1]?.trim() || fallback;
+            }
+            if (lower.startsWith('name:')) {
+              return line.split(/:(.+)/)[1]?.trim() || fallback;
+            }
+          }
+        }
+      }
+      const heading = content.match(/^#\s+(.+)$/m);
+      if (heading && heading[1]) {
+        return heading[1].trim();
+      }
+      return fallback;
+    },
+    []
+  );
+
+  const openConvertDialog = useCallback(
+    (option) => {
+      if (!option || !activePath) return;
+      const baseContent = editing ? editBody : activeContent;
+      const fallback = selected?.title || selected?.name || 'Converted Note';
+      const initialTitle = deriveTitle(baseContent, fallback) || fallback;
+      setConvertTarget(option);
+      setConvertTitle(initialTitle);
+      setConvertTags((option.defaultTags || []).join(', '));
+      setConvertBody(baseContent || '');
+      setConvertError('');
+      setConvertMenuOpen(false);
+    },
+    [activeContent, activePath, deriveTitle, editBody, editing, selected]
+  );
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -163,6 +290,34 @@ export default function DndInbox() {
                   <span>·</span>
                   <time>{formatDate(selected.modified_ms)}</time>
                   <span style={{ marginLeft: 'auto' }} />
+                  <div
+                    ref={menuRef}
+                    className="inbox-convert-menu"
+                    style={{ position: 'relative' }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setConvertMenuOpen((v) => !v)}
+                      disabled={!activePath}
+                    >
+                      Convert/Move ▾
+                    </button>
+                    {convertMenuOpen && (
+                      <div className="inbox-convert-dropdown" role="menu">
+                        {convertOptions.map((option) => (
+                          <button
+                            key={option.id}
+                            type="button"
+                            className="inbox-convert-option"
+                            onClick={() => openConvertDialog(option)}
+                          >
+                            <strong>{option.label}</strong>
+                            <span>{option.description}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <button type="button" onClick={() => { setEditing((v) => !v); setEditError(''); setEditBody(activeContent || ''); }}>
                     {editing ? 'Cancel' : 'Edit'}
                   </button>
@@ -239,6 +394,100 @@ export default function DndInbox() {
               <div className="monster-create-actions">
                 <button type="button" onClick={() => { if (!creating) setShowCreate(false); }} disabled={creating}>Cancel</button>
                 <button type="submit" disabled={creating}>{creating ? 'Creating.' : 'Create'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {convertTarget && (
+        <div className="lightbox" onClick={() => { if (!convertLoading) { setConvertTarget(null); setConvertError(''); } }}>
+          <div className="lightbox-panel monster-create-panel" onClick={(e) => e.stopPropagation()}>
+            <h2>{convertTarget.dialogTitle}</h2>
+            {convertTarget.description && (
+              <p className="muted" style={{ marginTop: '0.5rem' }}>
+                {convertTarget.description}
+              </p>
+            )}
+            <form
+              className="monster-create-form"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                if (!convertTarget || !activePath || convertLoading) return;
+                const finalTitle = convertTitle.trim();
+                if (!finalTitle) {
+                  setConvertError('Please provide a title for the converted note.');
+                  return;
+                }
+                try {
+                  setConvertLoading(true);
+                  setConvertError('');
+                  const tags = convertTags
+                    .split(',')
+                    .map((tag) => tag.trim())
+                    .filter((tag) => tag.length > 0);
+                  await moveInboxItem({
+                    path: activePath,
+                    target: convertTarget.id,
+                    title: finalTitle,
+                    tags,
+                    content: convertBody,
+                  });
+                  setConvertTarget(null);
+                  setConvertBody('');
+                  setConvertTitle('');
+                  setConvertTags('');
+                  setEditing(false);
+                  setEditBody('');
+                  setActiveContent('');
+                  setActivePath('');
+                  await fetchItems();
+                } catch (err) {
+                  setConvertError(err?.message || String(err));
+                } finally {
+                  setConvertLoading(false);
+                }
+              }}
+            >
+              <label>
+                Title
+                <input
+                  type="text"
+                  value={convertTitle}
+                  onChange={(e) => setConvertTitle(e.target.value)}
+                  disabled={convertLoading}
+                />
+              </label>
+              <label>
+                Tags (comma separated)
+                <input
+                  type="text"
+                  value={convertTags}
+                  onChange={(e) => setConvertTags(e.target.value)}
+                  disabled={convertLoading}
+                  placeholder="npc, ally, guild"
+                />
+              </label>
+              <label>
+                Content
+                <textarea
+                  rows={16}
+                  value={convertBody}
+                  onChange={(e) => setConvertBody(e.target.value)}
+                  disabled={convertLoading}
+                />
+              </label>
+              {convertError && <div className="error">{convertError}</div>}
+              <div className="monster-create-actions">
+                <button
+                  type="button"
+                  onClick={() => { if (!convertLoading) { setConvertTarget(null); setConvertError(''); } }}
+                  disabled={convertLoading}
+                >
+                  Cancel
+                </button>
+                <button type="submit" disabled={convertLoading}>
+                  {convertLoading ? 'Moving…' : convertTarget.submitLabel}
+                </button>
               </div>
             </form>
           </div>

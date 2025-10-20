@@ -4655,6 +4655,117 @@ struct InboxItem {
     preview: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct InboxMoveArgs {
+    path: String,
+    target: String,
+    title: Option<String>,
+    tags: Option<Vec<String>>,
+    frontmatter: Option<HashMap<String, String>>,
+    content: Option<String>,
+}
+
+struct InboxMoveConfig {
+    relative_dir: &'static str,
+    default_type: &'static str,
+    default_tags: &'static [&'static str],
+    ensure_id: bool,
+}
+
+fn inbox_move_config(target: &str) -> Option<InboxMoveConfig> {
+    match target {
+        "npc" => Some(InboxMoveConfig {
+            relative_dir: "20_DM/NPC",
+            default_type: "npc",
+            default_tags: &["npc"],
+            ensure_id: true,
+        }),
+        "lore" => Some(InboxMoveConfig {
+            relative_dir: "10_Lore",
+            default_type: "lore",
+            default_tags: &["lore"],
+            ensure_id: false,
+        }),
+        "quest" => Some(InboxMoveConfig {
+            relative_dir: "20_DM/Quests",
+            default_type: "quest",
+            default_tags: &["quest"],
+            ensure_id: false,
+        }),
+        "faction" => Some(InboxMoveConfig {
+            relative_dir: "10_World/Factions",
+            default_type: "faction",
+            default_tags: &["faction"],
+            ensure_id: false,
+        }),
+        "location" => Some(InboxMoveConfig {
+            relative_dir: "10_World/Regions",
+            default_type: "loc",
+            default_tags: &["location"],
+            ensure_id: false,
+        }),
+        "session" => Some(InboxMoveConfig {
+            relative_dir: "20_DM/Sessions",
+            default_type: "session",
+            default_tags: &["session"],
+            ensure_id: false,
+        }),
+        _ => None,
+    }
+}
+
+fn collect_existing_npc_ids(base_dir: &Path) -> HashSet<String> {
+    let mut ids = HashSet::new();
+    if !base_dir.exists() {
+        return ids;
+    }
+    for entry in WalkDir::new(base_dir).into_iter().filter_map(|e| e.ok()) {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.path();
+        let is_markdown = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.eq_ignore_ascii_case("md"))
+            .unwrap_or(false);
+        if !is_markdown {
+            continue;
+        }
+        if let Ok(text) = fs::read_to_string(path) {
+            if let Ok((mapping, _body, _raw)) = parse_frontmatter(&text) {
+                let key = YamlValue::String("id".to_string());
+                if let Some(YamlValue::String(id)) = mapping.get(&key) {
+                    let trimmed = id.trim();
+                    if !trimmed.is_empty() {
+                        ids.insert(trimmed.to_string());
+                    }
+                }
+            }
+        }
+    }
+    ids
+}
+
+fn sanitize_file_stem(name: &str, fallback: &str) -> String {
+    let mut stem: String = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    stem = stem.trim().replace(' ', "_");
+    if stem.is_empty() {
+        fallback.to_string()
+    } else {
+        stem
+    }
+}
+
 fn read_first_paragraph(text: &str, max_len: usize) -> Option<String> {
     let norm = text.replace("\r\n", "\n");
     let mut parts = norm.splitn(2, "\n\n");
@@ -5381,6 +5492,238 @@ fn inbox_create(
     let body = content.unwrap_or_default();
     fs::write(&target, body.as_bytes()).map_err(|e| e.to_string())?;
     Ok(target.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn inbox_move_to(_app: AppHandle, args: InboxMoveArgs) -> Result<String, String> {
+    let target_original = args.target.clone();
+    let normalized_target = target_original.trim().to_ascii_lowercase();
+    if normalized_target.is_empty() {
+        return Err("Inbox target is required".to_string());
+    }
+    let config = inbox_move_config(&normalized_target)
+        .ok_or_else(|| format!("Unsupported inbox target: {}", target_original))?;
+
+    let source_path_str = args.path.clone();
+    let trimmed_path = source_path_str.trim();
+    if trimmed_path.is_empty() {
+        return Err("Inbox path is required".to_string());
+    }
+    let source_path = PathBuf::from(trimmed_path);
+    if !source_path.exists() {
+        return Err(format!("Inbox file not found: {}", trimmed_path));
+    }
+
+    let InboxMoveArgs {
+        path: _,
+        target: _,
+        title,
+        tags,
+        frontmatter,
+        content,
+    } = args;
+
+    let vault_root = dreadhaven_root();
+    let destination_base = join_relative_folder(&vault_root, config.relative_dir);
+    if !destination_base.exists() {
+        fs::create_dir_all(&destination_base)
+            .map_err(|e| format!("Failed to create destination folder: {}", e))?;
+    }
+
+    let raw_content = match content {
+        Some(body) => body,
+        None => fs::read_to_string(&source_path)
+            .map_err(|e| format!("Failed to read inbox note: {}", e))?,
+    };
+
+    let (mut mapping, body, _raw_frontmatter) =
+        parse_frontmatter(&raw_content).map_err(|e| format!("{}", e))?;
+
+    let fallback_title = source_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Converted_Note")
+        .to_string();
+
+    let desired_title = title
+        .and_then(|s| {
+            let trimmed = s.trim().to_string();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        })
+        .or_else(|| {
+            let key = YamlValue::String("title".to_string());
+            mapping
+                .get(&key)
+                .and_then(|v| v.as_str())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+        .or_else(|| {
+            let key = YamlValue::String("name".to_string());
+            mapping
+                .get(&key)
+                .and_then(|v| v.as_str())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+        .or_else(|| {
+            let normalized = body.replace("\r\n", "\n");
+            for line in normalized.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with('#') {
+                    let mut chars = trimmed.chars();
+                    while let Some(ch) = chars.next() {
+                        if ch != '#' {
+                            let rest: String = std::iter::once(ch).chain(chars).collect();
+                            let candidate = rest.trim();
+                            if !candidate.is_empty() {
+                                return Some(candidate.to_string());
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            None
+        })
+        .unwrap_or(fallback_title);
+
+    if let Some(extra) = frontmatter {
+        for (key, value) in extra {
+            let trimmed_key = key.trim();
+            if trimmed_key.is_empty() {
+                continue;
+            }
+            let trimmed_value = value.trim();
+            if trimmed_value.is_empty() {
+                upsert_frontmatter_string(&mut mapping, trimmed_key, None);
+            } else {
+                upsert_frontmatter_string(&mut mapping, trimmed_key, Some(trimmed_value));
+            }
+        }
+    }
+
+    upsert_frontmatter_string(&mut mapping, "type", Some(config.default_type));
+    upsert_frontmatter_string(&mut mapping, "title", Some(&desired_title));
+    upsert_frontmatter_string(&mut mapping, "name", Some(&desired_title));
+
+    if config.ensure_id {
+        let mut existing_ids = collect_existing_npc_ids(&destination_base);
+        let key = YamlValue::String("id".to_string());
+        let mut current_id = mapping
+            .get(&key)
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        if let Some(ref id) = current_id {
+            if !is_valid_npc_id(id) {
+                current_id = None;
+            }
+        }
+        let final_id = if let Some(id) = current_id {
+            id
+        } else {
+            generate_unique_npc_id(&desired_title, &mut existing_ids)
+        };
+        upsert_frontmatter_string(&mut mapping, "id", Some(&final_id));
+    }
+
+    let tags_key = YamlValue::String("tags".to_string());
+    let mut collected_tags: Vec<String> = Vec::new();
+    if let Some(value) = mapping.get(&tags_key) {
+        match value {
+            YamlValue::Sequence(seq) => {
+                for entry in seq {
+                    if let Some(s) = entry.as_str() {
+                        let trimmed = s.trim();
+                        if !trimmed.is_empty() {
+                            collected_tags.push(trimmed.to_string());
+                        }
+                    }
+                }
+            }
+            YamlValue::String(s) => {
+                let trimmed = s.trim();
+                if !trimmed.is_empty() {
+                    collected_tags.push(trimmed.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut final_tags: Vec<String> = Vec::new();
+    let mut push_tag = |tag: &str| {
+        let trimmed = tag.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        let key = trimmed.to_ascii_lowercase();
+        if seen.insert(key) {
+            final_tags.push(trimmed.to_string());
+        }
+    };
+
+    for tag in collected_tags.iter() {
+        push_tag(tag);
+    }
+    for &tag in config.default_tags.iter() {
+        push_tag(tag);
+    }
+    if let Some(extra_tags) = tags {
+        for tag in extra_tags {
+            push_tag(&tag);
+        }
+    }
+
+    if final_tags.is_empty() {
+        mapping.remove(&tags_key);
+    } else {
+        let sequence: Vec<YamlValue> = final_tags
+            .into_iter()
+            .map(|tag| YamlValue::String(tag))
+            .collect();
+        mapping.insert(tags_key, YamlValue::Sequence(sequence));
+    }
+
+    let frontmatter_src = serialize_frontmatter(&mapping)?;
+    let mut rebuilt = String::new();
+    rebuilt.push_str("---\n");
+    rebuilt.push_str(&frontmatter_src);
+    rebuilt.push_str("---\n");
+    if !body.is_empty() {
+        if !body.starts_with('\n') {
+            rebuilt.push('\n');
+        }
+        rebuilt.push_str(&body);
+    }
+
+    let mut stem = sanitize_file_stem(&desired_title, "Converted_Note");
+    if stem.is_empty() {
+        stem = "Converted_Note".to_string();
+    }
+    let mut target_path = destination_base.join(format!("{}.md", stem));
+    let mut counter: u32 = 2;
+    while target_path.exists() {
+        target_path = destination_base.join(format!("{}_{}.md", stem, counter));
+        counter += 1;
+        if counter > 9999 {
+            break;
+        }
+    }
+
+    fs::write(&target_path, rebuilt.as_bytes())
+        .map_err(|e| format!("Failed to write converted note: {}", e))?;
+
+    fs::remove_file(&source_path)
+        .map_err(|e| format!("Failed to delete original inbox note: {}", e))?;
+
+    Ok(target_path.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -10241,6 +10584,7 @@ fn main() {
             inbox_update,
             inbox_delete,
             inbox_create,
+            inbox_move_to,
             dir_list,
             race_create,
             player_create,
