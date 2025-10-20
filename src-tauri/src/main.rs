@@ -4748,21 +4748,35 @@ fn collect_existing_npc_ids(base_dir: &Path) -> HashSet<String> {
 }
 
 fn sanitize_file_stem(name: &str, fallback: &str) -> String {
-    let mut stem: String = name
-        .chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    stem = stem.trim().replace(' ', "_");
-    if stem.is_empty() {
-        fallback.to_string()
+    fn normalize(value: &str) -> String {
+        let cleaned: String = value
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || matches!(c, ' ' | '-' | '_') {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let trimmed = cleaned.trim().replace(' ', "_");
+        let mut limited: String = trimmed.chars().take(120).collect();
+        // Remove any lingering leading or trailing dots that might have slipped through
+        // (for instance, when sanitizing stems derived from file names).
+        limited = limited.trim_matches('.').to_string();
+        limited
+    }
+
+    let primary = normalize(name);
+    if primary.is_empty() {
+        let fallback = normalize(fallback);
+        if fallback.is_empty() {
+            "loop".to_string()
+        } else {
+            fallback
+        }
     } else {
-        stem
+        primary
     }
 }
 
@@ -7676,23 +7690,6 @@ fn format_eta_string(seconds: u64) -> String {
     }
 }
 
-fn sanitize_file_stem(name: &str) -> String {
-    let mut out = String::new();
-    for ch in name.chars() {
-        if ch.is_ascii_alphanumeric() || matches!(ch, ' ' | '-' | '_') {
-            out.push(ch);
-        } else {
-            out.push('_');
-        }
-    }
-    let out = out.trim().trim_matches('.').to_string();
-    if out.is_empty() {
-        "loop".to_string()
-    } else {
-        out.chars().take(120).collect()
-    }
-}
-
 fn sanitize_musicgen_base_name(name: Option<&str>, fallback: &str) -> String {
     let raw = name.unwrap_or("").trim();
     let mut sanitized = String::new();
@@ -7821,12 +7818,12 @@ fn export_loop_video(
 
     // Determine output filename
     let stem = if let Some(name) = output_name {
-        sanitize_file_stem(&name)
+        sanitize_file_stem(&name, "loop")
     } else {
         in_path
             .file_stem()
             .and_then(|s| s.to_str())
-            .map(sanitize_file_stem)
+            .map(|stem| sanitize_file_stem(stem, "loop"))
             .unwrap_or_else(|| "loop".to_string())
     };
     let out_path = out_dir.join(format!("{}.mp4", stem));
