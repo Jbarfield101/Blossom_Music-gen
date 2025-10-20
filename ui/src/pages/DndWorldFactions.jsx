@@ -583,7 +583,7 @@ export default function DndWorldFactions() {
       <h1>Dungeons & Dragons · Factions</h1>
       <div className="regions-controls">
         <button type="button" onClick={() => fetchList(currentPath)} disabled={loading}>
-          {loading ? 'Loading.' : 'Refresh'}
+          {loading ? 'Loading…' : 'Refresh'}
         </button>
         <nav className="regions-breadcrumbs">
           {crumbs.map((c, idx) => (
