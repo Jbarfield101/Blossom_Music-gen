@@ -345,6 +345,42 @@ export default function DndCampaignDashboard() {
               </ul>
             )}
           </article>
+          <article className="campaign-card">
+            <header className="campaign-card__header">
+              <div>
+                <h2>Next Session &amp; Recap</h2>
+                <p>Plan the upcoming session and capture the recap.</p>
+              </div>
+            </header>
+            <div className="campaign-empty">Campaign has not started yet</div>
+          </article>
+          <article className="campaign-card">
+            <header className="campaign-card__header">
+              <div>
+                <h2>Upcoming Tasks</h2>
+                <p>Track preparation tasks before the campaign begins.</p>
+              </div>
+            </header>
+            <div className="campaign-empty">Campaign has not started yet</div>
+          </article>
+          <article className="campaign-card">
+            <header className="campaign-card__header">
+              <div>
+                <h2>Party Status</h2>
+                <p>Monitor player characters once adventures commence.</p>
+              </div>
+            </header>
+            <div className="campaign-empty">Campaign has not started yet</div>
+          </article>
+          <article className="campaign-card">
+            <header className="campaign-card__header">
+              <div>
+                <h2>Active Quests</h2>
+                <p>Review the party&apos;s objectives and story arcs.</p>
+              </div>
+            </header>
+            <div className="campaign-empty">Campaign has not started yet</div>
+          </article>
         </div>
       </section>
 
