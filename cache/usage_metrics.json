@@ -1,0 +1,28 @@
+{
+  "elevenlabs": {
+    "daily": {
+      "characters": 0,
+      "date": "2025-10-21"
+    },
+    "total": {
+      "characters": 0,
+      "since": "2025-10-21"
+    },
+    "updated_at": null
+  },
+  "openai": {
+    "daily": {
+      "completion_tokens": 24,
+      "date": "2025-10-21",
+      "prompt_tokens": 119,
+      "tokens": 143
+    },
+    "total": {
+      "completion_tokens": 24,
+      "prompt_tokens": 119,
+      "since": "2025-10-21",
+      "tokens": 143
+    },
+    "updated_at": "2025-10-21T21:42:58.503912Z"
+  }
+}
