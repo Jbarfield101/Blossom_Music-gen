@@ -14,9 +14,25 @@ import numpy as np
 import soundfile as sf
 
 from .registry import VoiceProfile, VoiceRegistry
+from telemetry import record_elevenlabs_usage
 
 
 CACHE_DIR = Path("cache/tts")
+
+
+def _infer_voice_provider(voice: VoiceProfile) -> str:
+    """Best-effort provider inference for a voice profile."""
+
+    tags = getattr(voice, "tags", None) or []
+    if any(str(tag).lower() == "elevenlabs" for tag in tags):
+        return "elevenlabs"
+    voice_id = (voice.voice_id or "").strip()
+    lower_id = voice_id.lower()
+    if lower_id.startswith("elevenlabs") or lower_id.startswith("eleven_"):
+        return "elevenlabs"
+    if voice_id and len(voice_id) >= 10 and voice_id.isalnum() and any(ch.isupper() for ch in voice_id):
+        return "elevenlabs"
+    return "piper"
 
 
 def _cache_key(voice: VoiceProfile, text: str) -> str:
@@ -116,6 +132,9 @@ class TTSEngine:
         if cached is not None:
             return cached
         audio = self.backend.synthesize(text, profile)
+        if _infer_voice_provider(profile) == "elevenlabs":
+            payload = text if isinstance(text, str) else str(text)
+            record_elevenlabs_usage(len(payload))
         cache_store(key, audio)
         return audio
 
