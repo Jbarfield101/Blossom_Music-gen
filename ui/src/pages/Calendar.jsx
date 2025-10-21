@@ -51,13 +51,13 @@ const EVENT_CATEGORIES = [
   {
     id: 'dnd',
     label: 'Dungeons and Dragons',
-    accent: '#f97316',
+    accent: '#fb923c',
     defaultTitle: 'Dungeons & Dragons Session',
   },
   {
     id: 'dm-session',
     label: 'DM Session',
-    accent: '#14b8a6',
+    accent: '#0ea5e9',
     defaultTitle: 'Dungeon Master Session',
   },
   {
