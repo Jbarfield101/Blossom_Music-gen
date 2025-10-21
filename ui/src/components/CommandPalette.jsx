@@ -4,7 +4,7 @@ import { createNpc } from '../api/npcs.js';
 import {
   createEncounter,
   createFaction,
-  createLocation,
+  createDomain,
   createQuest,
   createSession,
 } from '../api/entities.js';
@@ -19,6 +19,8 @@ const ROUTES = {
   encounter: (id) => `/dnd/encounter/${encodeURIComponent(id)}`,
   session: (id) => `/dnd/session/${encodeURIComponent(id)}`,
 };
+
+const NPC_TEMPLATE_PATH = 'assets/dnd_templates/NPC_Template.md';
 
 function focusFirstElement(container) {
   if (!container) return;
@@ -87,7 +89,16 @@ export default function CommandPalette() {
       const { entries = [] } = await listEntitiesByType('npc', { force: true }).catch(() => ({ entries: [] }));
       const idPool = new Set(entries.map((entry) => entry.id || entry.index?.id).filter(Boolean));
       const npcId = makeId('npc', displayName, idPool);
-      const path = await createNpc(npcId, displayName, '', '', null, false, null, null);
+      const path = await createNpc(
+        npcId,
+        displayName,
+        '',
+        '',
+        NPC_TEMPLATE_PATH,
+        false,
+        null,
+        null,
+      );
       resetVaultIndexCache();
       return { id: npcId, path, type: 'npc', name: displayName };
     },
@@ -107,23 +118,25 @@ export default function CommandPalette() {
       {
         id: 'quest',
         label: 'Create Quest',
-        description: 'Start a quest note with summary, milestones, and rewards placeholders.',
+        description: 'Story hook builder is coming soon.',
         type: 'quest',
         keywords: ['story', 'mission'],
         action: createQuest,
+        disabled: true,
+        status: 'WIP',
       },
       {
-        id: 'location',
-        label: 'Create Location',
-        description: 'Outline a new region or point of interest.',
-        type: 'loc',
-        keywords: ['place', 'region'],
-        action: createLocation,
+        id: 'domain',
+        label: 'Create Domain',
+        description: 'Outline a realm or seat of power with the domain dossier.',
+        type: 'domain',
+        keywords: ['domain', 'realm', 'stronghold', 'province'],
+        action: createDomain,
       },
       {
         id: 'faction',
         label: 'Create Faction',
-        description: 'Draft a faction sheet with goals and assets.',
+        description: 'Draft a faction sheet using the faction playbook template.',
         type: 'faction',
         keywords: ['organization', 'group'],
         action: createFaction,
@@ -145,7 +158,14 @@ export default function CommandPalette() {
         action: createSession,
       },
     ],
-    [createEncounter, createFaction, createLocation, createNpcFromPalette, createQuest, createSession],
+    [
+      createDomain,
+      createEncounter,
+      createFaction,
+      createNpcFromPalette,
+      createQuest,
+      createSession,
+    ],
   );
 
   useEffect(() => {
@@ -255,6 +275,7 @@ export default function CommandPalette() {
       if (item.label.toLowerCase().includes(term)) return true;
       if (item.description.toLowerCase().includes(term)) return true;
       if (item.type && item.type.includes(term)) return true;
+      if (item.status && item.status.toLowerCase().includes(term)) return true;
       return item.keywords?.some((keyword) => keyword.toLowerCase().includes(term));
     });
   }, [templates, query]);
@@ -267,7 +288,7 @@ export default function CommandPalette() {
 
   const executeTemplate = useCallback(
     async (template) => {
-      if (!template || typeof template.action !== 'function') return;
+      if (!template || template.disabled || typeof template.action !== 'function') return;
       setBusy(true);
       setError('');
       try {
@@ -313,7 +334,7 @@ export default function CommandPalette() {
       if (event.key === 'Enter') {
         event.preventDefault();
         const template = filteredTemplates[highlightIndex] || filteredTemplates[0];
-        if (template) {
+        if (template && !template.disabled) {
           executeTemplate(template);
         }
       }
@@ -373,13 +394,21 @@ export default function CommandPalette() {
             >
               <button
                 type="button"
-                className="command-palette__button"
-                disabled={busy}
+                className={`command-palette__button${template.disabled ? ' is-disabled' : ''}`}
+                disabled={busy || template.disabled}
+                aria-disabled={template.disabled}
                 onClick={() => executeTemplate(template)}
               >
-                <span className="command-palette__item-title">{template.label}</span>
+                <div className="command-palette__item-top">
+                  <span className="command-palette__item-title">{template.label}</span>
+                  <div className="command-palette__item-flair">
+                    {template.status && (
+                      <span className="command-palette__item-status">{template.status}</span>
+                    )}
+                    <span className="command-palette__item-type">{template.type}</span>
+                  </div>
+                </div>
                 <span className="command-palette__item-meta">{template.description}</span>
-                <span className="command-palette__item-type">{template.type}</span>
               </button>
             </li>
           ))}

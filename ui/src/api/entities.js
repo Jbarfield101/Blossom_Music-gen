@@ -1,4 +1,5 @@
-import { mkdir, exists } from '@tauri-apps/plugin-fs';
+import { mkdir, exists, readTextFile, BaseDirectory } from '@tauri-apps/plugin-fs';
+import { resolveResource } from '@tauri-apps/api/path';
 import { getDreadhavenRoot } from './config.js';
 import { makeId } from '../lib/dndIds.js';
 import { saveEntity } from '../lib/vaultAdapter.js';
@@ -42,6 +43,48 @@ async function resolveVaultRoot() {
   return 'D:/Documents/DreadHaven';
 }
 
+const TEMPLATE_ROOT = 'assets/dnd_templates';
+
+async function loadTemplateBody(templateName) {
+  if (!templateName) {
+    return '';
+  }
+
+  const normalized = templateName.endsWith('.md') ? templateName : `${templateName}.md`;
+  const resourcePath = `${TEMPLATE_ROOT}/${normalized}`;
+
+  try {
+    const content = await readTextFile(resourcePath, { dir: BaseDirectory.Resource });
+    if (typeof content === 'string') {
+      return content;
+    }
+  } catch (err) {
+    console.warn('createSimpleEntity: failed to load template from resource dir', resourcePath, err);
+  }
+
+  try {
+    const resolvedPath = await resolveResource(resourcePath);
+    const content = await readTextFile(resolvedPath);
+    if (typeof content === 'string') {
+      return content;
+    }
+  } catch (err) {
+    console.warn('createSimpleEntity: failed to resolve template resource', resourcePath, err);
+  }
+
+  return '';
+}
+
+const DOMAIN_CONFIG = {
+  dir: '10_World/Domains',
+  defaultName: 'New Domain',
+  filenamePrefix: 'Domain - ',
+  template: 'Domain_Template.md',
+  entityType: 'loc',
+  listType: 'loc',
+  resultType: 'loc',
+};
+
 const ENTITY_CONFIG = {
   quest: {
     dir: '20_DM/Quests',
@@ -49,17 +92,12 @@ const ENTITY_CONFIG = {
     filenamePrefix: 'Quest - ',
     body: (name) => `# ${name}\n\n## Summary\n- ...\n\n## Milestones\n- [ ] ...\n\n## Rewards\n- ...\n`,
   },
-  loc: {
-    dir: '10_World/Regions',
-    defaultName: 'New Location',
-    filenamePrefix: 'Location - ',
-    body: (name) => `# ${name}\n\n## Overview\n- ...\n\n## Points of Interest\n- ...\n`,
-  },
+  domain: DOMAIN_CONFIG,
   faction: {
     dir: '10_World/Factions',
     defaultName: 'New Faction',
     filenamePrefix: 'Faction - ',
-    body: (name) => `# ${name}\n\n## Goals\n- ...\n\n## Assets\n- ...\n`,
+    template: 'Faction_Template.md',
   },
   encounter: {
     dir: '20_DM/Events',
@@ -74,6 +112,8 @@ const ENTITY_CONFIG = {
     body: (name) => `# ${name}\n\n## Agenda\n- ...\n\n## Highlights\n- ...\n`,
   },
 };
+
+ENTITY_CONFIG.loc = DOMAIN_CONFIG;
 
 async function generateUniqueFilePath(root, relDir, stem) {
   const baseStem = sanitizeFileStem(stem, 'Entity');
@@ -101,13 +141,17 @@ async function createSimpleEntity(type, name) {
 
   const displayName = normalizeName(name, config.defaultName);
 
-  const { root = await resolveVaultRoot(), entries = [] } = await listEntitiesByType(type, { force: false }).catch(
+  const entityType = config.entityType || type;
+  const listType = config.listType || entityType;
+  const resultType = config.resultType || entityType;
+
+  const { root = await resolveVaultRoot(), entries = [] } = await listEntitiesByType(listType, { force: false }).catch(
     () => ({ root: undefined, entries: [] }),
   );
 
   const vaultRoot = root && root.trim() ? root.trim() : await resolveVaultRoot();
   const existingIds = new Set(entries.map((entry) => entry.id || entry.index?.id).filter(Boolean));
-  const entityId = makeId(type, displayName, existingIds);
+  const entityId = makeId(entityType, displayName, existingIds);
 
   const relDir = config.dir;
   const dirPath = resolveVaultPath(vaultRoot, relDir);
@@ -116,12 +160,19 @@ async function createSimpleEntity(type, name) {
   const stem = `${config.filenamePrefix}${displayName}`;
   const { relPath, absPath } = await generateUniqueFilePath(vaultRoot, relDir, stem);
 
-  const frontmatter = { id: entityId, type, name: displayName };
-  const body = typeof config.body === 'function' ? config.body(displayName, entityId) : '';
+  const frontmatter = { id: entityId, type: entityType, name: displayName };
+
+  let body = '';
+  if (config.template) {
+    body = await loadTemplateBody(config.template);
+  }
+  if (!body && typeof config.body === 'function') {
+    body = config.body(displayName, entityId);
+  }
 
   await saveEntity({ entity: frontmatter, body, path: absPath, format: 'markdown' });
   resetVaultIndexCache();
-  return { id: entityId, path: absPath, relPath, type, name: displayName };
+  return { id: entityId, path: absPath, relPath, type: resultType, name: displayName };
 }
 
 export function createQuest(name) {
@@ -129,7 +180,11 @@ export function createQuest(name) {
 }
 
 export function createLocation(name) {
-  return createSimpleEntity('loc', name);
+  return createSimpleEntity('domain', name);
+}
+
+export function createDomain(name) {
+  return createSimpleEntity('domain', name);
 }
 
 export function createFaction(name) {

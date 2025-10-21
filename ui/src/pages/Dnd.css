@@ -2588,6 +2588,16 @@
   transition: border-color 0.2s ease, transform 0.2s ease, background 0.2s ease;
 }
 
+.campaign-quick-button.is-disabled,
+.campaign-quick-button[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+  border-style: solid;
+  border-color: rgba(148, 163, 184, 0.25);
+  background: rgba(30, 41, 59, 0.25);
+  transform: none;
+}
+
 .campaign-quick-button:hover,
 .campaign-quick-button:focus {
   border-color: rgba(56, 189, 248, 0.6);
@@ -2596,9 +2606,35 @@
   outline: none;
 }
 
+.campaign-quick-button.is-disabled:hover,
+.campaign-quick-button.is-disabled:focus,
+.campaign-quick-button[disabled]:hover,
+.campaign-quick-button[disabled]:focus {
+  border-color: rgba(148, 163, 184, 0.25);
+  background: rgba(30, 41, 59, 0.25);
+  transform: none;
+}
+
+.campaign-quick-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
 .campaign-quick-label {
   font-weight: 600;
   font-size: 1rem;
+}
+
+.campaign-quick-status {
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(248, 113, 113, 0.95);
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(248, 113, 113, 0.35);
 }
 
 .campaign-quick-meta {
