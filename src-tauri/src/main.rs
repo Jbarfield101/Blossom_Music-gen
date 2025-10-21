@@ -7631,6 +7631,24 @@ fn app_version() -> Result<Value, String> {
 }
 
 #[tauri::command]
+fn usage_metrics() -> Result<Value, String> {
+    let mut cmd = python_command();
+    let py = r#"
+import json
+import sys
+from telemetry import usage
+
+data = usage.get_usage_snapshot()
+json.dump(data, sys.stdout)
+"#;
+    let output = cmd.arg("-c").arg(py).output().map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+    serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn spawn_job_with_context(
     app: AppHandle,
     registry: State<JobRegistry>,
@@ -10748,6 +10766,7 @@ fn main() {
             hotword_get,
             hotword_set,
             app_version,
+            usage_metrics,
             start_job,
             train_model,
             cancel_render,

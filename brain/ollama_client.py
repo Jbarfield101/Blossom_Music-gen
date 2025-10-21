@@ -11,6 +11,7 @@ from requests import Response
 from requests.exceptions import HTTPError, RequestException, Timeout
 
 from config import openai_api
+from telemetry import record_openai_usage
 
 __all__ = ["generate", "LLMError", "OllamaError"]
 
@@ -190,6 +191,22 @@ def _generate_openai(
         data = resp.json()
     except ValueError as exc:
         raise LLMError("Invalid JSON payload from OpenAI") from exc
+
+    usage_info = data.get("usage")
+    if isinstance(usage_info, dict):
+        def _coerce(value: object) -> int | None:
+            try:
+                return int(value)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                return None
+
+        prompt_tokens = _coerce(usage_info.get("prompt_tokens"))
+        completion_tokens = _coerce(usage_info.get("completion_tokens"))
+        total_tokens = _coerce(usage_info.get("total_tokens"))
+        if prompt_tokens is None and completion_tokens is None and total_tokens is not None:
+            prompt_tokens = total_tokens
+            completion_tokens = 0
+        record_openai_usage(prompt_tokens, completion_tokens)
 
     choices = data.get("choices")
     if not isinstance(choices, list) or not choices:
