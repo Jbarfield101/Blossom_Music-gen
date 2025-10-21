@@ -430,18 +430,51 @@ header {
   border: none;
   text-align: left;
   color: inherit;
-  display: grid;
-  grid-template-columns: 1fr auto;
+  display: flex;
+  flex-direction: column;
   gap: var(--space-xs);
   cursor: pointer;
+}
+
+.command-palette__button.is-disabled,
+.command-palette__button[disabled] {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.command-palette__button[disabled]:hover {
+  background: none;
+}
+
+.command-palette__item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
 }
 
 .command-palette__item-title {
   font-weight: 600;
 }
 
+.command-palette__item-flair {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.command-palette__item-status {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  color: rgba(248, 113, 113, 0.95);
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+}
+
 .command-palette__item-meta {
-  grid-column: 1 / -1;
   font-size: 0.9rem;
   color: var(--text-muted, rgba(255, 255, 255, 0.7));
 }

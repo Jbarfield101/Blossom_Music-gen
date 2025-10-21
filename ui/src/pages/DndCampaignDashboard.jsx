@@ -10,12 +10,44 @@ import './Dnd.css';
 
 
 const QUICK_CREATE_ACTIONS = [
-  { id: 'npc', label: 'NPC', description: 'Character dossier' },
-  { id: 'quest', label: 'Quest', description: 'Story hook outline' },
-  { id: 'location', label: 'Location', description: 'Region or point of interest' },
-  { id: 'faction', label: 'Faction', description: 'Organization sheet' },
-  { id: 'encounter', label: 'Encounter', description: 'Combat or event prep' },
-  { id: 'session', label: 'Session Log', description: 'Prep or recap note' },
+  {
+    id: 'npc',
+    templateId: 'npc',
+    label: 'NPC',
+    description: 'Spin up a character dossier from the NPC template.',
+  },
+  {
+    id: 'quest',
+    templateId: 'quest',
+    label: 'Quest',
+    description: 'Story hook builder is coming soon.',
+    status: 'WIP',
+    disabled: true,
+  },
+  {
+    id: 'domain',
+    templateId: 'domain',
+    label: 'Domain',
+    description: 'Establish a realm or seat of power using the domain dossier.',
+  },
+  {
+    id: 'faction',
+    templateId: 'faction',
+    label: 'Faction',
+    description: 'Draft an organization profile with goals and assets.',
+  },
+  {
+    id: 'encounter',
+    templateId: 'encounter',
+    label: 'Encounter',
+    description: 'Prep a combat or event outline from the encounter kit.',
+  },
+  {
+    id: 'session',
+    templateId: 'session',
+    label: 'Session Log',
+    description: 'Start a prep or recap note with session scaffolding.',
+  },
 ];
 
 const ROUTES = {
@@ -528,10 +560,20 @@ export default function DndCampaignDashboard() {
                 <button
                   key={action.id}
                   type="button"
-                  className="campaign-quick-button"
-                  onClick={() => openCommandPalette({ templateId: action.id })}
+                  className={`campaign-quick-button${action.disabled ? ' is-disabled' : ''}`}
+                  onClick={() =>
+                    !action.disabled &&
+                    openCommandPalette({ templateId: action.templateId ?? action.id })
+                  }
+                  disabled={action.disabled}
+                  aria-disabled={action.disabled}
                 >
-                  <span className="campaign-quick-label">{action.label}</span>
+                  <span className="campaign-quick-title">
+                    <span className="campaign-quick-label">{action.label}</span>
+                    {action.status && (
+                      <span className="campaign-quick-status">{action.status}</span>
+                    )}
+                  </span>
                   <span className="campaign-quick-meta">{action.description}</span>
                 </button>
               ))}
