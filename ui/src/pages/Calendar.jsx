@@ -49,6 +49,18 @@ const EVENT_CATEGORIES = [
     defaultTitle: 'Job shift',
   },
   {
+    id: 'dnd',
+    label: 'Dungeons and Dragons',
+    accent: '#f97316',
+    defaultTitle: 'Dungeons & Dragons Session',
+  },
+  {
+    id: 'dm-session',
+    label: 'DM Session',
+    accent: '#14b8a6',
+    defaultTitle: 'Dungeon Master Session',
+  },
+  {
     id: 'custom',
     label: 'Custom',
     accent: '#f59e0b',
