@@ -55,3 +55,14 @@ In the example above `npc` can only run in channel `1234567890` by members with
 role `111111`.  The `lore` command is restricted to the same channel but has no
 role requirement.  Grouped commands such as `scene as` use their qualified
 command name as the key.
+
+## Live Chat troubleshooting
+
+The desktop Live Chat surface uses Whisper to transcribe Discord voice captures
+before forwarding them to the NPC pipeline. On Windows, recordings longer than
+one or two seconds previously triggered `os error 206` because the raw audio was
+embedded directly in the Python command line. The transcription helper now
+writes the audio buffer to a temporary file and passes that path to the Python
+runtime, ensuring long captures transcribe successfully. If you still see the
+error after updating, delete any leftover `blossom_whisper_*.pcm` files from
+your temp directory and relaunch the app to regenerate them.

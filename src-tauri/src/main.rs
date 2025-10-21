@@ -13,7 +13,6 @@ use std::{
     time::{Duration, Instant, UNIX_EPOCH},
 };
 
-use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, Duration as ChronoDuration, SecondsFormat, Utc};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -6933,20 +6932,30 @@ async fn transcribe_whisper(audio: Vec<u8>) -> Result<String, String> {
     if audio.is_empty() {
         return Ok(String::new());
     }
-    let encoded = general_purpose::STANDARD.encode(audio);
     let text = async_runtime::spawn_blocking(move || -> Result<String, String> {
-        let audio_literal =
-            serde_json::to_string(&encoded).map_err(|e| format!("encode error: {}", e))?;
-        let script = format!(
-            r#"
+        let temp_path = std::env::temp_dir().join(format!("blossom_whisper_{}.pcm", Uuid::new_v4()));
+        fs::write(&temp_path, &audio)
+            .map_err(|e| format!("Failed to write Whisper audio buffer: {}", e))?;
+        let script = r#"
 import asyncio
-import base64
 import json
+import os
 import sys
 
 from ears.whisper_service import WhisperService
 
-audio = base64.b64decode({audio_literal})
+AUDIO_PATH = os.environ.get("WHISPER_AUDIO_PATH")
+
+if not AUDIO_PATH:
+    sys.stderr.write("Missing WHISPER_AUDIO_PATH")
+    sys.exit(1)
+
+try:
+    with open(AUDIO_PATH, "rb") as handle:
+        audio = handle.read()
+except OSError as exc:
+    sys.stderr.write(str(exc))
+    sys.exit(1)
 
 async def _run():
     service = WhisperService()
@@ -6960,17 +6969,21 @@ async def _run():
 
 try:
     result = asyncio.run(_run())
-except Exception as exc:
-    sys.stderr.write(str(exc))
-    sys.exit(1)
+finally:
+    try:
+        os.remove(AUDIO_PATH)
+    except OSError:
+        pass
 
-print(json.dumps({{"text": result}}))
-"#,
-            audio_literal = audio_literal
-        );
+print(json.dumps({"text": result}))
+"#;
         let mut cmd = python_command();
         cmd.arg("-c").arg(script);
+        cmd.env("WHISPER_AUDIO_PATH", &temp_path);
         let output = cmd.output().map_err(|e| e.to_string())?;
+        if temp_path.exists() {
+            let _ = fs::remove_file(&temp_path);
+        }
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
             let message = if stderr.is_empty() {
