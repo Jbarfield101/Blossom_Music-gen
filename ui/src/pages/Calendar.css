@@ -508,6 +508,16 @@
   gap: var(--space-md);
 }
 
+.calendar-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.calendar-form-row--full {
+  grid-column: 1 / -1;
+}
+
 .calendar-form-field {
   display: flex;
   flex-direction: column;
@@ -534,6 +544,112 @@
 .calendar-input:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent), transparent 55%);
   outline-offset: 2px;
+}
+
+.calendar-recurrence {
+  border: 1px solid color-mix(in srgb, var(--card-hover-bg), var(--text) 12%);
+  border-radius: 16px;
+  padding: var(--space-md);
+  background: color-mix(in srgb, var(--card-bg), transparent 8%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  margin: 0;
+}
+
+.calendar-recurrence legend,
+.calendar-recurrence-ends legend {
+  margin: 0;
+  padding: 0;
+}
+
+.calendar-recurrence-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-weight: 700;
+  color: var(--text);
+}
+
+.calendar-recurrence-toggle input,
+.calendar-weekday-option input,
+.calendar-radio-option input {
+  accent-color: var(--accent);
+}
+
+.calendar-recurrence-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.calendar-recurrence-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-md);
+}
+
+.calendar-recurrence-weekdays {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.calendar-weekday-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.calendar-weekday-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--card-hover-bg), var(--text) 16%);
+  background: color-mix(in srgb, var(--card-bg), transparent 12%);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.calendar-recurrence-ends {
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.calendar-recurrence-ends-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.calendar-radio-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--card-hover-bg), var(--text) 16%);
+  background: color-mix(in srgb, var(--card-bg), transparent 8%);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.calendar-form-field--inline {
+  max-width: min(260px, 100%);
+}
+
+.calendar-form-sublabel {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: color-mix(in srgb, var(--text), transparent 45%);
 }
 
 .calendar-form-error {
@@ -585,6 +701,10 @@
 
   .calendar-cell {
     min-height: 72px;
+  }
+
+  .calendar-recurrence-grid {
+    grid-template-columns: 1fr;
   }
 }
 

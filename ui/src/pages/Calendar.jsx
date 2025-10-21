@@ -8,6 +8,16 @@ const WEEK_START_OPTIONS = [
   { value: 1, label: 'Monday' },
 ];
 
+const WEEKDAY_OPTIONS = [
+  { value: 0, label: 'Sunday', short: 'Sun' },
+  { value: 1, label: 'Monday', short: 'Mon' },
+  { value: 2, label: 'Tuesday', short: 'Tue' },
+  { value: 3, label: 'Wednesday', short: 'Wed' },
+  { value: 4, label: 'Thursday', short: 'Thu' },
+  { value: 5, label: 'Friday', short: 'Fri' },
+  { value: 6, label: 'Saturday', short: 'Sat' },
+];
+
 const MS_IN_DAY = 24 * 60 * 60 * 1000;
 const LOCAL_STORAGE_KEY = 'calendar.events';
 
@@ -963,9 +973,53 @@ export default function Calendar() {
       const normalizedStart = minutesToTimeString(startMinutes);
       const normalizedEnd = minutesToTimeString(endMinutes);
 
-      const recurrenceRule = sanitizeRecurrenceRule(
-        formState.recurrence ?? DEFAULT_RECURRENCE_RULE
-      );
+      const recurrenceForm = formState.recurrence ?? DEFAULT_RECURRENCE_RULE;
+
+      if (recurrenceForm.isRecurring) {
+        const intervalValue = Number.parseInt(recurrenceForm.interval, 10);
+        if (!Number.isFinite(intervalValue) || intervalValue < 1) {
+          setFormError('Recurrence interval must be at least 1.');
+          return;
+        }
+
+        if (recurrenceForm.frequency === 'weekly') {
+          const selectedDays = Array.isArray(recurrenceForm.weeklyDays)
+            ? recurrenceForm.weeklyDays.filter((day) =>
+                Number.isInteger(Number.parseInt(day, 10))
+              )
+            : [];
+          if (selectedDays.length === 0) {
+            setFormError('Please select at least one weekday for a weekly recurrence.');
+            return;
+          }
+        }
+
+        if (recurrenceForm.ends?.mode === 'onDate') {
+          const endDateValue = recurrenceForm.ends.date?.trim?.() ?? '';
+          if (!endDateValue) {
+            setFormError('Please choose an end date for this recurrence.');
+            return;
+          }
+          const parsedEndDate = parseDateKey(endDateValue);
+          if (!parsedEndDate) {
+            setFormError('Please choose a valid end date for this recurrence.');
+            return;
+          }
+        }
+
+        if (recurrenceForm.ends?.mode === 'afterOccurrences') {
+          const occurrenceCount = Number.parseInt(
+            recurrenceForm.ends.count,
+            10
+          );
+          if (!Number.isFinite(occurrenceCount) || occurrenceCount < 1) {
+            setFormError('Recurrence count must be at least 1.');
+            return;
+          }
+        }
+      }
+
+      const recurrenceRule = sanitizeRecurrenceRule(recurrenceForm);
       const occurrenceDates = buildOccurrenceDates(normalizedDate, recurrenceRule);
       const storedRule = recurrenceRule.isRecurring
         ? cloneRecurrenceRule(recurrenceRule)
@@ -1042,6 +1096,10 @@ export default function Calendar() {
   const handleWeekStartChange = useCallback((event) => {
     setWeekStart(Number(event.target.value));
   }, []);
+
+  const recurrenceState = formState.recurrence ?? DEFAULT_RECURRENCE_RULE;
+  const recurrenceEnds = recurrenceState.ends ?? DEFAULT_RECURRENCE_RULE.ends;
+  const isRecurring = Boolean(recurrenceState.isRecurring);
 
   return (
     <>
@@ -1367,6 +1425,141 @@ export default function Calendar() {
                         aria-invalid={formError ? true : undefined}
                       />
                     </label>
+                    <div className="calendar-form-row calendar-form-row--full">
+                      <fieldset className="calendar-recurrence">
+                        <legend className="calendar-form-label">Recurrence</legend>
+                        <label className="calendar-recurrence-toggle">
+                          <input
+                            type="checkbox"
+                            name="recurrence.isRecurring"
+                            checked={isRecurring}
+                            onChange={handleFormChange}
+                          />
+                          Repeat this event
+                        </label>
+                        {isRecurring && (
+                          <div className="calendar-recurrence-content">
+                            <div className="calendar-recurrence-grid">
+                              <label className="calendar-form-field">
+                                <span className="calendar-form-label">Frequency</span>
+                                <select
+                                  name="recurrence.frequency"
+                                  className="calendar-select"
+                                  value={recurrenceState.frequency}
+                                  onChange={handleFormChange}
+                                >
+                                  <option value="daily">Daily</option>
+                                  <option value="weekly">Weekly</option>
+                                  <option value="monthly">Monthly</option>
+                                </select>
+                              </label>
+                              <label className="calendar-form-field calendar-form-field--inline">
+                                <span className="calendar-form-label">Interval</span>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  step="1"
+                                  name="recurrence.interval"
+                                  className="calendar-input"
+                                  value={recurrenceState.interval ?? 1}
+                                  onChange={handleFormChange}
+                                />
+                              </label>
+                            </div>
+                            {recurrenceState.frequency === 'weekly' && (
+                              <div className="calendar-recurrence-weekdays">
+                                <span className="calendar-form-label">Repeats on</span>
+                                <div className="calendar-weekday-options">
+                                  {WEEKDAY_OPTIONS.map((day) => {
+                                    const isSelected = Array.isArray(
+                                      recurrenceState.weeklyDays
+                                    )
+                                      ? recurrenceState.weeklyDays.includes(day.value)
+                                      : false;
+                                    return (
+                                      <label
+                                        key={day.value}
+                                        className="calendar-weekday-option"
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          name="recurrence.weeklyDays"
+                                          value={String(day.value)}
+                                          checked={isSelected}
+                                          onChange={handleFormChange}
+                                        />
+                                        {day.short}
+                                      </label>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                            <fieldset className="calendar-recurrence-ends">
+                              <legend className="calendar-form-label">Ends</legend>
+                              <div className="calendar-recurrence-ends-options">
+                                <label className="calendar-radio-option">
+                                  <input
+                                    type="radio"
+                                    name="recurrence.ends.mode"
+                                    value="never"
+                                    checked={recurrenceEnds.mode === 'never'}
+                                    onChange={handleFormChange}
+                                  />
+                                  Never
+                                </label>
+                                <label className="calendar-radio-option">
+                                  <input
+                                    type="radio"
+                                    name="recurrence.ends.mode"
+                                    value="onDate"
+                                    checked={recurrenceEnds.mode === 'onDate'}
+                                    onChange={handleFormChange}
+                                  />
+                                  On date
+                                </label>
+                                <label className="calendar-radio-option">
+                                  <input
+                                    type="radio"
+                                    name="recurrence.ends.mode"
+                                    value="afterOccurrences"
+                                    checked={recurrenceEnds.mode === 'afterOccurrences'}
+                                    onChange={handleFormChange}
+                                  />
+                                  After occurrences
+                                </label>
+                              </div>
+                              {recurrenceEnds.mode === 'onDate' && (
+                                <label className="calendar-form-field calendar-form-field--inline">
+                                  <span className="calendar-form-sublabel">End date</span>
+                                  <input
+                                    type="date"
+                                    name="recurrence.ends.date"
+                                    className="calendar-input"
+                                    value={recurrenceEnds.date ?? ''}
+                                    onChange={handleFormChange}
+                                  />
+                                </label>
+                              )}
+                              {recurrenceEnds.mode === 'afterOccurrences' && (
+                                <label className="calendar-form-field calendar-form-field--inline">
+                                  <span className="calendar-form-sublabel">Occurrences</span>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    name="recurrence.ends.count"
+                                    className="calendar-input"
+                                    value={recurrenceEnds.count ?? 1}
+                                    onChange={handleFormChange}
+                                  />
+                                </label>
+                              )}
+                            </fieldset>
+                          </div>
+                        )}
+                      </fieldset>
+                    </div>
                   </div>
                   {formError && (
                     <p className="calendar-form-error" role="alert" id="calendar-form-error">
