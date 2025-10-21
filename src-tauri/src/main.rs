@@ -1251,41 +1251,33 @@ async fn generate_llm(
             serde_json::to_string(&temperature).unwrap_or_else(|_| "null".to_string());
         let seed_literal = serde_json::to_string(&seed).unwrap_or_else(|_| "null".to_string());
         let py = format!(
-            r#"import os, json, requests, sys
-url = "http://localhost:11434/api/generate"
-model = os.getenv("LLM_MODEL", os.getenv("OLLAMA_MODEL", "mistral"))
-payload = {{"model": model, "prompt": {prompt}, "stream": False}}
+            r#"import sys
+
+prompt = {prompt}
 system = {system}
-if isinstance(system, str) and system.strip():
-    payload["system"] = system
 temperature = {temperature}
 seed = {seed}
-options = payload.get("options") or {{}}
-if temperature is not None:
-    try:
-        options["temperature"] = float(temperature)
-    except (TypeError, ValueError):
-        pass
-if seed is not None:
-    try:
-        options["seed"] = int(seed)
-    except (TypeError, ValueError):
-        pass
-if options:
-    payload["options"] = options
+
+from brain import ollama_client
+
+if system is not None and not isinstance(system, str):
+    system = str(system)
+
 try:
-    resp = requests.post(url, json=payload, timeout=60)
-    resp.raise_for_status()
-    data = resp.json()
-    text = data.get("response", "")
-    if not isinstance(text, str):
-        text = str(text)
-    # Write UTF-8 bytes directly to avoid Windows console encoding issues
-    sys.stdout.buffer.write(text.encode("utf-8", errors="ignore"))
-    sys.stdout.flush()
-except Exception as e:
-    sys.stderr.write(str(e))
+    text = ollama_client.generate(
+        prompt,
+        system=system,
+        temperature=temperature,
+        seed=seed,
+    )
+except Exception as exc:
+    sys.stderr.write(str(exc))
     sys.exit(1)
+
+if not isinstance(text, str):
+    text = str(text)
+sys.stdout.buffer.write(text.encode("utf-8", errors="ignore"))
+sys.stdout.flush()
 "#,
             prompt = prompt_literal,
             system = system_literal,
@@ -5045,7 +5037,7 @@ async fn npc_create(
         )
     };
     let system = Some(String::from("You are a helpful worldbuilding assistant. Produce clean, cohesive Markdown. Keep a grounded tone; avoid overpowered traits."));
-    eprintln!("[blossom] npc_create: invoking LLM generation (ollama)");
+    eprintln!("[blossom] npc_create: invoking LLM generation");
     let content = generate_llm(prompt, system, None, None).await?;
     let mut content = strip_code_fence(&content).to_string();
     content = content.replace("{{DATE}}", &current_date);
@@ -7510,6 +7502,11 @@ fn list_llm(app: AppHandle) -> Result<Value, String> {
     }
     if options.is_empty() {
         options.push("mistral".to_string());
+    }
+    for preset in ["openai:gpt-4o-mini", "openai:gpt-4o"] {
+        if !options.iter().any(|existing| existing == preset) {
+            options.push(preset.to_string());
+        }
     }
     options.sort();
     let store = models_store::<tauri::Wry>(&app)?;

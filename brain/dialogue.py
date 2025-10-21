@@ -150,10 +150,7 @@ def respond(message: str, include_sources: bool = False) -> Event | str:
             except Exception:
                 pass
 
-    # If we found no summaries, avoid making things up
-    if not summaries:
-        return f"No matching lore found in your campaign notes for: {message.strip()}"
-
+    # If we expected lore/npc notes but found none, avoid making things up
     prompt = message
     if summaries:
         notes = "\n".join(
@@ -163,6 +160,15 @@ def respond(message: str, include_sources: bool = False) -> Event | str:
             f"{message}\n\nRelevant notes (your campaign):\n{notes}\n\n"
             "Use only the relevant notes above. Do not invent facts or use other IP."
         )
+    elif category == "npc":
+        prompt = (
+            f"{message}\n\n"
+            "No relevant campaign notes were found. If you cannot answer truthfully "
+            "from the user's existing notes, clearly state that the information is "
+            "not available and avoid inventing new lore."
+        )
+    elif category == "lore":
+        return f"No matching lore found in your campaign notes for: {message.strip()}"
 
     # Request the model to return a JSON object describing the event
     prompt = (

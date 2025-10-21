@@ -46,6 +46,8 @@ def respond(user_message: str) -> Event:
         return {"type": "note", "content": text}
 
     event = dialogue.respond(user_message)
+    if isinstance(event, str):
+        return {"type": "dialogue", "content": event}
     return {"type": "dialogue", "content": event.narration}
 
 
