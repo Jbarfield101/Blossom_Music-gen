@@ -1246,10 +1246,15 @@ async fn generate_llm(
         let system_literal = system
             .as_ref()
             .and_then(|s| serde_json::to_string(s).ok())
-            .unwrap_or_else(|| "null".to_string());
-        let temperature_literal =
-            serde_json::to_string(&temperature).unwrap_or_else(|_| "null".to_string());
-        let seed_literal = serde_json::to_string(&seed).unwrap_or_else(|_| "null".to_string());
+            .unwrap_or_else(|| "None".to_string());
+        let temperature_literal = match temperature {
+            Some(value) => serde_json::to_string(&value).unwrap_or_else(|_| value.to_string()),
+            None => "None".to_string(),
+        };
+        let seed_literal = match seed {
+            Some(value) => serde_json::to_string(&value).unwrap_or_else(|_| value.to_string()),
+            None => "None".to_string(),
+        };
         let py = format!(
             r#"import sys
 
@@ -8771,6 +8776,75 @@ fn stable_audio_output_files(
         }
     }
     Ok(files)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{env, fs, path::Path};
+    use tempfile::TempDir;
+
+    fn prepend_pythonpath(path: &Path) -> Option<String> {
+        let original = env::var("PYTHONPATH").ok();
+        let mut parts = vec![path.to_string_lossy().to_string()];
+        if let Some(existing) = &original {
+            if !existing.is_empty() {
+                parts.push(existing.clone());
+            }
+        }
+        env::set_var("PYTHONPATH", parts.join(":"));
+        original
+    }
+
+    #[test]
+    fn generate_llm_uses_python_none_literals() {
+        let temp_dir = TempDir::new().expect("temp dir");
+        let brain_dir = temp_dir.path().join("brain");
+        fs::create_dir(&brain_dir).expect("brain dir");
+        fs::write(brain_dir.join("__init__.py"), b"").expect("init");
+        fs::write(
+            brain_dir.join("ollama_client.py"),
+            r#"def generate(prompt, system=None, temperature=None, seed=None):
+    if system is not None and not isinstance(system, str):
+        raise TypeError("system must be str or None")
+    if temperature is not None and not isinstance(temperature, (int, float)):
+        raise TypeError("temperature must be numeric or None")
+    if seed is not None and not isinstance(seed, int):
+        raise TypeError("seed must be int or None")
+    return f"prompt={prompt};system={system};temperature={temperature};seed={seed}"
+"#,
+        )
+        .expect("ollama_client stub");
+
+        let original_py = prepend_pythonpath(temp_dir.path());
+        let original_cmd = env::var("BLOSSOM_PY").ok();
+        env::set_var("BLOSSOM_PY", "python3");
+
+        let result = tauri::async_runtime::block_on(generate_llm(
+            "hello".to_string(),
+            None,
+            None,
+            None,
+        ))
+        .expect("python execution succeeds");
+
+        assert_eq!(
+            result,
+            "prompt=hello;system=None;temperature=None;seed=None".to_string()
+        );
+
+        if let Some(original) = original_py {
+            env::set_var("PYTHONPATH", original);
+        } else {
+            env::remove_var("PYTHONPATH");
+        }
+
+        if let Some(original) = original_cmd {
+            env::set_var("BLOSSOM_PY", original);
+        } else {
+            env::remove_var("BLOSSOM_PY");
+        }
+    }
 }
 
 #[tauri::command]
