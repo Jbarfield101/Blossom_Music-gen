@@ -68,6 +68,185 @@ const EVENT_CATEGORIES = [
   },
 ];
 
+const DEFAULT_RECURRENCE_RULE = {
+  isRecurring: false,
+  frequency: 'daily',
+  interval: 1,
+  weeklyDays: [],
+  ends: {
+    mode: 'never',
+    date: '',
+    count: 1,
+  },
+};
+
+function createDefaultRecurrenceRule() {
+  return {
+    ...DEFAULT_RECURRENCE_RULE,
+    weeklyDays: [...DEFAULT_RECURRENCE_RULE.weeklyDays],
+    ends: { ...DEFAULT_RECURRENCE_RULE.ends },
+  };
+}
+
+function applyRecurrenceFormUpdate(prevRule, path, target) {
+  const nextRule = {
+    ...prevRule,
+    weeklyDays: Array.isArray(prevRule.weeklyDays)
+      ? [...prevRule.weeklyDays]
+      : [...DEFAULT_RECURRENCE_RULE.weeklyDays],
+    ends:
+      prevRule && typeof prevRule.ends === 'object'
+        ? { ...prevRule.ends }
+        : { ...DEFAULT_RECURRENCE_RULE.ends },
+  };
+
+  const { type, value, checked, multiple, options } = target ?? {};
+
+  switch (path) {
+    case 'isRecurring':
+      nextRule.isRecurring = type === 'checkbox' ? Boolean(checked) : value === 'true';
+      break;
+    case 'frequency':
+      nextRule.frequency = value;
+      break;
+    case 'interval':
+      nextRule.interval = Number.parseInt(value, 10);
+      break;
+    case 'weeklyDays': {
+      if (type === 'checkbox') {
+        const day = Number.parseInt(value, 10);
+        if (!Number.isNaN(day)) {
+          if (checked) {
+            if (!nextRule.weeklyDays.includes(day)) {
+              nextRule.weeklyDays.push(day);
+            }
+          } else {
+            nextRule.weeklyDays = nextRule.weeklyDays.filter((item) => item !== day);
+          }
+        }
+      } else if (multiple && options) {
+        nextRule.weeklyDays = Array.from(options)
+          .filter((opt) => opt.selected)
+          .map((opt) => Number.parseInt(opt.value, 10))
+          .filter((day) => !Number.isNaN(day));
+      } else if (typeof value === 'string' && value.length > 0) {
+        nextRule.weeklyDays = value
+          .split(',')
+          .map((item) => Number.parseInt(item.trim(), 10))
+          .filter((day) => !Number.isNaN(day));
+      } else {
+        nextRule.weeklyDays = [];
+      }
+      break;
+    }
+    case 'ends.mode':
+      nextRule.ends.mode = value;
+      break;
+    case 'ends.date':
+      nextRule.ends.date = value;
+      break;
+    case 'ends.count':
+      nextRule.ends.count = Number.parseInt(value, 10);
+      break;
+    default:
+      break;
+  }
+
+  return sanitizeRecurrenceRule(nextRule);
+}
+
+function cloneRecurrenceRule(rule) {
+  if (!rule || typeof rule !== 'object') {
+    return null;
+  }
+  return {
+    ...rule,
+    weeklyDays: Array.isArray(rule.weeklyDays)
+      ? [...rule.weeklyDays]
+      : [...DEFAULT_RECURRENCE_RULE.weeklyDays],
+    ends:
+      rule && typeof rule.ends === 'object'
+        ? { ...rule.ends }
+        : { ...DEFAULT_RECURRENCE_RULE.ends },
+  };
+}
+
+/**
+ * @typedef {Object} RecurrenceEndRule
+ * @property {'never' | 'onDate' | 'afterOccurrences'} mode
+ * @property {string} date
+ * @property {number} count
+ */
+
+/**
+ * @typedef {Object} RecurrenceRule
+ * @property {boolean} isRecurring
+ * @property {'daily' | 'weekly' | 'monthly'} frequency
+ * @property {number} interval
+ * @property {number[]} weeklyDays
+ * @property {RecurrenceEndRule} ends
+ */
+
+/**
+ * @typedef {Object} CalendarEvent
+ * @property {string} id
+ * @property {string} title
+ * @property {string} category
+ * @property {string} startTime
+ * @property {string} endTime
+ * @property {number} startMinutes
+ * @property {number} endMinutes
+ * @property {string | null} seriesId
+ * @property {RecurrenceRule | null} sourceRule
+ */
+
+function sanitizeRecurrenceRule(rule) {
+  if (!rule || typeof rule !== 'object') {
+    return { ...DEFAULT_RECURRENCE_RULE };
+  }
+
+  const sanitizedEnds = rule.ends && typeof rule.ends === 'object'
+    ? {
+        mode:
+          rule.ends.mode === 'onDate' ||
+          rule.ends.mode === 'afterOccurrences' ||
+          rule.ends.mode === 'never'
+            ? rule.ends.mode
+            : 'never',
+        date: typeof rule.ends.date === 'string' ? rule.ends.date : '',
+        count: Number.isFinite(Number(rule.ends.count))
+          ? Math.max(1, Number.parseInt(rule.ends.count, 10))
+          : 1,
+      }
+    : { ...DEFAULT_RECURRENCE_RULE.ends };
+
+  const weeklyDays = Array.isArray(rule.weeklyDays)
+    ? Array.from(
+        new Set(
+          rule.weeklyDays
+            .map((day) => Number.parseInt(day, 10))
+            .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)
+        )
+      ).sort((a, b) => a - b)
+    : [];
+
+  const frequency = ['daily', 'weekly', 'monthly'].includes(rule.frequency)
+    ? rule.frequency
+    : 'daily';
+
+  const interval = Number.isFinite(Number(rule.interval))
+    ? Math.max(1, Number.parseInt(rule.interval, 10))
+    : 1;
+
+  return {
+    isRecurring: Boolean(rule.isRecurring),
+    frequency,
+    interval,
+    weeklyDays,
+    ends: sanitizedEnds,
+  };
+}
+
 function sanitizeStoredEvents(raw) {
   if (!raw || typeof raw !== 'object') {
     return {};
@@ -86,6 +265,10 @@ function sanitizeStoredEvents(raw) {
         if (Number.isNaN(startMinutes) || Number.isNaN(endMinutes)) {
           return null;
         }
+        const hasRawRule = event && typeof event === 'object' && event.sourceRule;
+        const sanitizedRule = hasRawRule
+          ? sanitizeRecurrenceRule(event.sourceRule)
+          : null;
         return {
           id: event.id ?? `${dateKey}-${startMinutes}-${endMinutes}`,
           title: event.title ?? 'Untitled event',
@@ -96,6 +279,12 @@ function sanitizeStoredEvents(raw) {
           endTime: event.endTime ?? minutesToTimeString(endMinutes),
           startMinutes,
           endMinutes,
+          seriesId:
+            typeof event.seriesId === 'string'
+              ? event.seriesId
+              : `${dateKey}-${startMinutes}-${endMinutes}`,
+          sourceRule:
+            sanitizedRule && sanitizedRule.isRecurring ? sanitizedRule : null,
         };
       })
       .filter(Boolean)
@@ -132,6 +321,30 @@ function calendarEventsReducer(state, action) {
       const existing = state[dateKey] ?? [];
       const nextEvents = [...existing, event].sort((a, b) => a.startMinutes - b.startMinutes);
       return { ...state, [dateKey]: nextEvents };
+    }
+    case 'addMany': {
+      const map = action.payload?.eventsByDate;
+      if (!map || typeof map !== 'object') {
+        return state;
+      }
+      const nextState = { ...state };
+      Object.entries(map).forEach(([dateKey, events]) => {
+        if (!Array.isArray(events) || events.length === 0) {
+          return;
+        }
+        const existing = nextState[dateKey] ?? [];
+        const merged = [...existing, ...events].sort((a, b) => {
+          if (a.startMinutes !== b.startMinutes) {
+            return a.startMinutes - b.startMinutes;
+          }
+          if (a.endMinutes !== b.endMinutes) {
+            return a.endMinutes - b.endMinutes;
+          }
+          return a.id.localeCompare(b.id);
+        });
+        nextState[dateKey] = merged;
+      });
+      return nextState;
     }
     case 'set': {
       return sanitizeStoredEvents(action.payload ?? {});
@@ -181,6 +394,90 @@ function hasTimeCollision(events, startMinutes, endMinutes) {
   });
 }
 
+function buildOccurrenceDates(baseDate, recurrence) {
+  const occurrences = [startOfDay(baseDate)];
+  if (!recurrence || !recurrence.isRecurring) {
+    return occurrences;
+  }
+
+  const { frequency, interval } = recurrence;
+  const ends = recurrence.ends ?? DEFAULT_RECURRENCE_RULE.ends;
+  const maxOccurrencesByCount =
+    ends.mode === 'afterOccurrences'
+      ? Math.max(1, Number.parseInt(ends.count, 10) || 1)
+      : 500;
+  const hardLimit = Math.min(500, maxOccurrencesByCount);
+  const cutoffDate =
+    ends.mode === 'onDate' && typeof ends.date === 'string'
+      ? parseDateKey(ends.date)
+      : null;
+  const normalizedCutoff = cutoffDate ? startOfDay(cutoffDate) : null;
+
+  let generated = 1;
+
+  if (frequency === 'weekly') {
+    const weekStartDay = 0;
+    const baseWeekStart = getStartOfWeek(baseDate, weekStartDay);
+    const weeklyDays =
+      Array.isArray(recurrence.weeklyDays) && recurrence.weeklyDays.length > 0
+        ? [...new Set(recurrence.weeklyDays)].sort((a, b) => a - b)
+        : [baseDate.getDay()];
+    let weekIndex = 0;
+    while (generated < hardLimit && weekIndex < hardLimit * interval + 520) {
+      const currentWeekStart = new Date(baseWeekStart);
+      currentWeekStart.setDate(
+        baseWeekStart.getDate() + weekIndex * interval * 7
+      );
+      for (const day of weeklyDays) {
+        const occurrence = new Date(currentWeekStart);
+        occurrence.setDate(currentWeekStart.getDate() + day);
+        const normalized = startOfDay(occurrence);
+        if (normalized.getTime() <= baseDate.getTime()) {
+          continue;
+        }
+        if (normalizedCutoff && normalized.getTime() > normalizedCutoff.getTime()) {
+          return occurrences;
+        }
+        occurrences.push(normalized);
+        generated += 1;
+        if (generated >= hardLimit) {
+          return occurrences;
+        }
+      }
+      weekIndex += 1;
+    }
+    return occurrences;
+  }
+
+  let cursor = startOfDay(baseDate);
+  while (generated < hardLimit) {
+    if (frequency === 'monthly') {
+      const targetDay = cursor.getDate();
+      const nextMonth = new Date(cursor);
+      nextMonth.setDate(1);
+      nextMonth.setMonth(nextMonth.getMonth() + interval);
+      const maxDay = new Date(
+        nextMonth.getFullYear(),
+        nextMonth.getMonth() + 1,
+        0
+      ).getDate();
+      nextMonth.setDate(Math.min(targetDay, maxDay));
+      cursor = startOfDay(nextMonth);
+    } else {
+      const nextDate = new Date(cursor);
+      nextDate.setDate(nextDate.getDate() + interval);
+      cursor = startOfDay(nextDate);
+    }
+    if (normalizedCutoff && cursor.getTime() > normalizedCutoff.getTime()) {
+      break;
+    }
+    occurrences.push(cursor);
+    generated += 1;
+  }
+
+  return occurrences;
+}
+
 function generateHourLabels() {
   return Array.from({ length: 24 }, (_, hour) => {
     const label = `${hour.toString().padStart(2, '0')}:00`;
@@ -205,6 +502,7 @@ function createDefaultFormState(category = 'work', dateKey = '') {
     startTime: '09:00',
     endTime: '10:00',
     date: dateKey,
+    recurrence: createDefaultRecurrenceRule(),
   };
 }
 
@@ -572,6 +870,18 @@ export default function Calendar() {
     (event) => {
       const { name, value } = event.target;
       setFormError('');
+      if (name?.startsWith('recurrence.')) {
+        const path = name.slice('recurrence.'.length);
+        setFormState((prev) => ({
+          ...prev,
+          recurrence: applyRecurrenceFormUpdate(
+            prev.recurrence ?? createDefaultRecurrenceRule(),
+            path,
+            event.target
+          ),
+        }));
+        return;
+      }
       if (name === 'category') {
         setFormState((prev) => {
           const nextCategory = value;
@@ -634,7 +944,6 @@ export default function Calendar() {
       }
 
       const normalizedDateKey = formatDateKey(normalizedDate);
-      const existingEvents = eventsByDate[normalizedDateKey] ?? [];
 
       const { isValid, startMinutes, endMinutes, message } = validateTimeRange(
         startTime,
@@ -646,11 +955,6 @@ export default function Calendar() {
         return;
       }
 
-      if (hasTimeCollision(existingEvents, startMinutes, endMinutes)) {
-        setFormError('This time overlaps with an existing event.');
-        return;
-      }
-
       const resolvedTitle =
         trimmedTitle.length > 0
           ? trimmedTitle
@@ -659,19 +963,56 @@ export default function Calendar() {
       const normalizedStart = minutesToTimeString(startMinutes);
       const normalizedEnd = minutesToTimeString(endMinutes);
 
-      const newEvent = {
-        id: `${normalizedDateKey}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        title: resolvedTitle,
-        category,
-        startTime: normalizedStart,
-        endTime: normalizedEnd,
-        startMinutes,
-        endMinutes,
-      };
+      const recurrenceRule = sanitizeRecurrenceRule(
+        formState.recurrence ?? DEFAULT_RECURRENCE_RULE
+      );
+      const occurrenceDates = buildOccurrenceDates(normalizedDate, recurrenceRule);
+      const storedRule = recurrenceRule.isRecurring
+        ? cloneRecurrenceRule(recurrenceRule)
+        : null;
+      const timestampSeed = Date.now();
+      const randomSuffix = Math.random().toString(36).slice(2, 10);
+      const seriesId = recurrenceRule.isRecurring
+        ? `series-${timestampSeed}-${randomSuffix}`
+        : null;
+
+      const pendingByDate = {};
+
+      for (let index = 0; index < occurrenceDates.length; index += 1) {
+        const occurrenceDate = occurrenceDates[index];
+        const occurrenceDateKey = formatDateKey(occurrenceDate);
+        const existingForDay = eventsByDate[occurrenceDateKey] ?? [];
+        const pendingForDay = pendingByDate[occurrenceDateKey] ?? [];
+        if (
+          hasTimeCollision(existingForDay, startMinutes, endMinutes) ||
+          hasTimeCollision(pendingForDay, startMinutes, endMinutes)
+        ) {
+          setFormError('This time overlaps with an existing event.');
+          return;
+        }
+
+        const eventId = `${occurrenceDateKey}-${timestampSeed}-${randomSuffix}-${index}`;
+        const eventRecord = {
+          id: eventId,
+          title: resolvedTitle,
+          category,
+          startTime: normalizedStart,
+          endTime: normalizedEnd,
+          startMinutes,
+          endMinutes,
+          seriesId: seriesId ?? eventId,
+          sourceRule: storedRule,
+        };
+
+        if (!pendingByDate[occurrenceDateKey]) {
+          pendingByDate[occurrenceDateKey] = [];
+        }
+        pendingByDate[occurrenceDateKey].push(eventRecord);
+      }
 
       dispatchEvents({
-        type: 'add',
-        payload: { dateKey: normalizedDateKey, event: newEvent },
+        type: 'addMany',
+        payload: { eventsByDate: pendingByDate },
       });
       setFormError('');
       updateSelectionToDate(normalizedDate);
