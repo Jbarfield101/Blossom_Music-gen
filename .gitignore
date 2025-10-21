@@ -51,3 +51,6 @@ secrets.json
 assets/voice_models/*
 !assets/voice_models/
 !assets/voice_models/.gitkeep
+
+# Generated media gallery
+assets/gallery/

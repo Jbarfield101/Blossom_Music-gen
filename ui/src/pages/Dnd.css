@@ -2476,6 +2476,87 @@
   gap: 1rem;
 }
 
+.campaign-bot-status {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.campaign-bot-status__item {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  align-items: baseline;
+}
+
+.campaign-bot-status__label {
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.75);
+}
+
+.campaign-bot-status__value {
+  font-weight: 600;
+  color: var(--text);
+  text-align: right;
+}
+
+.campaign-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.campaign-card-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.campaign-card-section input {
+  padding: 0.6rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.7);
+  color: inherit;
+}
+
+.campaign-card-section input:focus {
+  border-color: rgba(56, 189, 248, 0.6);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+}
+
+.campaign-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: rgba(203, 213, 225, 0.88);
+}
+
+.campaign-hint {
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.75);
+}
+
+.campaign-log {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 12px;
+  padding: 0.75rem;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 0.75rem;
+  max-height: 140px;
+  overflow-y: auto;
+  color: rgba(226, 232, 240, 0.9);
+}
+
+.campaign-log__line + .campaign-log__line {
+  margin-top: 0.35rem;
+}
+
 .campaign-card__header h2 {
   margin: 0;
   font-size: 1.25rem;

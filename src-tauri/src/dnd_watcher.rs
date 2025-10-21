@@ -93,11 +93,13 @@ impl DeltaKind {
 struct Delta {
     kind: DeltaKind,
     rel_path: String,
+    #[allow(dead_code)]
     abs_path: PathBuf,
     old_rel_path: Option<String>,
 }
 
 pub(crate) fn start(app: &AppHandle) -> Result<(), String> {
+    config::ensure_default_vault();
     let root = PathBuf::from(config::DEFAULT_DREADHAVEN_ROOT);
     if let Err(err) = fs::create_dir_all(&root) {
         return Err(format!(
@@ -597,6 +599,7 @@ fn python_index_get_by_id(
 
 #[tauri::command]
 pub async fn vault_index_get_by_id(entity_id: String) -> Result<Option<Value>, String> {
+    config::ensure_default_vault();
     let root = PathBuf::from(config::DEFAULT_DREADHAVEN_ROOT);
     let index_path = root.join(DEFAULT_INDEX_PATH);
     let cache_path = root.join(BLOSSOM_INDEX_FILENAME);

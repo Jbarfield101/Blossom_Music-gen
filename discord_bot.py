@@ -278,10 +278,14 @@ class SlashTTSBot(commands.Bot):
             vc = await connectable.connect(self_deaf=self.self_deaf, reconnect=True)  # type: ignore[arg-type]
         except TypeError:
             vc = await connectable.connect(reconnect=True)  # type: ignore[arg-type]
-        try:
-            await self._apply_self_deafen_state(vc, connectable)
-        except Exception as exc:
-            print(f"[discord] Failed to align self-deafen state: {exc}", flush=True)
+        apply_self_deaf = getattr(self, "_apply_self_deafen_state", None)
+        if callable(apply_self_deaf):
+            try:
+                await apply_self_deaf(vc, connectable)
+            except Exception as exc:
+                print(f"[discord] Failed to align self-deafen state: {exc}", flush=True)
+        else:
+            print("[discord] Self-deafen alignment helper unavailable; continuing", flush=True)
         return vc
 
     def _write_status(self, guild_id: Optional[int], channel_id: Optional[int]) -> None:
@@ -454,15 +458,23 @@ class SlashTTSBot(commands.Bot):
                 print(f"[discord] stream_audio skipped: voice client not connected ({label})")
                 return
             ensure_opus_loaded()
+            encoder = discord.opus.Encoder()
+            frame_size = getattr(discord.opus.Encoder, "FRAME_SIZE", 960)
+            channels = getattr(discord.opus.Encoder, "CHANNELS", 2)
+            bytes_per_sample = 2
             if np is not None:
                 arr = np.asarray(audio, dtype=np.float32)
                 if arr.ndim == 2:
                     arr = arr.mean(axis=1)
                 audio48 = np.asarray(_resample_to_48k(arr, input_rate), dtype=np.float32)
+                audio48 = audio48[:, np.newaxis] if audio48.ndim == 1 else audio48
+                if audio48.shape[1] != channels:
+                    audio48 = np.repeat(audio48[:, :1], channels, axis=1)
                 if volume != 1.0:
                     audio48 = audio48 * float(volume)
-                pcm = np.clip(audio48 * 32767, -32768, 32767).astype(np.int16).tobytes()
-                total_samples = audio48.shape[0]
+                pcm_arr = np.clip(audio48 * 32767, -32768, 32767).astype(np.int16)
+                pcm = pcm_arr.tobytes()
+                total_samples = int(audio48.shape[0])
             else:
                 if isinstance(audio, list):
                     arr = [float(x) for x in audio]
@@ -473,19 +485,19 @@ class SlashTTSBot(commands.Bot):
                 audio48 = _resample_to_48k(arr, input_rate)
                 if volume != 1.0:
                     audio48 = [float(sample) * float(volume) for sample in audio48]
-                pcm = bytearray()
+                pcm_bytes = bytearray()
                 for sample in audio48:
                     value = int(max(min(sample * 32767, 32767), -32768))
-                    pcm.extend(value.to_bytes(2, 'little', signed=True))
+                    for _ in range(channels):
+                        pcm_bytes.extend(value.to_bytes(2, 'little', signed=True))
+                pcm = bytes(pcm_bytes)
                 total_samples = len(audio48)
             if not pcm:
                 print(f"[discord] stream_audio produced empty buffer ({label})")
                 return
-            encoder = discord.opus.Encoder(48000, 1)
-            frame_size = encoder.frame_size
-            step = frame_size * 2
+            step = frame_size * channels * bytes_per_sample
             print(
-                f"[discord] Streaming {label}: {total_samples} samples @48k, frame={frame_size}, volume={volume:.2f}"
+                f"[discord] Streaming {label}: {total_samples} samples @48k, channels={channels}, frame={frame_size}, volume={volume:.2f}"
             )
             for i in range(0, len(pcm), step):
                 if not vc.is_connected():

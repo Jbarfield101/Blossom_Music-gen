@@ -1,10 +1,39 @@
+use chrono::Utc;
 use serde_json::{json, Map};
-use std::{fs, sync::Arc};
+use std::{fs, path::Path, sync::Arc};
 use tauri::Emitter;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_store::{Store, StoreBuilder};
 
 pub const DEFAULT_DREADHAVEN_ROOT: &str = r"D:\Documents\DreadHaven";
+
+pub fn ensure_default_vault() {
+    let root = Path::new(DEFAULT_DREADHAVEN_ROOT);
+    if let Err(err) = fs::create_dir_all(root) {
+        eprintln!(
+            "[blossom] failed to create default DreadHaven root {}: {}",
+            root.display(),
+            err
+        );
+        return;
+    }
+
+    let index_path = root.join(".blossom_index.json");
+    if !index_path.exists() {
+        let payload = json!({
+            "entities": Map::<String, serde_json::Value>::new(),
+            "generated_at": Utc::now().to_rfc3339(),
+            "version": 1
+        });
+        if let Err(err) = fs::write(&index_path, serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".into())) {
+            eprintln!(
+                "[blossom] failed to write default vault index {}: {}",
+                index_path.display(),
+                err
+            );
+        }
+    }
+}
 
 fn config_store(app: &AppHandle) -> Result<Arc<Store<tauri::Wry>>, String> {
     let path = app

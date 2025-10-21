@@ -1,8 +1,7 @@
 use std::collections::HashMap;
-use std::ffi::OsString;
 use std::fs;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use tempfile::NamedTempFile;
@@ -2185,7 +2184,7 @@ except Exception as exc:
             s
         };
 
-        let mut rename_one = |src: &str, target_name: String| -> Result<String, String> {
+        let rename_one = |src: &str, target_name: String| -> Result<String, String> {
             let mut target = out_base.join(&target_name);
             // If exists, add (n)
             if target.exists() {

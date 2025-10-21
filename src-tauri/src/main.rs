@@ -10,7 +10,7 @@ use std::{
         atomic::{AtomicU64, AtomicUsize, Ordering},
         Arc, Mutex, OnceLock,
     },
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, UNIX_EPOCH},
 };
 
 use base64::{engine::general_purpose, Engine as _};
@@ -29,7 +29,6 @@ use tauri_plugin_fs::init as fs_init;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_shell::init as shell_init;
 use tauri_plugin_store::{Builder, Store, StoreBuilder};
-use tempfile::NamedTempFile;
 use tokio::time::sleep;
 use url::Url;
 use uuid::Uuid;
@@ -43,6 +42,7 @@ use crate::commands::{album_concat, generate_musicgen, musicgen_env, riffusion_g
 use crate::util::list_from_dir;
 
 fn dreadhaven_root() -> PathBuf {
+    config::ensure_default_vault();
     PathBuf::from(config::DEFAULT_DREADHAVEN_ROOT)
 }
 
@@ -161,17 +161,18 @@ fn discord_settings_path() -> std::path::PathBuf {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 struct DiscordSettings {
     #[serde(default)]
-    currentToken: Option<String>,
+    current_token: Option<String>,
     #[serde(default)]
     tokens: std::collections::HashMap<String, String>,
     #[serde(default)]
-    currentGuild: Option<String>,
+    current_guild: Option<String>,
     #[serde(default)]
     guilds: std::collections::HashMap<String, u64>,
     #[serde(default = "default_self_deaf")]
-    selfDeaf: bool,
+    self_deaf: bool,
 }
 
 fn default_self_deaf() -> bool {
@@ -181,11 +182,11 @@ fn default_self_deaf() -> bool {
 impl Default for DiscordSettings {
     fn default() -> Self {
         DiscordSettings {
-            currentToken: None,
+            current_token: None,
             tokens: std::collections::HashMap::new(),
-            currentGuild: None,
+            current_guild: None,
             guilds: std::collections::HashMap::new(),
-            selfDeaf: true,
+            self_deaf: true,
         }
     }
 }
@@ -253,6 +254,7 @@ fn discord_settings_get() -> Result<DiscordSettings, String> {
 
 #[tauri::command]
 fn get_dreadhaven_root() -> String {
+    config::ensure_default_vault();
     config::DEFAULT_DREADHAVEN_ROOT.to_string()
 }
 
@@ -260,8 +262,8 @@ fn get_dreadhaven_root() -> String {
 fn discord_token_add(name: String, token: String) -> Result<DiscordSettings, String> {
     let mut s = read_discord_settings();
     s.tokens.insert(name.clone(), token);
-    if s.currentToken.is_none() {
-        s.currentToken = Some(name);
+    if s.current_token.is_none() {
+        s.current_token = Some(name);
     }
     write_discord_settings(&s)?;
     Ok(s)
@@ -270,10 +272,10 @@ fn discord_token_add(name: String, token: String) -> Result<DiscordSettings, Str
 #[tauri::command]
 fn discord_token_remove(name: String) -> Result<DiscordSettings, String> {
     let mut s = read_discord_settings();
-    let cur = s.currentToken.clone();
+    let cur = s.current_token.clone();
     s.tokens.remove(&name);
     if cur.as_deref() == Some(&name) {
-        s.currentToken = s.tokens.keys().next().cloned();
+        s.current_token = s.tokens.keys().next().cloned();
     }
     write_discord_settings(&s)?;
     Ok(s)
@@ -283,7 +285,7 @@ fn discord_token_remove(name: String) -> Result<DiscordSettings, String> {
 fn discord_token_select(name: String) -> Result<DiscordSettings, String> {
     let mut s = read_discord_settings();
     if s.tokens.contains_key(&name) {
-        s.currentToken = Some(name);
+        s.current_token = Some(name);
     }
     write_discord_settings(&s)?;
     Ok(s)
@@ -293,8 +295,8 @@ fn discord_token_select(name: String) -> Result<DiscordSettings, String> {
 fn discord_guild_add(name: String, id: u64) -> Result<DiscordSettings, String> {
     let mut s = read_discord_settings();
     s.guilds.insert(name.clone(), id);
-    if s.currentGuild.is_none() {
-        s.currentGuild = Some(name);
+    if s.current_guild.is_none() {
+        s.current_guild = Some(name);
     }
     write_discord_settings(&s)?;
     Ok(s)
@@ -303,10 +305,10 @@ fn discord_guild_add(name: String, id: u64) -> Result<DiscordSettings, String> {
 #[tauri::command]
 fn discord_guild_remove(name: String) -> Result<DiscordSettings, String> {
     let mut s = read_discord_settings();
-    let cur = s.currentGuild.clone();
+    let cur = s.current_guild.clone();
     s.guilds.remove(&name);
     if cur.as_deref() == Some(&name) {
-        s.currentGuild = s.guilds.keys().next().cloned();
+        s.current_guild = s.guilds.keys().next().cloned();
     }
     write_discord_settings(&s)?;
     Ok(s)
@@ -316,7 +318,7 @@ fn discord_guild_remove(name: String) -> Result<DiscordSettings, String> {
 fn discord_guild_select(name: String) -> Result<DiscordSettings, String> {
     let mut s = read_discord_settings();
     if s.guilds.contains_key(&name) {
-        s.currentGuild = Some(name);
+        s.current_guild = Some(name);
     }
     write_discord_settings(&s)?;
     Ok(s)
@@ -325,7 +327,7 @@ fn discord_guild_select(name: String) -> Result<DiscordSettings, String> {
 #[tauri::command]
 fn discord_set_self_deaf(value: bool) -> Result<DiscordSettings, String> {
     let mut s = read_discord_settings();
-    s.selfDeaf = value;
+    s.self_deaf = value;
     write_discord_settings(&s)?;
     let greeting_path = std::env::var("DISCORD_GREETING_PATH")
         .ok()
@@ -464,7 +466,7 @@ asyncio.run(main())
     // Inject selected Discord token (from UI settings) so the listener can authenticate
     {
         let settings = read_discord_settings();
-        if let Some(name) = settings.currentToken.as_ref() {
+        if let Some(name) = settings.current_token.as_ref() {
             if let Some(tok) = settings.tokens.get(name) {
                 cmd.env("DISCORD_TOKEN", tok);
             }
@@ -484,7 +486,7 @@ asyncio.run(main())
     *discord_listen_exit_code().lock().unwrap() = None;
     {
         let app_for_thread = app.clone();
-        let logs_arc = discord_listen_logs().clone();
+        let logs_arc = discord_listen_logs();
         tauri::async_runtime::spawn(async move {
             // Stdout reader
             if let Some(out) = stdout {
@@ -512,7 +514,7 @@ asyncio.run(main())
         });
     }
     {
-        let logs_arc = discord_listen_logs().clone();
+        let logs_arc = discord_listen_logs();
         tauri::async_runtime::spawn(async move {
             if let Some(err) = stderr {
                 for line in std::io::BufReader::new(err).lines().flatten() {
@@ -561,12 +563,12 @@ fn discord_bot_start(app: tauri::AppHandle) -> Result<u32, String> {
         let mut cmd = python_command();
         // Load selected token/guild from settings
         let settings = read_discord_settings();
-        if let Some(name) = settings.currentToken.as_ref() {
+        if let Some(name) = settings.current_token.as_ref() {
             if let Some(tok) = settings.tokens.get(name) {
                 cmd.env("DISCORD_TOKEN", tok);
             }
         }
-        if let Some(name) = settings.currentGuild.as_ref() {
+        if let Some(name) = settings.current_guild.as_ref() {
             if let Some(gid) = settings.guilds.get(name) {
                 cmd.env("DISCORD_GUILD_ID", gid.to_string());
             }
@@ -580,7 +582,7 @@ fn discord_bot_start(app: tauri::AppHandle) -> Result<u32, String> {
             .and_then(|v| v.parse::<f32>().ok())
             .unwrap_or(1.0);
         if let Err(err) = write_discord_control(
-            settings.selfDeaf,
+            settings.self_deaf,
             Some(&greeting_path),
             Some(greeting_volume),
         ) {
@@ -588,11 +590,11 @@ fn discord_bot_start(app: tauri::AppHandle) -> Result<u32, String> {
         }
         println!(
             "[discord-tauri] Launching bot: self_deaf={} greeting_path={} volume={:.2}",
-            settings.selfDeaf, greeting_path, greeting_volume
+            settings.self_deaf, greeting_path, greeting_volume
         );
         cmd.env(
             "DISCORD_SELF_DEAF",
-            if settings.selfDeaf { "1" } else { "0" },
+            if settings.self_deaf { "1" } else { "0" },
         )
         .env("DISCORD_GREETING_PATH", &greeting_path)
         .env("DISCORD_GREETING_VOLUME", greeting_volume.to_string());
@@ -882,6 +884,7 @@ struct TagSectionConfig {
     label: String,
     #[serde(rename = "relativePath")]
     relative_path: String,
+    #[allow(dead_code)]
     prompt: String,
     #[serde(default)]
     tags: Vec<String>,
@@ -1933,7 +1936,7 @@ fn normalize_npc_display_name(raw: &str) -> String {
     candidate.to_string()
 }
 
-fn filesystem_npc_names(app: &AppHandle) -> Result<Vec<String>, String> {
+fn filesystem_npc_names(_app: &AppHandle) -> Result<Vec<String>, String> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     let base = dreadhaven_root();
     let joined = join_relative_folder(&base, "20_DM/NPC");
@@ -3015,6 +3018,7 @@ struct RenderJobRequest {
     preset: Option<String>,
     style: Option<String>,
     minutes: Option<f64>,
+    #[allow(dead_code)]
     sections: Option<u32>,
     seed: Option<i64>,
     sampler_seed: Option<i64>,
@@ -3088,6 +3092,7 @@ impl JobInfo {
         }
     }
 
+    #[allow(dead_code)]
     fn to_record(&self, id: u64) -> JobRecord {
         let stdout = self
             .stdout_excerpt
@@ -3383,7 +3388,7 @@ impl JobRegistry {
                     }
                     let eta_seconds = self.estimate_queue_eta_seconds(idx, running);
                     let ahead = running + idx;
-                    let mut snapshot = JobProgressSnapshot {
+                    let snapshot = JobProgressSnapshot {
                         stage: Some("queued".into()),
                         percent: Some(0),
                         message: Some(if ahead > 0 {
@@ -3979,7 +3984,7 @@ impl JobRegistry {
 
     fn cancel_job(&self, app: &AppHandle, job_id: u64) -> Result<(), String> {
         let mut child_to_kill: Option<Child> = None;
-        let mut was_pending = false;
+        let was_pending: bool;
         {
             let mut jobs = self.jobs.lock().unwrap();
             let job = jobs
@@ -4814,7 +4819,7 @@ fn detect_inbox_markers(text: &str) -> Vec<String> {
 }
 
 #[tauri::command]
-fn inbox_list(app: AppHandle, path: Option<String>) -> Result<Vec<InboxItem>, String> {
+fn inbox_list(_app: AppHandle, path: Option<String>) -> Result<Vec<InboxItem>, String> {
     // Resolve base path: explicit param > vaultPath + 00_Inbox
     let base_dir = if let Some(p) = path.filter(|s| !s.trim().is_empty()) {
         PathBuf::from(p)
@@ -5156,7 +5161,7 @@ async fn npc_create(
                 rebuilt.push_str(&front);
                 rebuilt.push_str("---\n");
                 // Build body with corrected heading and strip template banners/inline frontmatter remnants
-                let mut scan_lines: Vec<&str> = body.split('\n').collect();
+                let scan_lines: Vec<&str> = body.split('\n').collect();
                 // Drop leading lines that look like template banners or one-line frontmatter
                 let mut start_idx = 0usize;
                 while start_idx < scan_lines.len() {
@@ -5485,7 +5490,7 @@ fn extract_sheet_string(sheet: &Value, path: &[&str]) -> Option<String> {
 
 #[tauri::command]
 fn inbox_create(
-    app: AppHandle,
+    _app: AppHandle,
     name: String,
     content: Option<String>,
     base_path: Option<String>,
@@ -5763,7 +5768,7 @@ fn inbox_move_to(_app: AppHandle, args: InboxMoveArgs) -> Result<String, String>
 
 #[tauri::command]
 fn npc_save_portrait(
-    app: AppHandle,
+    _app: AppHandle,
     name: String,
     filename: String,
     bytes: Vec<u8>,
@@ -5800,7 +5805,7 @@ fn npc_save_portrait(
 
 #[tauri::command]
 fn god_save_portrait(
-    app: AppHandle,
+    _app: AppHandle,
     name: String,
     filename: String,
     bytes: Vec<u8>,
@@ -5836,7 +5841,7 @@ fn god_save_portrait(
 }
 #[tauri::command]
 fn race_create(
-    app: AppHandle,
+    _app: AppHandle,
     name: String,
     template: Option<String>,
     directory: Option<String>,
@@ -5896,7 +5901,7 @@ fn race_create(
         sanitize_filename(&name)
     };
 
-    let mut target_dir = if let Some(ref override_path) = directory_override {
+    let target_dir = if let Some(ref override_path) = directory_override {
         let candidate = PathBuf::from(override_path);
         if candidate.is_absolute() {
             candidate
@@ -5937,13 +5942,13 @@ fn race_create(
             }
         }
     }
-    let mut body = String::new();
     let want_llm = use_llm.unwrap_or(true);
     eprintln!("[races] want_llm={}", want_llm);
-    if want_llm {
-        let tpl = template_body.unwrap_or_else(|| {
+    let body = if want_llm {
+        let tpl = template_body.clone().unwrap_or_else(|| {
             format!(
-"---\nTitle: {{NAME}}\nTags: race\n---\n\n# {{NAME}}\n\n## Ability Score Increases\n\n- \n\n## Size\n\n- \n\n## Speed\n\n- \n\n## Traits\n\n- \n\n## Languages\n\n- \n")
+"---\nTitle: {{NAME}}\nTags: race\n---\n\n# {{NAME}}\n\n## Ability Score Increases\n\n- \n\n## Size\n\n- \n\n## Speed\n\n- \n\n## Traits\n\n- \n\n## Languages\n\n- \n"
+            )
         });
         let prompt = if let Some(parent_name) = parent.as_ref() {
             format!(
@@ -5959,7 +5964,9 @@ fn race_create(
                 template = tpl
             )
         };
-        let system = Some(String::from("You are a helpful worldbuilding assistant. Produce clean, cohesive Markdown and keep to the template headings."));
+        let system = Some(String::from(
+            "You are a helpful worldbuilding assistant. Produce clean, cohesive Markdown and keep to the template headings.",
+        ));
         eprintln!(
             "[races] invoking LLM to fill template for '{}' (parent={:?})",
             name, parent
@@ -5968,31 +5975,29 @@ fn race_create(
             generate_llm(prompt, system, None, None).await
         })
         .map_err(|e| e.to_string())?;
-        body = strip_code_fence(&llm_content).to_string();
+        let generated = strip_code_fence(&llm_content).to_string();
         eprintln!(
             "[races] LLM output len={} preview='{}'",
-            body.len(),
-            body.chars()
+            generated.len(),
+            generated
+                .chars()
                 .take(100)
                 .collect::<String>()
                 .replace('\n', " ")
         );
+        generated
     } else if let Some(tpl) = template_body {
-        body = tpl;
         eprintln!("[races] using template body without LLM for '{}'", name);
+        tpl
     } else {
-        body = format!(
+        format!(
 "---\nTitle: {name}\nTags: race\n---\n\n# {name}\n\n## Ability Score Increases\n\n- \n\n## Size\n\n- \n\n## Speed\n\n- \n\n## Traits\n\n- \n\n## Languages\n\n- \n",
             name = name
-        );
-    }
+        )
+    };
 
     // Sanitize filename and ensure uniqueness
-    let base_filename = if let Some(ref parent_name) = parent {
-        sanitize_filename(&name)
-    } else {
-        sanitize_filename(&name)
-    };
+    let base_filename = sanitize_filename(&name);
     let mut fname = base_filename.clone();
     if fname.is_empty() {
         fname = "New_Race".into();
@@ -6017,7 +6022,7 @@ fn race_create(
 
 #[tauri::command]
 fn race_save_portrait(
-    app: AppHandle,
+    _app: AppHandle,
     race: String,
     subrace: Option<String>,
     filename: String,
@@ -9030,7 +9035,8 @@ async fn run_lofi_scene_job(
 ) {
     let comfy_settings = commands::get_comfyui_settings(app_handle.clone()).ok();
     let mut final_success = false;
-    let mut final_message = String::new();
+    let mut final_message: Option<String> = None;
+    debug_assert!(final_message.is_none());
 
     match commands::comfyui_submit_lofi_scene(app_handle.clone()).await {
         Ok(response) => {
@@ -9238,19 +9244,23 @@ async fn run_lofi_scene_job(
                                 }
 
                                 final_success = true;
-                                final_message = message;
+                                final_message = Some(message);
                                 break;
                             }
                             "error" => {
-                                final_message = status
-                                    .message
-                                    .unwrap_or_else(|| "ComfyUI reported an error.".to_string());
+                                final_message = Some(
+                                    status
+                                        .message
+                                        .unwrap_or_else(|| "ComfyUI reported an error.".to_string()),
+                                );
                                 break;
                             }
                             "offline" => {
-                                final_message = status
-                                    .message
-                                    .unwrap_or_else(|| "ComfyUI appears offline.".to_string());
+                                final_message = Some(
+                                    status
+                                        .message
+                                        .unwrap_or_else(|| "ComfyUI appears offline.".to_string()),
+                                );
                                 break;
                             }
                             other => {
@@ -9280,7 +9290,7 @@ async fn run_lofi_scene_job(
                             registry.append_job_stderr(job_id, &message);
                         }
                         if consecutive_errors >= 3 {
-                            final_message = message;
+                            final_message = Some(message);
                             break;
                         }
                     }
@@ -9290,7 +9300,7 @@ async fn run_lofi_scene_job(
             }
         }
         Err(err) => {
-            final_message = format!("Failed to submit workflow to ComfyUI: {}", err);
+            final_message = Some(format!("Failed to submit workflow to ComfyUI: {}", err));
         }
     }
 
@@ -9299,29 +9309,25 @@ async fn run_lofi_scene_job(
     }
 
     if final_success {
+        let message = final_message.unwrap_or_else(|| "ComfyUI render complete.".into());
         let registry = app_handle.state::<JobRegistry>();
-        if final_message.is_empty() {
-            final_message = "ComfyUI render complete.".into();
-        }
-        registry.append_job_stdout(job_id, &final_message);
+        registry.append_job_stdout(job_id, &message);
         registry.complete_job(&app_handle, job_id, true, Some(0), false);
         return;
     }
 
-    if final_message.is_empty() {
-        final_message = "Lofi Scene Maker job failed.".into();
-    }
+    let message = final_message.unwrap_or_else(|| "Lofi Scene Maker job failed.".into());
 
     {
         let registry = app_handle.state::<JobRegistry>();
-        registry.append_job_stderr(job_id, &final_message);
+        registry.append_job_stderr(job_id, &message);
         registry.update_job_progress(
             &app_handle,
             job_id,
             JobProgressSnapshot {
                 stage: Some("error".into()),
                 percent: Some(100),
-                message: Some(final_message.clone()),
+                message: Some(message.clone()),
                 eta: None,
                 step: None,
                 total: None,
@@ -9412,7 +9418,8 @@ async fn run_stable_audio_job(
 ) {
     let comfy_settings = commands::get_comfyui_settings(app_handle.clone()).ok();
     let mut final_success = false;
-    let mut final_message = String::new();
+    let mut final_message: Option<String> = None;
+    debug_assert!(final_message.is_none());
 
     match commands::comfyui_submit_stable_audio(app_handle.clone()).await {
         Ok(response) => {
@@ -9575,19 +9582,23 @@ async fn run_stable_audio_job(
                                 }
 
                                 final_success = true;
-                                final_message = message;
+                                final_message = Some(message);
                                 break;
                             }
                             "error" => {
-                                final_message = status
-                                    .message
-                                    .unwrap_or_else(|| "ComfyUI reported an error.".to_string());
+                                final_message = Some(
+                                    status
+                                        .message
+                                        .unwrap_or_else(|| "ComfyUI reported an error.".to_string()),
+                                );
                                 break;
                             }
                             "offline" => {
-                                final_message = status
-                                    .message
-                                    .unwrap_or_else(|| "ComfyUI appears offline.".to_string());
+                                final_message = Some(
+                                    status
+                                        .message
+                                        .unwrap_or_else(|| "ComfyUI appears offline.".to_string()),
+                                );
                                 break;
                             }
                             other => {
@@ -9617,7 +9628,7 @@ async fn run_stable_audio_job(
                             registry.append_job_stderr(job_id, &message);
                         }
                         if consecutive_errors >= 3 {
-                            final_message = message;
+                            final_message = Some(message);
                             break;
                         }
                     }
@@ -9627,7 +9638,7 @@ async fn run_stable_audio_job(
             }
         }
         Err(err) => {
-            final_message = format!("Failed to submit workflow to ComfyUI: {}", err);
+            final_message = Some(format!("Failed to submit workflow to ComfyUI: {}", err));
         }
     }
 
@@ -9636,29 +9647,25 @@ async fn run_stable_audio_job(
     }
 
     if final_success {
+        let message = final_message.unwrap_or_else(|| "ComfyUI render complete.".into());
         let registry = app_handle.state::<JobRegistry>();
-        if final_message.is_empty() {
-            final_message = "ComfyUI render complete.".into();
-        }
-        registry.append_job_stdout(job_id, &final_message);
+        registry.append_job_stdout(job_id, &message);
         registry.complete_job(&app_handle, job_id, true, Some(0), false);
         return;
     }
 
-    if final_message.is_empty() {
-        final_message = "Stable Diffusion job failed.".into();
-    }
+    let message = final_message.unwrap_or_else(|| "Stable Diffusion job failed.".into());
 
     {
         let registry = app_handle.state::<JobRegistry>();
-        registry.append_job_stderr(job_id, &final_message);
+        registry.append_job_stderr(job_id, &message);
         registry.update_job_progress(
             &app_handle,
             job_id,
             JobProgressSnapshot {
                 stage: Some("error".into()),
                 percent: Some(100),
-                message: Some(final_message.clone()),
+                message: Some(message.clone()),
                 eta: None,
                 step: None,
                 total: None,
@@ -9752,7 +9759,8 @@ async fn run_ace_audio_job(
 ) {
     let comfy_settings = commands::get_comfyui_settings(app_handle.clone()).ok();
     let mut final_success = false;
-    let mut final_message = String::new();
+    let mut final_message: Option<String> = None;
+    debug_assert!(final_message.is_none());
 
     match commands::comfyui_submit_ace_audio(app_handle.clone()).await {
         Ok(response) => {
@@ -9915,19 +9923,23 @@ async fn run_ace_audio_job(
                                 }
 
                                 final_success = true;
-                                final_message = message;
+                                final_message = Some(message);
                                 break;
                             }
                             "error" => {
-                                final_message = status
-                                    .message
-                                    .unwrap_or_else(|| "ComfyUI reported an error.".to_string());
+                                final_message = Some(
+                                    status
+                                        .message
+                                        .unwrap_or_else(|| "ComfyUI reported an error.".to_string()),
+                                );
                                 break;
                             }
                             "offline" => {
-                                final_message = status
-                                    .message
-                                    .unwrap_or_else(|| "ComfyUI appears offline.".to_string());
+                                final_message = Some(
+                                    status
+                                        .message
+                                        .unwrap_or_else(|| "ComfyUI appears offline.".to_string()),
+                                );
                                 break;
                             }
                             other => {
@@ -9957,7 +9969,7 @@ async fn run_ace_audio_job(
                             registry.append_job_stderr(job_id, &message);
                         }
                         if consecutive_errors >= 3 {
-                            final_message = message;
+                            final_message = Some(message);
                             break;
                         }
                     }
@@ -9967,7 +9979,7 @@ async fn run_ace_audio_job(
             }
         }
         Err(err) => {
-            final_message = format!("Failed to submit workflow to ComfyUI: {}", err);
+            final_message = Some(format!("Failed to submit workflow to ComfyUI: {}", err));
         }
     }
 
@@ -9976,29 +9988,25 @@ async fn run_ace_audio_job(
     }
 
     if final_success {
+        let message = final_message.unwrap_or_else(|| "ACE Step render complete.".into());
         let registry = app_handle.state::<JobRegistry>();
-        if final_message.is_empty() {
-            final_message = "ACE Step render complete.".into();
-        }
-        registry.append_job_stdout(job_id, &final_message);
+        registry.append_job_stdout(job_id, &message);
         registry.complete_job(&app_handle, job_id, true, Some(0), false);
         return;
     }
 
-    if final_message.is_empty() {
-        final_message = "ACE Step job failed.".into();
-    }
+    let message = final_message.unwrap_or_else(|| "ACE Step job failed.".into());
 
     {
         let registry = app_handle.state::<JobRegistry>();
-        registry.append_job_stderr(job_id, &final_message);
+        registry.append_job_stderr(job_id, &message);
         registry.update_job_progress(
             &app_handle,
             job_id,
             JobProgressSnapshot {
                 stage: Some("error".into()),
                 percent: Some(100),
-                message: Some(final_message.clone()),
+                message: Some(message.clone()),
                 eta: None,
                 step: None,
                 total: None,

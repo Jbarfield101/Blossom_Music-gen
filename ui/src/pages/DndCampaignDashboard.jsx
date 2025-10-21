@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { invoke } from '@tauri-apps/api/core';
 import BackButton from '../components/BackButton.jsx';
 import { loadVaultIndex, resolveVaultPath } from '../lib/vaultIndex.js';
 import { openPath } from '../api/files.js';
+import { getDreadhavenRoot } from '../api/config.js';
 import { openCommandPalette } from '../lib/commandPalette.js';
 import './Dnd.css';
 
@@ -52,22 +54,301 @@ function extractSummary(meta = {}, fields = {}) {
   return text ? text.trim() : '';
 }
 
+const LOG_TAIL_LINES = 8;
+const LOG_MAX_LENGTH = 220;
+
+function sanitizeLogLine(line) {
+  if (Array.isArray(line)) {
+    return sanitizeLogLine(line.join(' '));
+  }
+  if (line === null || line === undefined) {
+    return '';
+  }
+  const raw = typeof line === 'string' ? line : String(line);
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return '';
+  }
+  return trimmed.length > LOG_MAX_LENGTH ? `${trimmed.slice(0, LOG_MAX_LENGTH)}...` : trimmed;
+}
+
 export default function DndCampaignDashboard() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [recentItems, setRecentItems] = useState([]);
   const [sessionItems, setSessionItems] = useState([]);
+  const [botInfo, setBotInfo] = useState({ running: false, pid: null, exit: null });
+  const [discordLogs, setDiscordLogs] = useState([]);
+  const [discordError, setDiscordError] = useState('');
+  const [discordBusy, setDiscordBusy] = useState(false);
+  const [listenerBusy, setListenerBusy] = useState(false);
+  const [listenerStatus, setListenerStatus] = useState('unknown');
+  const [channelInput, setChannelInput] = useState('');
+  const [activeChannel, setActiveChannel] = useState('');
+  const [activeGuild, setActiveGuild] = useState('');
+  const [selfDeaf, setSelfDeaf] = useState(true);
+  const [refreshingDiscord, setRefreshingDiscord] = useState(false);
+  const [vaultRoot, setVaultRoot] = useState('');
+  const [errorHint, setErrorHint] = useState('');
+
+  const refreshDiscord = useCallback(async () => {
+    setRefreshingDiscord(true);
+    try {
+      const status = await invoke('discord_bot_status');
+      const running = Boolean(status?.running);
+      const pidRaw = status?.pid;
+      const exitRaw = status?.exit_code;
+      const pidNum = typeof pidRaw === 'number' ? pidRaw : Number(pidRaw);
+      const exitNum = typeof exitRaw === 'number' ? exitRaw : Number(exitRaw);
+      setBotInfo({
+        running,
+        pid: Number.isFinite(pidNum) && pidNum > 0 ? pidNum : null,
+        exit: Number.isFinite(exitNum) ? exitNum : null,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err || '');
+      setDiscordError((prev) => prev || message || 'Failed to fetch Discord bot status.');
+    }
+
+    try {
+      const logs = await invoke('discord_bot_logs_tail', { lines: LOG_TAIL_LINES });
+      const sanitized = Array.isArray(logs)
+        ? logs.map(sanitizeLogLine).filter((line) => line.length > 0)
+        : [];
+      setDiscordLogs(sanitized.slice(-LOG_TAIL_LINES));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err || '');
+      setDiscordLogs([]);
+      setDiscordError((prev) => prev || message || 'Failed to load Discord logs.');
+    }
+
+    try {
+      const listen = await invoke('discord_listen_status');
+      const text =
+        typeof listen === 'string'
+          ? listen.trim().toLowerCase()
+          : String(listen || '').trim().toLowerCase();
+      setListenerStatus(text || 'unknown');
+    } catch {
+      setListenerStatus('unknown');
+    }
+
+    try {
+      const settings = await invoke('discord_settings_get');
+      if (settings) {
+        if (typeof settings.selfDeaf === 'boolean') {
+          setSelfDeaf(settings.selfDeaf);
+        } else if (typeof settings.self_deaf === 'boolean') {
+          setSelfDeaf(settings.self_deaf);
+        }
+      }
+    } catch {
+      // ignore missing settings
+    }
+
+    try {
+      const bytes = await invoke('read_file_bytes', { path: 'data/discord_status.json' });
+      if (Array.isArray(bytes) && bytes.length) {
+        const text = new TextDecoder('utf-8').decode(Uint8Array.from(bytes));
+        try {
+          const data = JSON.parse(text || '{}');
+          const channel = data && data.channel_id ? String(data.channel_id) : '';
+          const guild = data && data.guild_id ? String(data.guild_id) : '';
+          setActiveChannel(channel);
+          setActiveGuild(guild);
+          if (channel) {
+            setChannelInput((prev) => (prev && prev.trim() ? prev : channel));
+          }
+        } catch (parseErr) {
+          const message = parseErr instanceof Error ? parseErr.message : 'Failed to parse Discord status.';
+          setActiveChannel('');
+          setActiveGuild('');
+          setDiscordError((prev) => prev || message);
+        }
+      } else {
+        setActiveChannel('');
+        setActiveGuild('');
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err || '');
+      if (!message.includes('os error 2')) {
+        setDiscordError((prev) => prev || message || 'Failed to inspect Discord status.');
+      }
+    } finally {
+      setRefreshingDiscord(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshDiscord();
+  }, [refreshDiscord]);
+
+  const handleStartBot = useCallback(async () => {
+    if (discordBusy) return;
+    setDiscordBusy(true);
+    setDiscordError('');
+    try {
+      await invoke('discord_bot_start');
+      await refreshDiscord();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err || '');
+      setDiscordError(message || 'Failed to start Discord bot.');
+    } finally {
+      setDiscordBusy(false);
+    }
+  }, [discordBusy, refreshDiscord]);
+
+  const handleStopBot = useCallback(async () => {
+    if (discordBusy) return;
+    setDiscordBusy(true);
+    setDiscordError('');
+    try {
+      await invoke('discord_bot_stop');
+      await refreshDiscord();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err || '');
+      setDiscordError(message || 'Failed to stop Discord bot.');
+    } finally {
+      setDiscordBusy(false);
+    }
+  }, [discordBusy, refreshDiscord]);
+
+  const handleStartListener = useCallback(async () => {
+    if (listenerBusy) return;
+    const trimmed = channelInput.trim();
+    const numericId = Number(trimmed);
+    if (!Number.isFinite(numericId) || numericId <= 0) {
+      setDiscordError('Enter a valid Discord voice channel ID before starting Whisper.');
+      return;
+    }
+    setListenerBusy(true);
+    setDiscordError('');
+    try {
+      await invoke('discord_listen_start', { channelId: numericId });
+      setListenerStatus('running');
+      setActiveChannel(String(numericId));
+      setChannelInput(String(numericId));
+      await refreshDiscord();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err || '');
+      setDiscordError(message || 'Failed to start Whisper listener.');
+    } finally {
+      setListenerBusy(false);
+    }
+  }, [channelInput, listenerBusy, refreshDiscord]);
+
+  const handleStopListener = useCallback(async () => {
+    if (listenerBusy) return;
+    setListenerBusy(true);
+    setDiscordError('');
+    try {
+      await invoke('discord_listen_stop');
+      setListenerStatus('stopped');
+      await refreshDiscord();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err || '');
+      setDiscordError(message || 'Failed to stop Whisper listener.');
+    } finally {
+      setListenerBusy(false);
+    }
+  }, [listenerBusy, refreshDiscord]);
+
+  const handleUseActiveChannel = useCallback(() => {
+    if (activeChannel) {
+      setChannelInput(activeChannel);
+      setDiscordError('');
+    }
+  }, [activeChannel]);
+
+  const handleToggleSelfDeaf = useCallback(async () => {
+    const next = !selfDeaf;
+    setSelfDeaf(next);
+    setDiscordError('');
+    try {
+      const updated = await invoke('discord_set_self_deaf', { value: next });
+      if (updated) {
+        if (typeof updated.selfDeaf === 'boolean') {
+          setSelfDeaf(updated.selfDeaf);
+        } else if (typeof updated.self_deaf === 'boolean') {
+          setSelfDeaf(updated.self_deaf);
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err || '');
+      setSelfDeaf(!next);
+      setDiscordError(message || 'Failed to update monitoring preference.');
+    }
+  }, [selfDeaf]);
+
+  const handleRefreshDiscord = useCallback(() => {
+    refreshDiscord();
+  }, [refreshDiscord]);
+
+  const handleOpenDiscordConsole = useCallback(() => {
+    navigate('/dnd/discord');
+  }, [navigate]);
+
+  const botStatusLabel = useMemo(() => {
+    if (botInfo.running) {
+      return botInfo.pid ? `Running (PID ${botInfo.pid})` : 'Running';
+    }
+    if (botInfo.exit !== null && botInfo.exit !== undefined) {
+      return `Exited (code ${botInfo.exit})`;
+    }
+    return 'Stopped';
+  }, [botInfo]);
+
+  const listenerRunning = listenerStatus === 'running';
+
+  const listenerLabel = useMemo(() => {
+    if (listenerStatus === 'running') return 'Listening';
+    if (listenerStatus === 'stopped') return 'Stopped';
+    if (listenerStatus === 'unknown' || !listenerStatus) return 'Unknown';
+    return listenerStatus.charAt(0).toUpperCase() + listenerStatus.slice(1);
+  }, [listenerStatus]);
+
+  const activeChannelLabel = useMemo(() => {
+    if (activeChannel) {
+      return activeGuild ? `Channel ${activeChannel} · Guild ${activeGuild}` : `Channel ${activeChannel}`;
+    }
+    return 'No active channel detected';
+  }, [activeChannel, activeGuild]);
+
+  const channelPlaceholder = useMemo(
+    () => (activeChannel ? `Defaults to ${activeChannel}` : 'Discord voice channel ID'),
+    [activeChannel],
+  );
+
+  const logsToDisplay = useMemo(
+    () => (discordLogs.length > 0 ? discordLogs.slice(-LOG_TAIL_LINES) : []),
+    [discordLogs],
+  );
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const root = await getDreadhavenRoot();
+        if (typeof root === 'string' && root.trim()) {
+          setVaultRoot(root.trim());
+        }
+      } catch {
+        setVaultRoot('');
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
       setError('');
+      setErrorHint('');
       try {
         const snapshot = await loadVaultIndex({ force: true });
         if (cancelled) return;
         const root = snapshot?.root || '';
+        setVaultRoot(root);
         const entries = Object.values(snapshot?.entities || {})
           .map((entity) => {
             if (!entity || typeof entity !== 'object') return null;
@@ -130,9 +411,36 @@ export default function DndCampaignDashboard() {
 
         setRecentItems(sortedRecents);
         setSessionItems(sortedSessions);
+        setError('');
+       setErrorHint('');
       } catch (err) {
+        const rawMessage =
+          err instanceof Error ? err.message : typeof err === 'string' ? err : String(err || '');
+        let displayMessage = rawMessage || 'Failed to load campaign index.';
+        let hintMessage = '';
+        let fallbackRoot = '';
+
+        if (/vault index not found/i.test(rawMessage || '')) {
+          try {
+            const resolved = await getDreadhavenRoot();
+            if (typeof resolved === 'string') {
+              fallbackRoot = resolved.trim();
+            }
+          } catch {
+            fallbackRoot = '';
+          }
+          if (!cancelled && fallbackRoot) {
+            setVaultRoot(fallbackRoot);
+          }
+          const target = fallbackRoot || 'D:\\Documents\\DreadHaven';
+          hintMessage =
+            `Blossom expects campaign notes under ${target} but no .blossom_index.json was found.\n` +
+            'Run `python notes/watchdog.py --bootstrap` to generate the index (or restart the watcher after running the bot once).';
+        }
+
         if (!cancelled) {
-          setError(err?.message || 'Failed to load campaign index.');
+          setError(displayMessage);
+          setErrorHint(hintMessage);
           setRecentItems([]);
           setSessionItems([]);
         }
@@ -190,7 +498,22 @@ export default function DndCampaignDashboard() {
     <>
       <BackButton />
       <h1>Dungeons &amp; Dragons &mdash; Campaign Dashboard</h1>
-      {error && <div className="campaign-alert">{error}</div>}
+      {error && (
+        <div className="campaign-alert">
+          <p>{error}</p>
+          {errorHint &&
+            errorHint.split('\n').map((line, idx) => (
+              <p key={`error-hint-${idx}`} className="muted">
+                {line}
+              </p>
+            ))}
+          {vaultRoot && !errorHint.includes(vaultRoot) && (
+            <p className="muted">
+              Current vault root: <code>{vaultRoot}</code>
+            </p>
+          )}
+        </div>
+      )}
       <section className="campaign-dashboard">
         <div className="campaign-grid">
           <article className="campaign-card">
@@ -213,6 +536,98 @@ export default function DndCampaignDashboard() {
                 </button>
               ))}
             </div>
+          </article>
+          <article className="campaign-card">
+            <header className="campaign-card__header">
+              <div>
+                <h2>Discord Bot</h2>
+                <p>Control voice automation without leaving the dashboard.</p>
+              </div>
+              <button type="button" onClick={handleRefreshDiscord} disabled={refreshingDiscord}>
+                {refreshingDiscord ? 'Refreshing...' : 'Refresh'}
+              </button>
+            </header>
+            {discordError && <div className="warning">{discordError}</div>}
+            <div className="campaign-bot-status">
+              <div className="campaign-bot-status__item">
+                <span className="campaign-bot-status__label">Bot</span>
+                <span className="campaign-bot-status__value">{botStatusLabel}</span>
+              </div>
+              <div className="campaign-bot-status__item">
+                <span className="campaign-bot-status__label">Listener</span>
+                <span className="campaign-bot-status__value">{listenerLabel}</span>
+              </div>
+              <div className="campaign-bot-status__item">
+                <span className="campaign-bot-status__label">Self-deafen</span>
+                <span className="campaign-bot-status__value">{selfDeaf ? 'Enabled' : 'Disabled'}</span>
+              </div>
+              <div className="campaign-bot-status__item">
+                <span className="campaign-bot-status__label">Channel</span>
+                <span className="campaign-bot-status__value">{activeChannelLabel}</span>
+              </div>
+            </div>
+            <div className="campaign-button-row">
+              <button
+                type="button"
+                onClick={botInfo.running ? handleStopBot : handleStartBot}
+                disabled={discordBusy}
+              >
+                {botInfo.running ? (discordBusy ? 'Stopping...' : 'Stop Bot') : discordBusy ? 'Starting...' : 'Start Bot'}
+              </button>
+              <button type="button" onClick={handleOpenDiscordConsole}>
+                Discord Console
+              </button>
+            </div>
+            <div className="campaign-card-section">
+              <label htmlFor="campaign-discord-channel">Voice channel ID</label>
+              <input
+                id="campaign-discord-channel"
+                type="text"
+                value={channelInput}
+                onChange={(event) => setChannelInput(event.target.value)}
+                placeholder={channelPlaceholder}
+                autoComplete="off"
+              />
+              <div className="campaign-button-row">
+                <button
+                  type="button"
+                  onClick={handleStartListener}
+                  disabled={listenerBusy || listenerRunning}
+                >
+                  {listenerBusy && !listenerRunning ? 'Starting...' : 'Start Listening'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleStopListener}
+                  disabled={listenerBusy || !listenerRunning}
+                >
+                  {listenerBusy && listenerRunning ? 'Stopping...' : 'Stop Listening'}
+                </button>
+                <button type="button" onClick={handleUseActiveChannel} disabled={!activeChannel}>
+                  Use Active
+                </button>
+              </div>
+              <div className="campaign-hint">{activeChannelLabel}</div>
+            </div>
+            <label className="campaign-toggle" htmlFor="campaign-discord-monitor">
+              <input
+                id="campaign-discord-monitor"
+                type="checkbox"
+                checked={!selfDeaf}
+                onChange={handleToggleSelfDeaf}
+                disabled={discordBusy || refreshingDiscord}
+              />
+              <span>Monitor channel audio (disable self-deafen)</span>
+            </label>
+            {logsToDisplay.length > 0 && (
+              <div className="campaign-log">
+                {logsToDisplay.map((line, index) => (
+                  <div key={`discord-log-${index}`} className="campaign-log__line">
+                    {line}
+                  </div>
+                ))}
+              </div>
+            )}
           </article>
           <article className="campaign-card">
             <header className="campaign-card__header">

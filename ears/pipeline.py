@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 import os
 from typing import Awaitable, Callable, Optional
 
+import discord
 import numpy as np
-import logging
 
 try:
     import resampy
@@ -150,14 +151,66 @@ async def run_bot(
 
     listener = DiscordListener(frame_callback=handle_frame)
 
+    failure_reason: Optional[tuple[str, BaseException | None]] = None
+
     @listener.event
     async def on_ready() -> None:
-        channel = listener.get_channel(channel_id) or await listener.fetch_channel(channel_id)
+        nonlocal failure_reason
+        try:
+            channel = listener.get_channel(channel_id)
+            if channel is None:
+                channel = await listener.fetch_channel(channel_id)
+        except discord.errors.NotFound as exc:
+            message = (
+                f"Discord voice channel {channel_id} is not accessible (404). "
+                "Verify that the bot is invited and the channel ID in Blossom's Discord settings matches a live voice channel."
+            )
+            logging.error(message)
+            failure_reason = (message, exc)
+            await listener.close()
+            return
+        except discord.errors.Forbidden as exc:
+            message = (
+                f"Missing permission to access Discord voice channel {channel_id}. "
+                "Grant View Channel and Connect to the Blossom bot."
+            )
+            logging.error(message)
+            failure_reason = (message, exc)
+            await listener.close()
+            return
+        except discord.HTTPException as exc:
+            message = f"Failed to fetch Discord channel {channel_id}: {exc}"
+            logging.error(message)
+            failure_reason = (message, exc)
+            await listener.close()
+            return
+
         if channel is None or not hasattr(channel, "connect"):
-            raise RuntimeError("Channel is not a voice channel")
-        await listener.join_voice(channel)  # type: ignore[arg-type]
+            message = (
+                f"Discord channel {channel_id} is not a voice channel. "
+                "Update the channel ID in Blossom to point at a voice channel."
+            )
+            logging.error(message)
+            failure_reason = (message, None)
+            await listener.close()
+            return
+
+        try:
+            await listener.join_voice(channel)  # type: ignore[arg-type]
+        except discord.ClientException as exc:
+            message = f"Unable to join Discord voice channel {channel_id}: {exc}"
+            logging.error(message)
+            failure_reason = (message, exc)
+            await listener.close()
+            return
 
     try:
         await listener.start(token)
     finally:
         await vad.flush()
+
+    if failure_reason is not None:
+        message, cause = failure_reason
+        if cause is not None:
+            raise RuntimeError(message) from cause
+        raise RuntimeError(message)
