@@ -12,7 +12,7 @@ import { useVaultVersion } from '../lib/vaultEvents.jsx';
 const DEFAULT_PANTHEON = 'D\\\\Documents\\\\DreadHaven\\\\10_World\\\\Gods of the Realm'.replace(/\\\\/g, '\\\\');
 const DEFAULT_GOD_PORTRAITS = 'D\\\\Documents\\\\DreadHaven\\\\30_Assets\\\\Images\\\\God_Portraits'.replace(/\\\\/g, '\\\\');
 const IMG_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
-const GOD_TEMPLATE = 'D:\\Documents\\DreadHaven\\_Templates\\God_Template.md';
+const GOD_TEMPLATE = 'D:\\Blossom\\Blossom_Music\\assets\\dnd_templates\\God_Template.md';
 
 function formatDate(ms) {
   try {

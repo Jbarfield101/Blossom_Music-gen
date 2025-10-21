@@ -4974,9 +4974,14 @@ async fn npc_create(
     }
 
     // Resolve template path and load text (tolerant of spaces and variants)
-    eprintln!("[blossom] npc_create: resolving template path");
-    let default_template_a = r"D:\\Documents\\DreadHaven\\_Templates\\NPC Template.md".to_string();
-    let default_template_b = r"D:\\Documents\\DreadHaven\\_Templates\\NPC_Template.md".to_string();
+    let template_dir = project_root().join("assets").join("dnd_templates");
+    let default_template_a = template_dir.join("NPC Template.md");
+    let default_template_b = template_dir.join("NPC_Template.md");
+    eprintln!(
+        "[blossom] npc_create: resolving template path; defaults='{}', '{}'",
+        default_template_a.to_string_lossy(),
+        default_template_b.to_string_lossy()
+    );
     let mut candidates: Vec<PathBuf> = Vec::new();
     let mut tried: Vec<String> = Vec::new();
     if let Some(mut s) = template {
@@ -4994,10 +4999,18 @@ async fn npc_create(
         candidates.push(vault_root.join("_Templates").join(&s));
         candidates.push(vault_root.join(&s));
     }
-    candidates.push(vault_root.join("_Templates").join("NPC Template.md"));
-    candidates.push(vault_root.join("_Templates").join("NPC_Template.md"));
-    candidates.push(PathBuf::from(&default_template_a));
-    candidates.push(PathBuf::from(&default_template_b));
+    let vault_default_a = vault_root.join("_Templates").join("NPC Template.md");
+    let vault_default_b = vault_root.join("_Templates").join("NPC_Template.md");
+    for cand in [
+        default_template_a.clone(),
+        default_template_b.clone(),
+        vault_default_a,
+        vault_default_b,
+    ] {
+        if !candidates.contains(&cand) {
+            candidates.push(cand);
+        }
+    }
     let mut template_text: Option<String> = None;
     for cand in candidates {
         let s = cand.to_string_lossy().to_string();
@@ -6543,8 +6556,14 @@ async fn god_create(
         })?;
     }
 
-    eprintln!("[blossom] god_create: resolving template path");
-    let default_template = r"D:\\Documents\\DreadHaven\\_Templates\\God_Template.md".to_string();
+    let default_template = project_root()
+        .join("assets")
+        .join("dnd_templates")
+        .join("God_Template.md");
+    eprintln!(
+        "[blossom] god_create: resolving template path; default='{}'",
+        default_template.to_string_lossy()
+    );
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Some(mut s) = template {
         eprintln!("[blossom] god_create: raw template arg='{}'", s);
@@ -6563,9 +6582,17 @@ async fn god_create(
         candidates.push(vault_root.join("_Templates").join(&s));
         candidates.push(vault_root.join(&s));
     } else {
-        candidates.push(PathBuf::from(&default_template));
+        candidates.push(default_template.clone());
     }
-    candidates.push(PathBuf::from(&default_template));
+    let vault_default = vault_root
+        .join("_Templates")
+        .join("God_Template.md");
+    if !candidates.contains(&default_template) {
+        candidates.push(default_template.clone());
+    }
+    if !candidates.contains(&vault_default) {
+        candidates.push(vault_default);
+    }
 
     let mut template_text_opt: Option<String> = None;
     let mut tried: Vec<String> = Vec::new();
@@ -6704,8 +6731,11 @@ async fn spell_create(
         })?;
     }
 
-    eprintln!("[blossom] spell_create: resolving template path");
-    let default_template_dir = PathBuf::from(r"D:\\Documents\\DreadHaven\\_Templates");
+    let template_dir = project_root().join("assets").join("dnd_templates");
+    eprintln!(
+        "[blossom] spell_create: resolving template path; template_dir='{}'",
+        template_dir.to_string_lossy()
+    );
     let default_template_names = [
         "Spell Template + Universal (D&D 5e Spell).md",
         "Spell Template + Universal (D&D 5e).md",
@@ -6736,18 +6766,22 @@ async fn spell_create(
             candidates.push(joined);
         }
         if !p.is_absolute() {
-            let joined = default_template_dir.join(&s);
+            let joined = template_dir.join(&s);
             if !candidates.contains(&joined) {
                 candidates.push(joined);
             }
         }
     } else {
         if let Some(first) = default_template_names.first() {
-            candidates.push(default_template_dir.join(first));
+            candidates.push(template_dir.join(first));
         }
     }
     let vault_templates = vault_root.join("_Templates");
     for name in &default_template_names {
+        let cand = template_dir.join(name);
+        if !candidates.contains(&cand) {
+            candidates.push(cand);
+        }
         let cand = vault_templates.join(name);
         if !candidates.contains(&cand) {
             candidates.push(cand);
@@ -6755,12 +6789,6 @@ async fn spell_create(
     }
     for name in &default_template_names {
         let cand = vault_root.join(name);
-        if !candidates.contains(&cand) {
-            candidates.push(cand);
-        }
-    }
-    for name in &default_template_names {
-        let cand = default_template_dir.join(name);
         if !candidates.contains(&cand) {
             candidates.push(cand);
         }
