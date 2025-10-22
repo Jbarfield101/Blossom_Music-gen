@@ -216,6 +216,7 @@ function DomainSmithModal({
                 onChange={handleRulerChange}
                 entityTypes={['npc']}
                 placeholder="Search for an NPC by name or ID…"
+                options={npcChoices}
                 disabled={busy}
                 helperText={rulerHelperText}
               />
