@@ -2,6 +2,51 @@ import { getDreadhavenRoot } from '../api/config.js';
 import { readTextFile } from '@tauri-apps/plugin-fs';
 import { invoke } from '@tauri-apps/api/core';
 
+const UTF8_DECODER =
+  typeof TextDecoder !== 'undefined' ? new TextDecoder('utf-8') : null;
+const GLOBAL_ESCAPE =
+  typeof globalThis !== 'undefined' ? globalThis.escape : undefined;
+
+function decodeUtf8Bytes(bytes) {
+  if (!bytes) return '';
+  if (bytes instanceof Uint8Array) {
+    if (UTF8_DECODER) {
+      return UTF8_DECODER.decode(bytes);
+    }
+    let fallback = '';
+    for (let i = 0; i < bytes.length; i += 1) {
+      fallback += String.fromCharCode(bytes[i]);
+    }
+    if (typeof GLOBAL_ESCAPE === 'function') {
+      try {
+        return decodeURIComponent(GLOBAL_ESCAPE(fallback));
+      } catch (err) {
+        // Ignore decoding errors and fall back to the binary string.
+      }
+    }
+    return fallback;
+  }
+  if (Array.isArray(bytes)) {
+    const array = Uint8Array.from(bytes);
+    if (UTF8_DECODER) {
+      return UTF8_DECODER.decode(array);
+    }
+    let fallback = '';
+    for (let i = 0; i < array.length; i += 1) {
+      fallback += String.fromCharCode(array[i]);
+    }
+    if (typeof GLOBAL_ESCAPE === 'function') {
+      try {
+        return decodeURIComponent(GLOBAL_ESCAPE(fallback));
+      } catch (err) {
+        // Ignore decoding errors and fall back to the binary string.
+      }
+    }
+    return fallback;
+  }
+  return '';
+}
+
 function normalizeRoot(root) {
   if (typeof root !== 'string') return '';
   const trimmed = root.trim();
@@ -57,12 +102,33 @@ async function defaultReadIndexFile() {
   for (const candidate of candidates) {
     const normalized = normalizeRoot(candidate);
     if (!normalized) continue;
-    const indexPath = joinVaultPath(normalized, '.blossom_index.json');
+    let canonicalRoot = normalized;
+    try {
+      const canonicalized = await invokeCommand('canonicalize_path', { path: normalized });
+      if (typeof canonicalized === 'string') {
+        const trimmed = canonicalized.trim();
+        if (trimmed) {
+          canonicalRoot = trimmed;
+        }
+      }
+    } catch (err) {
+      // Ignore canonicalization errors and fall back to the normalized path.
+    }
+    const indexPath = joinVaultPath(canonicalRoot, '.blossom_index.json');
     try {
       const raw = await readTextFile(indexPath);
-      return { root: normalized, raw: raw ?? '', path: indexPath };
+      return { root: canonicalRoot, raw: raw ?? '', path: indexPath };
     } catch (err) {
       lastError = err;
+      try {
+        const bytes = await invokeCommand('read_file_bytes', { path: indexPath });
+        const decoded = decodeUtf8Bytes(bytes);
+        if (decoded != null) {
+          return { root: canonicalRoot, raw: decoded, path: indexPath };
+        }
+      } catch (fallbackErr) {
+        lastError = fallbackErr;
+      }
     }
   }
   const error = new Error('Vault index not found');

@@ -53,6 +53,16 @@ fn canonical_string(path: PathBuf) -> String {
     }
 }
 
+#[cfg(windows)]
+fn normalize_canonical_output(path: String) -> String {
+    path.strip_prefix(r"\\?\").map(|s| s.to_string()).unwrap_or(path)
+}
+
+#[cfg(not(windows))]
+fn normalize_canonical_output(path: String) -> String {
+    path
+}
+
 fn ensure_settings_defaults(settings: &mut ComfyUISettings) -> bool {
     let mut changed = false;
     if settings.base_url.is_none() {
@@ -2365,7 +2375,23 @@ print(json.dumps(info))
 
 #[tauri::command]
 pub async fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
-    std::fs::read(&path).map_err(|e| e.to_string())
+    let path_buf = PathBuf::from(&path);
+    match path_buf.canonicalize() {
+        Ok(canonical) => fs::read(canonical).map_err(|e| e.to_string()),
+        Err(_) => fs::read(&path_buf).map_err(|e| e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub async fn canonicalize_path(path: String) -> Result<String, String> {
+    let candidate = PathBuf::from(&path);
+    candidate
+        .canonicalize()
+        .map(|canonical| {
+            let rendered = canonical.to_string_lossy().to_string();
+            normalize_canonical_output(rendered)
+        })
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
