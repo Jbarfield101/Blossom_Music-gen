@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -458,6 +458,64 @@ function RelationshipLedgerEditor({ value, onChange, disabled }) {
   );
 }
 
+function NpcErrorFallback({ error, onRetry }) {
+  const message = error?.message ? String(error.message) : '';
+  return (
+    <div className="npc-error-boundary">
+      <div className="npc-empty-state">
+        <h2>NPC Manager</h2>
+        <p>Something went wrong while loading this screen.</p>
+        {message && (
+          <pre className="error" style={{ whiteSpace: 'pre-wrap' }}>
+            {message}
+          </pre>
+        )}
+        <button type="button" onClick={onRetry}>
+          Try again
+        </button>
+      </div>
+    </div>
+  );
+}
+
+class NpcErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+    this.handleRetry = this.handleRetry.bind(this);
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error('DndDmNpcs crashed', error, info);
+  }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
+  handleRetry() {
+    this.setState({ error: null }, () => {
+      if (typeof this.props.onReset === 'function') {
+        this.props.onReset();
+      }
+    });
+  }
+
+  render() {
+    const { error } = this.state;
+    if (error) {
+      return <NpcErrorFallback error={error} onRetry={this.handleRetry} />;
+    }
+    return this.props.children;
+  }
+}
+
 const NPC_FORM_SCHEMA = npcSchema
   .pick({
     id: true,
@@ -601,7 +659,7 @@ function sanitizeFormValues(values = {}) {
   return next;
 }
 
-export default function DndDmNpcs() {
+function DndDmNpcsContent() {
   const navigate = useNavigate();
   const { id: routeIdParam } = useParams();
   const [items, setItems] = useState([]);
@@ -631,6 +689,7 @@ export default function DndDmNpcs() {
   const [portraitDragActive, setPortraitDragActive] = useState(false);
   const [portraitDropping, setPortraitDropping] = useState(false);
   const [portraitDropFeedback, setPortraitDropFeedback] = useState(null);
+  const [portraitStatus, setPortraitStatus] = useState('');
   const portraitDropTimerRef = useRef(null);
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -1266,187 +1325,260 @@ const establishmentOptions = useMemo(() => {
     return out;
   }, []);
 
-  const fetchItems = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    setLocations({});
-    setTypeMap({});
-    setFactionMap({});
-    setTagMap({});
-    setPortraitUrls({});
-    resetVaultIndexCache();
-    try {
-      try {
-      const { root, entries } = await listEntitiesByType('npc', { force: true });
-      const normalizedRoot = typeof root === 'string' ? root : '';
-      setVaultRoot(normalizedRoot);
-      if (normalizedRoot) {
-        setUsingPath(resolveVaultPath(normalizedRoot, '20_dm/npc'));
-      }
-      const locMap = {};
-      const typeMapNext = {};
-      const factionMapNext = {};
-      const tagMapNext = {};
-      const normalizedItems = entries.map((entry) => {
-        const safeId = String(entry.id || '').trim();
-        const indexMeta = entry.index || {};
-        const metadata = indexMeta.metadata || {};
-        const fields = indexMeta.fields || {};
-        const location = firstChip(indexMeta.location, metadata.location, fields.location, indexMeta.region, metadata.region, fields.region);
-        if (safeId && location) {
-          locMap[safeId] = location;
+  const fetchItems = useCallback(
+    async (options = {}) => {
+      const { signal } = options || {};
+      const isCancelled = () => Boolean(signal?.aborted);
+      const runIfMounted = (fn) => {
+        if (!isCancelled()) {
+          fn();
         }
-        const typeValue = firstChip(
-          metadata.purpose,
-          metadata.occupation,
-          metadata.role,
-          metadata.job,
-          metadata.profession,
-          metadata.type,
-          fields.purpose,
-          fields.occupation,
-          fields.role,
-          fields.job,
-          fields.profession,
-          fields.type,
-        );
-        if (safeId && typeValue) {
-          typeMapNext[safeId] = typeValue;
-        }
-        const factionValue = firstChip(
-          metadata.faction,
-          metadata.factions,
-          fields.faction,
-          fields.factions,
-        );
-        if (safeId && factionValue) {
-          const cleanedFaction = sanitizeChip(factionValue);
-          if (cleanedFaction) {
-            factionMapNext[safeId] = cleanedFaction;
-          }
-        }
-        const tagsValue = coerceStringArray(metadata.tags ?? fields.tags ?? []);
-        if (safeId && tagsValue.length) {
-          const cleanedTags = tagsValue.map((tag) => sanitizeChip(tag)).filter(Boolean);
-          if (cleanedTags.length) {
-            tagMapNext[safeId] = cleanedTags;
-          }
-        }
-        return {
-          id: safeId,
-          name: entry.name || metadata.name || '',
-          title: entry.title || entry.name || metadata.name || '',
-          path: entry.path,
-          relPath: entry.relPath,
-          modified_ms: entry.modified_ms,
-          index: indexMeta,
-        };
+      };
+
+      if (isCancelled()) return;
+
+      runIfMounted(() => {
+        setLoading(true);
+        setError('');
+        setPortraitStatus('');
+        setLocations({});
+        setTypeMap({});
+        setFactionMap({});
+        setTagMap({});
+        setPortraitUrls({});
       });
-        setItems(normalizedItems);
-        setLocations(locMap);
-        setTypeMap(typeMapNext);
-        setFactionMap(factionMapNext);
-        setTagMap(tagMapNext);
-        setUsingIndex(true);
-        return;
-      } catch (err) {
-        console.warn('Failed to load NPC index, falling back to directory scan', err);
-      }
+      resetVaultIndexCache();
 
       const loadFromScan = async (basePath) => {
-      if (!basePath) return false;
+        if (!basePath || isCancelled()) return false;
+        try {
+          const list = await crawl(basePath);
+          if (isCancelled()) return false;
+          const locMap = {};
+          const typeMapNext = {};
+          const factionMapNext = {};
+          const tagMapNext = {};
+          const normalizedItems = [];
+          for (const entry of Array.isArray(list) ? list : []) {
+            if (isCancelled()) return false;
+            let meta = {};
+            let id = '';
+            try {
+              const text = await readInbox(entry.path);
+              if (isCancelled()) return false;
+              const [parsedMeta] = parseNpcFrontmatter(text);
+              meta = parsedMeta || {};
+              id = String(meta.id || meta.Id || '').trim();
+            } catch (err) {
+              if (!isCancelled()) {
+                console.warn('Failed to read NPC metadata while scanning directory', err);
+              }
+              meta = {};
+              id = '';
+            }
+            if (!id) {
+              id = entry.path
+                ? `path:${entry.path}`
+                : `npc:${entry.name || entry.title || Math.random().toString(36).slice(2)}`;
+            }
+            const location = firstChip(meta.location, meta.region) || relLocation(basePath, entry.path);
+            if (id && location) {
+              locMap[id] = location;
+            }
+            const typeValue = firstChip(
+              meta.purpose,
+              meta.occupation,
+              meta.role,
+              meta.job,
+              meta.profession,
+              meta.type,
+            );
+            if (id && typeValue) {
+              typeMapNext[id] = typeValue;
+            }
+            const factionValue = firstChip(meta.faction, meta.factions);
+            if (id && factionValue) {
+              factionMapNext[id] = factionValue;
+            }
+            const tagsValue = coerceStringArray(meta.tags);
+            if (id && tagsValue.length) {
+              tagMapNext[id] = tagsValue;
+            }
+            normalizedItems.push({
+              ...entry,
+              id,
+              relPath: entry.path,
+              index: { metadata: meta },
+            });
+          }
+          if (isCancelled()) return false;
+          runIfMounted(() => {
+            setUsingIndex(false);
+            setVaultRoot('');
+            setUsingPath(basePath);
+            setItems(normalizedItems);
+            setLocations(locMap);
+            setTypeMap(typeMapNext);
+            setFactionMap(factionMapNext);
+            setTagMap(tagMapNext);
+          });
+          return true;
+        } catch (err) {
+          if (!isCancelled()) {
+            console.error('Failed to scan NPC directory', err);
+          }
+          return false;
+        }
+      };
+
       try {
-        const list = await crawl(basePath);
-        const locMap = {};
-        const typeMapNext = {};
-        const factionMapNext = {};
-        const tagMapNext = {};
-        const normalizedItems = [];
-        for (const entry of Array.isArray(list) ? list : []) {
-          let meta = {};
-          let id = '';
-          try {
-            const text = await readInbox(entry.path);
-            const [parsedMeta] = parseNpcFrontmatter(text);
-            meta = parsedMeta || {};
-            id = String(meta.id || meta.Id || '').trim();
-          } catch {
-            meta = {};
-            id = '';
+        try {
+          const { root, entries } = await listEntitiesByType('npc', { force: true });
+          if (isCancelled()) return;
+          const normalizedRoot = typeof root === 'string' ? root : '';
+          runIfMounted(() => {
+            setVaultRoot(normalizedRoot);
+            if (normalizedRoot) {
+              setUsingPath(resolveVaultPath(normalizedRoot, '20_dm/npc'));
+            } else {
+              setUsingPath('');
+            }
+          });
+
+          if (!Array.isArray(entries)) {
+            throw new Error('Invalid NPC index payload');
           }
-          if (!id) {
-            id = entry.path ? `path:${entry.path}` : `npc:${entry.name || entry.title || Math.random().toString(36).slice(2)}`;
-          }
-          const location = firstChip(meta.location, meta.region) || relLocation(basePath, entry.path);
-          if (id && location) {
-            locMap[id] = location;
-          }
-          const typeValue = firstChip(
-            meta.purpose,
-            meta.occupation,
-            meta.role,
-            meta.job,
-            meta.profession,
-            meta.type,
+
+          const validEntries = entries.filter(
+            (entry) => entry && typeof entry === 'object' && typeof entry.path === 'string',
           );
-          if (id && typeValue) {
-            typeMapNext[id] = typeValue;
+          if (validEntries.length !== entries.length) {
+            console.warn('Discarding malformed NPC index entries', entries);
           }
-          const factionValue = firstChip(
-            meta.faction,
-            meta.factions,
-          );
-          if (id && factionValue) {
-            factionMapNext[id] = factionValue;
+
+          const locMap = {};
+          const typeMapNext = {};
+          const factionMapNext = {};
+          const tagMapNext = {};
+          const normalizedItems = validEntries.map((entry) => {
+            const safeId = String(entry.id || '').trim();
+            const indexMeta = entry.index || {};
+            const metadata = indexMeta.metadata || {};
+            const fields = indexMeta.fields || {};
+            const location = firstChip(
+              indexMeta.location,
+              metadata.location,
+              fields.location,
+              indexMeta.region,
+              metadata.region,
+              fields.region,
+            );
+            if (safeId && location) {
+              locMap[safeId] = location;
+            }
+            const typeValue = firstChip(
+              metadata.purpose,
+              metadata.occupation,
+              metadata.role,
+              metadata.job,
+              metadata.profession,
+              metadata.type,
+              fields.purpose,
+              fields.occupation,
+              fields.role,
+              fields.job,
+              fields.profession,
+              fields.type,
+            );
+            if (safeId && typeValue) {
+              typeMapNext[safeId] = typeValue;
+            }
+            const factionValue = firstChip(
+              metadata.faction,
+              metadata.factions,
+              fields.faction,
+              fields.factions,
+            );
+            if (safeId && factionValue) {
+              const cleanedFaction = sanitizeChip(factionValue);
+              if (cleanedFaction) {
+                factionMapNext[safeId] = cleanedFaction;
+              }
+            }
+            const tagsValue = coerceStringArray(metadata.tags ?? fields.tags ?? []);
+            if (safeId && tagsValue.length) {
+              const cleanedTags = tagsValue.map((tag) => sanitizeChip(tag)).filter(Boolean);
+              if (cleanedTags.length) {
+                tagMapNext[safeId] = cleanedTags;
+              }
+            }
+            return {
+              id: safeId,
+              name: entry.name || metadata.name || '',
+              title: entry.title || entry.name || metadata.name || '',
+              path: entry.path,
+              relPath: entry.relPath,
+              modified_ms: entry.modified_ms,
+              index: indexMeta,
+            };
+          });
+          runIfMounted(() => {
+            setItems(normalizedItems);
+            setLocations(locMap);
+            setTypeMap(typeMapNext);
+            setFactionMap(factionMapNext);
+            setTagMap(tagMapNext);
+            setUsingIndex(true);
+          });
+          return;
+        } catch (err) {
+          if (!isCancelled()) {
+            console.warn('Failed to load NPC index, falling back to directory scan', err);
+            runIfMounted(() => {
+              setError((prev) => prev || 'NPC index unavailable. Showing directory scan.');
+            });
           }
-          const tagsValue = coerceStringArray(meta.tags);
-          if (id && tagsValue.length) {
-            tagMapNext[id] = tagsValue;
+        }
+
+        let resolved = false;
+        try {
+          const vault = await getDreadhavenRoot();
+          if (isCancelled()) return;
+          const base =
+            typeof vault === 'string' && vault.trim() ? resolveVaultPath(vault.trim(), '20_dm/npc') : '';
+          if (await loadFromScan(base)) {
+            resolved = true;
           }
-          normalizedItems.push({
-            ...entry,
-            id,
-            relPath: entry.path,
-            index: { metadata: meta },
+        } catch (err) {
+          if (!isCancelled()) {
+            console.warn('Failed to resolve vault NPC directory', err);
+          }
+        }
+
+        if (!resolved && (await loadFromScan(DEFAULT_NPC))) {
+          resolved = true;
+        }
+
+        if (!resolved) {
+          runIfMounted(() => {
+            setError('Failed to locate NPC directory.');
+            setItems([]);
           });
         }
-        setUsingIndex(false);
-        setVaultRoot('');
-        setUsingPath(basePath);
-        setItems(normalizedItems);
-        setLocations(locMap);
-        setTypeMap(typeMapNext);
-        setFactionMap(factionMapNext);
-        setTagMap(tagMapNext);
-        return true;
-      } catch (err) {
-        console.error(err);
-        return false;
+      } finally {
+        runIfMounted(() => {
+          setLoading(false);
+        });
       }
-    };
+    },
+    [crawl, parseNpcFrontmatter],
+  );
 
-      try {
-      const vault = await getDreadhavenRoot();
-      const base = (typeof vault === 'string' && vault.trim()) ? resolveVaultPath(vault.trim(), '20_dm/npc') : '';
-      if (await loadFromScan(base)) {
-        return;
-      }
-      } catch (err) {
-      // ignore
-    }
-
-    if (await loadFromScan(DEFAULT_NPC)) {
-      return;
-    }
-
-    setError('Failed to locate NPC directory.');
-    setItems([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [crawl, parseNpcFrontmatter]);
-
-  useEffect(() => { fetchItems(); }, [fetchItems, npcVersion]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchItems({ signal: controller.signal });
+    return () => controller.abort();
+  }, [fetchItems, npcVersion]);
 
   // Build region options by crawling directories under Regions (exclude Establishments)
   useEffect(() => {
@@ -1597,8 +1729,10 @@ const establishmentOptions = useMemo(() => {
   // Load portraits on demand
   useEffect(() => {
     let cancelled = false;
+    let encounteredError = false;
     (async () => {
       for (const it of items) {
+        if (cancelled) break;
         if (!it || !it.id) continue;
         if (portraitUrls[it.id]) continue;
         const portraitField =
@@ -1626,24 +1760,40 @@ const establishmentOptions = useMemo(() => {
         if (!imgPath) continue;
         try {
           const bytes = await readFileBytes(imgPath);
-          if (cancelled) return;
+          if (cancelled) break;
           const ext = imgPath.split('.').pop().toLowerCase();
-          const mime = ext === 'png' ? 'image/png'
-            : (ext === 'jpg' || ext === 'jpeg') ? 'image/jpeg'
-            : ext === 'gif' ? 'image/gif'
-            : ext === 'webp' ? 'image/webp'
-            : ext === 'bmp' ? 'image/bmp'
-            : ext === 'svg' ? 'image/svg+xml'
-            : 'application/octet-stream';
+          const mime =
+            ext === 'png'
+              ? 'image/png'
+              : ext === 'jpg' || ext === 'jpeg'
+              ? 'image/jpeg'
+              : ext === 'gif'
+              ? 'image/gif'
+              : ext === 'webp'
+              ? 'image/webp'
+              : ext === 'bmp'
+              ? 'image/bmp'
+              : ext === 'svg'
+              ? 'image/svg+xml'
+              : 'application/octet-stream';
           const blob = new Blob([new Uint8Array(bytes)], { type: mime });
           const url = URL.createObjectURL(blob);
           if (!cancelled) {
             setPortraitUrls((prev) => ({ ...prev, [it.id]: url }));
           }
-        } catch (e) {/* ignore */}
+        } catch (err) {
+          if (cancelled) break;
+          encounteredError = true;
+          console.error(`Failed to load portrait for NPC ${it?.id || it?.name || 'unknown'}`, err);
+        }
+      }
+      if (encounteredError && !cancelled) {
+        setPortraitStatus((prev) => prev || 'Some portraits could not be loaded.');
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [items, portraitIndex, portraitUrls, vaultRoot]);
 
   // Extract optional location from frontmatter or KV; fallback to relative folder path
@@ -2097,6 +2247,7 @@ const establishmentOptions = useMemo(() => {
       }
 
       const applyLoadedEntity = (entity, body, entryMeta, backlinksList = []) => {
+        if (cancelled) return;
         const normalizedEntity = normalizeEntityMeta(entity || {}, selected || {});
         const formValues = extractFormValues(normalizedEntity);
         const sanitizedForm = sanitizeFormValues(formValues);
@@ -2141,17 +2292,22 @@ const establishmentOptions = useMemo(() => {
           ...((entryMeta && entryMeta.fields) || {}),
           ...normalizedEntity,
         };
+        if (cancelled) return;
         setActiveMeta(combinedMeta);
+        if (cancelled) return;
         reset({ ...NPC_FORM_DEFAULTS, ...formValues });
+        if (cancelled) return;
         setBodyValue(body || '');
         bodyRef.current = body || '';
         const serialized = matter.stringify(bodyRef.current || '', entityDraftRef.current || {});
         lastSerializedRef.current = serialized;
         dirtyRef.current = false;
+        if (cancelled) return;
         setMetaNotice('');
         setDocumentReady(true);
         documentReadyRef.current = true;
         setHasPendingChanges(false);
+        if (cancelled) return;
         setBacklinks(Array.isArray(backlinksList) ? backlinksList : []);
         setBacklinksLoading(false);
       };
@@ -2168,6 +2324,7 @@ const establishmentOptions = useMemo(() => {
         );
       } catch (err) {
         if (cancelled) return;
+        console.error('Failed to load NPC entity', err);
         try {
           const text = await readInbox(fallbackPath);
           if (cancelled) return;
@@ -2175,9 +2332,12 @@ const establishmentOptions = useMemo(() => {
           activePathRef.current = fallbackPath;
           applyLoadedEntity(meta || {}, body || '', indexEntry || selected?.index || {}, []);
           if (issue || err?.message) {
+            if (cancelled) return;
             setMetaNotice(issue || err?.message || '');
           }
         } catch (innerErr) {
+          if (cancelled) return;
+          console.error('Failed to hydrate NPC from backup file', innerErr);
           if (cancelled) return;
           setActiveMeta({});
           entityDraftRef.current = {};
@@ -2190,6 +2350,7 @@ const establishmentOptions = useMemo(() => {
           setDocumentReady(false);
           documentReadyRef.current = false;
           setMetaNotice(innerErr?.message || err?.message || 'Failed to load NPC file.');
+          if (cancelled) return;
           setBacklinks([]);
           setBacklinksLoading(false);
         }
@@ -2209,14 +2370,26 @@ const establishmentOptions = useMemo(() => {
 
   // Load NPCs for existing voice mappings
   useEffect(() => {
+    const controller = new AbortController();
     (async () => {
       try {
         const list = await listNpcs();
-        setNpcList(Array.isArray(list) ? list : []);
-      } catch {
+        if (controller.signal.aborted) return;
+        if (Array.isArray(list)) {
+          setNpcList(list);
+        } else {
+          console.warn('listNpcs returned an unexpected payload', list);
+          setNpcList([]);
+          setCardVoiceStatus((prev) => prev || 'Failed to load saved NPC voice mappings.');
+        }
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        console.error('Failed to load NPC list', err);
         setNpcList([]);
+        setCardVoiceStatus((prev) => prev || 'Failed to load saved NPC voice mappings.');
       }
     })();
+    return () => controller.abort();
   }, []);
 
   // Helper: decode provider from stored voice string
@@ -2411,7 +2584,7 @@ const establishmentOptions = useMemo(() => {
             Table
           </button>
         </div>
-        <button type="button" onClick={fetchItems} disabled={loading}>
+        <button type="button" onClick={() => fetchItems()} disabled={loading}>
           {loading ? 'Loading.' : 'Refresh'}
         </button>
         <button type="button" onClick={() => { if (!creating) { setShowCreate(true); setNewName(''); setCreateError(''); } }} disabled={creating}>
@@ -2419,6 +2592,7 @@ const establishmentOptions = useMemo(() => {
         </button>
         {usingPath && <span className="muted">Folder: {usingPath}</span>}
         {error && <span className="error">{error}</span>}
+        {portraitStatus && <span className="muted" style={{ color: '#b58900' }}>{portraitStatus}</span>}
       </div>
 
       {visibleItems.length === 0 ? (
@@ -3170,3 +3344,18 @@ const establishmentOptions = useMemo(() => {
 
 
 
+
+function DndDmNpcs(props) {
+  const [resetKey, setResetKey] = useState(0);
+  const handleReset = useCallback(() => {
+    setResetKey((value) => value + 1);
+  }, []);
+
+  return (
+    <NpcErrorBoundary resetKey={resetKey} onReset={handleReset}>
+      <DndDmNpcsContent key={resetKey} {...props} />
+    </NpcErrorBoundary>
+  );
+}
+
+export default DndDmNpcs;
