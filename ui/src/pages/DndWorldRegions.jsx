@@ -892,6 +892,50 @@ const DEFAULT_COUNTY_FORM = {
   primarySpecies: '',
 };
 
+function createDomainStatus(overrides = {}) {
+  return {
+    stage: 'idle',
+    error: '',
+    message: '',
+    errorCode: '',
+    details: null,
+    ...overrides,
+  };
+}
+
+function extractErrorCode(err, fallback = 'domain.unknown_error') {
+  const candidates = [
+    err?.code,
+    err?.response?.code,
+    err?.response?.data?.code,
+    err?.data?.code,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string') {
+      const trimmed = candidate.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+  }
+  return fallback;
+}
+
+function extractErrorDetails(err) {
+  const candidates = [
+    err?.details,
+    err?.response?.details,
+    err?.response?.data?.details,
+    err?.data?.details,
+  ];
+  for (const candidate of candidates) {
+    if (candidate != null) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
 export default function DndWorldRegions() {
   const [basePath, setBasePath] = useState('');
   const [currentPath, setCurrentPath] = useState('');
@@ -903,7 +947,7 @@ export default function DndWorldRegions() {
   const [metadataMap, setMetadataMap] = useState({});
   const [showDomainSmith, setShowDomainSmith] = useState(false);
   const [domainForm, setDomainForm] = useState(() => createDomainForm());
-  const [domainStatus, setDomainStatus] = useState({ stage: 'idle', error: '', message: '' });
+  const [domainStatus, setDomainStatus] = useState(() => createDomainStatus());
   const [showCountySmith, setShowCountySmith] = useState(false);
   const [countyForm, setCountyForm] = useState(() => ({ ...DEFAULT_COUNTY_FORM }));
   const [countyStatus, setCountyStatus] = useState({ stage: 'idle', error: '', message: '' });
@@ -1170,7 +1214,7 @@ export default function DndWorldRegions() {
         ? basePath
         : (regionOptions[0]?.value || '');
     setDomainForm(createDomainForm({ regionPath: defaultRegion }));
-    setDomainStatus({ stage: 'idle', error: '', message: '' });
+    setDomainStatus(createDomainStatus());
     setShowDomainSmith(true);
   }, [basePath, currentPath, domainStatus.stage, regionOptions]);
 
@@ -1178,7 +1222,7 @@ export default function DndWorldRegions() {
     setShowDomainSmith(false);
     const fallbackRegion = (currentPath && currentPath.trim()) || (basePath && basePath.trim()) || '';
     setDomainForm((prev) => createDomainForm({ regionPath: prev.regionPath || fallbackRegion }));
-    setDomainStatus({ stage: 'idle', error: '', message: '' });
+    setDomainStatus(createDomainStatus());
   }, [basePath, currentPath]);
 
   const handleDomainFormChange = useCallback((patch) => {
@@ -1351,7 +1395,7 @@ export default function DndWorldRegions() {
     });
     setDomainStatus((prev) => {
       if (prev.stage === 'idle' && !prev.error && !prev.message) return prev;
-      return { stage: 'idle', error: '', message: '' };
+      return createDomainStatus();
     });
   }, []);
 
@@ -1361,12 +1405,24 @@ export default function DndWorldRegions() {
       const trimmedName = String(domainForm.name || '').trim();
       const selectedRegion = String(domainForm.regionPath || '').trim();
       if (!trimmedName) {
-        setDomainStatus({ stage: 'error', error: 'Please provide a domain name.', message: '' });
+        setDomainStatus(
+          createDomainStatus({
+            stage: 'error',
+            error: 'Please provide a domain name.',
+            errorCode: 'domain.missing_name',
+          }),
+        );
         return;
       }
       const targetFolder = selectedRegion || currentPath || basePath;
       if (!targetFolder) {
-        setDomainStatus({ stage: 'error', error: 'Pick a folder to store the new domain.', message: '' });
+        setDomainStatus(
+          createDomainStatus({
+            stage: 'error',
+            error: 'Pick a folder to store the new domain.',
+            errorCode: 'domain.missing_target',
+          }),
+        );
         return;
       }
 
@@ -1584,7 +1640,7 @@ export default function DndWorldRegions() {
       const systemMessage =
         'You are Blossom, an expert tabletop worldbuilding assistant. Return polished Markdown that strictly matches the provided template order, producing immersive yet practical details for a busy Dungeon Master.';
 
-      setDomainStatus({ stage: 'generating', error: '', message: '' });
+      setDomainStatus(createDomainStatus({ stage: 'generating' }));
 
       try {
         const llmResponse = await invoke('generate_llm', { prompt, system: systemMessage });
@@ -1593,7 +1649,7 @@ export default function DndWorldRegions() {
           throw new Error('The language model returned an empty response.');
         }
 
-        setDomainStatus({ stage: 'saving', error: '', message: '' });
+        setDomainStatus(createDomainStatus({ stage: 'saving' }));
 
         const parsed = matter(generated);
         const entityData = parsed?.data && typeof parsed.data === 'object' ? { ...parsed.data } : null;
@@ -1729,19 +1785,25 @@ export default function DndWorldRegions() {
           targetDir: domainContext.countyDirectory,
         });
         setCountyStatus({ stage: 'idle', error: '', message: '' });
-        setDomainStatus({
-          stage: 'success',
-          error: '',
-          message: successParts.join(' '),
-          domain: domainContext,
-        });
+        setDomainStatus(
+          createDomainStatus({
+            stage: 'success',
+            message: successParts.join(' '),
+            domain: domainContext,
+          }),
+        );
       } catch (err) {
         console.error('Domain Smith failed', err);
-        setDomainStatus({
-          stage: 'error',
-          error: err?.message || 'Failed to forge the domain. Try again.',
-          message: '',
-        });
+        const errorCode = extractErrorCode(err);
+        const details = extractErrorDetails(err);
+        setDomainStatus(
+          createDomainStatus({
+            stage: 'error',
+            error: err?.message || 'Failed to forge the domain. Try again.',
+            errorCode,
+            details,
+          }),
+        );
       }
     },
     [

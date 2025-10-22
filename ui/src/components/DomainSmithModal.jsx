@@ -19,12 +19,34 @@ function DomainSmithModal({
   const stage = status?.stage || 'idle';
   const error = status?.error || '';
   const message = status?.message || '';
+  const errorCode = status?.errorCode || '';
+  const rawDetails = status?.details;
   const busy = stage === 'generating' || stage === 'saving';
   const success = stage === 'success';
   const forgedDomain = success && status?.domain ? status.domain : null;
   const canForgeCounties = Boolean(forgedDomain && onForgeCounties);
   const options = Array.isArray(regionOptions) ? regionOptions : [];
   const npcChoices = Array.isArray(npcOptions) ? npcOptions : [];
+
+  const formatErrorDetails = (value) => {
+    if (value == null) return '';
+    if (typeof value === 'string') {
+      return value.trim();
+    }
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
+  };
+
+  const formattedError = (() => {
+    if (errorCode && error) return `Error ${errorCode}: ${error}`;
+    if (errorCode) return `Error ${errorCode}`;
+    return error;
+  })();
+
+  const errorDetails = formatErrorDetails(rawDetails);
 
   const {
     name = '',
@@ -1267,12 +1289,24 @@ function DomainSmithModal({
             </label>
           </div>
 
-          {error ? (
+          {formattedError ? (
             <div className="dnd-modal-error" role="alert">
-              {error}
+              {formattedError}
+              {errorDetails ? (
+                <pre
+                  style={{
+                    marginTop: '0.5rem',
+                    whiteSpace: 'pre-wrap',
+                    fontFamily: 'var(--font-mono, ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace)',
+                    fontSize: '0.8rem',
+                  }}
+                >
+                  {errorDetails}
+                </pre>
+              ) : null}
             </div>
           ) : null}
-          {message && !error ? (
+          {message && !formattedError ? (
             <div role="status" style={{ color: 'var(--success, #2dca8c)' }}>
               {message}
             </div>
