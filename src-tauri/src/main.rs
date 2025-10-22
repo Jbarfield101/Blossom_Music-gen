@@ -2722,8 +2722,15 @@ fn run_npc_repair_job(app: AppHandle, helper_path: PathBuf, run_id: u64, npc_ids
     if !exit_status.success() {
         let status_text = exit_status
             .code()
-            .map(|code| format!("Repair helper exited with code {}", code))
-            .unwrap_or_else(|| "Repair helper terminated by signal".to_string());
+            .map(|code| {
+                format!(
+                    "Repair helper exited with code {} (status: {:?})",
+                    code, exit_status
+                )
+            })
+            .unwrap_or_else(|| {
+                format!("Repair helper terminated by signal (status: {:?})", exit_status)
+            });
         if let Some(existing) = run_error.as_mut() {
             existing.push_str("; ");
             existing.push_str(&status_text);
@@ -2731,18 +2738,16 @@ fn run_npc_repair_job(app: AppHandle, helper_path: PathBuf, run_id: u64, npc_ids
             run_error = Some(status_text);
         }
     }
-    let stderr_trimmed = stderr_output.trim();
-    if let Some((first_line, _)) = stderr_trimmed.split_once('\n') {
+    if let Some(stderr_excerpt) = format_stderr_excerpt(&stderr_output) {
         if let Some(existing) = run_error.as_mut() {
-            existing.push_str("; stderr: ");
-            existing.push_str(first_line);
-        }
-    } else if !stderr_trimmed.is_empty() {
-        if let Some(existing) = run_error.as_mut() {
-            existing.push_str("; stderr: ");
-            existing.push_str(stderr_trimmed);
+            if stderr_excerpt.contains('\n') {
+                existing.push_str("; stderr:\n");
+            } else {
+                existing.push_str("; stderr: ");
+            }
+            existing.push_str(&stderr_excerpt);
         } else {
-            run_error = Some(stderr_trimmed.to_string());
+            run_error = Some(stderr_excerpt);
         }
     }
 
@@ -2923,6 +2928,89 @@ fn extract_error_message(stderr: &str) -> Option<String> {
                 .and_then(|e| e.as_str())
                 .map(|s| s.to_string())
         })
+}
+
+fn format_stderr_excerpt(stderr: &str) -> Option<String> {
+    let trimmed = stderr.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    if let Some(json_error) = extract_error_message(trimmed) {
+        return Some(json_error);
+    }
+
+    const MAX_LINES: usize = 5;
+    const MAX_CHARS: usize = 600;
+
+    let mut excerpt = String::new();
+    let mut used_chars = 0usize;
+    let mut truncated = false;
+    let mut lines_iter = trimmed.lines();
+
+    for line_index in 0..MAX_LINES {
+        let line = match lines_iter.next() {
+            Some(line) => line,
+            None => break,
+        };
+
+        if line_index > 0 {
+            if used_chars < MAX_CHARS {
+                excerpt.push('\n');
+                used_chars += 1;
+            } else {
+                truncated = true;
+                break;
+            }
+        }
+
+        let available_chars = MAX_CHARS.saturating_sub(used_chars);
+        if available_chars == 0 {
+            truncated = true;
+            break;
+        }
+
+        let mut line_chars = line.chars();
+        let mut taken_line = String::new();
+        let mut consumed = 0usize;
+        while consumed < available_chars {
+            match line_chars.next() {
+                Some(ch) => {
+                    taken_line.push(ch);
+                    consumed += 1;
+                }
+                None => break,
+            }
+        }
+
+        if line_chars.next().is_some() {
+            truncated = true;
+            taken_line.push('…');
+        }
+
+        used_chars += taken_line.chars().count();
+        excerpt.push_str(&taken_line);
+
+        if used_chars >= MAX_CHARS {
+            truncated = true;
+            break;
+        }
+    }
+
+    if lines_iter.next().is_some() {
+        truncated = true;
+    }
+
+    if truncated {
+        if !excerpt.ends_with('…') {
+            if !excerpt.is_empty() {
+                excerpt.push('\n');
+            }
+            excerpt.push('…');
+        }
+    }
+
+    Some(excerpt)
 }
 
 const MAX_LOG_LINES: usize = 200;
