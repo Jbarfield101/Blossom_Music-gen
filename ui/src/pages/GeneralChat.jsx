@@ -7,6 +7,9 @@ import { fileSrc } from "../lib/paths";
 import "./GeneralChat.css";
 
 const TARGET_SAMPLE_RATE = 16000;
+const MIN_SPEECH_DURATION_SEC = 0.6;
+const SILENCE_HOLD_SEC = 0.3;
+const MAX_BUFFERED_SAMPLES = TARGET_SAMPLE_RATE * 12;
 
 export default function GeneralChat() {
   const [modelOptions, setModelOptions] = useState([]);
@@ -34,6 +37,26 @@ export default function GeneralChat() {
   const liveEnabledRef = useRef(liveEnabled);
   const voiceEnabledRef = useRef(voiceEnabled);
   const voicePathsRef = useRef(voicePaths);
+  const vadStateRef = useRef({
+    noiseFloor: 0.01,
+    initialized: false,
+    collecting: false,
+    speechDuration: 0,
+    silenceDuration: 0,
+  });
+  const speechBufferRef = useRef({ parts: [], totalSamples: 0 });
+  const lastTranscriptRef = useRef(lastTranscript);
+
+  const resetVadState = useCallback(() => {
+    vadStateRef.current = {
+      noiseFloor: 0.01,
+      initialized: false,
+      collecting: false,
+      speechDuration: 0,
+      silenceDuration: 0,
+    };
+    speechBufferRef.current = { parts: [], totalSamples: 0 };
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     const el = listRef.current;
@@ -56,8 +79,12 @@ export default function GeneralChat() {
     if (!liveEnabled) {
       setLiveStatus("");
       setLastTranscript("");
+      lastTranscriptRef.current = "";
+      resetVadState();
+      return;
     }
-  }, [liveEnabled]);
+    resetVadState();
+  }, [liveEnabled, resetVadState]);
 
   useEffect(() => {
     voiceEnabledRef.current = voiceEnabled;
@@ -87,6 +114,10 @@ export default function GeneralChat() {
   useEffect(() => {
     voicePathsRef.current = voicePaths;
   }, [voicePaths]);
+
+  useEffect(() => {
+    lastTranscriptRef.current = lastTranscript;
+  }, [lastTranscript]);
 
   useEffect(() => {
     const loadModels = async () => {
@@ -316,6 +347,13 @@ export default function GeneralChat() {
         }
         return;
       }
+      if (trimmed === lastTranscriptRef.current) {
+        if (liveEnabledRef.current) {
+          setLiveStatus("Listening…");
+        }
+        return;
+      }
+      lastTranscriptRef.current = trimmed;
       setLastTranscript(trimmed);
       voiceQueueRef.current.push(trimmed);
       if (!pending) {
@@ -388,15 +426,19 @@ export default function GeneralChat() {
       const rendered = await offline.startRendering();
       const samples = rendered.getChannelData(0);
       const pcm = new Int16Array(samples.length);
+      let sumSquares = 0;
       let peak = 0;
       for (let i = 0; i < samples.length; i += 1) {
         let sample = samples[i];
         if (sample > 1) sample = 1;
         if (sample < -1) sample = -1;
         peak = Math.max(peak, Math.abs(sample));
+        sumSquares += sample * sample;
         pcm[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
       }
-      return { pcm, peak };
+      const rms = samples.length ? Math.sqrt(sumSquares / samples.length) : 0;
+      const durationSec = samples.length / TARGET_SAMPLE_RATE;
+      return { pcm, peak, rms, durationSec };
     },
     [ensureDecodeContext]
   );
@@ -407,26 +449,106 @@ export default function GeneralChat() {
       try {
         const result = await convertBlobToPCM(blob);
         if (!result) return;
-        const { pcm, peak } = result;
-        if (!pcm?.length || peak < 0.01) {
+        const { pcm, peak, rms, durationSec } = result;
+        if (!pcm?.length) {
           return;
         }
-        setLiveStatus("Transcribing…");
-        const bytes = new Uint8Array(pcm.buffer);
-        const audio = Array.from(bytes);
-        const text = await invoke("transcribe_whisper", { audio });
-        const transcript = typeof text === "string" ? text.trim() : "";
-        if (!transcript) {
-          setLiveStatus("Listening…");
-          return;
+        const state = vadStateRef.current;
+        if (!state.initialized) {
+          state.noiseFloor = Math.max(0.005, rms || peak || 0.005);
+          state.initialized = true;
         }
-        setLiveStatus(`Heard: ${transcript}`);
-        handleTranscript(transcript);
-        setTimeout(() => {
-          if (liveEnabledRef.current) {
-            setLiveStatus("Listening…");
+        const noiseFloor = state.noiseFloor;
+        const speechThreshold = noiseFloor * 1.8 + 0.003;
+        const peakThreshold = Math.max(0.02, noiseFloor * 4);
+        const isSpeech = rms > speechThreshold || peak > peakThreshold;
+
+        if (!isSpeech) {
+          state.noiseFloor = noiseFloor * 0.9 + rms * 0.1;
+          if (!state.collecting) {
+            if (liveEnabledRef.current) {
+              setLiveStatus("Listening…");
+            }
+            return;
           }
-        }, 1500);
+          state.silenceDuration += durationSec;
+          if (
+            state.speechDuration >= MIN_SPEECH_DURATION_SEC &&
+            state.silenceDuration >= SILENCE_HOLD_SEC
+          ) {
+            const buffered = speechBufferRef.current;
+            speechBufferRef.current = { parts: [], totalSamples: 0 };
+            state.collecting = false;
+            state.speechDuration = 0;
+            state.silenceDuration = 0;
+            if (!buffered.totalSamples) {
+              if (liveEnabledRef.current) {
+                setLiveStatus("Listening…");
+              }
+              return;
+            }
+            const merged = new Int16Array(buffered.totalSamples);
+            let offset = 0;
+            for (const part of buffered.parts) {
+              merged.set(part, offset);
+              offset += part.length;
+            }
+            setLiveStatus("Transcribing…");
+            const bytes = new Uint8Array(merged.buffer);
+            const audio = Array.from(bytes);
+            const text = await invoke("transcribe_whisper", { audio });
+            const transcript = typeof text === "string" ? text.trim() : "";
+            if (!transcript) {
+              setLiveStatus("Listening…");
+              return;
+            }
+            setLiveStatus(`Heard: ${transcript}`);
+            handleTranscript(transcript);
+            setTimeout(() => {
+              if (liveEnabledRef.current) {
+                setLiveStatus("Listening…");
+              }
+            }, 1500);
+            return;
+          }
+          if (state.silenceDuration >= SILENCE_HOLD_SEC) {
+            speechBufferRef.current = { parts: [], totalSamples: 0 };
+            state.collecting = false;
+            state.speechDuration = 0;
+            state.silenceDuration = 0;
+            if (liveEnabledRef.current) {
+              setLiveStatus("Listening…");
+            }
+          } else if (liveEnabledRef.current) {
+            setLiveStatus("Speech detected…");
+          }
+          return;
+        }
+
+        state.collecting = true;
+        state.speechDuration += durationSec;
+        state.silenceDuration = 0;
+        state.noiseFloor = noiseFloor * 0.995 + rms * 0.005;
+        const buffer = speechBufferRef.current;
+        buffer.parts.push(pcm);
+        buffer.totalSamples += pcm.length;
+        if (buffer.totalSamples > MAX_BUFFERED_SAMPLES) {
+          let totalKept = 0;
+          const retained = [];
+          for (let i = buffer.parts.length - 1; i >= 0; i -= 1) {
+            const part = buffer.parts[i];
+            if (retained.length && totalKept + part.length > MAX_BUFFERED_SAMPLES) {
+              break;
+            }
+            retained.unshift(part);
+            totalKept += part.length;
+          }
+          buffer.parts = retained;
+          buffer.totalSamples = totalKept;
+        }
+        if (liveEnabledRef.current) {
+          setLiveStatus("Speech detected…");
+        }
       } catch (err) {
         console.error("Transcription failed", err);
         const message = err instanceof Error ? err.message : String(err);
@@ -471,7 +593,8 @@ export default function GeneralChat() {
       decodeAudioCtxRef.current = null;
     }
     chunkPromiseRef.current = Promise.resolve();
-  }, []);
+    resetVadState();
+  }, [resetVadState]);
 
   useEffect(() => {
     if (!liveEnabled) {
