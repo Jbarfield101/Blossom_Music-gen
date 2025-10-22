@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Link } from 'react-router-dom';
 import BackButton from '../components/BackButton.jsx';
@@ -1430,10 +1430,10 @@ export default function DndWorldRegions() {
         </button>
         <nav className="regions-breadcrumbs">
           {crumbs.map((c, idx) => (
-            <>
+            <Fragment key={c.path || idx}>
               {idx > 0 && <span className="crumb-sep">/</span>}
-              <button key={c.path} className="crumb" onClick={() => setCurrentPath(c.path)}>{c.label}</button>
-            </>
+              <button className="crumb" onClick={() => setCurrentPath(c.path)}>{c.label}</button>
+            </Fragment>
           ))}
         </nav>
         {error && <span className="error">{error}</span>}
