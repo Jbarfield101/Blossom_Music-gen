@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { Link } from 'react-router-dom';
 import BackButton from '../components/BackButton.jsx';
 import Card from '../components/Card.jsx';
@@ -11,6 +12,9 @@ import './Dnd.css';
 import { useVaultVersion } from '../lib/vaultEvents.jsx';
 import matter from 'gray-matter';
 import { ENTITY_ID_PATTERN } from '../lib/dndIds.js';
+import { saveEntity } from '../lib/vaultAdapter.js';
+import DomainSmithModal from '../components/DomainSmithModal.jsx';
+import { DOMAIN_TEMPLATE } from '../templates/domainTemplate.js';
 
 const DEFAULT_REGIONS = 'D:\\Documents\\DreadHaven\\10_World\\Regions';
 
@@ -329,6 +333,24 @@ function extractNameFromPath(path) {
   return last.replace(/\.[^.]+$/, '');
 }
 
+function slugify(value, fallback = 'domain') {
+  const base = value ?? fallback ?? '';
+  return String(base)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+    .replace(/--+/g, '-')
+    || String(fallback ?? 'domain');
+}
+
+function randomHash(length = 6) {
+  let hash = '';
+  while (hash.length < length) {
+    hash += Math.random().toString(36).slice(2);
+  }
+  return hash.slice(0, length);
+}
+
 export default function DndWorldRegions() {
   const [basePath, setBasePath] = useState('');
   const [currentPath, setCurrentPath] = useState('');
@@ -338,6 +360,9 @@ export default function DndWorldRegions() {
   const [activePath, setActivePath] = useState('');
   const [activeContent, setActiveContent] = useState('');
   const [metadataMap, setMetadataMap] = useState({});
+  const [showDomainSmith, setShowDomainSmith] = useState(false);
+  const [domainForm, setDomainForm] = useState({ name: '', flavor: '', regionPath: '' });
+  const [domainStatus, setDomainStatus] = useState({ stage: 'idle', error: '', message: '' });
   const metadataRef = useRef({});
   const regionsVersion = useVaultVersion(['10_world/regions']);
 
@@ -475,6 +500,154 @@ export default function DndWorldRegions() {
     return out;
   }, [basePath, currentPath]);
 
+  const regionOptions = useMemo(() => {
+    const seen = new Set();
+    const options = [];
+    for (const crumb of crumbs) {
+      if (!crumb || !crumb.path) continue;
+      if (seen.has(crumb.path)) continue;
+      seen.add(crumb.path);
+      options.push({ value: crumb.path, label: crumb.label || crumb.path });
+    }
+    for (const entry of items) {
+      if (!entry || !entry.is_dir || !entry.path) continue;
+      if (seen.has(entry.path)) continue;
+      seen.add(entry.path);
+      options.push({ value: entry.path, label: entry.name.replace(/\.[^.]+$/, '') || entry.path });
+    }
+    return options;
+  }, [crumbs, items]);
+
+  const handleOpenDomainSmith = useCallback(() => {
+    if (domainStatus.stage === 'generating' || domainStatus.stage === 'saving') return;
+    const defaultRegion = (currentPath && currentPath.trim())
+      ? currentPath
+      : (basePath && basePath.trim())
+        ? basePath
+        : (regionOptions[0]?.value || '');
+    setDomainForm({ name: '', flavor: '', regionPath: defaultRegion });
+    setDomainStatus({ stage: 'idle', error: '', message: '' });
+    setShowDomainSmith(true);
+  }, [basePath, currentPath, domainStatus.stage, regionOptions]);
+
+  const handleDomainClose = useCallback(() => {
+    setShowDomainSmith(false);
+    const fallbackRegion = (currentPath && currentPath.trim()) || (basePath && basePath.trim()) || '';
+    setDomainForm((prev) => ({ name: '', flavor: '', regionPath: prev.regionPath || fallbackRegion }));
+    setDomainStatus({ stage: 'idle', error: '', message: '' });
+  }, [basePath, currentPath]);
+
+  const handleDomainFormChange = useCallback((patch) => {
+    setDomainForm((prev) => ({ ...prev, ...patch }));
+    setDomainStatus((prev) => {
+      if (prev.stage === 'idle' && !prev.error && !prev.message) return prev;
+      return { stage: 'idle', error: '', message: '' };
+    });
+  }, []);
+
+  const handleDomainSubmit = useCallback(
+    async (event) => {
+      event.preventDefault();
+      const trimmedName = String(domainForm.name || '').trim();
+      const selectedRegion = String(domainForm.regionPath || '').trim();
+      if (!trimmedName) {
+        setDomainStatus({ stage: 'error', error: 'Please provide a domain name.', message: '' });
+        return;
+      }
+      const targetFolder = selectedRegion || currentPath || basePath;
+      if (!targetFolder) {
+        setDomainStatus({ stage: 'error', error: 'Pick a folder to store the new domain.', message: '' });
+        return;
+      }
+
+      const slug = slugify(trimmedName);
+      const hash = randomHash(6);
+      const domainId = `domain_${slug}_${hash}`;
+      const crumbTrail = crumbs.map((crumb) => crumb.label).filter(Boolean).join(' > ') || 'Regions';
+      const folderNames = items
+        .filter((item) => item?.is_dir)
+        .map((item) => item.name.replace(/\.[^.]+$/, ''))
+        .filter(Boolean);
+      const optionLookup = new Map(regionOptions.map((opt) => [opt.value, opt.label]));
+      const regionDescriptor = optionLookup.get(targetFolder) || targetFolder;
+      const promptSections = [
+        `Fill out the Dungeons & Dragons domain template for a new domain named "${trimmedName}".`,
+        domainForm.flavor ? `Creative direction for Blossom:\n${domainForm.flavor.trim()}` : '',
+        `Destination folder: ${regionDescriptor} (${targetFolder}). Breadcrumb trail: ${crumbTrail}.`,
+        folderNames.length ? `Nearby folders here: ${folderNames.join(', ')}.` : '',
+        `Template to follow:\n${DOMAIN_TEMPLATE}`,
+        [
+          'Formatting requirements:',
+          `- Set the YAML id to "${domainId}".`,
+          '- Keep the type as "domain".',
+          '- Populate every field with concise, evocative lore suitable for tabletop play.',
+          '- Preserve all keys and comments from the template.',
+          '- Use YAML arrays for list values and provide at least two gm_secrets.',
+          '- Respond with Markdown only.',
+        ].join('\n'),
+      ].filter(Boolean);
+
+      const prompt = promptSections.join('\n\n');
+      const systemMessage =
+        'You are Blossom, an expert tabletop worldbuilding assistant. Return polished Markdown that strictly matches the provided template order, producing immersive yet practical details for a busy Dungeon Master.';
+
+      setDomainStatus({ stage: 'generating', error: '', message: '' });
+
+      try {
+        const llmResponse = await invoke('generate_llm', { prompt, system: systemMessage });
+        const generated = typeof llmResponse === 'string' ? llmResponse.trim() : '';
+        if (!generated) {
+          throw new Error('The language model returned an empty response.');
+        }
+
+        setDomainStatus({ stage: 'saving', error: '', message: '' });
+
+        const parsed = matter(generated);
+        const entityData = parsed?.data && typeof parsed.data === 'object' ? { ...parsed.data } : null;
+        if (!entityData) {
+          throw new Error('Generated markdown is missing YAML front matter.');
+        }
+        if (!entityData.id) entityData.id = domainId;
+        if (!entityData.type) entityData.type = 'domain';
+        if (!entityData.name) entityData.name = trimmedName;
+
+        const body = parsed?.content ?? '';
+        const filenameSlug = slugify(entityData.name || trimmedName, slug);
+        const targetPath = joinPath(targetFolder, `${filenameSlug}.md`);
+
+        await saveEntity({ entity: entityData, body, path: targetPath, format: 'markdown' });
+
+        await fetchList(targetFolder);
+        setCurrentPath(targetFolder);
+        setActivePath(targetPath);
+        setDomainForm({ name: '', flavor: '', regionPath: targetFolder });
+        setDomainStatus({
+          stage: 'success',
+          error: '',
+          message: `Saved ${entityData.name || trimmedName} to ${targetFolder}.`,
+        });
+      } catch (err) {
+        console.error('Domain Smith failed', err);
+        setDomainStatus({
+          stage: 'error',
+          error: err?.message || 'Failed to forge the domain. Try again.',
+          message: '',
+        });
+      }
+    },
+    [
+      basePath,
+      crumbs,
+      currentPath,
+      domainForm.name,
+      domainForm.flavor,
+      domainForm.regionPath,
+      fetchList,
+      items,
+      regionOptions,
+    ],
+  );
+
   const metadataByEntityId = useMemo(() => {
     const map = new Map();
     for (const [path, meta] of Object.entries(metadataMap)) {
@@ -591,7 +764,7 @@ export default function DndWorldRegions() {
       title: 'Domain Smith',
       icon: 'Hammer',
       description: 'Forge bespoke divine domains and portfolios.',
-      onClick: () => { /* TODO: wire Domain Smith */ },
+      onClick: handleOpenDomainSmith,
     },
     {
       key: 'location-smith',
@@ -611,6 +784,15 @@ export default function DndWorldRegions() {
 
   return (
     <>
+      <DomainSmithModal
+        open={showDomainSmith}
+        form={domainForm}
+        onChange={handleDomainFormChange}
+        onClose={handleDomainClose}
+        onSubmit={handleDomainSubmit}
+        status={domainStatus}
+        regionOptions={regionOptions}
+      />
       <BackButton />
       <h1>Dungeons & Dragons · Regions</h1>
       <div className="regions-controls">
