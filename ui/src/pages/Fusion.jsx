@@ -1,7 +1,23 @@
 import { useState, useCallback, useEffect } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { isTauri, invoke } from '@tauri-apps/api/core';
 import BackButton from '../components/BackButton.jsx';
 import './Fusion.css';
+
+function extractPromptField(result, key) {
+  if (!result || typeof result !== 'object') {
+    return '';
+  }
+  const direct = result[key];
+  if (typeof direct === 'string' || typeof direct === 'number') {
+    return String(direct);
+  }
+  const snakeKey = key.replace(/([A-Z])/g, '_').toLowerCase();
+  const fallback = result[snakeKey];
+  if (typeof fallback === 'string' || typeof fallback === 'number') {
+    return String(fallback);
+  }
+  return '';
+}
 
 export default function Fusion() {
   const [conceptA, setConceptA] = useState('');
@@ -17,8 +33,35 @@ export default function Fusion() {
   const [history, setHistory] = useState([]); // [{a,b,prompt,negative,candidates?,ts}]
   const [promptCandidates, setPromptCandidates] = useState([]);
   const [selectedCandidateIndex, setSelectedCandidateIndex] = useState(0);
+  const [isTauriEnv, setIsTauriEnv] = useState(false);
+  const [statusInfo, setStatusInfo] = useState(null);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [dialogLoading, setDialogLoading] = useState(false);
+  const [dialogError, setDialogError] = useState('');
+  const [stepsInput, setStepsInput] = useState('');
+  const [batchSizeInput, setBatchSizeInput] = useState('');
+  const [sceneMeta, setSceneMeta] = useState(null);
 
   const HISTORY_KEY = 'blossom.fusion.history';
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const tauri = await isTauri();
+        if (!cancelled) {
+          setIsTauriEnv(Boolean(tauri));
+        }
+      } catch {
+        if (!cancelled) {
+          setIsTauriEnv(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Load recent fusion history
   useEffect(() => {
@@ -49,6 +92,155 @@ export default function Fusion() {
     const value = min + Math.random() * (max - min);
     return Number(value.toFixed(2));
   }, []);
+
+  const closeDialog = useCallback(() => {
+    setIsDialogOpen(false);
+    setDialogError('');
+    setDialogLoading(false);
+    setSceneMeta(null);
+    setStepsInput('');
+    setBatchSizeInput('');
+  }, []);
+
+  const openGenerateModal = useCallback(async () => {
+    const trimmedPrompt = fusionResult.trim();
+    if (!trimmedPrompt) {
+      return;
+    }
+    if (!isTauriEnv) {
+      setStatusInfo({
+        type: 'warning',
+        content: 'Image generation is only available in the Blossom desktop app.',
+      });
+      return;
+    }
+    setIsDialogOpen(true);
+    setDialogLoading(true);
+    setDialogError('');
+    setSceneMeta(null);
+    setStepsInput('20');
+    setBatchSizeInput('1');
+    try {
+      const result = await invoke('get_lofi_scene_prompts');
+      const fetchedSteps = extractPromptField(result, 'steps') || '20';
+      const fetchedBatch = extractPromptField(result, 'batchSize') || '1';
+      const fetchedSeed = extractPromptField(result, 'seed') || '0';
+      const fetchedSeedBehavior = extractPromptField(result, 'seedBehavior') || 'fixed';
+      const fetchedCfg = extractPromptField(result, 'cfg') || '2.5';
+      const fetchedPrefix = extractPromptField(result, 'fileNamePrefix') || 'LofiScene';
+      setStepsInput(fetchedSteps);
+      setBatchSizeInput(fetchedBatch);
+      setSceneMeta({
+        seed: fetchedSeed,
+        seedBehavior: fetchedSeedBehavior,
+        cfg: fetchedCfg,
+        fileNamePrefix: fetchedPrefix,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setDialogError(message || 'Failed to load current workflow settings.');
+      setStepsInput((prev) => prev || '20');
+      setBatchSizeInput((prev) => prev || '1');
+    } finally {
+      setDialogLoading(false);
+    }
+  }, [fusionResult, isTauriEnv]);
+
+  const confirmGenerate = useCallback(async () => {
+    const trimmedPrompt = fusionResult.trim();
+    if (!trimmedPrompt) {
+      setDialogError('A fusion prompt is required to queue an image render.');
+      return;
+    }
+    if (!isTauriEnv) {
+      closeDialog();
+      setStatusInfo({
+        type: 'warning',
+        content: 'Image generation is only available in the Blossom desktop app.',
+      });
+      return;
+    }
+
+    const parsedSteps = Number.parseInt(String(stepsInput || '').trim(), 10);
+    if (!Number.isFinite(parsedSteps) || parsedSteps <= 0) {
+      setDialogError('Steps must be a positive integer.');
+      return;
+    }
+
+    const parsedBatch = Number.parseInt(String(batchSizeInput || '').trim(), 10);
+    if (!Number.isFinite(parsedBatch) || parsedBatch <= 0) {
+      setDialogError('Batch size must be a positive integer.');
+      return;
+    }
+
+    const parseInteger = (value, fallback) => {
+      const result = Number.parseInt(String(value ?? '').trim(), 10);
+      return Number.isFinite(result) ? result : fallback;
+    };
+
+    const parseNumber = (value, fallback) => {
+      const result = Number(value);
+      return Number.isFinite(result) ? result : fallback;
+    };
+
+    const existing = sceneMeta || {};
+    const payload = {
+      prompt: trimmedPrompt,
+      negativePrompt: includeNegative ? negativeResult.trim() : '',
+      steps: parsedSteps,
+      batchSize: parsedBatch,
+      seed: parseInteger(existing.seed, 0),
+      seedBehavior:
+        typeof existing.seedBehavior === 'string' && existing.seedBehavior.trim()
+          ? existing.seedBehavior.trim()
+          : 'fixed',
+      cfg: parseNumber(existing.cfg, 2.5),
+      fileNamePrefix:
+        typeof existing.fileNamePrefix === 'string' && existing.fileNamePrefix.trim()
+          ? existing.fileNamePrefix.trim()
+          : 'LofiScene',
+    };
+
+    setStatusInfo(null);
+    setDialogLoading(true);
+    setDialogError('');
+    try {
+      await invoke('update_lofi_scene_prompts', { payload });
+      try {
+        await invoke('queue_lofi_scene_job');
+        setStatusInfo({
+          type: 'success',
+          content: (
+            <span>
+              Image render queued!{' '}
+              <a
+                href="#/visual-generator/lofi-scene-maker"
+                style={{ color: 'inherit', textDecoration: 'underline' }}
+              >
+                Open job queue
+              </a>
+            </span>
+          ),
+        });
+      } catch (queueError) {
+        const queueMessage = queueError instanceof Error ? queueError.message : String(queueError);
+        setStatusInfo({
+          type: 'error',
+          content: (
+            <span>
+              Prompts saved but failed to queue the render: {queueMessage}
+            </span>
+          ),
+        });
+      }
+      closeDialog();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setDialogError(message || 'Failed to update workflow prompts.');
+    } finally {
+      setDialogLoading(false);
+    }
+  }, [batchSizeInput, closeDialog, fusionResult, includeNegative, isTauriEnv, negativeResult, sceneMeta, stepsInput]);
 
   const copyText = async (text) => {
     const str = String(text || '');
@@ -99,6 +291,7 @@ export default function Fusion() {
     const a = conceptA.trim();
     const b = conceptB.trim();
     setError('');
+    setStatusInfo(null);
     setNegativeResult('');
     setPromptCandidates([]);
     setSelectedCandidateIndex(0);
@@ -196,6 +389,17 @@ export default function Fusion() {
       setLoadingFuse(false);
     }
   };
+
+  const trimmedFusionPrompt = fusionResult.trim();
+  const isGenerateDisabled = loadingFuse || !trimmedFusionPrompt || dialogLoading || isDialogOpen;
+
+  const statusPalette = {
+    success: { border: 'rgba(34, 197, 94, 0.45)', background: 'rgba(34, 197, 94, 0.12)' },
+    warning: { border: 'rgba(250, 204, 21, 0.55)', background: 'rgba(250, 204, 21, 0.12)' },
+    error: { border: 'rgba(248, 113, 113, 0.55)', background: 'rgba(248, 113, 113, 0.12)' },
+    default: { border: 'rgba(148, 163, 184, 0.35)', background: 'rgba(148, 163, 184, 0.12)' },
+  };
+  const statusStyle = statusInfo ? statusPalette[statusInfo.type] || statusPalette.default : null;
 
   return (
     <div className="fusion">
@@ -343,9 +547,185 @@ export default function Fusion() {
                 </div>
               </div>
             )}
+            <div style={{ gridColumn: '1 / -1', marginTop: '0.25rem' }}>
+              <button
+                type="button"
+                className="p-sm"
+                onClick={openGenerateModal}
+                disabled={isGenerateDisabled}
+                style={{
+                  width: '100%',
+                  padding: '0.85rem 1rem',
+                  fontSize: '1rem',
+                  fontWeight: 600,
+                  borderRadius: '10px',
+                  border: '1px solid var(--border)',
+                  background: isGenerateDisabled ? 'rgba(148, 163, 184, 0.12)' : 'var(--accent)',
+                  color: isGenerateDisabled ? 'rgba(148, 163, 184, 0.8)' : '#101010',
+                  cursor: isGenerateDisabled ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Generate Image
+              </button>
+            </div>
           </div>
         )}
       </div>
+      {statusInfo?.content && (
+        <div
+          role="status"
+          style={{
+            marginTop: '0.85rem',
+            padding: '0.9rem 1.1rem',
+            borderRadius: '12px',
+            border: `1px solid ${statusStyle?.border || 'rgba(148, 163, 184, 0.35)'}`,
+            background: statusStyle?.background || 'rgba(148, 163, 184, 0.12)',
+            color: 'inherit',
+          }}
+        >
+          {statusInfo.content}
+        </div>
+      )}
+      {isDialogOpen && (
+        <div
+          role="presentation"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1.5rem',
+            zIndex: 50,
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="fusion-generate-title"
+            style={{
+              width: 'min(520px, 100%)',
+              background: 'var(--card-bg, #0f172a)',
+              color: 'var(--text, #e2e8f0)',
+              borderRadius: '16px',
+              boxShadow: '0 22px 65px rgba(15, 23, 42, 0.55)',
+              padding: '1.6rem',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+            }}
+          >
+            <h2 id="fusion-generate-title" style={{ marginTop: 0, marginBottom: '0.75rem' }}>
+              Ready to render?
+            </h2>
+            <p style={{ margin: '0 0 1rem', lineHeight: 1.5 }}>
+              Blossom will update the Lofi Scene Maker workflow with this prompt and queue it for ComfyUI rendering.
+            </p>
+            <div style={{ display: 'grid', gap: '0.85rem' }}>
+              <div>
+                <div style={{ fontWeight: 600, marginBottom: '0.35rem' }}>Prompt</div>
+                <div
+                  style={{
+                    border: '1px solid var(--border)',
+                    borderRadius: '10px',
+                    padding: '0.75rem',
+                    whiteSpace: 'pre-wrap',
+                    background: 'rgba(15, 23, 42, 0.25)',
+                    fontSize: '0.95rem',
+                    lineHeight: 1.6,
+                  }}
+                >
+                  {trimmedFusionPrompt}
+                </div>
+              </div>
+              {includeNegative && (
+                <div>
+                  <div style={{ fontWeight: 600, marginBottom: '0.35rem' }}>Negative prompt</div>
+                  <div
+                    style={{
+                      border: '1px solid var(--border)',
+                      borderRadius: '10px',
+                      padding: '0.65rem',
+                      whiteSpace: 'pre-wrap',
+                      background: 'rgba(15, 23, 42, 0.25)',
+                      fontSize: '0.9rem',
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    {negativeResult.trim() || 'Negative prompt is empty.'}
+                  </div>
+                </div>
+              )}
+              <div style={{ display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
+                <label style={{ display: 'grid', gap: '0.35rem' }}>
+                  <span style={{ fontWeight: 600 }}>Steps</span>
+                  <input
+                    type="number"
+                    min="1"
+                    value={stepsInput}
+                    onChange={(event) => setStepsInput(event.target.value)}
+                    disabled={dialogLoading}
+                    style={{
+                      padding: '0.6rem 0.75rem',
+                      borderRadius: '10px',
+                      border: '1px solid var(--border)',
+                      background: 'var(--card-bg, #0f172a)',
+                      color: 'var(--text, #e2e8f0)',
+                    }}
+                  />
+                </label>
+                <label style={{ display: 'grid', gap: '0.35rem' }}>
+                  <span style={{ fontWeight: 600 }}>Batch size</span>
+                  <input
+                    type="number"
+                    min="1"
+                    value={batchSizeInput}
+                    onChange={(event) => setBatchSizeInput(event.target.value)}
+                    disabled={dialogLoading}
+                    style={{
+                      padding: '0.6rem 0.75rem',
+                      borderRadius: '10px',
+                      border: '1px solid var(--border)',
+                      background: 'var(--card-bg, #0f172a)',
+                      color: 'var(--text, #e2e8f0)',
+                    }}
+                  />
+                </label>
+              </div>
+              {dialogLoading && sceneMeta === null && !dialogError && (
+                <div style={{ fontSize: '0.9rem', opacity: 0.8 }}>Loading current workflow settings…</div>
+              )}
+              {dialogError && (
+                <div style={{ color: 'var(--accent)', fontSize: '0.9rem' }}>Error: {dialogError}</div>
+              )}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.5rem' }}>
+              <button
+                type="button"
+                className="p-sm"
+                onClick={closeDialog}
+                disabled={dialogLoading && sceneMeta !== null}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="p-sm"
+                onClick={confirmGenerate}
+                disabled={dialogLoading}
+                style={{
+                  background: dialogLoading ? 'rgba(148, 163, 184, 0.2)' : 'var(--accent)',
+                  color: dialogLoading ? 'rgba(148, 163, 184, 0.85)' : '#101010',
+                  border: '1px solid var(--accent)',
+                  fontWeight: 600,
+                }}
+              >
+                {dialogLoading ? 'Submitting…' : 'Confirm & render'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {history.length > 0 && (
         <div className="fusion-history" style={{ marginTop: '1rem' }}>
           <h2 style={{ marginBottom: '0.5rem' }}>Recent fusions</h2>
