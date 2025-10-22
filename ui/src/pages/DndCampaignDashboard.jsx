@@ -45,7 +45,7 @@ function trimTrailingSeparators(path) {
 
 function normalizeFsPath(path) {
   if (typeof path !== 'string') return '';
-  return path.replace(/\/g, '/');
+  return path.replaceAll('\\', '/');
 }
 
 function normalizeComparablePath(path) {
