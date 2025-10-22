@@ -18,6 +18,7 @@ export default function GeneralChat() {
   const [installing, setInstalling] = useState(false);
   const [status, setStatus] = useState("");
   const [persona, setPersona] = useState("");
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [liveEnabled, setLiveEnabled] = useState(false);
   const [liveStatus, setLiveStatus] = useState("");
   const [lastTranscript, setLastTranscript] = useState("");
@@ -31,6 +32,7 @@ export default function GeneralChat() {
   const chunkPromiseRef = useRef(Promise.resolve());
   const voiceQueueRef = useRef([]);
   const liveEnabledRef = useRef(liveEnabled);
+  const voiceEnabledRef = useRef(voiceEnabled);
   const voicePathsRef = useRef(voicePaths);
 
   const scrollToBottom = useCallback(() => {
@@ -56,6 +58,31 @@ export default function GeneralChat() {
       setLastTranscript("");
     }
   }, [liveEnabled]);
+
+  useEffect(() => {
+    voiceEnabledRef.current = voiceEnabled;
+    if (!voiceEnabled) {
+      if (audioPlayerRef.current) {
+        try {
+          audioPlayerRef.current.pause();
+        } catch {}
+        audioPlayerRef.current = null;
+      }
+      setLiveStatus((prev) =>
+        prev && (prev.startsWith("Speaking") || prev.startsWith("Voice playback failed"))
+          ? ""
+          : prev
+      );
+    }
+    try {
+      localStorage.setItem(
+        "blossom.voiceRepliesEnabled",
+        voiceEnabled ? "1" : "0"
+      );
+    } catch (e) {
+      console.warn("Failed to persist voice reply preference", e);
+    }
+  }, [voiceEnabled]);
 
   useEffect(() => {
     voicePathsRef.current = voicePaths;
@@ -104,6 +131,14 @@ export default function GeneralChat() {
       }
     } catch (e) {
       console.warn("Failed to read live chat preference", e);
+    }
+    try {
+      const savedVoice = localStorage.getItem("blossom.voiceRepliesEnabled");
+      if (savedVoice === "0") {
+        setVoiceEnabled(false);
+      }
+    } catch (e) {
+      console.warn("Failed to read voice reply preference", e);
     }
   }, []);
 
@@ -170,14 +205,14 @@ export default function GeneralChat() {
   }, [refreshVoiceSelection]);
 
   useEffect(() => {
-    if (liveEnabled) {
+    if (liveEnabled || voiceEnabled) {
       refreshVoiceSelection();
     }
-  }, [liveEnabled, refreshVoiceSelection]);
+  }, [liveEnabled, voiceEnabled, refreshVoiceSelection]);
 
   const speakWithPiper = useCallback(
     async (text) => {
-      if (!liveEnabledRef.current) return;
+      if (!voiceEnabledRef.current) return;
       let { model: modelPath, config: configPath } = voicePathsRef.current;
       if (!modelPath || !configPath) {
         await refreshVoiceSelection();
@@ -202,6 +237,8 @@ export default function GeneralChat() {
         audio.addEventListener("ended", () => {
           if (liveEnabledRef.current) {
             setLiveStatus("Listening…");
+          } else {
+            setLiveStatus("");
           }
         });
         audio.play().catch((err) => {
@@ -586,10 +623,18 @@ export default function GeneralChat() {
         <label style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
           <input
             type="checkbox"
+            checked={voiceEnabled}
+            onChange={(event) => setVoiceEnabled(event.target.checked)}
+          />
+          Speak replies
+        </label>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
+          <input
+            type="checkbox"
             checked={liveEnabled}
             onChange={(event) => setLiveEnabled(event.target.checked)}
           />
-          Live Chat
+          Listen to me (Live Chat)
         </label>
       </div>
       {status && <div style={{ fontSize: "0.9rem", opacity: 0.8 }}>{status}</div>}
