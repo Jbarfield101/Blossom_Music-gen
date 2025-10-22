@@ -1,4 +1,4 @@
-export const DOMAIN_TEMPLATE = `# 🏰 DOMAIN v1.1 (AI-Ready)
+export const DOMAIN_TEMPLATE = `# 🏰 DOMAIN v1.2 (AI-Ready, with Counties)
 
 ---
 id: domain_<slug>_<hash>              # e.g., domain_bloodreed_hold_8b2c
@@ -54,6 +54,25 @@ politics:
   laws_and_justice: []
   foreign_relations: []
 
+# 🧭 Administrative divisions (NEW)
+administrative_divisions:
+  counties:                             # list of county_* ids or inline objects
+    - id: county_<slug>_<hash>
+      name: ""
+      seat_of_power: ""                 # chief town/fortress
+      population: ""                    # or estimate
+      allegiance: ""                    # house/faction
+      notes: ""
+    - id: county_<slug>_<hash>
+      name: ""
+      seat_of_power: ""
+      population: ""
+      allegiance: ""
+      notes: ""
+  # Optional: other sub-divisions like marches/prefectures
+  marches: []
+  prefectures: []
+
 # Culture & society
 culture:
   appearance_and_dress: []
@@ -94,7 +113,7 @@ rumors:
 relationships:
   allies: []
   rivals: []
-  vassals: []
+  vassals: []                           # may include county_* rulers
   foreign_ties: []
 
 # Dynamic state (for campaign tracking)
@@ -107,11 +126,12 @@ session_state:
   recent_events: []
 
 # Cross-links
-related_docs: []                       # npc_*, faction_*, item_*, quest_* ids
+related_docs: []                       # npc_*, faction_*, item_*, quest_*, county_* ids
 
 # Media & ambience
 art:
   map: vault://images/domains/<id>.png
+  counties_map: vault://images/domains/<id>_counties.png
   emblem: vault://images/domains/<id>_emblem.png
 music_cue_prompt: >
   ...
@@ -133,6 +153,10 @@ privacy: gm|player
 
 ## ⚖️ Political Structure
 (System of rule, factions, laws, relations.)
+
+## 🧭 Administrative Divisions
+- **Counties:** List each county with seat, allegiance, and a one-line hook.
+- **Other Subdivisions:** Marches, prefectures, etc., if relevant.
 
 ## 🎭 Culture & People
 (Appearance, beliefs, festivals, arts, daily life.)
