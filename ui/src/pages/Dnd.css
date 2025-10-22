@@ -204,6 +204,102 @@
   color: rgba(241, 245, 249, 0.9);
 }
 
+.dual-range-slider {
+  position: relative;
+  width: 100%;
+  height: 40px;
+  display: flex;
+  align-items: center;
+}
+
+.dual-range-slider .dual-range-track {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.25);
+}
+
+.dual-range-slider .dual-range-track::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--range-start, 0%);
+  right: calc(100% - var(--range-end, 100%));
+  background: var(--accent, #38bdf8);
+  border-radius: inherit;
+}
+
+.dual-range-slider input[type='range'] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  margin: 0;
+  background: none;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.dual-range-slider input[type='range']::-webkit-slider-thumb {
+  pointer-events: auto;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 18px;
+  width: 18px;
+  border-radius: 50%;
+  background: var(--accent, #38bdf8);
+  border: 2px solid rgba(15, 23, 42, 0.95);
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.4);
+  transition: transform 0.15s ease;
+}
+
+.dual-range-slider input[type='range']::-webkit-slider-thumb:active {
+  transform: scale(1.1);
+}
+
+.dual-range-slider input[type='range']::-moz-range-thumb {
+  pointer-events: auto;
+  height: 18px;
+  width: 18px;
+  border-radius: 50%;
+  background: var(--accent, #38bdf8);
+  border: 2px solid rgba(15, 23, 42, 0.95);
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.4);
+  transition: transform 0.15s ease;
+}
+
+.dual-range-slider input[type='range']::-moz-range-thumb:active {
+  transform: scale(1.1);
+}
+
+.dual-range-slider input[type='range']::-webkit-slider-runnable-track {
+  height: 6px;
+  background: transparent;
+}
+
+.dual-range-slider input[type='range']::-moz-range-track {
+  height: 6px;
+  background: transparent;
+}
+
+.dual-range-slider.is-disabled .dual-range-track {
+  background: rgba(148, 163, 184, 0.2);
+}
+
+.dual-range-slider.is-disabled .dual-range-track::after {
+  background: rgba(148, 163, 184, 0.4);
+}
+
+.dual-range-slider.is-disabled input[type='range']::-webkit-slider-thumb,
+.dual-range-slider.is-disabled input[type='range']::-moz-range-thumb {
+  background: rgba(148, 163, 184, 0.55);
+  border-color: rgba(15, 23, 42, 0.6);
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.35);
+}
+
 .dnd-modal-actions {
   display: flex;
   justify-content: flex-end;
