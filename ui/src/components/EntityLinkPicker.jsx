@@ -44,14 +44,7 @@ async function loadTypeEntries(type) {
   const promise = listEntitiesByType(key, { force: false })
     .then((result) => {
       const entries = Array.isArray(result?.entries) ? result.entries : [];
-      const normalized = entries
-        .map((entry) => ({
-          id: entry?.id || entry?.index?.id || '',
-          name: entry?.title || entry?.name || entry?.index?.name || '',
-          type: entry?.type || key,
-          relPath: entry?.relPath || entry?.path || '',
-        }))
-        .filter((entry) => entry.id);
+      const normalized = normalizeEntries(entries, key);
       typeCache.set(key, normalized);
       return normalized;
     })
@@ -97,6 +90,79 @@ function cloneEntries(entries) {
   return entries.map((entry) => ({ ...entry }));
 }
 
+function normalizeEntries(entries, fallbackType = '') {
+  if (!Array.isArray(entries)) return [];
+  const normalized = [];
+  entries.forEach((entry) => {
+    if (entry == null) return;
+    if (typeof entry === 'string' || typeof entry === 'number') {
+      const id = String(entry).trim();
+      if (id) {
+        normalized.push({ id, name: '', type: fallbackType, relPath: '' });
+      }
+      return;
+    }
+    if (typeof entry === 'object') {
+      const rawId = entry.id
+        ?? entry.value
+        ?? entry.entityId
+        ?? entry.slug
+        ?? entry.index?.id
+        ?? entry.indexId
+        ?? null;
+      const id = rawId != null ? String(rawId).trim() : '';
+      if (!id) return;
+      const rawName = entry.name
+        ?? entry.label
+        ?? entry.title
+        ?? entry.text
+        ?? entry.index?.name
+        ?? '';
+      const name = rawName != null ? String(rawName).trim() : '';
+      const rawType = entry.type
+        ?? entry.entityType
+        ?? entry.kind
+        ?? entry.index?.type
+        ?? fallbackType;
+      const type = rawType != null ? String(rawType).trim() : '';
+      const rawRelPath = entry.relPath
+        ?? entry.path
+        ?? entry.file
+        ?? entry.filePath
+        ?? entry.index?.relPath
+        ?? entry.index?.path
+        ?? '';
+      const relPath = rawRelPath != null ? String(rawRelPath).trim() : '';
+      normalized.push({ id, name, type, relPath });
+    }
+  });
+  return normalized;
+}
+
+function mergeAndSortEntries(entries) {
+  if (!Array.isArray(entries)) return [];
+  const deduped = new Map();
+  entries.forEach((entry) => {
+    if (!entry?.id) return;
+    const existing = deduped.get(entry.id);
+    if (!existing) {
+      deduped.set(entry.id, entry);
+      return;
+    }
+    if (!existing.name && entry.name) {
+      deduped.set(entry.id, entry);
+    }
+  });
+  const sorted = Array.from(deduped.values()).sort((a, b) => {
+    const labelA = (a.name || a.id || '').toLowerCase();
+    const labelB = (b.name || b.id || '').toLowerCase();
+    if (labelA < labelB) return -1;
+    if (labelA > labelB) return 1;
+    return 0;
+  });
+  return cloneEntries(sorted);
+}
+
 export default function EntityLinkPicker({
   value,
   onChange,
@@ -105,9 +171,14 @@ export default function EntityLinkPicker({
   disabled = false,
   autoComplete = 'off',
   helperText = '',
+  options: externalOptions = null,
 }) {
-  const [options, setOptions] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const hasExternalOptions = Array.isArray(externalOptions);
+  const initialOptions = hasExternalOptions
+    ? mergeAndSortEntries(normalizeEntries(externalOptions))
+    : [];
+  const [options, setOptions] = useState(initialOptions);
+  const [loading, setLoading] = useState(!hasExternalOptions);
   const [error, setError] = useState('');
   const [inputValue, setInputValue] = useState('');
   const [committedValue, setCommittedValue] = useState('');
@@ -117,52 +188,44 @@ export default function EntityLinkPicker({
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError('');
-    (async () => {
-      try {
-        const results = await Promise.all(normalizedTypes.map((type) => loadTypeEntries(type)));
-        if (cancelled) return;
-        const merged = [];
-        results.forEach((entries) => {
-          entries.forEach((entry) => {
-            if (!entry?.id) return;
-            merged.push(entry);
-          });
-        });
-        const deduped = new Map();
-        merged.forEach((entry) => {
-          const existing = deduped.get(entry.id);
-          if (!existing) {
-            deduped.set(entry.id, entry);
-            return;
-          }
-          if (!existing.name && entry.name) {
-            deduped.set(entry.id, entry);
-          }
-        });
-        const finalOptions = cloneEntries(Array.from(deduped.values())).sort((a, b) => {
-          const labelA = (a.name || a.id || '').toLowerCase();
-          const labelB = (b.name || b.id || '').toLowerCase();
-          if (labelA < labelB) return -1;
-          if (labelA > labelB) return 1;
-          return 0;
-        });
+    if (Array.isArray(externalOptions)) {
+      const finalOptions = mergeAndSortEntries(normalizeEntries(externalOptions));
+      if (!cancelled) {
         setOptions(finalOptions);
-      } catch (err) {
-        if (!cancelled) {
-          console.error('EntityLinkPicker failed to load entities', err);
-          setOptions([]);
-          setError(err?.message || 'Failed to load entities');
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
+        setError('');
       }
-    })();
+    } else {
+      setLoading(true);
+      setError('');
+      (async () => {
+        try {
+          const results = await Promise.all(normalizedTypes.map((type) => loadTypeEntries(type)));
+          if (cancelled) return;
+          const merged = [];
+          results.forEach((entries) => {
+            entries.forEach((entry) => {
+              if (!entry?.id) return;
+              merged.push(entry);
+            });
+          });
+          const finalOptions = mergeAndSortEntries(merged);
+          setOptions(finalOptions);
+        } catch (err) {
+          if (!cancelled) {
+            console.error('EntityLinkPicker failed to load entities', err);
+            setOptions([]);
+            setError(err?.message || 'Failed to load entities');
+          }
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      })();
+    }
     return () => {
       cancelled = true;
     };
-  }, [normalizedTypes]);
+  }, [normalizedTypes, externalOptions]);
 
   const optionMap = useMemo(() => {
     const map = new Map();
