@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
 import Card from '../components/Card.jsx';
 import { listenToTagUpdates, updateSectionTags } from '../api/tags.js';
@@ -9,6 +9,7 @@ import { listDir } from '../api/dir';
 import { listInbox, readInbox } from '../api/inbox';
 import { listNpcs } from '../api/npcs';
 import { saveGodPortrait, saveNpcPortrait } from '../api/images';
+import { createSpell } from '../api/spells';
 import { invoke } from '@tauri-apps/api/core';
 
 const STATUS_LABELS = {
@@ -19,6 +20,9 @@ const STATUS_LABELS = {
   finished: 'Finished',
   error: 'Error',
 };
+
+const DEFAULT_SPELL_BOOK = 'D\\\\Documents\\\\DreadHaven\\\\10_World\\\\SpellBook';
+const SPELLBOOK_MARKDOWN_RE = /\.(md|mdx|markdown)$/i;
 
 function normalizeTags(input) {
   if (!Array.isArray(input)) return [];
@@ -55,6 +59,152 @@ export default function DndTasks() {
   const [imageItems, setImageItems] = useState([]);
   const [imageLoading, setImageLoading] = useState(false);
   const [imageLogs, setImageLogs] = useState([]);
+
+  // Fill spellbook state
+  const [fillSpellbookOpen, setFillSpellbookOpen] = useState(false);
+  const [spellListText, setSpellListText] = useState('');
+  const [spellProvider, setSpellProvider] = useState('openai');
+  const [spellModel, setSpellModel] = useState('');
+  const [spellSubmitting, setSpellSubmitting] = useState(false);
+  const [spellSubmitError, setSpellSubmitError] = useState('');
+  const [spellLogs, setSpellLogs] = useState([]);
+  const [spellCreatedPaths, setSpellCreatedPaths] = useState([]);
+  const [spellbookItems, setSpellbookItems] = useState([]);
+  const [spellbookLoading, setSpellbookLoading] = useState(false);
+  const [spellbookError, setSpellbookError] = useState('');
+
+  const parseSpellNames = useCallback((text) => {
+    if (!text) return [];
+    const seen = new Set();
+    const names = [];
+    const lines = String(text)
+      .split(/\r?\n+/)
+      .map((line) => String(line || '')); 
+    for (const raw of lines) {
+      const cleaned = raw
+        .replace(/^\s*[-*]\s*/, '')
+        .replace(/^\s*\d+\.\s*/, '')
+        .trim();
+      if (!cleaned) continue;
+      const normalized = cleaned.replace(/\s+/g, ' ');
+      const key = normalized.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      names.push(normalized);
+    }
+    return names;
+  }, []);
+
+  const appendSpellLog = useCallback((status, name, message = '') => {
+    setSpellLogs((prev) => prev
+      .concat({
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        status,
+        name,
+        message: message ? String(message) : '',
+        timestamp: Date.now(),
+      })
+      .slice(-200));
+  }, []);
+
+  const fetchSpellbookListing = useCallback(async () => {
+    setSpellbookLoading(true);
+    setSpellbookError('');
+    try {
+      let base = '';
+      const vault = await getDreadhavenRoot();
+      if (typeof vault === 'string' && vault.trim()) {
+        base = `${vault.trim()}\\10_World\\SpellBook`;
+      }
+      if (!base) {
+        base = DEFAULT_SPELL_BOOK;
+      }
+      const list = await listInbox(base);
+      const filtered = Array.isArray(list)
+        ? list.filter((item) => SPELLBOOK_MARKDOWN_RE.test(item?.name || ''))
+        : [];
+      filtered.sort((a, b) => (b?.modified_ms || 0) - (a?.modified_ms || 0));
+      setSpellbookItems(filtered);
+    } catch (err) {
+      setSpellbookItems([]);
+      setSpellbookError(err?.message || String(err));
+    } finally {
+      setSpellbookLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (fillSpellbookOpen) {
+      fetchSpellbookListing();
+    }
+  }, [fillSpellbookOpen, fetchSpellbookListing]);
+
+  const openFillSpellbookModal = () => {
+    if (spellSubmitting) return;
+    setSpellSubmitError('');
+    setSpellLogs([]);
+    setSpellCreatedPaths([]);
+    setFillSpellbookOpen(true);
+  };
+
+  const closeFillSpellbookModal = () => {
+    if (spellSubmitting) return;
+    setFillSpellbookOpen(false);
+    setSpellSubmitError('');
+  };
+
+  const handleSpellSubmit = async (event) => {
+    event.preventDefault();
+    if (spellSubmitting) return;
+    const names = parseSpellNames(spellListText);
+    if (!names.length) {
+      setSpellSubmitError('Add at least one spell name.');
+      return;
+    }
+    setSpellSubmitting(true);
+    setSpellSubmitError('');
+    setSpellLogs([]);
+    setSpellCreatedPaths([]);
+    let successes = 0;
+    let failures = 0;
+    const created = [];
+    try {
+      for (const name of names) {
+        appendSpellLog('started', name, 'Generating spell entry');
+        try {
+          const createdPath = await createSpell(name, undefined, spellProvider, spellModel);
+          if (createdPath) {
+            created.push(createdPath);
+            appendSpellLog('success', name, createdPath);
+          } else {
+            appendSpellLog('success', name, 'Created spell');
+          }
+          successes += 1;
+        } catch (err) {
+          const message = err?.message || String(err);
+          appendSpellLog('error', name, message);
+          failures += 1;
+        }
+      }
+      setSpellCreatedPaths(created);
+      if (successes) {
+        await fetchSpellbookListing();
+      }
+      if (failures) {
+        if (successes) {
+          setSpellSubmitError(`Created ${successes} spells; ${failures} failed.`);
+        } else {
+          setSpellSubmitError('Failed to create spells. Please review the logs and try again.');
+        }
+      } else if (!successes) {
+        setSpellSubmitError('No spells were created.');
+      } else {
+        setSpellSubmitError('');
+      }
+    } finally {
+      setSpellSubmitting(false);
+    }
+  };
 
   const pushImageLog = (status, message) => {
     setImageLogs((prev) => prev.concat({
@@ -218,6 +368,13 @@ export default function DndTasks() {
         <Card icon="Tags" title="Update Tags" onClick={() => setModalOpen(true)}>
           Refresh YAML tags across campaign notes using the shared taxonomies.
         </Card>
+        <Card
+          icon="BookOpen"
+          title="Fill Spellbook"
+          onClick={openFillSpellbookModal}
+        >
+          Paste a list of spell names and auto-generate entries in the SpellBook.
+        </Card>
         <Card icon="Image" title="Update Images" onClick={async () => {
           setImagesOpen(true);
           setImageScanError('');
@@ -332,6 +489,152 @@ export default function DndTasks() {
           Verify NPC metadata, trigger batch repairs, and monitor progress in real time.
         </Card>
       </section>
+
+      {fillSpellbookOpen && (
+        <div
+          className="dnd-modal-backdrop"
+          role="presentation"
+          onClick={(event) => { if (event.target === event.currentTarget) closeFillSpellbookModal(); }}
+        >
+          <div className="dnd-modal" role="dialog" aria-modal="true" aria-labelledby="dnd-spellbook-title">
+            <header className="dnd-modal-header">
+              <div>
+                <h2 id="dnd-spellbook-title">Fill Spellbook</h2>
+                <p className="dnd-modal-subtitle">
+                  Paste spell names and generate fully populated entries in <code>10_World/SpellBook</code>.
+                </p>
+              </div>
+              <button type="button" onClick={closeFillSpellbookModal} disabled={spellSubmitting}>Close</button>
+            </header>
+            <div
+              className="dnd-modal-body"
+              style={{ gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)' }}
+            >
+              <form
+                id="fill-spellbook-form"
+                onSubmit={handleSpellSubmit}
+                style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}
+              >
+                <section>
+                  <h3>Spell List</h3>
+                  <p className="muted">One spell per line. Bullets and numbering are ignored.</p>
+                  <textarea
+                    value={spellListText}
+                    onChange={(event) => setSpellListText(event.target.value)}
+                    rows={12}
+                    disabled={spellSubmitting}
+                    placeholder={'Fire Bolt\nShield\nMage Armor'}
+                    style={{ width: '100%' }}
+                    required
+                  />
+                </section>
+                <section>
+                  <h3>Generation Options</h3>
+                  <div className="dnd-field-group" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <label htmlFor="spell-provider">LLM Provider</label>
+                    <select
+                      id="spell-provider"
+                      value={spellProvider}
+                      onChange={(event) => setSpellProvider(event.target.value)}
+                      disabled={spellSubmitting}
+                    >
+                      <option value="openai">OpenAI</option>
+                      <option value="ollama">Ollama</option>
+                    </select>
+                  </div>
+                  <div className="dnd-field-group" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    <label htmlFor="spell-model">Model Override <span className="muted">(optional)</span></label>
+                    <input
+                      id="spell-model"
+                      type="text"
+                      value={spellModel}
+                      onChange={(event) => setSpellModel(event.target.value)}
+                      placeholder="e.g. gpt-4o-mini or mistral"
+                      disabled={spellSubmitting}
+                    />
+                  </div>
+                </section>
+              </form>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <section className="dnd-task-progress" aria-live="polite">
+                  <div className="dnd-progress-head">
+                    <h3>Generation Log</h3>
+                  </div>
+                  <ol className="dnd-progress-list">
+                    {spellLogs.length === 0 ? (
+                      <li className="dnd-progress-item muted">Waiting to start.</li>
+                    ) : (
+                      spellLogs.map((entry) => (
+                        <li key={entry.id} className={`dnd-progress-item status-${entry.status}`}>
+                          <div className="dnd-progress-row">
+                            <span className="dnd-progress-status">{entry.status}</span>
+                            <span className="dnd-progress-path">{entry.name}</span>
+                          </div>
+                          {entry.message && (
+                            <div className="dnd-progress-message">
+                              {entry.message}
+                            </div>
+                          )}
+                        </li>
+                      ))
+                    )}
+                  </ol>
+                  {spellCreatedPaths.length > 0 && (
+                    <div className="dnd-progress-summaries">
+                      <div className="dnd-summary-card">
+                        <h4>Created Files</h4>
+                        <ul className="commands-list">
+                          {spellCreatedPaths.map((path) => (
+                            <li key={path} className="commands-item" style={{ alignItems: 'center' }}>
+                              <code style={{ wordBreak: 'break-all' }}>{path}</code>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  )}
+                </section>
+                <section className="dnd-task-progress" aria-live="polite">
+                  <div className="dnd-progress-head">
+                    <h3>SpellBook Files</h3>
+                    <button
+                      type="button"
+                      onClick={fetchSpellbookListing}
+                      disabled={spellbookLoading || spellSubmitting}
+                    >
+                      {spellbookLoading ? 'Refreshing…' : 'Refresh'}
+                    </button>
+                  </div>
+                  {spellbookError && <div className="warning" style={{ marginBottom: '0.5rem' }}>{spellbookError}</div>}
+                  {spellbookItems.length === 0 ? (
+                    <div className="muted">No SpellBook files found.</div>
+                  ) : (
+                    <ul className="commands-list">
+                      {spellbookItems.slice(0, 12).map((item) => (
+                        <li key={item.path} className="commands-item">
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                            <strong>{item.title || item.name}</strong>
+                            <span className="muted" style={{ fontSize: '0.8rem' }}>
+                              {item.modified_ms ? new Date(item.modified_ms).toLocaleString() : ''}
+                            </span>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              </div>
+            </div>
+            {spellSubmitError && <div className="dnd-modal-error">{spellSubmitError}</div>}
+            <footer className="dnd-modal-actions">
+              <button type="submit" form="fill-spellbook-form" disabled={spellSubmitting}>
+                {spellSubmitting ? 'Creating…' : 'Create spells'}
+              </button>
+              <button type="button" onClick={closeFillSpellbookModal} disabled={spellSubmitting}>Cancel</button>
+            </footer>
+          </div>
+        </div>
+      )}
 
       {modalOpen && (
         <div className="dnd-modal-backdrop" role="presentation" onClick={handleBackdropClick}>

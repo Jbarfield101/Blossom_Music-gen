@@ -1215,6 +1215,8 @@ async fn generate_llm(
     system: Option<String>,
     temperature: Option<f64>,
     seed: Option<i64>,
+    provider: Option<String>,
+    model: Option<String>,
 ) -> Result<String, String> {
     eprintln!(
         "[llm] generate_llm: prompt_len={}, system_present={}",
@@ -1254,6 +1256,14 @@ async fn generate_llm(
             Some(value) => serde_json::to_string(&value).unwrap_or_else(|_| value.to_string()),
             None => "None".to_string(),
         };
+        let provider_literal = match provider {
+            Some(value) => serde_json::to_string(&value).unwrap_or_else(|_| format!("{:?}", value)),
+            None => "None".to_string(),
+        };
+        let model_literal = match model {
+            Some(value) => serde_json::to_string(&value).unwrap_or_else(|_| format!("{:?}", value)),
+            None => "None".to_string(),
+        };
         let py = format!(
             r#"import sys
 
@@ -1261,6 +1271,8 @@ prompt = {prompt}
 system = {system}
 temperature = {temperature}
 seed = {seed}
+provider = {provider}
+model = {model}
 
 from brain import ollama_client
 
@@ -1273,6 +1285,8 @@ try:
         system=system,
         temperature=temperature,
         seed=seed,
+        provider=provider,
+        model=model,
     )
 except Exception as exc:
     sys.stderr.write(str(exc))
@@ -1287,6 +1301,8 @@ sys.stdout.flush()
             system = system_literal,
             temperature = temperature_literal,
             seed = seed_literal,
+            provider = provider_literal,
+            model = model_literal,
         );
         let output = cmd
             .env("PYTHONIOENCODING", "utf-8")
@@ -4423,7 +4439,7 @@ Frontmatter:\n{frontmatter}\n---\nBody excerpt:\n{body}",
         );
 
         let system = "You return only compact JSON arrays of tags.";
-        let response = match generate_llm(prompt, Some(system.to_string()), None, None).await {
+        let response = match generate_llm(prompt, Some(system.to_string()), None, None, None, None).await {
             Ok(text) => text,
             Err(err) => {
                 failed_notes += 1;
@@ -5055,7 +5071,7 @@ async fn npc_create(
     };
     let system = Some(String::from("You are a helpful worldbuilding assistant. Produce clean, cohesive Markdown. Keep a grounded tone; avoid overpowered traits."));
     eprintln!("[blossom] npc_create: invoking LLM generation");
-    let content = generate_llm(prompt, system, None, None).await?;
+    let content = generate_llm(prompt, system, None, None, None, None).await?;
     let mut content = strip_code_fence(&content).to_string();
     content = content.replace("{{DATE}}", &current_date);
 
@@ -5981,7 +5997,7 @@ fn race_create(
             name, parent
         );
         let llm_content = tauri::async_runtime::block_on(async {
-            generate_llm(prompt, system, None, None).await
+            generate_llm(prompt, system, None, None, None, None).await
         })
         .map_err(|e| e.to_string())?;
         let generated = strip_code_fence(&llm_content).to_string();
@@ -6305,7 +6321,7 @@ async fn player_create(
             "You polish Markdown for tabletop RPG characters. Preserve YAML frontmatter and mechanical blocks. Only elaborate narrative sections when appropriate."
         ));
         eprintln!("[blossom] player_create: invoking LLM prefill");
-        let llm_content = generate_llm(prompt, system, None, None).await?;
+        let llm_content = generate_llm(prompt, system, None, None, None, None).await?;
         strip_code_fence(&llm_content).to_string()
     } else {
         merged
@@ -6468,7 +6484,7 @@ async fn monster_create(
         "You are a meticulous editor that outputs only valid Markdown and YAML frontmatter.\nInclude typical D&D 5e fields: type, size, alignment, AC, HP, speed, abilities, skills, senses, languages, CR, traits, actions. No OGL text.\n"
     ));
     eprintln!("[blossom] monster_create: invoking LLM generation");
-    let content = match generate_llm(prompt, system, None, None).await {
+    let content = match generate_llm(prompt, system, None, None, None, None).await {
         Ok(c) => {
             eprintln!("[blossom] monster_create: LLM returned ({} bytes)", c.len());
             c
@@ -6644,7 +6660,7 @@ async fn god_create(
         "You are a meticulous loremaster producing only valid Markdown and YAML frontmatter for fantasy deities.\nDetail portfolios, relationships, worshippers, and church customs without duplicating headings.\n"
     ));
     eprintln!("[blossom] god_create: invoking LLM generation");
-    let content = match generate_llm(prompt, system, None, None).await {
+    let content = match generate_llm(prompt, system, None, None, None, None).await {
         Ok(c) => {
             eprintln!("[blossom] god_create: LLM returned ({} bytes)", c.len());
             c
@@ -6703,13 +6719,15 @@ async fn god_create(
 
 #[tauri::command]
 async fn spell_create(
-    _app: AppHandle,
+    app: AppHandle,
     name: String,
     template: Option<String>,
+    provider: Option<String>,
+    model: Option<String>,
 ) -> Result<String, String> {
     eprintln!(
-        "[blossom] spell_create: start name='{}', template={:?}",
-        name, template
+        "[blossom] spell_create: start name='{}', template={:?}, provider={:?}, model={:?}",
+        name, template, provider, model
     );
 
     let vault_root = dreadhaven_root();
@@ -6849,7 +6867,16 @@ async fn spell_create(
         "You are an arcane archivist who outputs only valid Markdown with YAML frontmatter describing D&D 5e spells.\nEnsure level, school, casting time, range, components, duration, saving throws, damage, and scaling are detailed without using OGL-restricted phrasing.\n"
     ));
     eprintln!("[blossom] spell_create: invoking LLM generation");
-    let content = match generate_llm(prompt, system, None, None).await {
+    let content = match generate_llm(
+        prompt,
+        system,
+        None,
+        None,
+        provider.clone(),
+        model.clone(),
+    )
+    .await
+    {
         Ok(c) => {
             eprintln!("[blossom] spell_create: LLM returned ({} bytes)", c.len());
             c
@@ -6902,6 +6929,20 @@ async fn spell_create(
         "[blossom] spell_create: completed -> '{}'",
         target.to_string_lossy()
     );
+
+    if let Ok(rel_path_buf) = target.strip_prefix(&vault_root) {
+        let rel_path = rel_path_buf.to_string_lossy().replace('\\', "/");
+        let mut kinds = Map::new();
+        kinds.insert(rel_path.clone(), Value::String(String::from("Created")));
+        let payload = json!({
+            "paths": [rel_path.clone()],
+            "kinds": Value::Object(kinds),
+            "timestamp": Utc::now().to_rfc3339(),
+        });
+        if let Err(err) = app.emit("dnd::vault-changed", payload) {
+            eprintln!("[blossom] spell_create: failed to emit vault event: {}", err);
+        }
+    }
 
     Ok(target.to_string_lossy().to_string())
 }
@@ -8863,14 +8904,18 @@ mod tests {
         fs::write(brain_dir.join("__init__.py"), b"").expect("init");
         fs::write(
             brain_dir.join("ollama_client.py"),
-            r#"def generate(prompt, system=None, temperature=None, seed=None):
+            r#"def generate(prompt, system=None, temperature=None, seed=None, provider=None, model=None):
     if system is not None and not isinstance(system, str):
         raise TypeError("system must be str or None")
     if temperature is not None and not isinstance(temperature, (int, float)):
         raise TypeError("temperature must be numeric or None")
     if seed is not None and not isinstance(seed, int):
         raise TypeError("seed must be int or None")
-    return f"prompt={prompt};system={system};temperature={temperature};seed={seed}"
+    if provider is not None and not isinstance(provider, str):
+        raise TypeError("provider must be str or None")
+    if model is not None and not isinstance(model, str):
+        raise TypeError("model must be str or None")
+    return f"prompt={prompt};system={system};temperature={temperature};seed={seed};provider={provider};model={model}"
 "#,
         )
         .expect("ollama_client stub");
@@ -8884,12 +8929,14 @@ mod tests {
             None,
             None,
             None,
+            None,
+            None,
         ))
         .expect("python execution succeeds");
 
         assert_eq!(
             result,
-            "prompt=hello;system=None;temperature=None;seed=None".to_string()
+            "prompt=hello;system=None;temperature=None;seed=None;provider=None;model=None".to_string()
         );
 
         if let Some(original) = original_py {

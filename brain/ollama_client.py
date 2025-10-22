@@ -228,11 +228,47 @@ def generate(
     system: str | None = None,
     temperature: float | None = None,
     seed: int | None = None,
+    provider: str | None = None,
+    model: str | None = None,
 ) -> str:
     """Generate a completion for ``prompt`` using the configured LLM."""
 
-    provider, model = _selected_provider()
-    if provider == "openai":
-        return _generate_openai(prompt, model, system, temperature)
-    return _generate_ollama(prompt, model, system, temperature, seed)
+    base_provider, base_model = _selected_provider()
+
+    override_provider = provider.strip() if isinstance(provider, str) else ""
+    override_model = model.strip() if isinstance(model, str) else ""
+
+    def _split_prefixed(raw: str) -> tuple[str | None, str]:
+        lowered = raw.lower()
+        if lowered.startswith("openai:") or lowered.startswith("openai/"):
+            sep = ":" if ":" in raw else "/"
+            return "openai", raw.split(sep, 1)[1].strip()
+        if lowered.startswith("ollama:") or lowered.startswith("ollama/"):
+            sep = ":" if ":" in raw else "/"
+            return "ollama", raw.split(sep, 1)[1].strip()
+        return None, raw
+
+    if override_model:
+        inferred_provider, cleaned_model = _split_prefixed(override_model)
+        if inferred_provider and not override_provider:
+            override_provider = inferred_provider
+        override_model = cleaned_model
+
+    normalized_provider = override_provider.lower()
+    if normalized_provider == "openai":
+        provider_name = "openai"
+        model_name = override_model or (base_model if base_provider == "openai" else "gpt-4o-mini")
+    elif normalized_provider == "ollama":
+        provider_name = "ollama"
+        model_name = override_model or (base_model if base_provider == "ollama" else "mistral")
+    elif override_provider:
+        provider_name = override_provider
+        model_name = override_model or base_model
+    else:
+        provider_name = base_provider
+        model_name = override_model or base_model
+
+    if provider_name == "openai":
+        return _generate_openai(prompt, model_name, system, temperature)
+    return _generate_ollama(prompt, model_name, system, temperature, seed)
 
