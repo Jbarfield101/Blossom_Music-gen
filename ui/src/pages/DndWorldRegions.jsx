@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import BackButton from '../components/BackButton.jsx';
+import Card from '../components/Card.jsx';
 import Icon from '../components/Icon.jsx';
 import { getDreadhavenRoot } from '../api/config';
 import { listDir } from '../api/dir';
@@ -584,6 +585,30 @@ export default function DndWorldRegions() {
     });
   }, [activeMetadata, metadataByEntityId]);
 
+  const smithCards = [
+    {
+      key: 'domain-smith',
+      title: 'Domain Smith',
+      icon: 'Hammer',
+      description: 'Forge bespoke divine domains and portfolios.',
+      onClick: () => { /* TODO: wire Domain Smith */ },
+    },
+    {
+      key: 'location-smith',
+      title: 'Location Smith',
+      icon: 'MapPin',
+      description: 'Shape landmarks, settlements, and notable sites.',
+      onClick: () => { /* TODO: wire Location Smith */ },
+    },
+    {
+      key: 'adventure-smith',
+      title: 'Adventure Site Smith',
+      icon: 'Mountain',
+      description: 'Draft dungeons, lairs, and story set pieces.',
+      onClick: () => { /* TODO: wire Adventure Site Smith */ },
+    },
+  ];
+
   return (
     <>
       <BackButton />
@@ -602,6 +627,13 @@ export default function DndWorldRegions() {
         </nav>
         {error && <span className="error">{error}</span>}
       </div>
+      <section className="dashboard dnd-card-grid regions-overview-row">
+        {smithCards.map(({ key, title, icon, description, onClick }) => (
+          <Card key={key} icon={icon} title={title} onClick={onClick}>
+            {description}
+          </Card>
+        ))}
+      </section>
       <div className="regions">
         <section className="regions-grid">
           {items.map((it) => {

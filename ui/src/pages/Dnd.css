@@ -11,6 +11,17 @@
   margin: 0;
 }
 
+.regions-overview-row {
+  margin: var(--space-lg) 0 var(--space-xl);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.regions-overview-row .card {
+  align-items: flex-start;
+  text-align: left;
+  gap: var(--space-sm);
+}
+
 /* Discord page responsive tweaks */
 .discord-dashboard {
   grid-template-columns: 1fr;
