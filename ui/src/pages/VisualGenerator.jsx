@@ -20,7 +20,7 @@ export default function VisualGenerator() {
         <Card icon="Film" title="Video Maker" disabled>
           Build short-form visuals from scripted storyboards.
         </Card>
-        <Card icon="UserCircle2" title="DND Portrait" disabled>
+        <Card to="/visual-generator/dnd-portrait" icon="UserCircle2" title="DND Portrait">
           Generate character portraits tailored to your campaign.
         </Card>
       </section>
