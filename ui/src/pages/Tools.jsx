@@ -19,12 +19,6 @@ export default function Tools() {
         <Card to="/chat" icon="MessagesSquare" title="General Chat">
           Converse with Blossom
         </Card>
-        <Card to="/loopmaker" icon="Repeat" title="Loop Maker">
-          Video Loop Creator
-        </Card>
-        <Card to="/beatmaker" icon="AudioWaveform" title="Beat Maker">
-          Audio Loop Builder
-        </Card>
         <Card to="/train" icon="Sliders" title="Train Model">
           Custom Model Trainer
         </Card>

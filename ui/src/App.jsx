@@ -56,8 +56,6 @@ import LofiSceneMaker from './pages/LofiSceneMaker.jsx';
 import Queue from './pages/Queue.jsx';
 import Tools from './pages/Tools.jsx';
 import Fusion from './pages/Fusion.jsx';
-import LoopMaker from './pages/LoopMaker.jsx';
-import BeatMaker from './pages/BeatMaker.jsx';
 import Games from './pages/Games.jsx';
 import RainBlocks from './pages/RainBlocks.jsx';
 import SandBlocks from './pages/SandBlocks.jsx';
@@ -451,8 +449,6 @@ export default function App() {
             <Route path="/chat" element={<GeneralChat />} />
             <Route path="/queue" element={<Queue />} />
             <Route path="/fusion" element={<Fusion />} />
-            <Route path="/loopmaker" element={<LoopMaker />} />
-            <Route path="/beatmaker" element={<BeatMaker />} />
             <Route path="/games" element={<Games />} />
             <Route path="/games/rain-blocks" element={<RainBlocks />} />
             <Route path="/games/sand-blocks" element={<SandBlocks />} />

@@ -19,16 +19,6 @@ export const DEFAULT_MUSICGEN_FORM = Object.freeze({
   count: 1,
 });
 
-export const DEFAULT_LOOPMAKER_FORM = Object.freeze({
-  targetSeconds: 3600,
-  targetInput: '3600',
-  outputFormat: 'video/mp4;codecs=h264,aac',
-});
-
-export const DEFAULT_BEATMAKER_FORM = Object.freeze({
-  loopInput: '4',
-});
-
 const cloneDeep = (value) => {
   if (Array.isArray(value)) {
     return value.map((item) => cloneDeep(item));
@@ -69,24 +59,6 @@ const createDefaultState = () => ({
     activeJobId: null,
     job: null,
     lastSummary: null,
-  },
-  loopMaker: {
-    form: { ...DEFAULT_LOOPMAKER_FORM },
-    activeJobId: null,
-    job: null,
-    lastSummary: null,
-    statusMessage: '',
-    errorMessage: '',
-    lastJobId: null,
-  },
-  beatMaker: {
-    form: { ...DEFAULT_BEATMAKER_FORM },
-    activeJobId: null,
-    job: null,
-    lastSummary: null,
-    status: '',
-    error: '',
-    lastJobId: null,
   },
 });
 
