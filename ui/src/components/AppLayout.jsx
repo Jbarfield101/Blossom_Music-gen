@@ -1,9 +1,18 @@
-import { useEffect, useState } from 'react';
+import { createContext, useCallback, useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import MainNav from './MainNav.jsx';
 import CommandPalette from './CommandPalette.jsx';
 
 const DESKTOP_QUERY = '(min-width: 960px)';
+
+export const NavContext = createContext({
+  toggleNav: undefined,
+  closeNav: undefined,
+  isNavOpen: false,
+  showNav: false,
+  navId: '',
+  registerNavAnchor: undefined,
+});
 
 function getIsDesktop() {
   return typeof window !== 'undefined'
@@ -22,6 +31,7 @@ export default function AppLayout() {
     if (stored === 'false') return false;
     return showNav && getIsDesktop();
   });
+  const [navAnchorCount, setNavAnchorCount] = useState(0);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -58,42 +68,65 @@ export default function AppLayout() {
     }
   }, [isNavOpen]);
 
-  const closeNav = () => {
+  const closeNav = useCallback(() => {
     setIsNavOpen(false);
-  };
-  const toggleNav = () => {
+  }, []);
+  const toggleNav = useCallback(() => {
     setIsNavOpen((prev) => !prev);
-  };
+  }, []);
+  const registerNavAnchor = useCallback(() => {
+    setNavAnchorCount((count) => count + 1);
+    return () => {
+      setNavAnchorCount((count) => Math.max(0, count - 1));
+    };
+  }, []);
 
   const navId = 'main-navigation';
   const navOpenAttribute = showNav && isNavOpen ? 'true' : 'false';
+  const shouldShowStandaloneToggle = showNav && navAnchorCount === 0;
+
+  const navContextValue = useMemo(
+    () => ({
+      toggleNav,
+      closeNav,
+      isNavOpen,
+      showNav,
+      navId,
+      registerNavAnchor,
+    }),
+    [toggleNav, closeNav, isNavOpen, showNav, navId, registerNavAnchor],
+  );
 
   return (
-    <div className="app-layout" data-nav-open={navOpenAttribute}>
-      <a className="skip-link" href="#main-content">
-        Skip to content
-      </a>
-      {showNav && (
-        <button
-          type="button"
-          className="app-layout__nav-toggle"
-          aria-controls={navId}
-          aria-expanded={isNavOpen}
-          onClick={toggleNav}
-        >
-          Menu
-        </button>
-      )}
-      {showNav && (
-        <MainNav isOpen={isNavOpen} onNavigate={closeNav} navId={navId} />
-      )}
-      {showNav && (
-        <div className="app-layout__scrim" aria-hidden="true" onClick={closeNav} />
-      )}
-      <main id="main-content" className="app-layout__content" tabIndex={-1}>
-        <Outlet />
-      </main>
-      <CommandPalette />
-    </div>
+    <NavContext.Provider value={navContextValue}>
+      <div className="app-layout" data-nav-open={navOpenAttribute}>
+        <a className="skip-link" href="#main-content">
+          Skip to content
+        </a>
+        {shouldShowStandaloneToggle && (
+          <div className="app-layout__nav-toggle-wrapper">
+            <button
+              type="button"
+              className="app-layout__nav-toggle"
+              aria-controls={navId}
+              aria-expanded={isNavOpen}
+              onClick={toggleNav}
+            >
+              Menu
+            </button>
+          </div>
+        )}
+        {showNav && (
+          <MainNav isOpen={isNavOpen} onNavigate={closeNav} navId={navId} />
+        )}
+        {showNav && (
+          <div className="app-layout__scrim" aria-hidden="true" onClick={closeNav} />
+        )}
+        <main id="main-content" className="app-layout__content" tabIndex={-1}>
+          <Outlet />
+        </main>
+        <CommandPalette />
+      </div>
+    </NavContext.Provider>
   );
 }
