@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
 import {
   listInbox,
@@ -13,6 +13,48 @@ import { renderMarkdown } from '../lib/markdown.jsx';
 import { useVaultVersion } from '../lib/vaultEvents.jsx';
 
 const DEFAULT_INBOX = 'D:\\Documents\\DreadHaven\\00_Inbox';
+
+class ReaderErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, errorMessage: '' };
+  }
+
+  static getDerivedStateFromError(error) {
+    return {
+      hasError: true,
+      errorMessage: error?.message || '',
+    };
+  }
+
+  componentDidCatch(error, info) {
+    console.error('Inbox reader failed to render note', error, info);
+  }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false, errorMessage: '' });
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      const fallbackText = this.props.fallbackContent ?? '';
+      const warning = this.state.errorMessage
+        ? `Failed to render note: ${this.state.errorMessage}. Showing raw content instead.`
+        : 'Failed to render note. Showing raw content instead.';
+      return (
+        <div className="inbox-reader-fallback">
+          <div className="warning" role="alert">
+            {warning}
+          </div>
+          <pre className="inbox-reader-content">{fallbackText}</pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function formatDate(ms) {
   try {
@@ -235,6 +277,32 @@ export default function DndInbox() {
     [items, activePath]
   );
 
+  const fallbackText = typeof activeContent === 'string' ? activeContent : String(activeContent || '');
+  const contentFingerprint = fallbackText
+    ? `${fallbackText.length}:${fallbackText.charCodeAt(0) || 0}:${fallbackText.charCodeAt(fallbackText.length - 1) || 0}`
+    : '0';
+  const readerResetKey = `${activePath || 'none'}|${formatMarkdown ? 'md' : 'raw'}|${editing ? 'edit' : 'view'}|${contentFingerprint}`;
+
+  const isMarkdownFile = /\.(md|mdx|markdown)$/i.test(selected?.name || '');
+  let markdownWarning = '';
+  let readerContent = (
+    <pre className="inbox-reader-content">{fallbackText}</pre>
+  );
+
+  if (isMarkdownFile && formatMarkdown) {
+    try {
+      readerContent = renderMarkdown(activeContent);
+    } catch (err) {
+      console.warn('Failed to render inbox markdown', err);
+      markdownWarning = err?.message
+        ? `Failed to render markdown: ${err.message}. Showing raw content instead.`
+        : 'Failed to render markdown. Showing raw content instead.';
+      readerContent = (
+        <pre className="inbox-reader-content">{fallbackText}</pre>
+      );
+    }
+  }
+
   return (
     <>
       <BackButton />
@@ -392,20 +460,21 @@ export default function DndInbox() {
                 </div>
               </header>
               <article className="inbox-reader-body">
-                {editing ? (
-                  <>
-                    <textarea rows={16} value={editBody} onChange={(e) => setEditBody(e.target.value)} />
-                    {editError && <div className="error">{editError}</div>}
-                  </>
-                ) : (
-                  (/\.(md|mdx|markdown)$/i.test(selected.name || '') ? (
-                    (formatMarkdown ? renderMarkdown(activeContent) : (
-                      <pre className="inbox-reader-content">{activeContent}</pre>
-                    ))
+                <ReaderErrorBoundary resetKey={readerResetKey} fallbackContent={fallbackText}>
+                  {editing ? (
+                    <>
+                      <textarea rows={16} value={editBody} onChange={(e) => setEditBody(e.target.value)} />
+                      {editError && <div className="error">{editError}</div>}
+                    </>
                   ) : (
-                    <pre className="inbox-reader-content">{activeContent}</pre>
-                  ))
-                )}
+                    <>
+                      {markdownWarning && (
+                        <div className="warning" role="alert">{markdownWarning}</div>
+                      )}
+                      {readerContent}
+                    </>
+                  )}
+                </ReaderErrorBoundary>
               </article>
             </>
           ) : (
