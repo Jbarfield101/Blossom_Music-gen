@@ -10767,6 +10767,7 @@ fn main() {
             resolve_resource,
             list_bundled_voices,
             commands::read_file_bytes,
+            commands::canonicalize_path,
             commands::get_stable_audio_prompts,
             commands::update_stable_audio_prompts,
             commands::get_lofi_scene_prompts,
