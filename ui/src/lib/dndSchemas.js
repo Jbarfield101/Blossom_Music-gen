@@ -42,6 +42,21 @@ const revealLadderSchema = z
   .partial()
   .strict();
 
+const stringOrStringArray = z.union([z.string(), stringArray]);
+const stringOrNumber = z.union([z.string(), z.number()]);
+
+const countySummarySchema = z
+  .object({
+    id: z.string().regex(ENTITY_ID_PATTERN).optional(),
+    name: z.string().optional(),
+    seat_of_power: z.string().optional(),
+    population: stringOrNumber.optional(),
+    allegiance: z.string().optional(),
+    notes: z.string().optional(),
+  })
+  .partial()
+  .strict();
+
 const npcSchema = baseEntitySchema
   .extend({
     type: z.literal('npc').optional(),
@@ -179,6 +194,151 @@ const sessionSchema = baseEntitySchema.extend({
   type: z.literal('session').optional(),
 });
 
+const domainSchema = baseEntitySchema
+  .extend({
+    type: z.literal('domain').optional(),
+    aliases: stringArray.optional(),
+    category: stringOrStringArray.optional(),
+    affiliation: stringOrStringArray.optional(),
+    seat_of_power: z.string().optional(),
+    capital: z.string().optional(),
+    population: stringOrNumber.optional(),
+    primary_species: stringArray.optional(),
+    ruler_id: z.string().optional(),
+    tags: stringArray.optional(),
+    keywords: stringArray.optional(),
+    alignment_or_reputation: stringOrStringArray.optional(),
+    canonical_summary: z.string().optional(),
+    embedding_summary: z.string().optional(),
+    player_facing: stringArray.optional(),
+    gm_secrets: stringArray.optional(),
+    refusal_rules: stringArray.optional(),
+    geography: z
+      .object({
+        terrain: z.string().optional(),
+        climate: z.string().optional(),
+        landmarks: stringArray.optional(),
+        hazards: stringArray.optional(),
+        resources: stringArray.optional(),
+      })
+      .partial()
+      .strict()
+      .optional(),
+    history: z
+      .object({
+        founding: z.string().optional(),
+        rise_to_power: z.string().optional(),
+        major_events: stringArray.optional(),
+        recent_history: z.string().optional(),
+      })
+      .partial()
+      .strict()
+      .optional(),
+    politics: z
+      .object({
+        system_of_rule: z.string().optional(),
+        ruling_factions: stringArray.optional(),
+        laws_and_justice: stringArray.optional(),
+        foreign_relations: stringArray.optional(),
+      })
+      .partial()
+      .strict()
+      .optional(),
+    administrative_divisions: z
+      .object({
+        counties: z.array(countySummarySchema).optional(),
+        marches: stringArray.optional(),
+        prefectures: stringArray.optional(),
+      })
+      .partial()
+      .strict()
+      .optional(),
+    culture: z
+      .object({
+        appearance_and_dress: stringArray.optional(),
+        festivals_and_holidays: stringArray.optional(),
+        religion_and_beliefs: stringArray.optional(),
+        arts_and_entertainment: stringArray.optional(),
+        daily_life: stringArray.optional(),
+        values_and_taboos: stringArray.optional(),
+      })
+      .partial()
+      .strict()
+      .optional(),
+    economy: z
+      .object({
+        exports: stringArray.optional(),
+        imports: stringArray.optional(),
+        currency: z.string().optional(),
+        industries: stringArray.optional(),
+        trade_routes: stringArray.optional(),
+      })
+      .partial()
+      .strict()
+      .optional(),
+    military: z
+      .object({
+        standing_forces: z.string().optional(),
+        special_units: stringArray.optional(),
+        fortifications: stringArray.optional(),
+        tactics_and_strategies: stringArray.optional(),
+      })
+      .partial()
+      .strict()
+      .optional(),
+    locations: z
+      .object({
+        capital_summary: z.string().optional(),
+        secondary_settlements: stringArray.optional(),
+        strongholds_or_sites: stringArray.optional(),
+      })
+      .partial()
+      .strict()
+      .optional(),
+    legends: stringArray.optional(),
+    rumors: stringArray.optional(),
+    relationships: z
+      .object({
+        allies: stringArray.optional(),
+        rivals: stringArray.optional(),
+        vassals: stringArray.optional(),
+        foreign_ties: stringArray.optional(),
+      })
+      .partial()
+      .strict()
+      .optional(),
+    political_state: z
+      .object({
+        stability: z.string().optional(),
+        prosperity: z.string().optional(),
+        unrest_level: z.string().optional(),
+      })
+      .partial()
+      .strict()
+      .optional(),
+    session_state: z
+      .object({
+        last_seen: z.string().optional(),
+        recent_events: stringArray.optional(),
+      })
+      .partial()
+      .strict()
+      .optional(),
+    related_docs: stringArray.optional(),
+    art: z
+      .object({
+        map: z.string().optional(),
+        counties_map: z.string().optional(),
+        emblem: z.string().optional(),
+      })
+      .partial()
+      .strict()
+      .optional(),
+    music_cue_prompt: z.string().optional(),
+    privacy: z.string().optional(),
+  })
+  .passthrough();
+
 export const npcCollectionSchema = z.array(npcSchema);
 export const questCollectionSchema = z.array(questSchema);
 export const locationCollectionSchema = z.array(locationSchema);
@@ -186,6 +346,7 @@ export const factionCollectionSchema = z.array(factionSchema);
 export const monsterCollectionSchema = z.array(monsterSchema);
 export const encounterCollectionSchema = z.array(encounterSchema);
 export const sessionCollectionSchema = z.array(sessionSchema);
+export const domainCollectionSchema = z.array(domainSchema);
 
 export {
   npcSchema,
@@ -195,4 +356,5 @@ export {
   monsterSchema,
   encounterSchema,
   sessionSchema,
+  domainSchema,
 };

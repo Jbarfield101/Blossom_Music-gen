@@ -6,6 +6,7 @@ import {
   saveEntity,
   EntityValidationError,
   configureVaultFileSystem,
+  ENTITY_ERROR_CODES,
 } from '../src/lib/vaultAdapter.js';
 import {
   configureRelationshipIdLookup,
@@ -26,6 +27,9 @@ const JSON_FIXTURE = JSON.stringify(
   2
 );
 
+const ENTITY_ID_TEST_PATTERN =
+  /^(npc|quest|loc|domain|faction|monster|encounter|session)_[a-z0-9-]+_[a-z0-9]{4,6}$/i;
+
 function stubVaultIndex(t, entities = {}) {
   resetVaultIndexCache();
   configureVaultIndex({
@@ -44,9 +48,7 @@ function stubVaultIndex(t, entities = {}) {
 test('loadEntity parses Markdown front matter and body', async (t) => {
   configureRelationshipIdLookup((value) => {
     const text = String(value || '').trim();
-    return /^(npc|quest|loc|faction|monster|encounter|session)_[a-z0-9-]+_[a-z0-9]{4,6}$/i.test(text)
-      ? text.toLowerCase()
-      : null;
+    return ENTITY_ID_TEST_PATTERN.test(text) ? text.toLowerCase() : null;
   });
   stubVaultIndex(t, {
     quest_flame_watch: {
@@ -88,9 +90,7 @@ test('loadEntity parses Markdown front matter and body', async (t) => {
 test('loadEntity parses JSON entities and preserves the source text', async (t) => {
   configureRelationshipIdLookup((value) => {
     const text = String(value || '').trim();
-    return /^(npc|quest|loc|faction|monster|encounter|session)_[a-z0-9-]+_[a-z0-9]{4,6}$/i.test(text)
-      ? text.toLowerCase()
-      : null;
+    return ENTITY_ID_TEST_PATTERN.test(text) ? text.toLowerCase() : null;
   });
   stubVaultIndex(t, {});
   configureVaultFileSystem({ readTextFile: async () => `${JSON_FIXTURE}\n` });
@@ -107,13 +107,43 @@ test('loadEntity parses JSON entities and preserves the source text', async (t) 
   assert.equal(result.backlinks.length, 0);
 });
 
+test('loadEntity recognizes domain dossiers', async (t) => {
+  configureRelationshipIdLookup((value) => {
+    const text = String(value || '').trim();
+    return ENTITY_ID_TEST_PATTERN.test(text) ? text.toLowerCase() : null;
+  });
+  stubVaultIndex(t, {});
+  const domainJson = JSON.stringify(
+    {
+      id: 'domain_bloodreed_hold_abcd',
+      type: 'domain',
+      name: 'Bloodreed Hold',
+      category: ['province'],
+      population: 48000,
+    },
+    null,
+    2
+  );
+  configureVaultFileSystem({ readTextFile: async () => `${domainJson}\n` });
+  t.after(() => {
+    configureVaultFileSystem();
+    resetRelationshipIdLookup();
+  });
+
+  const result = await loadEntity('C:/vault/domains/bloodreed.json');
+  assert.equal(result.entity.type, 'domain');
+  assert.equal(result.entity.id, 'domain_bloodreed_hold_abcd');
+  assert.equal(result.entity.name, 'Bloodreed Hold');
+  assert.deepEqual(result.entity.category, ['province']);
+  assert.equal(result.entity.population, 48000);
+  assert.ok(Array.isArray(result.backlinks));
+});
+
 test('loadEntity throws a structured error when validation fails', async (t) => {
   const invalidMarkdown = `---\nid: npc-broken\ntype: npc\n---\nMissing the required name.\n`;
   configureRelationshipIdLookup((value) => {
     const text = String(value || '').trim();
-    return /^(npc|quest|loc|faction|monster|encounter|session)_[a-z0-9-]+_[a-z0-9]{4,6}$/i.test(text)
-      ? text.toLowerCase()
-      : null;
+    return ENTITY_ID_TEST_PATTERN.test(text) ? text.toLowerCase() : null;
   });
   stubVaultIndex(t, {});
   configureVaultFileSystem({ readTextFile: async () => invalidMarkdown });
@@ -128,6 +158,7 @@ test('loadEntity throws a structured error when validation fails', async (t) => 
       assert.ok(err instanceof EntityValidationError, 'expected EntityValidationError');
       assert.equal(err.entityType, 'npc');
       assert.equal(err.path, '/vault/npcs/broken.md');
+      assert.equal(err.code, ENTITY_ERROR_CODES.VALIDATION_FAILED);
       assert.ok(Array.isArray(err.issues) && err.issues.length > 0, 'expected validation issues');
       return true;
     }
@@ -144,9 +175,7 @@ test('saveEntity writes Markdown with front matter and preserves the body text',
   });
   configureRelationshipIdLookup((value) => {
     const text = String(value || '').trim();
-    return /^(npc|quest|loc|faction|monster|encounter|session)_[a-z0-9-]+_[a-z0-9]{4,6}$/i.test(text)
-      ? text.toLowerCase()
-      : null;
+    return ENTITY_ID_TEST_PATTERN.test(text) ? text.toLowerCase() : null;
   });
   t.after(() => {
     configureVaultFileSystem();
@@ -182,9 +211,7 @@ test('saveEntity writes sorted JSON with stable ordering', async (t) => {
   });
   configureRelationshipIdLookup((value) => {
     const text = String(value || '').trim();
-    return /^(npc|quest|loc|faction|monster|encounter|session)_[a-z0-9-]+_[a-z0-9]{4,6}$/i.test(text)
-      ? text.toLowerCase()
-      : null;
+    return ENTITY_ID_TEST_PATTERN.test(text) ? text.toLowerCase() : null;
   });
   t.after(() => {
     configureVaultFileSystem();

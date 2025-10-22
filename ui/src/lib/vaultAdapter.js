@@ -8,14 +8,24 @@ import {
   monsterSchema,
   encounterSchema,
   sessionSchema,
+  domainSchema,
 } from './dndSchemas.js';
 import { resolveRelationshipIds } from './dndIds.js';
 import { loadVaultIndex } from './vaultIndex.js';
+
+export const ENTITY_ERROR_CODES = Object.freeze({
+  UNKNOWN_TYPE: 'entity/unknown-type',
+  SCHEMA_MISSING: 'entity/schema-missing',
+  RELATIONSHIP_NORMALIZATION_FAILED: 'entity/relationship-normalization-failed',
+  VALIDATION_FAILED: 'entity/validation-failed',
+  JSON_PARSE_FAILED: 'entity/json-parse-failed',
+});
 
 const SCHEMA_MAP = new Map([
   ['npc', npcSchema],
   ['quest', questSchema],
   ['location', locationSchema],
+  ['domain', domainSchema],
   ['faction', factionSchema],
   ['monster', monsterSchema],
   ['encounter', encounterSchema],
@@ -30,6 +40,9 @@ const TYPE_ALIASES = new Map([
   ['loc', 'location'],
   ['location', 'location'],
   ['locations', 'location'],
+  ['domain', 'domain'],
+  ['domains', 'domain'],
+  ['domain-smith', 'domain'],
   ['faction', 'faction'],
   ['factions', 'faction'],
   ['monster', 'monster'],
@@ -59,12 +72,16 @@ export function configureVaultFileSystem(overrides) {
 }
 
 export class EntityValidationError extends Error {
-  constructor(message, { issues = [], path = '', entityType = '', cause } = {}) {
+  constructor(
+    message,
+    { issues = [], path = '', entityType = '', cause, code = ENTITY_ERROR_CODES.VALIDATION_FAILED } = {}
+  ) {
     super(message);
     this.name = 'EntityValidationError';
     this.issues = issues;
     this.path = path;
     this.entityType = entityType;
+    this.code = code;
     if (cause) {
       this.cause = cause;
     }
@@ -111,6 +128,7 @@ function resolveSchema(data, path) {
     throw new EntityValidationError('Unknown entity type', {
       path,
       entityType: data?.type || typeFromPath || '',
+      code: ENTITY_ERROR_CODES.UNKNOWN_TYPE,
     });
   }
   const schema = SCHEMA_MAP.get(entityType);
@@ -118,6 +136,7 @@ function resolveSchema(data, path) {
     throw new EntityValidationError('Unknown entity type', {
       path,
       entityType,
+      code: ENTITY_ERROR_CODES.SCHEMA_MISSING,
     });
   }
   return { schema, entityType };
@@ -214,6 +233,7 @@ export async function loadEntity(path) {
           path,
           entityType,
           cause: err,
+          code: ENTITY_ERROR_CODES.RELATIONSHIP_NORMALIZATION_FAILED,
         });
       }
     }
@@ -232,6 +252,7 @@ export async function loadEntity(path) {
         entityType,
         issues: err?.issues || [],
         cause: err,
+        code: ENTITY_ERROR_CODES.VALIDATION_FAILED,
       });
     }
   }
@@ -244,6 +265,7 @@ export async function loadEntity(path) {
       path,
       entityType: inferTypeFromPath(path) || '',
       cause: err,
+      code: ENTITY_ERROR_CODES.JSON_PARSE_FAILED,
     });
   }
 
@@ -257,6 +279,7 @@ export async function loadEntity(path) {
         path,
         entityType,
         cause: err,
+        code: ENTITY_ERROR_CODES.RELATIONSHIP_NORMALIZATION_FAILED,
       });
     }
   }
@@ -275,6 +298,7 @@ export async function loadEntity(path) {
       entityType,
       issues: err?.issues || [],
       cause: err,
+      code: ENTITY_ERROR_CODES.VALIDATION_FAILED,
     });
   }
 }
@@ -294,6 +318,7 @@ export async function saveEntity({ entity, body = '', path, format }) {
         path,
         entityType,
         cause: err,
+        code: ENTITY_ERROR_CODES.RELATIONSHIP_NORMALIZATION_FAILED,
       });
     }
   }
@@ -306,6 +331,7 @@ export async function saveEntity({ entity, body = '', path, format }) {
       entityType,
       issues: err?.issues || [],
       cause: err,
+      code: ENTITY_ERROR_CODES.VALIDATION_FAILED,
     });
   }
 
