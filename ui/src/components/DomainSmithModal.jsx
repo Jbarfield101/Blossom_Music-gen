@@ -359,6 +359,29 @@ function DomainSmithModal({
         </p>
         <form onSubmit={onSubmit} className="dnd-modal-body" style={{ gridTemplateColumns: '1fr' }}>
           <div className="dnd-modal-section">
+            <h3>📁 Save Location</h3>
+            <label className="dnd-label">
+              <span>Region folder</span>
+              <select
+                value={regionPath}
+                onChange={handleRegionChange}
+                disabled={busy}
+                required
+              >
+                <option value="" disabled>
+                  Select a region folder…
+                </option>
+                {options.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <small className="muted">Select which regional folder this domain file will be stored in.</small>
+            </label>
+          </div>
+
+          <div className="dnd-modal-section">
             <h3>📘 Basic Information</h3>
             <label className="dnd-label">
               <span>Domain name</span>
@@ -511,26 +534,6 @@ function DomainSmithModal({
                 disabled={busy}
                 helperText={rulerHelperText}
               />
-            </label>
-
-            <label className="dnd-label">
-              <span>Save Location</span>
-              <select
-                value={regionPath}
-                onChange={handleRegionChange}
-                disabled={busy}
-                required
-              >
-                <option value="" disabled>
-                  Select a region folder…
-                </option>
-                {options.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <small className="muted">Select which regional folder this domain file will be stored in.</small>
             </label>
           </div>
 
