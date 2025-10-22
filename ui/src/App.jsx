@@ -53,6 +53,7 @@ import SoundLab from './pages/SoundLab.jsx';
 import VisualGenerator from './pages/VisualGenerator.jsx';
 import Gallery from './pages/Gallery.jsx';
 import LofiSceneMaker from './pages/LofiSceneMaker.jsx';
+import DndPortraitMaker from './pages/DndPortraitMaker.jsx';
 import Queue from './pages/Queue.jsx';
 import Tools from './pages/Tools.jsx';
 import Fusion from './pages/Fusion.jsx';
@@ -445,6 +446,7 @@ export default function App() {
             <Route path="/tools" element={<Tools />} />
             <Route path="/visual-generator" element={<VisualGenerator />}>
               <Route path="lofi-scene-maker" element={<LofiSceneMaker />} />
+              <Route path="dnd-portrait" element={<DndPortraitMaker />} />
             </Route>
             <Route path="/gallery" element={<Gallery />} />
             <Route path="/ace" element={<Ace />} />
