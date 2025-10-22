@@ -1,4 +1,5 @@
 import Icon from './Icon.jsx';
+import EntityLinkPicker from '../components/EntityLinkPicker.jsx';
 
 function DomainSmithModal({
   open,
@@ -8,6 +9,7 @@ function DomainSmithModal({
   onSubmit,
   status,
   regionOptions,
+  npcOptions,
 }) {
   if (!open) return null;
 
@@ -17,6 +19,39 @@ function DomainSmithModal({
   const busy = stage === 'generating' || stage === 'saving';
   const success = stage === 'success';
   const options = Array.isArray(regionOptions) ? regionOptions : [];
+  const npcChoices = Array.isArray(npcOptions) ? npcOptions : [];
+
+  const {
+    name = '',
+    category = '',
+    capital = '',
+    populationMin: rawPopulationMin,
+    populationMax: rawPopulationMax,
+    rulerId = null,
+    regionPath = '',
+  } = form || {};
+
+  const clampNumber = (value, minimum, maximum) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return minimum;
+    if (num < minimum) return minimum;
+    if (num > maximum) return maximum;
+    return num;
+  };
+
+  const POPULATION_MIN_LIMIT = 0;
+  const POPULATION_MAX_LIMIT = 1000000;
+  const POPULATION_STEP = 1000;
+
+  const normalizedPopulationMin = clampNumber(
+    rawPopulationMin,
+    POPULATION_MIN_LIMIT,
+    POPULATION_MAX_LIMIT,
+  );
+  const normalizedPopulationMax = Math.max(
+    normalizedPopulationMin,
+    clampNumber(rawPopulationMax, POPULATION_MIN_LIMIT, POPULATION_MAX_LIMIT),
+  );
 
   const handleBackdrop = (event) => {
     if (busy) return;
@@ -29,13 +64,56 @@ function DomainSmithModal({
     onChange({ name: event.target.value });
   };
 
-  const handleFlavorChange = (event) => {
-    onChange({ flavor: event.target.value });
+  const handleCategoryChange = (event) => {
+    onChange({ category: event.target.value });
+  };
+
+  const handleCapitalChange = (event) => {
+    onChange({ capital: event.target.value });
+  };
+
+  const handlePopulationMinChange = (event) => {
+    const nextMin = clampNumber(event.target.value, POPULATION_MIN_LIMIT, POPULATION_MAX_LIMIT);
+    const nextMax = Math.max(
+      nextMin,
+      clampNumber(rawPopulationMax, POPULATION_MIN_LIMIT, POPULATION_MAX_LIMIT),
+    );
+    onChange({ populationMin: nextMin, populationMax: nextMax });
+  };
+
+  const handlePopulationMaxChange = (event) => {
+    const nextMax = clampNumber(event.target.value, POPULATION_MIN_LIMIT, POPULATION_MAX_LIMIT);
+    const nextMin = Math.min(
+      clampNumber(rawPopulationMin, POPULATION_MIN_LIMIT, POPULATION_MAX_LIMIT),
+      nextMax,
+    );
+    onChange({ populationMin: nextMin, populationMax: nextMax });
+  };
+
+  const handleRulerChange = (value) => {
+    onChange({ rulerId: value || null });
   };
 
   const handleRegionChange = (event) => {
     onChange({ regionPath: event.target.value });
   };
+
+  const formatPopulation = (value) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return '0';
+    return num.toLocaleString();
+  };
+
+  const sampleRulers = npcChoices
+    .map((choice) => choice?.label || choice?.name || '')
+    .filter(Boolean)
+    .slice(0, 3);
+
+  const rulerHelperText = sampleRulers.length > 0
+    ? `Recent rulers: ${sampleRulers.join(', ')}`
+    : 'Link an existing NPC to anchor this domain.';
+
+  const canSubmit = !busy && name.trim() && regionPath.trim();
 
   return (
     <div className="dnd-modal-backdrop" role="presentation" onClick={handleBackdrop}>
@@ -65,7 +143,7 @@ function DomainSmithModal({
             <span>Domain name</span>
             <input
               type="text"
-              value={form?.name || ''}
+              value={name}
               onChange={handleNameChange}
               placeholder="e.g. Bloodreed Hold"
               autoFocus
@@ -76,21 +154,73 @@ function DomainSmithModal({
           </label>
 
           <label className="dnd-label">
-            <span>Flavor prompts &amp; guidance</span>
-            <textarea
-              value={form?.flavor || ''}
-              onChange={handleFlavorChange}
-              rows={4}
-              placeholder="Tone, conflicts, notable features, or inspirations."
+            <span>Domain category</span>
+            <input
+              type="text"
+              value={category}
+              onChange={handleCategoryChange}
+              placeholder="e.g. Twilight, Tempest, or Harvest"
               disabled={busy}
             />
-            <small className="muted">Give Blossom a compass for tone, geography, or politics.</small>
+            <small className="muted">Describe the sphere of influence for this divine domain.</small>
+          </label>
+
+          <label className="dnd-label">
+            <span>Capital or seat of power</span>
+            <input
+              type="text"
+              value={capital}
+              onChange={handleCapitalChange}
+              placeholder="e.g. Moonpetal Citadel"
+              disabled={busy}
+            />
+            <small className="muted">Optional: name the primary settlement or demesne.</small>
+          </label>
+
+          <label className="dnd-label">
+            <span>Population range</span>
+            <div className="population-range-inputs">
+              <input
+                type="range"
+                min={POPULATION_MIN_LIMIT}
+                max={POPULATION_MAX_LIMIT}
+                step={POPULATION_STEP}
+                value={normalizedPopulationMin}
+                onChange={handlePopulationMinChange}
+                disabled={busy}
+              />
+              <input
+                type="range"
+                min={POPULATION_MIN_LIMIT}
+                max={POPULATION_MAX_LIMIT}
+                step={POPULATION_STEP}
+                value={normalizedPopulationMax}
+                onChange={handlePopulationMaxChange}
+                disabled={busy}
+              />
+            </div>
+            <small className="muted">
+              Estimated population between {formatPopulation(normalizedPopulationMin)} and{' '}
+              {formatPopulation(normalizedPopulationMax)} citizens.
+            </small>
+          </label>
+
+          <label className="dnd-label">
+            <span>Ruling NPC</span>
+            <EntityLinkPicker
+              value={rulerId || ''}
+              onChange={handleRulerChange}
+              entityTypes={['npc']}
+              placeholder="Search for an NPC by name or ID…"
+              disabled={busy}
+              helperText={rulerHelperText}
+            />
           </label>
 
           <label className="dnd-label">
             <span>Target region folder</span>
             <select
-              value={form?.regionPath || ''}
+              value={regionPath}
               onChange={handleRegionChange}
               disabled={busy}
               required
@@ -122,7 +252,7 @@ function DomainSmithModal({
             <button type="button" className="secondary" onClick={onClose} disabled={busy}>
               {success ? 'Close' : 'Cancel'}
             </button>
-            <button type="submit" disabled={busy}>
+            <button type="submit" disabled={!canSubmit}>
               {busy
                 ? stage === 'saving'
                   ? 'Saving…'

@@ -382,6 +382,16 @@ function randomHash(length = 6) {
   return hash.slice(0, length);
 }
 
+const DEFAULT_DOMAIN_FORM = {
+  name: '',
+  category: '',
+  capital: '',
+  populationMin: 0,
+  populationMax: 0,
+  rulerId: null,
+  regionPath: '',
+};
+
 export default function DndWorldRegions() {
   const [basePath, setBasePath] = useState('');
   const [currentPath, setCurrentPath] = useState('');
@@ -392,7 +402,7 @@ export default function DndWorldRegions() {
   const [activeContent, setActiveContent] = useState('');
   const [metadataMap, setMetadataMap] = useState({});
   const [showDomainSmith, setShowDomainSmith] = useState(false);
-  const [domainForm, setDomainForm] = useState({ name: '', flavor: '', regionPath: '' });
+  const [domainForm, setDomainForm] = useState({ ...DEFAULT_DOMAIN_FORM });
   const [domainStatus, setDomainStatus] = useState({ stage: 'idle', error: '', message: '' });
   const metadataRef = useRef({});
   const regionsVersion = useVaultVersion(['10_world/regions']);
@@ -556,7 +566,7 @@ export default function DndWorldRegions() {
       : (basePath && basePath.trim())
         ? basePath
         : (regionOptions[0]?.value || '');
-    setDomainForm({ name: '', flavor: '', regionPath: defaultRegion });
+    setDomainForm({ ...DEFAULT_DOMAIN_FORM, regionPath: defaultRegion });
     setDomainStatus({ stage: 'idle', error: '', message: '' });
     setShowDomainSmith(true);
   }, [basePath, currentPath, domainStatus.stage, regionOptions]);
@@ -564,7 +574,10 @@ export default function DndWorldRegions() {
   const handleDomainClose = useCallback(() => {
     setShowDomainSmith(false);
     const fallbackRegion = (currentPath && currentPath.trim()) || (basePath && basePath.trim()) || '';
-    setDomainForm((prev) => ({ name: '', flavor: '', regionPath: prev.regionPath || fallbackRegion }));
+    setDomainForm((prev) => ({
+      ...DEFAULT_DOMAIN_FORM,
+      regionPath: prev.regionPath || fallbackRegion,
+    }));
     setDomainStatus({ stage: 'idle', error: '', message: '' });
   }, [basePath, currentPath]);
 
@@ -601,9 +614,46 @@ export default function DndWorldRegions() {
         .filter(Boolean);
       const optionLookup = new Map(regionOptions.map((opt) => [opt.value, opt.label]));
       const regionDescriptor = optionLookup.get(targetFolder) || targetFolder;
+      const trimmedCategory = String(domainForm.category || '').trim();
+      const trimmedCapital = String(domainForm.capital || '').trim();
+      const trimmedRulerId = domainForm.rulerId ? String(domainForm.rulerId).trim() : '';
+      const clampPopulation = (value) => {
+        const num = Number(value);
+        if (!Number.isFinite(num)) return null;
+        if (num < 0) return 0;
+        if (num > 1000000) return 1000000;
+        return Math.round(num);
+      };
+      let populationMin = clampPopulation(domainForm.populationMin);
+      let populationMax = clampPopulation(domainForm.populationMax);
+      if (populationMin != null && populationMax != null && populationMin > populationMax) {
+        const swap = populationMin;
+        populationMin = populationMax;
+        populationMax = swap;
+      }
+      const formatPopulation = (value) => {
+        if (value == null) return '';
+        return value.toLocaleString();
+      };
+      let populationLine = '';
+      if (populationMin != null || populationMax != null) {
+        const hasData = (populationMin ?? 0) > 0 || (populationMax ?? 0) > 0;
+        if (hasData) {
+          if (populationMin != null && populationMax != null) {
+            populationLine = `Population guidance: between ${formatPopulation(populationMin)} and ${formatPopulation(populationMax)} residents.`;
+          } else if (populationMin != null) {
+            populationLine = `Population guidance: at least ${formatPopulation(populationMin)} residents.`;
+          } else if (populationMax != null) {
+            populationLine = `Population guidance: up to ${formatPopulation(populationMax)} residents.`;
+          }
+        }
+      }
       const promptSections = [
         `Fill out the Dungeons & Dragons domain template for a new domain named "${trimmedName}".`,
-        domainForm.flavor ? `Creative direction for Blossom:\n${domainForm.flavor.trim()}` : '',
+        trimmedCategory ? `Domain category or portfolio: ${trimmedCategory}.` : '',
+        trimmedCapital ? `Capital or seat of power: ${trimmedCapital}.` : '',
+        populationLine,
+        trimmedRulerId ? `The ruling NPC uses entity id ${trimmedRulerId}.` : '',
         `Destination folder: ${regionDescriptor} (${targetFolder}). Breadcrumb trail: ${crumbTrail}.`,
         folderNames.length ? `Nearby folders here: ${folderNames.join(', ')}.` : '',
         `Template to follow:\n${DOMAIN_TEMPLATE}`,
@@ -686,7 +736,7 @@ export default function DndWorldRegions() {
         await fetchList(targetDirectory);
         setCurrentPath(targetDirectory);
         setActivePath(targetPath);
-        setDomainForm({ name: '', flavor: '', regionPath: targetDirectory });
+        setDomainForm({ ...DEFAULT_DOMAIN_FORM, regionPath: targetDirectory });
         setDomainStatus({
           stage: 'success',
           error: '',
@@ -706,7 +756,11 @@ export default function DndWorldRegions() {
       crumbs,
       currentPath,
       domainForm.name,
-      domainForm.flavor,
+      domainForm.category,
+      domainForm.capital,
+      domainForm.populationMin,
+      domainForm.populationMax,
+      domainForm.rulerId,
       domainForm.regionPath,
       fetchList,
       items,
@@ -737,6 +791,23 @@ export default function DndWorldRegions() {
     }
     return map;
   }, [metadataMap]);
+
+  const npcOptions = useMemo(() => {
+    const results = [];
+    const seen = new Set();
+    metadataByEntityId.forEach(({ meta }, id) => {
+      const type = String(meta?.rawType || meta?.type || '').toLowerCase();
+      if (type !== 'npc') return;
+      const entityId = meta?.entityId || meta?.id || id || '';
+      if (!entityId) return;
+      const key = entityId.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      const label = meta?.displayName || meta?.name || formatEntityIdLabel(entityId);
+      results.push({ value: entityId, label });
+    });
+    return results;
+  }, [metadataByEntityId]);
 
   const activeMetadata = activePath ? metadataMap[activePath] : null;
 
@@ -858,6 +929,7 @@ export default function DndWorldRegions() {
         onSubmit={handleDomainSubmit}
         status={domainStatus}
         regionOptions={regionOptions}
+        npcOptions={npcOptions}
       />
       <BackButton />
       <h1>Dungeons & Dragons · Regions</h1>
