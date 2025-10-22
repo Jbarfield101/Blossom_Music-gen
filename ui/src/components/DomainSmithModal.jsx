@@ -154,7 +154,7 @@ function DomainSmithModal({
           </label>
 
           <label className="dnd-label">
-            <span>Domain category</span>
+            <span>Domain Category (Theme or Sphere)</span>
             <input
               type="text"
               value={category}
@@ -162,11 +162,11 @@ function DomainSmithModal({
               placeholder="e.g. Twilight, Tempest, or Harvest"
               disabled={busy}
             />
-            <small className="muted">Describe the sphere of influence for this divine domain.</small>
+            <small className="muted">Describe the domain’s nature — Twilight, Tempest, Harvest, etc.</small>
           </label>
 
           <label className="dnd-label">
-            <span>Capital or seat of power</span>
+            <span>Primary Seat of Power (optional)</span>
             <input
               type="text"
               value={capital}
@@ -174,7 +174,7 @@ function DomainSmithModal({
               placeholder="e.g. Moonpetal Citadel"
               disabled={busy}
             />
-            <small className="muted">Optional: name the primary settlement or demesne.</small>
+            <small className="muted">Optional: describe the primary seat anchoring this domain.</small>
           </label>
 
           <label className="dnd-label">
@@ -218,7 +218,7 @@ function DomainSmithModal({
           </label>
 
           <label className="dnd-label">
-            <span>Target region folder</span>
+            <span>Save Location</span>
             <select
               value={regionPath}
               onChange={handleRegionChange}
@@ -234,7 +234,7 @@ function DomainSmithModal({
                 </option>
               ))}
             </select>
-            <small className="muted">Domain markdown will be saved inside this folder.</small>
+            <small className="muted">Select which regional folder this domain file will be stored in.</small>
           </label>
 
           {error ? (
