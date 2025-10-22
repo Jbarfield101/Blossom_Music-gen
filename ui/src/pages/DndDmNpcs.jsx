@@ -900,6 +900,27 @@ function DndDmNpcsContent() {
     };
   }, [vaultRoot]);
 
+  const selected = useMemo(() => {
+    if (activeId) {
+      const match = items.find((i) => i.id === activeId);
+      if (match) return match;
+      if (activeIndexEntry) {
+        const relPath = activeIndexEntry.path || activeIndexEntry.relPath || '';
+        const absolute = vaultRoot ? resolveVaultPath(vaultRoot, relPath) : relPath;
+        return {
+          id: activeIndexEntry.id || activeId,
+          name: activeIndexEntry.name || '',
+          title: activeIndexEntry.name || '',
+          path: absolute,
+          relPath,
+          modified_ms: typeof activeIndexEntry.mtime === 'number' ? Math.round(activeIndexEntry.mtime * 1000) : null,
+          index: activeIndexEntry,
+        };
+      }
+    }
+    return null;
+  }, [items, activeId, activeIndexEntry, vaultRoot]);
+
   const handlePortraitDragEnter = useCallback((event) => {
     if (event?.dataTransfer?.types?.includes('Files')) {
       event.preventDefault();
@@ -1860,27 +1881,6 @@ const establishmentOptions = useMemo(() => {
     })();
     return () => { cancelled = true; };
   }, [items, usingPath, usingIndex]);
-
-  const selected = useMemo(() => {
-    if (activeId) {
-      const match = items.find((i) => i.id === activeId);
-      if (match) return match;
-      if (activeIndexEntry) {
-        const relPath = activeIndexEntry.path || activeIndexEntry.relPath || '';
-        const absolute = vaultRoot ? resolveVaultPath(vaultRoot, relPath) : relPath;
-        return {
-          id: activeIndexEntry.id || activeId,
-          name: activeIndexEntry.name || '',
-          title: activeIndexEntry.name || '',
-          path: absolute,
-          relPath,
-          modified_ms: typeof activeIndexEntry.mtime === 'number' ? Math.round(activeIndexEntry.mtime * 1000) : null,
-          index: activeIndexEntry,
-        };
-      }
-    }
-    return null;
-  }, [items, activeId, activeIndexEntry, vaultRoot]);
 
   const derivedTitle = useMemo(() => {
     const meta = activeMeta || {};
