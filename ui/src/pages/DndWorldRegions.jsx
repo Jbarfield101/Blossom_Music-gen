@@ -15,6 +15,7 @@ import { ENTITY_ID_PATTERN } from '../lib/dndIds.js';
 import { saveEntity } from '../lib/vaultAdapter.js';
 import DomainSmithModal from '../components/DomainSmithModal.jsx';
 import { DOMAIN_TEMPLATE } from '../templates/domainTemplate.js';
+import { createDomain } from '../api/entities.js';
 
 const DEFAULT_REGIONS = 'D:\\Documents\\DreadHaven\\10_World\\Regions';
 
@@ -22,6 +23,36 @@ function joinPath(base, seg) {
   if (!base) return seg;
   if (/\\$/.test(base)) return `${base}${seg}`;
   return `${base}\\${seg}`;
+}
+
+function deriveVaultRootFromRegionsPath(path) {
+  if (!path) return '';
+  const normalized = String(path)
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '');
+  if (!normalized) return '';
+  const suffix = '/10_World/Regions';
+  const lower = normalized.toLowerCase();
+  if (lower.endsWith(suffix.toLowerCase())) {
+    const candidate = normalized.slice(0, normalized.length - suffix.length);
+    return candidate;
+  }
+  return '';
+}
+
+function toRelativeVaultPath(rootPath, absolutePath) {
+  const root = typeof rootPath === 'string' ? rootPath.trim() : '';
+  const absolute = typeof absolutePath === 'string' ? absolutePath.trim() : '';
+  if (!root || !absolute) return '';
+  const normalizedRoot = root.replace(/\\/g, '/').replace(/\/+$/, '');
+  const normalizedAbsolute = absolute.replace(/\\/g, '/');
+  const rootLower = normalizedRoot.toLowerCase();
+  const absoluteLower = normalizedAbsolute.toLowerCase();
+  if (!absoluteLower.startsWith(rootLower)) {
+    return '';
+  }
+  return normalizedAbsolute.slice(normalizedRoot.length).replace(/^\/+/, '');
 }
 
 function formatDate(ms) {
@@ -613,18 +644,53 @@ export default function DndWorldRegions() {
 
         const body = parsed?.content ?? '';
         const filenameSlug = slugify(entityData.name || trimmedName, slug);
-        const targetPath = joinPath(targetFolder, `${filenameSlug}.md`);
 
-        await saveEntity({ entity: entityData, body, path: targetPath, format: 'markdown' });
+        let vaultRoot = '';
+        try {
+          const resolvedRoot = await getDreadhavenRoot();
+          if (typeof resolvedRoot === 'string' && resolvedRoot.trim()) {
+            vaultRoot = resolvedRoot.trim();
+          }
+        } catch (rootErr) {
+          console.warn('Domain Smith: failed to resolve vault root from config', rootErr);
+        }
+        if (!vaultRoot) {
+          vaultRoot = deriveVaultRootFromRegionsPath(basePath) || 'D:/Documents/DreadHaven';
+        }
 
-        await fetchList(targetFolder);
-        setCurrentPath(targetFolder);
+        const relativeTargetDir = toRelativeVaultPath(vaultRoot, targetFolder);
+
+        let creation = null;
+        if (relativeTargetDir) {
+          try {
+            creation = await createDomain(trimmedName, { targetDir: relativeTargetDir });
+          } catch (creationErr) {
+            console.warn('Domain Smith: falling back to manual save', creationErr);
+          }
+        }
+
+        const targetPath = creation?.path || joinPath(targetFolder, `${filenameSlug}.md`);
+        const targetDirectory = creation?.path
+          ? creation.path.replace(/[\\/][^\\/]+$/, '')
+          : targetFolder;
+
+        const finalEntity = { ...entityData };
+        if (!finalEntity.id) finalEntity.id = domainId;
+        if (creation?.id) finalEntity.id = creation.id;
+        if (!finalEntity.type) finalEntity.type = 'domain';
+        if (creation?.type) finalEntity.type = creation.type;
+        if (!finalEntity.name) finalEntity.name = trimmedName;
+
+        await saveEntity({ entity: finalEntity, body, path: targetPath, format: 'markdown' });
+
+        await fetchList(targetDirectory);
+        setCurrentPath(targetDirectory);
         setActivePath(targetPath);
-        setDomainForm({ name: '', flavor: '', regionPath: targetFolder });
+        setDomainForm({ name: '', flavor: '', regionPath: targetDirectory });
         setDomainStatus({
           stage: 'success',
           error: '',
-          message: `Saved ${entityData.name || trimmedName} to ${targetFolder}.`,
+          message: `Saved ${finalEntity.name || trimmedName} to ${targetDirectory}.`,
         });
       } catch (err) {
         console.error('Domain Smith failed', err);
