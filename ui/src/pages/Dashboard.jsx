@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { Store } from '@tauri-apps/plugin-store';
 import FeatureWheel from '../components/FeatureWheel.jsx';
 import Screen from '../components/Screen.jsx';
 import './Dashboard.css';
 
 export default function Dashboard() {
   const [version, setVersion] = useState("");
+  const [greeting, setGreeting] = useState('Welcome to Blossom.');
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -19,6 +21,45 @@ export default function Dashboard() {
       }
     })();
     return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const store = await Store.load('users.json');
+        if (!mounted) return;
+        const current = await store.get('currentUser');
+        if (!mounted) return;
+        if (typeof current === 'string' && current.trim()) {
+          const username = current.trim();
+          const prefs = await store.get('prefs');
+          if (!mounted) return;
+          const perUser = prefs && typeof prefs === 'object' ? prefs[current] : undefined;
+          const template = (
+            perUser && typeof perUser.greetingText === 'string' && perUser.greetingText.trim()
+          ) ? perUser.greetingText : 'Welcome back, {name}!';
+          const message = template.includes('{name}')
+            ? template.replace(/\{name\}/g, username)
+            : template;
+          if (mounted) {
+            setGreeting(message);
+          }
+        } else {
+          if (mounted) {
+            setGreeting('Welcome to Blossom.');
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load greeting from store', err);
+        if (mounted) {
+          setGreeting('Welcome to Blossom.');
+        }
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
   }, []);
   const items = [
     { to: '/musicgen', icon: 'Music', title: 'Sound Lab' },
@@ -40,7 +81,11 @@ export default function Dashboard() {
       <section className="dashboard-main">
         <FeatureWheel items={items} />
         <div className="screen-wrapper">
-          <Screen />
+          <Screen>
+            <div className="dashboard-greeting">
+              <p>{greeting}</p>
+            </div>
+          </Screen>
         </div>
       </section>
     </>
