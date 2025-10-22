@@ -38,6 +38,7 @@ export default function GeneralChat() {
   const liveEnabledRef = useRef(liveEnabled);
   const voiceEnabledRef = useRef(voiceEnabled);
   const voicePathsRef = useRef(voicePaths);
+  const lastStatusAtRef = useRef(Date.now());
   const vadStateRef = useRef({
     noiseFloor: 0.01,
     initialized: false,
@@ -68,6 +69,7 @@ export default function GeneralChat() {
       silenceDuration: 0,
     };
     speechBufferRef.current = { parts: [], totalSamples: 0 };
+    lastStatusAtRef.current = Date.now();
   }, []);
 
   const scrollToBottom = useCallback(() => {
@@ -98,6 +100,11 @@ export default function GeneralChat() {
     }
     resetVadState();
   }, [liveEnabled, resetVadState]);
+
+  useEffect(() => {
+    if (!liveEnabled) return;
+    lastStatusAtRef.current = Date.now();
+  }, [liveEnabled]);
 
   useEffect(() => {
     voiceEnabledRef.current = voiceEnabled;
@@ -473,6 +480,7 @@ export default function GeneralChat() {
         }
         const state = vadStateRef.current;
         const logChunk = (stage, extra = {}) => {
+          lastStatusAtRef.current = Date.now();
           appendLiveDebug({
             type: "chunk",
             stage,
@@ -597,6 +605,7 @@ export default function GeneralChat() {
         const message = err instanceof Error ? err.message : String(err);
         setLiveStatus(`Transcription failed: ${message}`);
         appendLiveDebug({ type: "error", message });
+        lastStatusAtRef.current = Date.now();
       }
     },
     [appendLiveDebug, convertBlobToPCM, handleTranscript]
@@ -638,6 +647,11 @@ export default function GeneralChat() {
         }
         if (entry.type === "status") {
           return `${stamp} status: ${entry.status}`;
+        }
+        if (entry.type === "watchdog") {
+          return `${stamp} watchdog: elapsed=${formatNumber(
+            entry.elapsedMs / 1000
+          )}s threshold=${formatNumber(entry.thresholdMs / 1000)}s`;
         }
         return `${stamp} ${JSON.stringify(entry)}`;
       })
@@ -681,6 +695,36 @@ export default function GeneralChat() {
     chunkPromiseRef.current = Promise.resolve();
     resetVadState();
   }, [resetVadState]);
+
+  useEffect(() => {
+    if (!liveEnabled) return undefined;
+    const intervalMs = 1000;
+    const thresholdMs = SILENCE_HOLD_SEC * 1000 * 2.5;
+    const intervalId = setInterval(() => {
+      if (!liveEnabledRef.current) return;
+      const last = lastStatusAtRef.current || 0;
+      const now = Date.now();
+      if (last && now - last > thresholdMs) {
+        lastStatusAtRef.current = now;
+        const state = vadStateRef.current;
+        state.collecting = false;
+        state.speechDuration = 0;
+        state.silenceDuration = 0;
+        speechBufferRef.current = { parts: [], totalSamples: 0 };
+        if (liveEnabledRef.current) {
+          setLiveStatus("Listening…");
+        }
+        appendLiveDebug({
+          type: "watchdog",
+          elapsedMs: now - last,
+          thresholdMs,
+        });
+      }
+    }, intervalMs);
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [appendLiveDebug, liveEnabled]);
 
   useEffect(() => {
     if (!liveEnabled) {
