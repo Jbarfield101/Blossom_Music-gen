@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import BackButton from "../components/BackButton.jsx";
 import { synthWithPiper } from "../lib/piperSynth";
@@ -24,6 +24,7 @@ export default function GeneralChat() {
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [liveEnabled, setLiveEnabled] = useState(false);
   const [liveStatus, setLiveStatus] = useState("");
+  const [liveDebug, setLiveDebug] = useState([]);
   const [lastTranscript, setLastTranscript] = useState("");
   const [voicePaths, setVoicePaths] = useState({ model: "", config: "" });
 
@@ -46,6 +47,17 @@ export default function GeneralChat() {
   });
   const speechBufferRef = useRef({ parts: [], totalSamples: 0 });
   const lastTranscriptRef = useRef(lastTranscript);
+
+  const appendLiveDebug = useCallback((entry) => {
+    setLiveDebug((prev) => {
+      const next = prev.concat({
+        at: Date.now(),
+        ...entry,
+      });
+      const limit = 80;
+      return next.length > limit ? next.slice(next.length - limit) : next;
+    });
+  }, []);
 
   const resetVadState = useCallback(() => {
     vadStateRef.current = {
@@ -80,6 +92,7 @@ export default function GeneralChat() {
       setLiveStatus("");
       setLastTranscript("");
       lastTranscriptRef.current = "";
+      setLiveDebug([]);
       resetVadState();
       return;
     }
@@ -118,6 +131,11 @@ export default function GeneralChat() {
   useEffect(() => {
     lastTranscriptRef.current = lastTranscript;
   }, [lastTranscript]);
+
+  useEffect(() => {
+    if (!liveStatus) return;
+    appendLiveDebug({ type: "status", status: liveStatus });
+  }, [appendLiveDebug, liveStatus]);
 
   useEffect(() => {
     const loadModels = async () => {
@@ -454,6 +472,19 @@ export default function GeneralChat() {
           return;
         }
         const state = vadStateRef.current;
+        const logChunk = (stage, extra = {}) => {
+          appendLiveDebug({
+            type: "chunk",
+            stage,
+            rms,
+            peak,
+            durationSec,
+            noiseFloor: state.noiseFloor,
+            speechDuration: state.speechDuration,
+            silenceDuration: state.silenceDuration,
+            ...extra,
+          });
+        };
         if (!state.initialized) {
           state.noiseFloor = Math.max(0.005, rms || peak || 0.005);
           state.initialized = true;
@@ -469,6 +500,7 @@ export default function GeneralChat() {
             if (liveEnabledRef.current) {
               setLiveStatus("Listening…");
             }
+            logChunk("silence");
             return;
           }
           state.silenceDuration += durationSec;
@@ -485,6 +517,7 @@ export default function GeneralChat() {
               if (liveEnabledRef.current) {
                 setLiveStatus("Listening…");
               }
+              logChunk("silence");
               return;
             }
             const merged = new Int16Array(buffered.totalSamples);
@@ -494,15 +527,22 @@ export default function GeneralChat() {
               offset += part.length;
             }
             setLiveStatus("Transcribing…");
+            logChunk("transcribing", { bufferedSamples: merged.length });
             const bytes = new Uint8Array(merged.buffer);
             const audio = Array.from(bytes);
             const text = await invoke("transcribe_whisper", { audio });
             const transcript = typeof text === "string" ? text.trim() : "";
             if (!transcript) {
               setLiveStatus("Listening…");
+              appendLiveDebug({ type: "whisper", result: "empty" });
               return;
             }
             setLiveStatus(`Heard: ${transcript}`);
+            appendLiveDebug({
+              type: "whisper",
+              result: "transcript",
+              transcript,
+            });
             handleTranscript(transcript);
             setTimeout(() => {
               if (liveEnabledRef.current) {
@@ -519,9 +559,11 @@ export default function GeneralChat() {
             if (liveEnabledRef.current) {
               setLiveStatus("Listening…");
             }
+            logChunk("reset");
           } else if (liveEnabledRef.current) {
             setLiveStatus("Speech detected…");
           }
+          logChunk("silence");
           return;
         }
 
@@ -549,13 +591,15 @@ export default function GeneralChat() {
         if (liveEnabledRef.current) {
           setLiveStatus("Speech detected…");
         }
+        logChunk("speech", { bufferedSamples: buffer.totalSamples });
       } catch (err) {
         console.error("Transcription failed", err);
         const message = err instanceof Error ? err.message : String(err);
         setLiveStatus(`Transcription failed: ${message}`);
+        appendLiveDebug({ type: "error", message });
       }
     },
-    [convertBlobToPCM, handleTranscript]
+    [appendLiveDebug, convertBlobToPCM, handleTranscript]
   );
 
   const queueAudioChunk = useCallback(
@@ -568,6 +612,48 @@ export default function GeneralChat() {
     },
     [processAudioChunk]
   );
+
+  const liveDebugString = useMemo(() => {
+    const formatNumber = (value) =>
+      typeof value === "number" && Number.isFinite(value)
+        ? value.toFixed(value >= 1 ? 2 : 4)
+        : "n/a";
+    return liveDebug
+      .map((entry) => {
+        const stamp = new Date(entry.at).toLocaleTimeString(undefined, {
+          hour12: false,
+        });
+        if (entry.type === "chunk") {
+          const buffered = entry.bufferedSamples ? ` buffered=${entry.bufferedSamples}` : "";
+          return `${stamp} chunk:${entry.stage} dur=${formatNumber(entry.durationSec)}s rms=${formatNumber(entry.rms)} peak=${formatNumber(entry.peak)} noise=${formatNumber(entry.noiseFloor)} speech=${formatNumber(entry.speechDuration)}s silence=${formatNumber(entry.silenceDuration)}s${buffered}`;
+        }
+        if (entry.type === "whisper") {
+          if (entry.result === "transcript") {
+            return `${stamp} whisper: ${entry.transcript}`;
+          }
+          return `${stamp} whisper: (empty result)`;
+        }
+        if (entry.type === "error") {
+          return `${stamp} error: ${entry.message}`;
+        }
+        if (entry.type === "status") {
+          return `${stamp} status: ${entry.status}`;
+        }
+        return `${stamp} ${JSON.stringify(entry)}`;
+      })
+      .join("\n");
+  }, [liveDebug]);
+
+  const hasLiveDebug = liveDebugString.length > 0;
+
+  const copyLiveDebug = useCallback(async () => {
+    if (!hasLiveDebug) return;
+    try {
+      await navigator.clipboard.writeText(liveDebugString);
+    } catch (err) {
+      console.error("Failed to copy diagnostics", err);
+    }
+  }, [hasLiveDebug, liveDebugString]);
 
   const stopLiveResources = useCallback(() => {
     if (mediaRecorderRef.current) {
@@ -606,6 +692,7 @@ export default function GeneralChat() {
       if (!navigator?.mediaDevices?.getUserMedia) {
         setLiveStatus("Microphone not available");
         setLiveEnabled(false);
+        appendLiveDebug({ type: "error", message: "Microphone not available" });
         return;
       }
       try {
@@ -640,6 +727,7 @@ export default function GeneralChat() {
         recorder.addEventListener("error", (event) => {
           const message = event?.error?.message || "Recording error";
           setLiveStatus(`Recording error: ${message}`);
+          appendLiveDebug({ type: "error", message });
         });
         recorder.addEventListener("stop", () => {
           if (liveEnabledRef.current) {
@@ -653,6 +741,7 @@ export default function GeneralChat() {
         const message = err instanceof Error ? err.message : String(err);
         setLiveStatus(`Microphone error: ${message}`);
         setLiveEnabled(false);
+        appendLiveDebug({ type: "error", message });
       }
     };
     start();
@@ -660,7 +749,7 @@ export default function GeneralChat() {
       cancelled = true;
       stopLiveResources();
     };
-  }, [liveEnabled, queueAudioChunk, stopLiveResources]);
+  }, [appendLiveDebug, liveEnabled, queueAudioChunk, stopLiveResources]);
 
   useEffect(() => {
     scrollToBottom();
@@ -771,6 +860,20 @@ export default function GeneralChat() {
           )}
         </div>
       )}
+      <div className="live-debug-card">
+        <div className="live-debug-card__header">
+          <span className="live-debug-card__title">Live diagnostics</span>
+          <button
+            type="button"
+            className="live-debug-card__copy"
+            onClick={copyLiveDebug}
+            disabled={!hasLiveDebug}
+          >
+            Copy
+          </button>
+        </div>
+        <pre className="live-debug-card__content">{hasLiveDebug ? liveDebugString : "No diagnostics captured yet."}</pre>
+      </div>
       <div
         ref={listRef}
         style={{

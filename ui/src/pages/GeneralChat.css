@@ -49,6 +49,65 @@
   line-height: 1.45;
 }
 
+.live-debug-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card-bg);
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.live-debug-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.live-debug-card__title {
+  font-weight: 600;
+  color: var(--log-fg, rgba(255, 255, 255, 0.85));
+}
+
+.live-debug-card__copy {
+  padding: 0.25rem 0.65rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--log-bg, rgba(20, 20, 30, 0.7));
+  color: var(--log-fg, #fff);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background-color 120ms ease, transform 120ms ease;
+}
+
+.live-debug-card__copy:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.live-debug-card__copy:not(:disabled):hover {
+  background: var(--card-muted-bg, rgba(255, 255, 255, 0.08));
+}
+
+.live-debug-card__copy:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+.live-debug-card__content {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  background: var(--log-bg, rgba(13, 13, 20, 0.7));
+  color: var(--log-fg, #f0f3ff);
+  padding: 0.5rem;
+  border-radius: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
 @keyframes chatMessageEnter {
   from {
     opacity: 0;
