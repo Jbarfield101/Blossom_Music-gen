@@ -71,6 +71,12 @@ const EVENT_CATEGORIES = [
     defaultTitle: 'Dungeon Master Session',
   },
   {
+    id: 'Blossom_Task',
+    label: 'Blossom Task',
+    accent: '#b14b67',
+    defaultTitle: 'Blossom planning session',
+  },
+  {
     id: 'custom',
     label: 'Custom',
     accent: '#f59e0b',
@@ -499,7 +505,7 @@ function formatMinutesRange(startMinutes, endMinutes) {
   return `${minutesToTimeString(startMinutes)} – ${minutesToTimeString(endMinutes)}`;
 }
 
-function createDefaultFormState(category = 'work', dateKey = '') {
+function createDefaultFormState(category = 'Blossom_Task', dateKey = '') {
   const isKnownCategory = EVENT_CATEGORIES.some((item) => item.id === category);
   const resolvedCategory = isKnownCategory ? category : 'custom';
   const meta = EVENT_CATEGORIES.find((item) => item.id === resolvedCategory);
@@ -612,7 +618,7 @@ export default function Calendar() {
   );
   const [isDayViewOpen, setDayViewOpen] = useState(false);
   const [formState, setFormState] = useState(() =>
-    createDefaultFormState('work', formatDateKey(today))
+    createDefaultFormState('Blossom_Task', formatDateKey(today))
   );
   const [formError, setFormError] = useState('');
   const dayViewRef = useRef(null);
