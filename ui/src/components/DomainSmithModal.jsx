@@ -1,4 +1,5 @@
 import Icon from './Icon.jsx';
+import DualRangeSlider from './DualRangeSlider.jsx';
 import EntityLinkPicker from '../components/EntityLinkPicker.jsx';
 import { DOMAIN_CATEGORY_OPTIONS } from '../constants/domainOptions.js';
 
@@ -76,22 +77,12 @@ function DomainSmithModal({
     onChange({ capital: event.target.value });
   };
 
-  const handlePopulationMinChange = (event) => {
-    const nextMin = clampNumber(event.target.value, POPULATION_MIN_LIMIT, POPULATION_MAX_LIMIT);
-    const nextMax = Math.max(
-      nextMin,
-      clampNumber(rawPopulationMax, POPULATION_MIN_LIMIT, POPULATION_MAX_LIMIT),
-    );
-    onChange({ populationMin: nextMin, populationMax: nextMax });
-  };
-
-  const handlePopulationMaxChange = (event) => {
-    const nextMax = clampNumber(event.target.value, POPULATION_MIN_LIMIT, POPULATION_MAX_LIMIT);
-    const nextMin = Math.min(
-      clampNumber(rawPopulationMin, POPULATION_MIN_LIMIT, POPULATION_MAX_LIMIT),
-      nextMax,
-    );
-    onChange({ populationMin: nextMin, populationMax: nextMax });
+  const handlePopulationRangeChange = ([nextMinRaw, nextMaxRaw]) => {
+    const nextMin = clampNumber(nextMinRaw, POPULATION_MIN_LIMIT, POPULATION_MAX_LIMIT);
+    const nextMax = clampNumber(nextMaxRaw, POPULATION_MIN_LIMIT, POPULATION_MAX_LIMIT);
+    const safeMin = Math.min(nextMin, nextMax);
+    const safeMax = Math.max(nextMin, nextMax);
+    onChange({ populationMin: safeMin, populationMax: safeMax });
   };
 
   const handleRulerChange = (value) => {
@@ -203,26 +194,15 @@ function DomainSmithModal({
             <h3>Demographics</h3>
             <label className="dnd-label">
               <span>Population range</span>
-              <div className="population-range-inputs">
-                <input
-                  type="range"
-                  min={POPULATION_MIN_LIMIT}
-                  max={POPULATION_MAX_LIMIT}
-                  step={POPULATION_STEP}
-                  value={normalizedPopulationMin}
-                  onChange={handlePopulationMinChange}
-                  disabled={busy}
-                />
-                <input
-                  type="range"
-                  min={POPULATION_MIN_LIMIT}
-                  max={POPULATION_MAX_LIMIT}
-                  step={POPULATION_STEP}
-                  value={normalizedPopulationMax}
-                  onChange={handlePopulationMaxChange}
-                  disabled={busy}
-                />
-              </div>
+              <DualRangeSlider
+                className="population-range-slider"
+                min={POPULATION_MIN_LIMIT}
+                max={POPULATION_MAX_LIMIT}
+                step={POPULATION_STEP}
+                value={[normalizedPopulationMin, normalizedPopulationMax]}
+                onChange={handlePopulationRangeChange}
+                disabled={busy}
+              />
               <small className="muted">{populationHelperText}</small>
             </label>
           </div>
