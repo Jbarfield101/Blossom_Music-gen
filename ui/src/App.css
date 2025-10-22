@@ -112,6 +112,21 @@ header {
   cursor: pointer;
 }
 
+.back-button-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: var(--space-md);
+}
+
+.back-button-group .back-button {
+  margin: 0;
+}
+
+.back-button-group .app-layout__nav-toggle {
+  margin: 0;
+}
+
 
 .skip-link {
   position: absolute;
@@ -156,10 +171,9 @@ header {
 }
 
 .app-layout__nav-toggle {
-  position: fixed;
-  top: var(--space-md);
-  left: var(--space-md);
-  z-index: 140;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   padding: 0.5rem 1rem;
   border: 1px solid color-mix(in srgb, var(--text) 15%, transparent);
   border-radius: 999px;
@@ -169,6 +183,14 @@ header {
   font-weight: 600;
   cursor: pointer;
   box-shadow: var(--topbar-shadow);
+}
+
+.app-layout__nav-toggle:is(:hover, :focus-visible) {
+  background: var(--card-hover-bg);
+}
+
+.app-layout__nav-toggle-wrapper {
+  margin: var(--space-md);
 }
 
 .app-layout__scrim {
