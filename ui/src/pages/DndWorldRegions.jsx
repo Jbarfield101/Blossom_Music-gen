@@ -16,6 +16,7 @@ import { saveEntity } from '../lib/vaultAdapter.js';
 import DomainSmithModal from '../components/DomainSmithModal.jsx';
 import { DOMAIN_TEMPLATE } from '../templates/domainTemplate.js';
 import { createDomain } from '../api/entities.js';
+import { listEntitiesByType } from '../lib/vaultIndex.js';
 
 const DEFAULT_REGIONS = 'D:\\Documents\\DreadHaven\\10_World\\Regions';
 
@@ -392,6 +393,26 @@ const DEFAULT_DOMAIN_FORM = {
   regionPath: '',
 };
 
+const POPULATION_MIN_LIMIT = 0;
+const POPULATION_MAX_LIMIT = 1000000;
+
+function clampPopulationValue(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  if (num < POPULATION_MIN_LIMIT) return POPULATION_MIN_LIMIT;
+  if (num > POPULATION_MAX_LIMIT) return POPULATION_MAX_LIMIT;
+  return Math.round(num);
+}
+
+function normalizePopulationRange(minValue, maxValue) {
+  const min = clampPopulationValue(minValue);
+  const max = clampPopulationValue(maxValue);
+  if (min != null && max != null && min > max) {
+    return [max, min];
+  }
+  return [min, max];
+}
+
 export default function DndWorldRegions() {
   const [basePath, setBasePath] = useState('');
   const [currentPath, setCurrentPath] = useState('');
@@ -402,10 +423,66 @@ export default function DndWorldRegions() {
   const [activeContent, setActiveContent] = useState('');
   const [metadataMap, setMetadataMap] = useState({});
   const [showDomainSmith, setShowDomainSmith] = useState(false);
-  const [domainForm, setDomainForm] = useState({ ...DEFAULT_DOMAIN_FORM });
+  const [domainForm, setDomainForm] = useState(() => ({ ...DEFAULT_DOMAIN_FORM }));
   const [domainStatus, setDomainStatus] = useState({ stage: 'idle', error: '', message: '' });
   const metadataRef = useRef({});
   const regionsVersion = useVaultVersion(['10_world/regions']);
+  const [npcOptions, setNpcOptions] = useState([]);
+
+  const npcLabelById = useMemo(() => {
+    const lookup = {};
+    npcOptions.forEach((option) => {
+      if (!option || !option.value) return;
+      const key = String(option.value).trim();
+      if (!key) return;
+      const label = option.label || formatEntityIdLabel(key);
+      lookup[key] = label;
+      lookup[key.toLowerCase()] = label;
+    });
+    return lookup;
+  }, [npcOptions]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { entries = [] } = await listEntitiesByType('npc', { force: false }).catch(() => ({ entries: [] }));
+        if (cancelled) return;
+        const normalized = entries
+          .map((entry) => {
+            const value = entry?.id || entry?.index?.id || '';
+            if (!value) return null;
+            const label = entry?.name || entry?.title || formatEntityIdLabel(value);
+            return label ? { value, label } : { value, label: formatEntityIdLabel(value) };
+          })
+          .filter(Boolean);
+        const deduped = new Map();
+        normalized.forEach((option) => {
+          const key = String(option.value).toLowerCase();
+          if (!key) return;
+          if (!deduped.has(key) || !deduped.get(key).label) {
+            deduped.set(key, option);
+          }
+        });
+        const sorted = Array.from(deduped.values()).sort((a, b) => {
+          const labelA = (a.label || a.value || '').toLowerCase();
+          const labelB = (b.label || b.value || '').toLowerCase();
+          if (labelA < labelB) return -1;
+          if (labelA > labelB) return 1;
+          return 0;
+        });
+        setNpcOptions(sorted);
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('Failed to load NPC metadata', err);
+          setNpcOptions([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [regionsVersion]);
 
   const initBase = useCallback(async () => {
     setLoading(true);
@@ -566,7 +643,15 @@ export default function DndWorldRegions() {
       : (basePath && basePath.trim())
         ? basePath
         : (regionOptions[0]?.value || '');
-    setDomainForm({ ...DEFAULT_DOMAIN_FORM, regionPath: defaultRegion });
+    setDomainForm({
+      ...DEFAULT_DOMAIN_FORM,
+      category: DEFAULT_DOMAIN_FORM.category,
+      capital: DEFAULT_DOMAIN_FORM.capital,
+      populationMin: DEFAULT_DOMAIN_FORM.populationMin,
+      populationMax: DEFAULT_DOMAIN_FORM.populationMax,
+      rulerId: DEFAULT_DOMAIN_FORM.rulerId,
+      regionPath: defaultRegion,
+    });
     setDomainStatus({ stage: 'idle', error: '', message: '' });
     setShowDomainSmith(true);
   }, [basePath, currentPath, domainStatus.stage, regionOptions]);
@@ -576,13 +661,29 @@ export default function DndWorldRegions() {
     const fallbackRegion = (currentPath && currentPath.trim()) || (basePath && basePath.trim()) || '';
     setDomainForm((prev) => ({
       ...DEFAULT_DOMAIN_FORM,
+      category: DEFAULT_DOMAIN_FORM.category,
+      capital: DEFAULT_DOMAIN_FORM.capital,
+      populationMin: DEFAULT_DOMAIN_FORM.populationMin,
+      populationMax: DEFAULT_DOMAIN_FORM.populationMax,
+      rulerId: DEFAULT_DOMAIN_FORM.rulerId,
       regionPath: prev.regionPath || fallbackRegion,
     }));
     setDomainStatus({ stage: 'idle', error: '', message: '' });
   }, [basePath, currentPath]);
 
   const handleDomainFormChange = useCallback((patch) => {
-    setDomainForm((prev) => ({ ...prev, ...patch }));
+    setDomainForm((prev) => {
+      const next = { ...prev, ...patch };
+      if ('populationMin' in patch || 'populationMax' in patch) {
+        const [normalizedMin, normalizedMax] = normalizePopulationRange(
+          patch.populationMin ?? prev.populationMin,
+          patch.populationMax ?? prev.populationMax,
+        );
+        next.populationMin = normalizedMin != null ? normalizedMin : DEFAULT_DOMAIN_FORM.populationMin;
+        next.populationMax = normalizedMax != null ? normalizedMax : DEFAULT_DOMAIN_FORM.populationMax;
+      }
+      return next;
+    });
     setDomainStatus((prev) => {
       if (prev.stage === 'idle' && !prev.error && !prev.message) return prev;
       return { stage: 'idle', error: '', message: '' };
@@ -617,43 +718,42 @@ export default function DndWorldRegions() {
       const trimmedCategory = String(domainForm.category || '').trim();
       const trimmedCapital = String(domainForm.capital || '').trim();
       const trimmedRulerId = domainForm.rulerId ? String(domainForm.rulerId).trim() : '';
-      const clampPopulation = (value) => {
-        const num = Number(value);
-        if (!Number.isFinite(num)) return null;
-        if (num < 0) return 0;
-        if (num > 1000000) return 1000000;
-        return Math.round(num);
-      };
-      let populationMin = clampPopulation(domainForm.populationMin);
-      let populationMax = clampPopulation(domainForm.populationMax);
-      if (populationMin != null && populationMax != null && populationMin > populationMax) {
-        const swap = populationMin;
-        populationMin = populationMax;
-        populationMax = swap;
-      }
+      let [populationMin, populationMax] = normalizePopulationRange(
+        domainForm.populationMin,
+        domainForm.populationMax,
+      );
       const formatPopulation = (value) => {
         if (value == null) return '';
         return value.toLocaleString();
       };
-      let populationLine = '';
-      if (populationMin != null || populationMax != null) {
-        const hasData = (populationMin ?? 0) > 0 || (populationMax ?? 0) > 0;
-        if (hasData) {
-          if (populationMin != null && populationMax != null) {
-            populationLine = `Population guidance: between ${formatPopulation(populationMin)} and ${formatPopulation(populationMax)} residents.`;
-          } else if (populationMin != null) {
-            populationLine = `Population guidance: at least ${formatPopulation(populationMin)} residents.`;
-          } else if (populationMax != null) {
-            populationLine = `Population guidance: up to ${formatPopulation(populationMax)} residents.`;
-          }
+      let populationSentence = '';
+      if ((populationMin ?? 0) > 0 || (populationMax ?? 0) > 0) {
+        if (populationMin != null && populationMax != null && populationMin !== populationMax) {
+          populationSentence = `Population input: between ${formatPopulation(populationMin)} and ${formatPopulation(populationMax)} residents. Use this to populate the front matter population field.`;
+        } else if (populationMin != null && populationMax != null) {
+          populationSentence = `Population input: approximately ${formatPopulation(populationMin)} residents. Use this to populate the front matter population field.`;
+        } else if (populationMin != null) {
+          populationSentence = `Population input: at least ${formatPopulation(populationMin)} residents. Use this to populate the front matter population field.`;
+        } else if (populationMax != null) {
+          populationSentence = `Population input: at most ${formatPopulation(populationMax)} residents. Use this to populate the front matter population field.`;
         }
       }
+      const resolvedRulerLabel = trimmedRulerId
+        ? npcLabelById[trimmedRulerId] || npcLabelById[trimmedRulerId.toLowerCase()] || ''
+        : '';
+      const rulerSentence = trimmedRulerId
+        ? `Ruler input: ${resolvedRulerLabel ? `${resolvedRulerLabel} (${trimmedRulerId})` : trimmedRulerId}. Set this NPC as the front matter ruler_id.`
+        : '';
       const promptSections = [
         `Fill out the Dungeons & Dragons domain template for a new domain named "${trimmedName}".`,
-        trimmedCategory ? `Domain category or portfolio: ${trimmedCategory}.` : '',
-        trimmedCapital ? `Capital or seat of power: ${trimmedCapital}.` : '',
-        populationLine,
-        trimmedRulerId ? `The ruling NPC uses entity id ${trimmedRulerId}.` : '',
+        trimmedCategory
+          ? `Category input: ${trimmedCategory}. Use this value for the front matter category field.`
+          : '',
+        trimmedCapital
+          ? `Capital input: ${trimmedCapital}. Use this value for the front matter capital field.`
+          : '',
+        populationSentence,
+        rulerSentence,
         `Destination folder: ${regionDescriptor} (${targetFolder}). Breadcrumb trail: ${crumbTrail}.`,
         folderNames.length ? `Nearby folders here: ${folderNames.join(', ')}.` : '',
         `Template to follow:\n${DOMAIN_TEMPLATE}`,
@@ -662,6 +762,7 @@ export default function DndWorldRegions() {
           `- Set the YAML id to "${domainId}".`,
           '- Keep the type as "domain".',
           '- Populate every field with concise, evocative lore suitable for tabletop play.',
+          '- Populate the category, capital, population, and ruler_id front matter fields using the provided inputs.',
           '- Preserve all keys and comments from the template.',
           '- Use YAML arrays for list values and provide at least two gm_secrets.',
           '- Respond with Markdown only.',
@@ -736,11 +837,31 @@ export default function DndWorldRegions() {
         await fetchList(targetDirectory);
         setCurrentPath(targetDirectory);
         setActivePath(targetPath);
-        setDomainForm({ ...DEFAULT_DOMAIN_FORM, regionPath: targetDirectory });
+        setDomainForm({
+          ...DEFAULT_DOMAIN_FORM,
+          category: DEFAULT_DOMAIN_FORM.category,
+          capital: DEFAULT_DOMAIN_FORM.capital,
+          populationMin: DEFAULT_DOMAIN_FORM.populationMin,
+          populationMax: DEFAULT_DOMAIN_FORM.populationMax,
+          rulerId: DEFAULT_DOMAIN_FORM.rulerId,
+          regionPath: targetDirectory,
+        });
+        const finalRulerId = finalEntity.ruler_id || trimmedRulerId;
+        const successLabel = finalRulerId
+          ? npcLabelById[finalRulerId] || npcLabelById[String(finalRulerId).toLowerCase()] || ''
+          : '';
+        const successParts = [`Saved ${finalEntity.name || trimmedName} to ${targetDirectory}.`];
+        if (finalRulerId) {
+          successParts.push(
+            successLabel
+              ? `Ruler: ${successLabel} (${finalRulerId}).`
+              : `Ruler ID: ${finalRulerId}.`,
+          );
+        }
         setDomainStatus({
           stage: 'success',
           error: '',
-          message: `Saved ${finalEntity.name || trimmedName} to ${targetDirectory}.`,
+          message: successParts.join(' '),
         });
       } catch (err) {
         console.error('Domain Smith failed', err);
@@ -764,6 +885,7 @@ export default function DndWorldRegions() {
       domainForm.regionPath,
       fetchList,
       items,
+      npcLabelById,
       regionOptions,
     ],
   );
@@ -791,23 +913,6 @@ export default function DndWorldRegions() {
     }
     return map;
   }, [metadataMap]);
-
-  const npcOptions = useMemo(() => {
-    const results = [];
-    const seen = new Set();
-    metadataByEntityId.forEach(({ meta }, id) => {
-      const type = String(meta?.rawType || meta?.type || '').toLowerCase();
-      if (type !== 'npc') return;
-      const entityId = meta?.entityId || meta?.id || id || '';
-      if (!entityId) return;
-      const key = entityId.toLowerCase();
-      if (seen.has(key)) return;
-      seen.add(key);
-      const label = meta?.displayName || meta?.name || formatEntityIdLabel(entityId);
-      results.push({ value: entityId, label });
-    });
-    return results;
-  }, [metadataByEntityId]);
 
   const activeMetadata = activePath ? metadataMap[activePath] : null;
 
