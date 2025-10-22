@@ -14,8 +14,10 @@ import matter from 'gray-matter';
 import { ENTITY_ID_PATTERN } from '../lib/dndIds.js';
 import { saveEntity } from '../lib/vaultAdapter.js';
 import DomainSmithModal from '../components/DomainSmithModal.jsx';
+import CountySmithModal from '../components/CountySmithModal.jsx';
 import { DOMAIN_TEMPLATE } from '../templates/domainTemplate.js';
-import { createDomain } from '../api/entities.js';
+import { COUNTY_TEMPLATE } from '../templates/countyTemplate.js';
+import { createDomain, createCounty } from '../api/entities.js';
 import { listEntitiesByType } from '../lib/vaultIndex.js';
 
 const DEFAULT_REGIONS = 'D:\\Documents\\DreadHaven\\10_World\\Regions';
@@ -393,6 +395,22 @@ const DEFAULT_DOMAIN_FORM = {
   regionPath: '',
 };
 
+const DEFAULT_COUNTY_FORM = {
+  name: '',
+  category: '',
+  seatOfPower: '',
+  capital: '',
+  governanceType: '',
+  rulingHouse: '',
+  population: '',
+  allegiance: '',
+  targetDir: '',
+  notes: '',
+  domainId: '',
+  domainName: '',
+  primarySpecies: '',
+};
+
 const POPULATION_MIN_LIMIT = 0;
 const POPULATION_MAX_LIMIT = 1000000;
 
@@ -425,6 +443,11 @@ export default function DndWorldRegions() {
   const [showDomainSmith, setShowDomainSmith] = useState(false);
   const [domainForm, setDomainForm] = useState(() => ({ ...DEFAULT_DOMAIN_FORM }));
   const [domainStatus, setDomainStatus] = useState({ stage: 'idle', error: '', message: '' });
+  const [showCountySmith, setShowCountySmith] = useState(false);
+  const [countyForm, setCountyForm] = useState(() => ({ ...DEFAULT_COUNTY_FORM }));
+  const [countyStatus, setCountyStatus] = useState({ stage: 'idle', error: '', message: '' });
+  const [activeCountyDomain, setActiveCountyDomain] = useState(null);
+  const [recentDomain, setRecentDomain] = useState(null);
   const metadataRef = useRef({});
   const regionsVersion = useVaultVersion(['10_world/regions']);
   const [npcOptions, setNpcOptions] = useState([]);
@@ -635,6 +658,48 @@ export default function DndWorldRegions() {
     }
     return options;
   }, [crumbs, items]);
+
+  const regionOptionLookup = useMemo(() => {
+    const lookup = new Map();
+    for (const option of regionOptions) {
+      if (!option || !option.value) continue;
+      lookup.set(option.value, option.label || option.value);
+    }
+    return lookup;
+  }, [regionOptions]);
+
+  const countyRegionOptions = useMemo(() => {
+    const basePairs = regionOptions
+      .map((option) => (option && option.value ? [option.value, option] : null))
+      .filter(Boolean);
+    const map = new Map(basePairs);
+    const domainDir = activeCountyDomain?.directory;
+    if (domainDir) {
+      const defaultLabel = activeCountyDomain?.name
+        ? `${activeCountyDomain.name} folder`
+        : domainDir;
+      if (!map.has(domainDir)) {
+        map.set(domainDir, { value: domainDir, label: defaultLabel });
+      }
+      const countiesDir = joinPath(domainDir, 'Counties');
+      if (countiesDir && !map.has(countiesDir)) {
+        const countiesLabel = activeCountyDomain?.name
+          ? `${activeCountyDomain.name} \\ Counties`
+          : `${countiesDir}`;
+        map.set(countiesDir, { value: countiesDir, label: countiesLabel });
+      }
+    }
+    const countyDir = activeCountyDomain?.countyDirectory;
+    if (countyDir && !map.has(countyDir)) {
+      map.set(countyDir, {
+        value: countyDir,
+        label: activeCountyDomain?.name
+          ? `${activeCountyDomain.name} counties`
+          : countyDir,
+      });
+    }
+    return Array.from(map.values());
+  }, [regionOptions, activeCountyDomain?.directory, activeCountyDomain?.name, activeCountyDomain?.countyDirectory]);
 
   const handleOpenDomainSmith = useCallback(() => {
     if (domainStatus.stage === 'generating' || domainStatus.stage === 'saving') return;
@@ -858,10 +923,36 @@ export default function DndWorldRegions() {
               : `Ruler ID: ${finalRulerId}.`,
           );
         }
+        const defaultCountyDir = targetDirectory ? joinPath(targetDirectory, 'Counties') : targetDirectory;
+        const domainContext = {
+          id: finalEntity.id,
+          name: finalEntity.name || trimmedName,
+          path: targetPath,
+          directory: targetDirectory,
+          relPath: creation?.relPath || '',
+          regionLabel: regionDescriptor,
+          crumbTrail,
+          category: finalEntity.category || trimmedCategory,
+          capital: finalEntity.capital || trimmedCapital,
+          population: finalEntity.population,
+          rulerId: finalRulerId,
+          markdown: generated,
+          countyDirectory: defaultCountyDir || targetDirectory,
+        };
+        setRecentDomain(domainContext);
+        setActiveCountyDomain(domainContext);
+        setCountyForm({
+          ...DEFAULT_COUNTY_FORM,
+          domainId: domainContext.id,
+          domainName: domainContext.name,
+          targetDir: domainContext.countyDirectory,
+        });
+        setCountyStatus({ stage: 'idle', error: '', message: '' });
         setDomainStatus({
           stage: 'success',
           error: '',
           message: successParts.join(' '),
+          domain: domainContext,
         });
       } catch (err) {
         console.error('Domain Smith failed', err);
@@ -887,6 +978,283 @@ export default function DndWorldRegions() {
       items,
       npcLabelById,
       regionOptions,
+    ],
+  );
+
+  const handlePromptForgeCounties = useCallback(
+    (domainInfo) => {
+      const resolved = domainInfo && typeof domainInfo === 'object' ? domainInfo : activeCountyDomain;
+      if (!resolved) {
+        return;
+      }
+      const merged = recentDomain && resolved.id && recentDomain.id === resolved.id
+        ? { ...recentDomain, ...resolved }
+        : resolved;
+      const fallbackFolder = (merged.directory && merged.directory.trim())
+        || (currentPath && currentPath.trim())
+        || (basePath && basePath.trim())
+        || '';
+      const defaultTarget = merged.countyDirectory
+        ? merged.countyDirectory
+        : merged.directory
+          ? joinPath(merged.directory, 'Counties')
+          : fallbackFolder;
+      const normalizedTarget = defaultTarget || fallbackFolder;
+      setActiveCountyDomain(merged);
+      setCountyForm({
+        ...DEFAULT_COUNTY_FORM,
+        domainId: merged.id || '',
+        domainName: merged.name || '',
+        targetDir: normalizedTarget,
+      });
+      setCountyStatus({ stage: 'idle', error: '', message: '' });
+      setShowCountySmith(true);
+    },
+    [activeCountyDomain, basePath, currentPath, recentDomain],
+  );
+
+  const handleCountyClose = useCallback(() => {
+    setShowCountySmith(false);
+    setCountyStatus({ stage: 'idle', error: '', message: '' });
+    setCountyForm((prev) => {
+      const domainId = prev.domainId || activeCountyDomain?.id || '';
+      const domainName = prev.domainName || activeCountyDomain?.name || '';
+      const fallbackDir = activeCountyDomain?.countyDirectory
+        || (activeCountyDomain?.directory ? joinPath(activeCountyDomain.directory, 'Counties') : '');
+      return {
+        ...DEFAULT_COUNTY_FORM,
+        domainId,
+        domainName,
+        targetDir: fallbackDir,
+      };
+    });
+  }, [activeCountyDomain]);
+
+  const handleCountyFormChange = useCallback((patch) => {
+    setCountyForm((prev) => ({ ...prev, ...patch }));
+    setCountyStatus((prevStatus) => {
+      if (prevStatus.stage === 'idle' && !prevStatus.error && !prevStatus.message) {
+        return prevStatus;
+      }
+      return { stage: 'idle', error: '', message: '' };
+    });
+  }, []);
+
+  const handleCountySubmit = useCallback(
+    async (event) => {
+      event.preventDefault();
+      const trimmedName = String(countyForm.name || '').trim();
+      if (!trimmedName) {
+        setCountyStatus({ stage: 'error', error: 'Please provide a county name.', message: '' });
+        return;
+      }
+
+      const resolvedDomainId = String(countyForm.domainId || activeCountyDomain?.id || '').trim();
+      const resolvedDomainName = String(countyForm.domainName || activeCountyDomain?.name || '').trim();
+      if (!resolvedDomainId) {
+        setCountyStatus({ stage: 'error', error: 'Provide the parent domain ID so the county links correctly.', message: '' });
+        return;
+      }
+
+      const fallbackFolder = (activeCountyDomain?.directory && activeCountyDomain.directory.trim())
+        || (currentPath && currentPath.trim())
+        || (basePath && basePath.trim())
+        || '';
+      const selectedFolder = String(countyForm.targetDir || '').trim();
+      const targetFolder = selectedFolder || fallbackFolder;
+      if (!targetFolder) {
+        setCountyStatus({ stage: 'error', error: 'Pick a folder to store the new county.', message: '' });
+        return;
+      }
+
+      const slug = slugify(trimmedName, 'county');
+      const countyId = `county_${slug}_${randomHash(6)}`;
+      const trimmedCategory = String(countyForm.category || '').trim();
+      const trimmedSeat = String(countyForm.seatOfPower || '').trim();
+      const trimmedCapital = String(countyForm.capital || '').trim();
+      const trimmedGovernance = String(countyForm.governanceType || '').trim();
+      const trimmedRulingHouse = String(countyForm.rulingHouse || '').trim();
+      const trimmedPopulation = String(countyForm.population || '').trim();
+      const trimmedAllegiance = String(countyForm.allegiance || '').trim();
+      const trimmedNotes = String(countyForm.notes || '').trim();
+      const trimmedPrimarySpecies = String(countyForm.primarySpecies || '').trim();
+      const crumbTrail = crumbs.map((crumb) => crumb.label).filter(Boolean).join(' > ') || 'Regions';
+      const regionDescriptor = regionOptionLookup.get(targetFolder) || targetFolder;
+
+      const domainContext = activeCountyDomain && (!countyForm.domainId || activeCountyDomain.id === resolvedDomainId)
+        ? activeCountyDomain
+        : recentDomain && (!recentDomain.id || recentDomain.id === resolvedDomainId)
+          ? recentDomain
+          : activeCountyDomain || recentDomain || null;
+      const domainMarkdown = domainContext?.markdown || '';
+      const truncatedDomainMarkdown = domainMarkdown.length > 8000
+        ? `${domainMarkdown.slice(0, 8000)}\n...`
+        : domainMarkdown;
+
+      const promptSections = [
+        `Fill out the Dungeons & Dragons county template for a county named "${trimmedName}".`,
+        resolvedDomainName
+          ? `Parent domain: ${resolvedDomainName} (id: ${resolvedDomainId}). Set domain_id to this value.`
+          : `Set domain_id to ${resolvedDomainId}.`,
+        trimmedCategory
+          ? `County descriptors input: ${trimmedCategory}. Convert this into the category array.`
+          : '',
+        trimmedSeat ? `Seat of power input: ${trimmedSeat}.` : '',
+        trimmedCapital ? `Capital input: ${trimmedCapital}.` : '',
+        trimmedRulingHouse ? `Ruling house input: ${trimmedRulingHouse}.` : '',
+        trimmedGovernance ? `Governance type input: ${trimmedGovernance}.` : '',
+        trimmedPopulation ? `Population input: ${trimmedPopulation}.` : '',
+        trimmedPrimarySpecies
+          ? `Primary species input: ${trimmedPrimarySpecies}. Populate the primary_species array accordingly.`
+          : '',
+        trimmedAllegiance ? `Allegiance input: ${trimmedAllegiance}.` : '',
+        trimmedNotes ? `Creator notes: ${trimmedNotes}` : '',
+        truncatedDomainMarkdown
+          ? `Parent domain dossier (Markdown):\n${truncatedDomainMarkdown}`
+          : '',
+        `Destination folder: ${regionDescriptor} (${targetFolder}). Breadcrumb trail: ${crumbTrail}.`,
+        `Template to follow:\n${COUNTY_TEMPLATE}`,
+        [
+          'Formatting requirements:',
+          `- Set the YAML id to "${countyId}".`,
+          '- Keep the type as "county".',
+          `- Set domain_id to "${resolvedDomainId}".`,
+          '- Populate every field with evocative lore suitable for tabletop play.',
+          '- Convert descriptor inputs into YAML lists where appropriate.',
+          '- Preserve all keys and comments from the template.',
+          '- Respond with Markdown only.',
+        ].join('\n'),
+      ].filter(Boolean);
+
+      const prompt = promptSections.join('\n\n');
+      const systemMessage =
+        'You are Blossom, an expert tabletop worldbuilding assistant. Return polished Markdown that strictly matches the provided template order, producing immersive yet practical details for a busy Dungeon Master.';
+
+      setCountyStatus({ stage: 'generating', error: '', message: '' });
+
+      try {
+        const llmResponse = await invoke('generate_llm', { prompt, system: systemMessage });
+        const generated = typeof llmResponse === 'string' ? llmResponse.trim() : '';
+        if (!generated) {
+          throw new Error('The language model returned an empty response.');
+        }
+
+        setCountyStatus({ stage: 'saving', error: '', message: '' });
+
+        const parsed = matter(generated);
+        const entityData = parsed?.data && typeof parsed.data === 'object' ? { ...parsed.data } : null;
+        if (!entityData) {
+          throw new Error('Generated markdown is missing YAML front matter.');
+        }
+        if (!entityData.id) entityData.id = countyId;
+        if (!entityData.type) entityData.type = 'county';
+        if (!entityData.name) entityData.name = trimmedName;
+        if (!entityData.domain_id) entityData.domain_id = resolvedDomainId;
+
+        const body = parsed?.content ?? '';
+        const filenameSlug = slugify(entityData.name || trimmedName, slug);
+
+        let vaultRoot = '';
+        try {
+          const resolvedRoot = await getDreadhavenRoot();
+          if (typeof resolvedRoot === 'string' && resolvedRoot.trim()) {
+            vaultRoot = resolvedRoot.trim();
+          }
+        } catch (rootErr) {
+          console.warn('County Smith: failed to resolve vault root from config', rootErr);
+        }
+        if (!vaultRoot) {
+          vaultRoot = deriveVaultRootFromRegionsPath(basePath) || 'D:/Documents/DreadHaven';
+        }
+
+        const relativeTargetDir = toRelativeVaultPath(vaultRoot, targetFolder);
+
+        let creation = null;
+        if (relativeTargetDir) {
+          try {
+            creation = await createCounty(trimmedName, { targetDir: relativeTargetDir });
+          } catch (creationErr) {
+            console.warn('County Smith: falling back to manual save', creationErr);
+          }
+        }
+
+        const targetPath = creation?.path || joinPath(targetFolder, `${filenameSlug}.md`);
+        const targetDirectory = creation?.path
+          ? creation.path.replace(/[\\/][^\\/]+$/, '')
+          : targetFolder;
+
+        const finalEntity = { ...entityData };
+        if (!finalEntity.id) finalEntity.id = countyId;
+        if (creation?.id) finalEntity.id = creation.id;
+        if (!finalEntity.type) finalEntity.type = 'county';
+        if (creation?.type) finalEntity.type = creation.type;
+        if (!finalEntity.name) finalEntity.name = trimmedName;
+        if (!finalEntity.domain_id) finalEntity.domain_id = resolvedDomainId;
+
+        await saveEntity({ entity: finalEntity, body, path: targetPath, format: 'markdown' });
+
+        await fetchList(targetDirectory);
+        setCurrentPath(targetDirectory);
+        setActivePath(targetPath);
+        setCountyForm({
+          ...DEFAULT_COUNTY_FORM,
+          domainId: resolvedDomainId,
+          domainName: resolvedDomainName || domainContext?.name || '',
+          targetDir: targetDirectory,
+        });
+        const successParts = [`Saved ${finalEntity.name || trimmedName} to ${targetDirectory}.`];
+        successParts.push(
+          resolvedDomainName
+            ? `Linked domain: ${resolvedDomainName} (${resolvedDomainId}).`
+            : `Linked domain id: ${resolvedDomainId}.`,
+        );
+        setCountyStatus({
+          stage: 'success',
+          error: '',
+          message: successParts.join(' '),
+        });
+        if (domainContext) {
+          const nextContext = { ...domainContext, countyDirectory: targetDirectory };
+          setActiveCountyDomain((prev) => {
+            if (!prev || prev.id !== nextContext.id) return prev;
+            return nextContext;
+          });
+          setRecentDomain((prev) => {
+            if (!prev || prev.id !== nextContext.id) return prev;
+            return nextContext;
+          });
+        }
+      } catch (err) {
+        console.error('County Smith failed', err);
+        setCountyStatus({
+          stage: 'error',
+          error: err?.message || 'Failed to forge the county. Try again.',
+          message: '',
+        });
+      }
+    },
+    [
+      activeCountyDomain,
+      basePath,
+      countyForm.allegiance,
+      countyForm.capital,
+      countyForm.category,
+      countyForm.domainId,
+      countyForm.domainName,
+      countyForm.governanceType,
+      countyForm.name,
+      countyForm.notes,
+      countyForm.population,
+      countyForm.primarySpecies,
+      countyForm.rulingHouse,
+      countyForm.seatOfPower,
+      countyForm.targetDir,
+      crumbs,
+      currentPath,
+      fetchList,
+      regionOptionLookup,
+      recentDomain,
+      createCounty,
     ],
   );
 
@@ -1035,6 +1403,17 @@ export default function DndWorldRegions() {
         status={domainStatus}
         regionOptions={regionOptions}
         npcOptions={npcOptions}
+        onForgeCounties={handlePromptForgeCounties}
+      />
+      <CountySmithModal
+        open={showCountySmith}
+        form={countyForm}
+        onChange={handleCountyFormChange}
+        onClose={handleCountyClose}
+        onSubmit={handleCountySubmit}
+        status={countyStatus}
+        regionOptions={countyRegionOptions}
+        domain={activeCountyDomain}
       />
       <BackButton />
       <h1>Dungeons & Dragons · Regions</h1>

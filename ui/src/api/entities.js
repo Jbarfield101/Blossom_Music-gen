@@ -85,6 +85,16 @@ const DOMAIN_CONFIG = {
   resultType: 'loc',
 };
 
+const COUNTY_CONFIG = {
+  dir: '10_World/Counties',
+  defaultName: 'New County',
+  filenamePrefix: 'County - ',
+  template: 'County_Template.md',
+  entityType: 'county',
+  listType: 'county',
+  resultType: 'county',
+};
+
 const ENTITY_CONFIG = {
   quest: {
     dir: '20_DM/Quests',
@@ -93,6 +103,7 @@ const ENTITY_CONFIG = {
     body: (name) => `# ${name}\n\n## Summary\n- ...\n\n## Milestones\n- [ ] ...\n\n## Rewards\n- ...\n`,
   },
   domain: DOMAIN_CONFIG,
+  county: COUNTY_CONFIG,
   faction: {
     dir: '10_World/Factions',
     defaultName: 'New Faction',
@@ -114,6 +125,7 @@ const ENTITY_CONFIG = {
 };
 
 ENTITY_CONFIG.loc = DOMAIN_CONFIG;
+ENTITY_CONFIG.county = COUNTY_CONFIG;
 
 async function generateUniqueFilePath(root, relDir, stem) {
   const baseStem = sanitizeFileStem(stem, 'Entity');
@@ -197,6 +209,10 @@ export function createLocation(name, options) {
  */
 export function createDomain(name, options) {
   return createSimpleEntity('domain', name, options);
+}
+
+export function createCounty(name, options) {
+  return createSimpleEntity('county', name, options);
 }
 
 export function createFaction(name) {

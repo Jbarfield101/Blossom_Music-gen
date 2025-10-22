@@ -10,6 +10,7 @@ function DomainSmithModal({
   status,
   regionOptions,
   npcOptions,
+  onForgeCounties,
 }) {
   if (!open) return null;
 
@@ -18,6 +19,8 @@ function DomainSmithModal({
   const message = status?.message || '';
   const busy = stage === 'generating' || stage === 'saving';
   const success = stage === 'success';
+  const forgedDomain = success && status?.domain ? status.domain : null;
+  const canForgeCounties = Boolean(forgedDomain && onForgeCounties);
   const options = Array.isArray(regionOptions) ? regionOptions : [];
   const npcChoices = Array.isArray(npcOptions) ? npcOptions : [];
 
@@ -259,6 +262,24 @@ function DomainSmithModal({
           {message && !error ? (
             <div role="status" style={{ color: 'var(--success, #2dca8c)' }}>
               {message}
+            </div>
+          ) : null}
+
+          {canForgeCounties ? (
+            <div className="dnd-modal-section" style={{ border: '1px solid var(--accent-border, rgba(45, 202, 140, 0.35))', borderRadius: '12px', padding: '1rem', background: 'var(--accent-bg, rgba(45, 202, 140, 0.06))' }}>
+              <h3 style={{ marginTop: 0 }}>Forge this domain&apos;s counties</h3>
+              <p style={{ marginBottom: '0.75rem' }}>
+                Detail the counties that belong to <strong>{forgedDomain.name}</strong> next.
+                You can generate one county at a time using the dedicated template.
+              </p>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => onForgeCounties(forgedDomain)}
+                disabled={busy}
+              >
+                Start forging counties
+              </button>
             </div>
           ) : null}
 
