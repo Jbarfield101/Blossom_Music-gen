@@ -16,6 +16,9 @@ export default function Tools() {
         <Card to="/queue" icon="ListTodo" title="Job Queue">
           Queued + Running Jobs
         </Card>
+        <Card to="/pipeline" icon="Workflow" title="Pipeline">
+          Orchestrate audio workflows
+        </Card>
         <Card to="/chat" icon="MessagesSquare" title="General Chat">
           Converse with Blossom
         </Card>
