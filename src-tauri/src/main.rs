@@ -6754,39 +6754,75 @@ async fn spell_create(
         "[blossom] spell_create: resolving template path; template_dir='{}'",
         template_dir.to_string_lossy()
     );
-    let default_template_names = [
-        "Spell Template + Universal (D&D 5e Spell).md",
-        "Spell Template + Universal (D&D 5e).md",
-        "Spell Template (D&D 5e).md",
-        "Spell Template.md",
-    ];
+    let default_template_names = ["Spell_Template.md"];
+    let template_aliases: HashMap<&str, &str> = HashMap::from([
+        ("Spell Template + Universal (D&D 5e Spell).md", "Spell_Template.md"),
+        ("Spell Template + Universal (D&D 5e).md", "Spell_Template.md"),
+        ("Spell Template (D&D 5e).md", "Spell_Template.md"),
+        ("Spell Template.md", "Spell_Template.md"),
+    ]);
     let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Some(mut s) = template {
-        eprintln!("[blossom] spell_create: raw template arg='{}'", s);
-        let mut ch = s.chars();
-        if let (Some(drive), Some(sep)) = (ch.next(), ch.next()) {
-            if drive.is_ascii_alphabetic() && sep == '\\' && !s.contains(":\\") {
-                let rest: String = s.chars().skip(2).collect();
-                s = format!("{}:\\{}", drive, rest);
-                eprintln!("[blossom] spell_create: normalized Windows path -> '{}'", s);
+    if let Some(input_name) = template {
+        eprintln!("[blossom] spell_create: raw template arg='{}'", input_name);
+        let original_input = input_name.clone();
+        let mut canonical_name = input_name.clone();
+        if !Path::new(&canonical_name).is_absolute() {
+            if let Some(resolved) = template_aliases.get(canonical_name.as_str()) {
+                eprintln!(
+                    "[blossom] spell_create: resolving alias '{}' -> '{}'",
+                    canonical_name,
+                    resolved
+                );
+                canonical_name = (*resolved).to_string();
+            } else {
+                let normalized = canonical_name
+                    .replace([' ', '+'], "_")
+                    .split('_')
+                    .filter(|part| !part.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("_");
+                if !normalized.is_empty() && normalized != canonical_name {
+                    canonical_name = if Path::new(&normalized).extension().is_some() {
+                        normalized
+                    } else {
+                        format!("{}.md", normalized)
+                    };
+                }
             }
         }
-        let p = PathBuf::from(&s);
-        if p.is_absolute() && !candidates.contains(&p) {
-            candidates.push(p.clone());
+
+        let mut names_to_try: Vec<String> = Vec::new();
+        names_to_try.push(canonical_name.clone());
+        if canonical_name != original_input {
+            names_to_try.push(original_input);
         }
-        let templated = vault_root.join("_Templates").join(&s);
-        if !candidates.contains(&templated) {
-            candidates.push(templated);
-        }
-        let joined = vault_root.join(&s);
-        if !candidates.contains(&joined) {
-            candidates.push(joined);
-        }
-        if !p.is_absolute() {
-            let joined = template_dir.join(&s);
+
+        for mut name in names_to_try {
+            let mut ch = name.chars();
+            if let (Some(drive), Some(sep)) = (ch.next(), ch.next()) {
+                if drive.is_ascii_alphabetic() && sep == '\\' && !name.contains(":\\") {
+                    let rest: String = name.chars().skip(2).collect();
+                    name = format!("{}:\\{}", drive, rest);
+                    eprintln!("[blossom] spell_create: normalized Windows path -> '{}'", name);
+                }
+            }
+            let path_candidate = PathBuf::from(&name);
+            if path_candidate.is_absolute() && !candidates.contains(&path_candidate) {
+                candidates.push(path_candidate.clone());
+            }
+            let templated = vault_root.join("_Templates").join(&name);
+            if !candidates.contains(&templated) {
+                candidates.push(templated);
+            }
+            let joined = vault_root.join(&name);
             if !candidates.contains(&joined) {
                 candidates.push(joined);
+            }
+            if !path_candidate.is_absolute() {
+                let joined = template_dir.join(&name);
+                if !candidates.contains(&joined) {
+                    candidates.push(joined);
+                }
             }
         }
     } else {
