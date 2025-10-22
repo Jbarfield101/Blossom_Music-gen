@@ -15,10 +15,7 @@ import { ENTITY_ID_PATTERN } from '../lib/dndIds.js';
 import { saveEntity } from '../lib/vaultAdapter.js';
 import DomainSmithModal from '../components/DomainSmithModal.jsx';
 import CountySmithModal from '../components/CountySmithModal.jsx';
-import {
-  DEFAULT_DOMAIN_CATEGORY,
-  DOMAIN_CATEGORY_SUGGESTIONS,
-} from '../constants/domainOptions.js';
+import { DOMAIN_CATEGORY_SUGGESTIONS } from '../constants/domainOptions.js';
 import { DOMAIN_TEMPLATE } from '../templates/domainTemplate.js';
 import { COUNTY_TEMPLATE } from '../templates/countyTemplate.js';
 import { createDomain, createCounty } from '../api/entities.js';
@@ -389,15 +386,495 @@ function randomHash(length = 6) {
   return hash.slice(0, length);
 }
 
-const DEFAULT_DOMAIN_FORM = {
+const EMPTY_COUNTY_SUMMARY = Object.freeze({
+  id: '',
   name: '',
-  category: DEFAULT_DOMAIN_CATEGORY,
-  capital: '',
-  populationMin: 0,
-  populationMax: 0,
-  rulerId: null,
-  regionPath: '',
+  seat_of_power: '',
+  population: '',
+  allegiance: '',
+  notes: '',
+});
+
+function createEmptyCountySummary() {
+  return { ...EMPTY_COUNTY_SUMMARY };
+}
+
+function normalizeInputListValue(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (item == null) return '';
+        if (typeof item === 'string') return item.trim();
+        if (typeof item === 'number' || typeof item === 'boolean') return String(item);
+        if (item && typeof item === 'object') {
+          const label = item.label || item.name || item.title || item.text;
+          if (label != null) return String(label).trim();
+        }
+        return String(item).trim();
+      })
+      .map((entry) => entry.replace(/^[-*\s]+/, '').trim())
+      .filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    return trimmed
+      .replace(/\r/g, '')
+      .split(/[\n,;|]/)
+      .map((part) => part.replace(/^[-*\s]+/, '').replace(/^['"]|['"]$/g, '').trim())
+      .filter(Boolean);
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return [String(value)];
+  }
+  return [];
+}
+
+function normalizePopulationValue(value) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, Math.round(value));
+  }
+  if (typeof value === 'string') {
+    const cleaned = value.replace(/[,\s]+/g, ' ').trim();
+    if (!cleaned) return null;
+    const parsed = Number(cleaned.replace(/\s+/g, ''));
+    if (Number.isFinite(parsed)) {
+      return Math.max(0, Math.round(parsed));
+    }
+  }
+  return null;
+}
+
+function normalizeCountySummary(value) {
+  if (!value || typeof value !== 'object') {
+    return createEmptyCountySummary();
+  }
+  return {
+    id: value.id != null ? String(value.id).trim() : '',
+    name: value.name != null ? String(value.name).trim() : '',
+    seat_of_power: value.seat_of_power != null
+      ? String(value.seat_of_power).trim()
+      : value.seatOfPower != null
+        ? String(value.seatOfPower).trim()
+        : '',
+    population: value.population != null ? String(value.population).trim() : '',
+    allegiance: value.allegiance != null ? String(value.allegiance).trim() : '',
+    notes: value.notes != null ? String(value.notes).trim() : '',
+  };
+}
+
+function normalizeCountyCollection(input, previous = []) {
+  const fallback = Array.isArray(previous) && previous.length > 0
+    ? previous.map((entry) => normalizeCountySummary(entry))
+    : [createEmptyCountySummary()];
+  if (Array.isArray(input)) {
+    const normalized = input.map((entry) => normalizeCountySummary(entry));
+    return normalized.length > 0 ? normalized : fallback;
+  }
+  if (input && typeof input === 'object') {
+    if ('index' in input && 'patch' in input) {
+      const index = Number(input.index);
+      if (Number.isInteger(index) && index >= 0) {
+        const next = [...fallback];
+        while (next.length <= index) {
+          next.push(createEmptyCountySummary());
+        }
+        const current = next[index] || createEmptyCountySummary();
+        next[index] = normalizeCountySummary({ ...current, ...input.patch });
+        return next;
+      }
+    }
+    if ('remove' in input) {
+      const index = Number(input.remove);
+      if (Number.isInteger(index) && index >= 0 && index < fallback.length) {
+        const next = fallback.filter((_, idx) => idx !== index);
+        return next.length > 0 ? next : [createEmptyCountySummary()];
+      }
+    }
+  }
+  return fallback;
+}
+
+function cloneNestedSection(base, overrides) {
+  if (!overrides || typeof overrides !== 'object') return base;
+  return { ...base, ...overrides };
+}
+
+function createDomainForm(overrides = {}) {
+  const base = {
+    name: '',
+    aliases: [],
+    category: [],
+    affiliation: [],
+    seat_of_power: '',
+    capital: '',
+    population: null,
+    primary_species: [],
+    rulerId: null,
+    tags: [],
+    keywords: [],
+    alignment_or_reputation: [],
+    canonical_summary: '',
+    embedding_summary: '',
+    player_facing: [],
+    gm_secrets: [],
+    refusal_rules: [],
+    geography: {
+      terrain: '',
+      climate: '',
+      landmarks: [],
+      hazards: [],
+      resources: [],
+    },
+    history: {
+      founding: '',
+      rise_to_power: '',
+      major_events: [],
+      recent_history: '',
+    },
+    politics: {
+      system_of_rule: '',
+      ruling_factions: [],
+      laws_and_justice: [],
+      foreign_relations: [],
+    },
+    administrative_divisions: {
+      counties: [createEmptyCountySummary()],
+      marches: [],
+      prefectures: [],
+    },
+    culture: {
+      appearance_and_dress: [],
+      festivals_and_holidays: [],
+      religion_and_beliefs: [],
+      arts_and_entertainment: [],
+      daily_life: [],
+      values_and_taboos: [],
+    },
+    economy: {
+      exports: [],
+      imports: [],
+      currency: '',
+      industries: [],
+      trade_routes: [],
+    },
+    military: {
+      standing_forces: '',
+      special_units: [],
+      fortifications: [],
+      tactics_and_strategies: [],
+    },
+    locations: {
+      capital_summary: '',
+      secondary_settlements: [],
+      strongholds_or_sites: [],
+    },
+    legends: [],
+    rumors: [],
+    relationships: {
+      allies: [],
+      rivals: [],
+      vassals: [],
+      foreign_ties: [],
+    },
+    political_state: {
+      stability: '',
+      prosperity: '',
+      unrest_level: '',
+    },
+    session_state: {
+      last_seen: '',
+      recent_events: [],
+    },
+    related_docs: [],
+    art: {
+      map: '',
+      counties_map: '',
+      emblem: '',
+    },
+    music_cue_prompt: '',
+    privacy: '',
+    regionPath: '',
+  };
+
+  const next = { ...base, ...overrides };
+  if (overrides.geography) {
+    next.geography = cloneNestedSection(base.geography, overrides.geography);
+  }
+  if (overrides.history) {
+    next.history = cloneNestedSection(base.history, overrides.history);
+  }
+  if (overrides.politics) {
+    next.politics = cloneNestedSection(base.politics, overrides.politics);
+  }
+  if (overrides.administrative_divisions) {
+    const adminOverrides = overrides.administrative_divisions;
+    next.administrative_divisions = {
+      ...base.administrative_divisions,
+      ...adminOverrides,
+      counties: normalizeCountyCollection(adminOverrides.counties, base.administrative_divisions.counties),
+      marches: adminOverrides.marches ? normalizeInputListValue(adminOverrides.marches) : base.administrative_divisions.marches,
+      prefectures: adminOverrides.prefectures ? normalizeInputListValue(adminOverrides.prefectures) : base.administrative_divisions.prefectures,
+    };
+  }
+  if (overrides.culture) {
+    next.culture = cloneNestedSection(base.culture, overrides.culture);
+  }
+  if (overrides.economy) {
+    next.economy = cloneNestedSection(base.economy, overrides.economy);
+  }
+  if (overrides.military) {
+    next.military = cloneNestedSection(base.military, overrides.military);
+  }
+  if (overrides.locations) {
+    next.locations = cloneNestedSection(base.locations, overrides.locations);
+  }
+  if (overrides.relationships) {
+    next.relationships = cloneNestedSection(base.relationships, overrides.relationships);
+  }
+  if (overrides.political_state) {
+    next.political_state = cloneNestedSection(base.political_state, overrides.political_state);
+  }
+  if (overrides.session_state) {
+    next.session_state = cloneNestedSection(base.session_state, overrides.session_state);
+  }
+  if (overrides.art) {
+    next.art = cloneNestedSection(base.art, overrides.art);
+  }
+  if (overrides.aliases) next.aliases = normalizeInputListValue(overrides.aliases);
+  if (overrides.category) next.category = normalizeInputListValue(overrides.category);
+  if (overrides.affiliation) next.affiliation = normalizeInputListValue(overrides.affiliation);
+  if (overrides.primary_species) next.primary_species = normalizeInputListValue(overrides.primary_species);
+  if (overrides.tags) next.tags = normalizeInputListValue(overrides.tags);
+  if (overrides.keywords) next.keywords = normalizeInputListValue(overrides.keywords);
+  if (overrides.alignment_or_reputation) {
+    next.alignment_or_reputation = normalizeInputListValue(overrides.alignment_or_reputation);
+  }
+  if (overrides.player_facing) next.player_facing = normalizeInputListValue(overrides.player_facing);
+  if (overrides.gm_secrets) next.gm_secrets = normalizeInputListValue(overrides.gm_secrets);
+  if (overrides.refusal_rules) next.refusal_rules = normalizeInputListValue(overrides.refusal_rules);
+  if (overrides.legends) next.legends = normalizeInputListValue(overrides.legends);
+  if (overrides.rumors) next.rumors = normalizeInputListValue(overrides.rumors);
+  if (overrides.related_docs) next.related_docs = normalizeInputListValue(overrides.related_docs);
+  if (overrides.music_cue_prompt != null) next.music_cue_prompt = String(overrides.music_cue_prompt);
+  if (overrides.population != null) next.population = normalizePopulationValue(overrides.population);
+  if (overrides.rulerId != null) {
+    const trimmed = typeof overrides.rulerId === 'string' ? overrides.rulerId.trim() : overrides.rulerId;
+    next.rulerId = trimmed ? String(trimmed) : null;
+  }
+  return next;
+}
+
+const DEFAULT_DOMAIN_FORM = createDomainForm();
+
+const GEOGRAPHY_SECTION_SCHEMA = {
+  terrain: 'string',
+  climate: 'string',
+  landmarks: 'list',
+  hazards: 'list',
+  resources: 'list',
 };
+
+const HISTORY_SECTION_SCHEMA = {
+  founding: 'string',
+  rise_to_power: 'string',
+  major_events: 'list',
+  recent_history: 'string',
+};
+
+const POLITICS_SECTION_SCHEMA = {
+  system_of_rule: 'string',
+  ruling_factions: 'list',
+  laws_and_justice: 'list',
+  foreign_relations: 'list',
+};
+
+const ADMIN_SECTION_SCHEMA = {
+  counties: 'counties',
+  marches: 'list',
+  prefectures: 'list',
+};
+
+const CULTURE_SECTION_SCHEMA = {
+  appearance_and_dress: 'list',
+  festivals_and_holidays: 'list',
+  religion_and_beliefs: 'list',
+  arts_and_entertainment: 'list',
+  daily_life: 'list',
+  values_and_taboos: 'list',
+};
+
+const ECONOMY_SECTION_SCHEMA = {
+  exports: 'list',
+  imports: 'list',
+  currency: 'string',
+  industries: 'list',
+  trade_routes: 'list',
+};
+
+const MILITARY_SECTION_SCHEMA = {
+  standing_forces: 'string',
+  special_units: 'list',
+  fortifications: 'list',
+  tactics_and_strategies: 'list',
+};
+
+const LOCATIONS_SECTION_SCHEMA = {
+  capital_summary: 'string',
+  secondary_settlements: 'list',
+  strongholds_or_sites: 'list',
+};
+
+const RELATIONSHIPS_SECTION_SCHEMA = {
+  allies: 'list',
+  rivals: 'list',
+  vassals: 'list',
+  foreign_ties: 'list',
+};
+
+const POLITICAL_STATE_SCHEMA = {
+  stability: 'string',
+  prosperity: 'string',
+  unrest_level: 'string',
+};
+
+const SESSION_STATE_SCHEMA = {
+  last_seen: 'string',
+  recent_events: 'list',
+};
+
+const ART_SECTION_SCHEMA = {
+  map: 'string',
+  counties_map: 'string',
+  emblem: 'string',
+};
+
+function normalizeStructuredSection(previous = {}, patch, schema) {
+  const base = previous && typeof previous === 'object' ? previous : {};
+  const next = { ...base };
+  if (!patch || typeof patch !== 'object') {
+    return next;
+  }
+  for (const [field, type] of Object.entries(schema)) {
+    if (!(field in patch)) continue;
+    const raw = patch[field];
+    switch (type) {
+      case 'string':
+        next[field] = raw == null ? '' : typeof raw === 'string' ? raw : String(raw);
+        break;
+      case 'list':
+        next[field] = normalizeInputListValue(raw);
+        break;
+      case 'counties':
+        next[field] = normalizeCountyCollection(raw, base[field]);
+        break;
+      case 'number':
+        next[field] = normalizePopulationValue(raw);
+        break;
+      default:
+        next[field] = raw;
+        break;
+    }
+  }
+  for (const [field, raw] of Object.entries(patch)) {
+    if (field in schema) continue;
+    next[field] = raw;
+  }
+  return next;
+}
+
+function deepCopy(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => deepCopy(item));
+  }
+  if (value && typeof value === 'object') {
+    return Object.entries(value).reduce((acc, [key, val]) => {
+      acc[key] = deepCopy(val);
+      return acc;
+    }, {});
+  }
+  return value;
+}
+
+function pruneEmpty(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => pruneEmpty(item))
+      .filter((item) => {
+        if (Array.isArray(item)) return item.length > 0;
+        if (item && typeof item === 'object') return Object.keys(item).length > 0;
+        return item !== '' && item != null;
+      });
+  }
+  if (value && typeof value === 'object') {
+    return Object.entries(value).reduce((acc, [key, val]) => {
+      const normalized = pruneEmpty(val);
+      if (Array.isArray(normalized)) {
+        if (normalized.length > 0) acc[key] = normalized;
+      } else if (normalized && typeof normalized === 'object') {
+        if (Object.keys(normalized).length > 0) acc[key] = normalized;
+      } else if (normalized !== '' && normalized != null) {
+        acc[key] = normalized;
+      } else if (normalized === 0) {
+        acc[key] = 0;
+      }
+      return acc;
+    }, {});
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed;
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  return value == null ? null : value;
+}
+
+function buildFrontMatterSnippet(data) {
+  if (!data || typeof data !== 'object' || !Object.keys(data).length) {
+    return '';
+  }
+  try {
+    const serialized = matter.stringify('', data);
+    const match = serialized.match(/^---\n([\s\S]*?)\n---/);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  } catch (err) {
+    console.warn('Domain Smith: failed to serialize front matter overrides', err);
+  }
+  return Object.entries(data)
+    .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
+    .join('\n');
+}
+
+function applyFrontMatterOverrides(target, overrides) {
+  if (!overrides || typeof overrides !== 'object') {
+    return target;
+  }
+  Object.entries(overrides).forEach(([key, value]) => {
+    if (Array.isArray(value)) {
+      target[key] = deepCopy(value);
+      return;
+    }
+    if (value && typeof value === 'object') {
+      const existing = target[key] && typeof target[key] === 'object' && !Array.isArray(target[key])
+        ? target[key]
+        : {};
+      target[key] = applyFrontMatterOverrides({ ...existing }, value);
+      return;
+    }
+    if (value !== undefined) {
+      target[key] = value;
+    }
+  });
+  return target;
+}
 
 const DEFAULT_COUNTY_FORM = {
   name: '',
@@ -415,26 +892,6 @@ const DEFAULT_COUNTY_FORM = {
   primarySpecies: '',
 };
 
-const POPULATION_MIN_LIMIT = 0;
-const POPULATION_MAX_LIMIT = 1000000;
-
-function clampPopulationValue(value) {
-  const num = Number(value);
-  if (!Number.isFinite(num)) return null;
-  if (num < POPULATION_MIN_LIMIT) return POPULATION_MIN_LIMIT;
-  if (num > POPULATION_MAX_LIMIT) return POPULATION_MAX_LIMIT;
-  return Math.round(num);
-}
-
-function normalizePopulationRange(minValue, maxValue) {
-  const min = clampPopulationValue(minValue);
-  const max = clampPopulationValue(maxValue);
-  if (min != null && max != null && min > max) {
-    return [max, min];
-  }
-  return [min, max];
-}
-
 export default function DndWorldRegions() {
   const [basePath, setBasePath] = useState('');
   const [currentPath, setCurrentPath] = useState('');
@@ -445,7 +902,7 @@ export default function DndWorldRegions() {
   const [activeContent, setActiveContent] = useState('');
   const [metadataMap, setMetadataMap] = useState({});
   const [showDomainSmith, setShowDomainSmith] = useState(false);
-  const [domainForm, setDomainForm] = useState(() => ({ ...DEFAULT_DOMAIN_FORM }));
+  const [domainForm, setDomainForm] = useState(() => createDomainForm());
   const [domainStatus, setDomainStatus] = useState({ stage: 'idle', error: '', message: '' });
   const [showCountySmith, setShowCountySmith] = useState(false);
   const [countyForm, setCountyForm] = useState(() => ({ ...DEFAULT_COUNTY_FORM }));
@@ -712,15 +1169,7 @@ export default function DndWorldRegions() {
       : (basePath && basePath.trim())
         ? basePath
         : (regionOptions[0]?.value || '');
-    setDomainForm({
-      ...DEFAULT_DOMAIN_FORM,
-      category: DEFAULT_DOMAIN_FORM.category,
-      capital: DEFAULT_DOMAIN_FORM.capital,
-      populationMin: DEFAULT_DOMAIN_FORM.populationMin,
-      populationMax: DEFAULT_DOMAIN_FORM.populationMax,
-      rulerId: DEFAULT_DOMAIN_FORM.rulerId,
-      regionPath: defaultRegion,
-    });
+    setDomainForm(createDomainForm({ regionPath: defaultRegion }));
     setDomainStatus({ stage: 'idle', error: '', message: '' });
     setShowDomainSmith(true);
   }, [basePath, currentPath, domainStatus.stage, regionOptions]);
@@ -728,28 +1177,175 @@ export default function DndWorldRegions() {
   const handleDomainClose = useCallback(() => {
     setShowDomainSmith(false);
     const fallbackRegion = (currentPath && currentPath.trim()) || (basePath && basePath.trim()) || '';
-    setDomainForm((prev) => ({
-      ...DEFAULT_DOMAIN_FORM,
-      category: DEFAULT_DOMAIN_FORM.category,
-      capital: DEFAULT_DOMAIN_FORM.capital,
-      populationMin: DEFAULT_DOMAIN_FORM.populationMin,
-      populationMax: DEFAULT_DOMAIN_FORM.populationMax,
-      rulerId: DEFAULT_DOMAIN_FORM.rulerId,
-      regionPath: prev.regionPath || fallbackRegion,
-    }));
+    setDomainForm((prev) => createDomainForm({ regionPath: prev.regionPath || fallbackRegion }));
     setDomainStatus({ stage: 'idle', error: '', message: '' });
   }, [basePath, currentPath]);
 
   const handleDomainFormChange = useCallback((patch) => {
+    if (!patch || typeof patch !== 'object') {
+      setDomainStatus((prev) => {
+        if (prev.stage === 'idle' && !prev.error && !prev.message) return prev;
+        return { stage: 'idle', error: '', message: '' };
+      });
+      return;
+    }
     setDomainForm((prev) => {
-      const next = { ...prev, ...patch };
-      if ('populationMin' in patch || 'populationMax' in patch) {
-        const [normalizedMin, normalizedMax] = normalizePopulationRange(
-          patch.populationMin ?? prev.populationMin,
-          patch.populationMax ?? prev.populationMax,
-        );
-        next.populationMin = normalizedMin != null ? normalizedMin : DEFAULT_DOMAIN_FORM.populationMin;
-        next.populationMax = normalizedMax != null ? normalizedMax : DEFAULT_DOMAIN_FORM.populationMax;
+      const next = { ...prev };
+      for (const [rawKey, rawValue] of Object.entries(patch)) {
+        const key = (() => {
+          switch (rawKey) {
+            case 'seatOfPower':
+              return 'seat_of_power';
+            case 'primarySpecies':
+              return 'primary_species';
+            case 'alignmentOrReputation':
+              return 'alignment_or_reputation';
+            case 'canonicalSummary':
+              return 'canonical_summary';
+            case 'embeddingSummary':
+              return 'embedding_summary';
+            case 'playerFacing':
+              return 'player_facing';
+            case 'gmSecrets':
+              return 'gm_secrets';
+            case 'refusalRules':
+              return 'refusal_rules';
+            case 'administrativeDivisions':
+              return 'administrative_divisions';
+            case 'politicalState':
+              return 'political_state';
+            case 'sessionState':
+              return 'session_state';
+            case 'relatedDocs':
+              return 'related_docs';
+            case 'musicCuePrompt':
+              return 'music_cue_prompt';
+            default:
+              return rawKey;
+          }
+        })();
+
+        switch (key) {
+          case 'name':
+            next.name = rawValue == null ? '' : typeof rawValue === 'string' ? rawValue : String(rawValue);
+            break;
+          case 'aliases':
+            next.aliases = normalizeInputListValue(rawValue);
+            break;
+          case 'category':
+            next.category = normalizeInputListValue(rawValue);
+            break;
+          case 'affiliation':
+            next.affiliation = normalizeInputListValue(rawValue);
+            break;
+          case 'seat_of_power':
+            next.seat_of_power = rawValue == null ? '' : typeof rawValue === 'string' ? rawValue : String(rawValue);
+            break;
+          case 'capital':
+            next.capital = rawValue == null ? '' : typeof rawValue === 'string' ? rawValue : String(rawValue);
+            break;
+          case 'population':
+            next.population = normalizePopulationValue(rawValue);
+            break;
+          case 'primary_species':
+            next.primary_species = normalizeInputListValue(rawValue);
+            break;
+          case 'rulerId':
+          case 'ruler_id': {
+            if (rawValue == null || rawValue === '') {
+              next.rulerId = null;
+            } else {
+              const trimmed = typeof rawValue === 'string' ? rawValue.trim() : String(rawValue);
+              next.rulerId = trimmed ? trimmed : null;
+            }
+            break;
+          }
+          case 'tags':
+            next.tags = normalizeInputListValue(rawValue);
+            break;
+          case 'keywords':
+            next.keywords = normalizeInputListValue(rawValue);
+            break;
+          case 'alignment_or_reputation':
+            next.alignment_or_reputation = normalizeInputListValue(rawValue);
+            break;
+          case 'canonical_summary':
+            next.canonical_summary = rawValue == null ? '' : typeof rawValue === 'string' ? rawValue : String(rawValue);
+            break;
+          case 'embedding_summary':
+            next.embedding_summary = rawValue == null ? '' : typeof rawValue === 'string' ? rawValue : String(rawValue);
+            break;
+          case 'player_facing':
+            next.player_facing = normalizeInputListValue(rawValue);
+            break;
+          case 'gm_secrets':
+            next.gm_secrets = normalizeInputListValue(rawValue);
+            break;
+          case 'refusal_rules':
+            next.refusal_rules = normalizeInputListValue(rawValue);
+            break;
+          case 'geography':
+            next.geography = normalizeStructuredSection(prev.geography, rawValue, GEOGRAPHY_SECTION_SCHEMA);
+            break;
+          case 'history':
+            next.history = normalizeStructuredSection(prev.history, rawValue, HISTORY_SECTION_SCHEMA);
+            break;
+          case 'politics':
+            next.politics = normalizeStructuredSection(prev.politics, rawValue, POLITICS_SECTION_SCHEMA);
+            break;
+          case 'administrative_divisions':
+            next.administrative_divisions = normalizeStructuredSection(
+              prev.administrative_divisions,
+              rawValue,
+              ADMIN_SECTION_SCHEMA,
+            );
+            break;
+          case 'culture':
+            next.culture = normalizeStructuredSection(prev.culture, rawValue, CULTURE_SECTION_SCHEMA);
+            break;
+          case 'economy':
+            next.economy = normalizeStructuredSection(prev.economy, rawValue, ECONOMY_SECTION_SCHEMA);
+            break;
+          case 'military':
+            next.military = normalizeStructuredSection(prev.military, rawValue, MILITARY_SECTION_SCHEMA);
+            break;
+          case 'locations':
+            next.locations = normalizeStructuredSection(prev.locations, rawValue, LOCATIONS_SECTION_SCHEMA);
+            break;
+          case 'legends':
+            next.legends = normalizeInputListValue(rawValue);
+            break;
+          case 'rumors':
+            next.rumors = normalizeInputListValue(rawValue);
+            break;
+          case 'relationships':
+            next.relationships = normalizeStructuredSection(prev.relationships, rawValue, RELATIONSHIPS_SECTION_SCHEMA);
+            break;
+          case 'political_state':
+            next.political_state = normalizeStructuredSection(prev.political_state, rawValue, POLITICAL_STATE_SCHEMA);
+            break;
+          case 'session_state':
+            next.session_state = normalizeStructuredSection(prev.session_state, rawValue, SESSION_STATE_SCHEMA);
+            break;
+          case 'related_docs':
+            next.related_docs = normalizeInputListValue(rawValue);
+            break;
+          case 'art':
+            next.art = normalizeStructuredSection(prev.art, rawValue, ART_SECTION_SCHEMA);
+            break;
+          case 'music_cue_prompt':
+            next.music_cue_prompt = rawValue == null ? '' : typeof rawValue === 'string' ? rawValue : String(rawValue);
+            break;
+          case 'privacy':
+            next.privacy = rawValue == null ? '' : typeof rawValue === 'string' ? rawValue : String(rawValue);
+            break;
+          case 'regionPath':
+            next.regionPath = rawValue == null ? '' : typeof rawValue === 'string' ? rawValue : String(rawValue);
+            break;
+          default:
+            next[key] = rawValue;
+            break;
+        }
       }
       return next;
     });
@@ -784,48 +1380,190 @@ export default function DndWorldRegions() {
         .filter(Boolean);
       const optionLookup = new Map(regionOptions.map((opt) => [opt.value, opt.label]));
       const regionDescriptor = optionLookup.get(targetFolder) || targetFolder;
-      const trimmedCategory = String(domainForm.category || '').trim();
-      const trimmedCapital = String(domainForm.capital || '').trim();
+
+      const normalizedAliases = Array.isArray(domainForm.aliases) ? domainForm.aliases.filter(Boolean) : [];
+      const normalizedCategory = Array.isArray(domainForm.category) ? domainForm.category.filter(Boolean) : [];
+      const normalizedAffiliation = Array.isArray(domainForm.affiliation) ? domainForm.affiliation.filter(Boolean) : [];
+      const seatOfPowerRaw = typeof domainForm.seat_of_power === 'string' ? domainForm.seat_of_power : '';
+      const trimmedSeatOfPower = seatOfPowerRaw.trim();
+      const capitalRaw = typeof domainForm.capital === 'string' ? domainForm.capital : '';
+      const trimmedCapital = capitalRaw.trim();
+      const normalizedPopulation = normalizePopulationValue(domainForm.population);
+      const normalizedPrimarySpecies = Array.isArray(domainForm.primary_species) ? domainForm.primary_species.filter(Boolean) : [];
+      const normalizedTags = Array.isArray(domainForm.tags) ? domainForm.tags.filter(Boolean) : [];
+      const normalizedKeywords = Array.isArray(domainForm.keywords) ? domainForm.keywords.filter(Boolean) : [];
+      const normalizedAlignment = Array.isArray(domainForm.alignment_or_reputation)
+        ? domainForm.alignment_or_reputation.filter(Boolean)
+        : [];
+      const normalizedPlayerFacing = Array.isArray(domainForm.player_facing) ? domainForm.player_facing.filter(Boolean) : [];
+      const normalizedGmSecrets = Array.isArray(domainForm.gm_secrets) ? domainForm.gm_secrets.filter(Boolean) : [];
+      const normalizedRefusal = Array.isArray(domainForm.refusal_rules) ? domainForm.refusal_rules.filter(Boolean) : [];
+      const normalizedLegends = Array.isArray(domainForm.legends) ? domainForm.legends.filter(Boolean) : [];
+      const normalizedRumors = Array.isArray(domainForm.rumors) ? domainForm.rumors.filter(Boolean) : [];
+      const normalizedRelatedDocs = Array.isArray(domainForm.related_docs) ? domainForm.related_docs.filter(Boolean) : [];
+
+      const normalizedGeography = domainForm.geography && typeof domainForm.geography === 'object'
+        ? deepCopy(domainForm.geography)
+        : {};
+      const normalizedHistory = domainForm.history && typeof domainForm.history === 'object'
+        ? deepCopy(domainForm.history)
+        : {};
+      const normalizedPolitics = domainForm.politics && typeof domainForm.politics === 'object'
+        ? deepCopy(domainForm.politics)
+        : {};
+      const normalizedAdministrativeDivisions = domainForm.administrative_divisions
+        && typeof domainForm.administrative_divisions === 'object'
+        ? deepCopy(domainForm.administrative_divisions)
+        : {};
+      const normalizedCulture = domainForm.culture && typeof domainForm.culture === 'object'
+        ? deepCopy(domainForm.culture)
+        : {};
+      const normalizedEconomy = domainForm.economy && typeof domainForm.economy === 'object'
+        ? deepCopy(domainForm.economy)
+        : {};
+      const normalizedMilitary = domainForm.military && typeof domainForm.military === 'object'
+        ? deepCopy(domainForm.military)
+        : {};
+      const normalizedLocations = domainForm.locations && typeof domainForm.locations === 'object'
+        ? deepCopy(domainForm.locations)
+        : {};
+      const normalizedRelationships = domainForm.relationships && typeof domainForm.relationships === 'object'
+        ? deepCopy(domainForm.relationships)
+        : {};
+      const normalizedPoliticalState = domainForm.political_state && typeof domainForm.political_state === 'object'
+        ? deepCopy(domainForm.political_state)
+        : {};
+      const normalizedSessionState = domainForm.session_state && typeof domainForm.session_state === 'object'
+        ? deepCopy(domainForm.session_state)
+        : {};
+      const normalizedArt = domainForm.art && typeof domainForm.art === 'object'
+        ? deepCopy(domainForm.art)
+        : {};
+
       const trimmedRulerId = domainForm.rulerId ? String(domainForm.rulerId).trim() : '';
-      const categoryPrompt = trimmedCategory
-        ? `Category input: ${trimmedCategory}. Use this value for the front matter category field.`
-        : DOMAIN_CATEGORY_SUGGESTIONS.length
-          ? `Category inspiration: consider domains such as ${DOMAIN_CATEGORY_SUGGESTIONS.join(', ')}.`
-          : '';
-      let [populationMin, populationMax] = normalizePopulationRange(
-        domainForm.populationMin,
-        domainForm.populationMax,
-      );
-      const formatPopulation = (value) => {
-        if (value == null) return '';
-        return value.toLocaleString();
-      };
-      let populationSentence = '';
-      if ((populationMin ?? 0) > 0 || (populationMax ?? 0) > 0) {
-        if (populationMin != null && populationMax != null && populationMin !== populationMax) {
-          populationSentence = `Population input: between ${formatPopulation(populationMin)} and ${formatPopulation(populationMax)} residents. Use this to populate the front matter population field.`;
-        } else if (populationMin != null && populationMax != null) {
-          populationSentence = `Population input: approximately ${formatPopulation(populationMin)} residents. Use this to populate the front matter population field.`;
-        } else if (populationMin != null) {
-          populationSentence = `Population input: at least ${formatPopulation(populationMin)} residents. Use this to populate the front matter population field.`;
-        } else if (populationMax != null) {
-          populationSentence = `Population input: at most ${formatPopulation(populationMax)} residents. Use this to populate the front matter population field.`;
-        }
-      }
       const resolvedRulerLabel = trimmedRulerId
         ? npcLabelById[trimmedRulerId] || npcLabelById[trimmedRulerId.toLowerCase()] || ''
         : '';
+
+      const formatPopulation = (value) => {
+        if (value == null || !Number.isFinite(value)) return '';
+        return Number(value).toLocaleString();
+      };
+      const populationInstruction = normalizedPopulation != null
+        ? `Population input: approximately ${formatPopulation(normalizedPopulation)} residents. Use this to populate the front matter population field.`
+        : '';
+
+      const frontMatterRaw = {
+        aliases: normalizedAliases,
+        category: normalizedCategory,
+        affiliation: normalizedAffiliation,
+        seat_of_power: seatOfPowerRaw,
+        capital: capitalRaw,
+        population: normalizedPopulation,
+        primary_species: normalizedPrimarySpecies,
+        ruler_id: trimmedRulerId || null,
+        tags: normalizedTags,
+        keywords: normalizedKeywords,
+        alignment_or_reputation: normalizedAlignment,
+        canonical_summary: domainForm.canonical_summary || '',
+        embedding_summary: domainForm.embedding_summary || '',
+        player_facing: normalizedPlayerFacing,
+        gm_secrets: normalizedGmSecrets,
+        refusal_rules: normalizedRefusal,
+        geography: normalizedGeography,
+        history: normalizedHistory,
+        politics: normalizedPolitics,
+        administrative_divisions: normalizedAdministrativeDivisions,
+        culture: normalizedCulture,
+        economy: normalizedEconomy,
+        military: normalizedMilitary,
+        locations: normalizedLocations,
+        legends: normalizedLegends,
+        rumors: normalizedRumors,
+        relationships: normalizedRelationships,
+        political_state: normalizedPoliticalState,
+        session_state: normalizedSessionState,
+        related_docs: normalizedRelatedDocs,
+        art: normalizedArt,
+        music_cue_prompt: domainForm.music_cue_prompt || '',
+        privacy: domainForm.privacy || '',
+      };
+
+      const frontMatterOverrides = pruneEmpty(frontMatterRaw);
+      const frontMatterSnippet = buildFrontMatterSnippet(frontMatterOverrides);
+      const frontMatterInstruction = frontMatterSnippet
+        ? [
+            'Front matter overrides (apply verbatim):',
+            '```yaml',
+            frontMatterSnippet,
+            '```',
+          ].join('\n')
+        : '';
+
+      const categoryPrompt = normalizedCategory.length
+        ? `Category input: ${normalizedCategory.join(', ')}. Use this to populate the front matter category array.`
+        : DOMAIN_CATEGORY_SUGGESTIONS.length
+          ? `Category inspiration: consider domains such as ${DOMAIN_CATEGORY_SUGGESTIONS.join(', ')}.`
+          : '';
+      const aliasInstruction = normalizedAliases.length ? `Aliases input: ${normalizedAliases.join(', ')}.` : '';
+      const affiliationInstruction = normalizedAffiliation.length ? `Affiliation input: ${normalizedAffiliation.join(', ')}.` : '';
+      const capitalInstruction = trimmedCapital
+        ? `Capital input: ${trimmedCapital}. Use this value for the front matter capital field.`
+        : '';
+      const seatInstruction = trimmedSeatOfPower ? `Seat of power input: ${trimmedSeatOfPower}.` : '';
+      const primarySpeciesInstruction = normalizedPrimarySpecies.length
+        ? `Primary species input: ${normalizedPrimarySpecies.join(', ')}. Populate the front matter primary_species array accordingly.`
+        : '';
+
+      const highlightLines = [];
+      if (normalizedTags.length) highlightLines.push(`Tags: ${normalizedTags.join(', ')}`);
+      if (normalizedKeywords.length) highlightLines.push(`Keywords: ${normalizedKeywords.join(', ')}`);
+      if (normalizedAlignment.length) highlightLines.push(`Reputation cues: ${normalizedAlignment.join(', ')}`);
+      if (normalizedPlayerFacing.length) highlightLines.push(`Player-facing entries provided: ${normalizedPlayerFacing.length}`);
+      if (normalizedGmSecrets.length) highlightLines.push(`GM secrets provided: ${normalizedGmSecrets.length}`);
+      if (normalizedRefusal.length) highlightLines.push('Refusal rules provided.');
+      if (normalizedLegends.length) highlightLines.push(`Legends provided: ${normalizedLegends.length}`);
+      if (normalizedRumors.length) highlightLines.push(`Rumors provided: ${normalizedRumors.length}`);
+      if (normalizedRelatedDocs.length) highlightLines.push(`Related documents: ${normalizedRelatedDocs.join(', ')}`);
+      const highlightSection = highlightLines.length
+        ? ['Additional cues supplied:', ...highlightLines.map((line) => `- ${line}`)].join('\n')
+        : '';
+
+      const countySummaries = Array.isArray(domainForm.administrative_divisions?.counties)
+        ? domainForm.administrative_divisions.counties
+            .map((entry) => normalizeCountySummary(entry))
+            .filter((entry) => Object.values(entry).some((value) => typeof value === 'string' && value.trim()))
+        : [];
+      const countyInstruction = countySummaries.length
+        ? ['County inputs:', ...countySummaries.map((county) => {
+            const parts = [];
+            if (county.id) parts.push(`ID: ${county.id}`);
+            if (county.name) parts.push(`Name: ${county.name}`);
+            if (county.seat_of_power) parts.push(`Seat: ${county.seat_of_power}`);
+            if (county.population) parts.push(`Population: ${county.population}`);
+            if (county.allegiance) parts.push(`Allegiance: ${county.allegiance}`);
+            if (county.notes) parts.push(`Notes: ${county.notes}`);
+            return `- ${parts.join('; ')}`;
+          })].join('\n')
+        : '';
+
       const rulerSentence = trimmedRulerId
         ? `Ruler input: ${resolvedRulerLabel ? `${resolvedRulerLabel} (${trimmedRulerId})` : trimmedRulerId}. Set this NPC as the front matter ruler_id.`
         : '';
+
       const promptSections = [
         `Fill out the Dungeons & Dragons domain template for a new domain named "${trimmedName}".`,
+        aliasInstruction,
+        affiliationInstruction,
         categoryPrompt,
-        trimmedCapital
-          ? `Capital input: ${trimmedCapital}. Use this value for the front matter capital field.`
-          : '',
-        populationSentence,
+        capitalInstruction,
+        seatInstruction,
+        primarySpeciesInstruction,
+        populationInstruction,
         rulerSentence,
+        frontMatterInstruction,
+        highlightSection,
+        countyInstruction,
         `Destination folder: ${regionDescriptor} (${targetFolder}). Breadcrumb trail: ${crumbTrail}.`,
         folderNames.length ? `Nearby folders here: ${folderNames.join(', ')}.` : '',
         `Template to follow:\n${DOMAIN_TEMPLATE}`,
@@ -834,8 +1572,9 @@ export default function DndWorldRegions() {
           `- Set the YAML id to "${domainId}".`,
           '- Keep the type as "domain".',
           '- Populate every field with concise, evocative lore suitable for tabletop play.',
-          '- Populate the category, capital, population, and ruler_id front matter fields using the provided inputs.',
+          '- Apply the provided front matter overrides exactly; fill in only the gaps.',
           '- Preserve all keys and comments from the template.',
+          '- Preserve any provided administrative_divisions.counties entries (expand their details, but keep ids).',
           '- Use YAML arrays for list values and provide at least two gm_secrets.',
           '- Respond with Markdown only.',
         ].join('\n'),
@@ -903,22 +1642,26 @@ export default function DndWorldRegions() {
         if (!finalEntity.type) finalEntity.type = 'domain';
         if (creation?.type) finalEntity.type = creation.type;
         if (!finalEntity.name) finalEntity.name = trimmedName;
+        if (normalizedPopulation != null) {
+          finalEntity.population = normalizedPopulation;
+        }
+        const overridePayload = { ...frontMatterOverrides };
+        if (trimmedRulerId) {
+          overridePayload.ruler_id = trimmedRulerId;
+        }
+        applyFrontMatterOverrides(finalEntity, overridePayload);
+        if (trimmedRulerId) {
+          finalEntity.ruler_id = trimmedRulerId;
+        }
 
         await saveEntity({ entity: finalEntity, body, path: targetPath, format: 'markdown' });
 
         await fetchList(targetDirectory);
         setCurrentPath(targetDirectory);
         setActivePath(targetPath);
-        setDomainForm({
-          ...DEFAULT_DOMAIN_FORM,
-          category: DEFAULT_DOMAIN_FORM.category,
-          capital: DEFAULT_DOMAIN_FORM.capital,
-          populationMin: DEFAULT_DOMAIN_FORM.populationMin,
-          populationMax: DEFAULT_DOMAIN_FORM.populationMax,
-          rulerId: DEFAULT_DOMAIN_FORM.rulerId,
-          regionPath: targetDirectory,
-        });
-        const finalRulerId = finalEntity.ruler_id || trimmedRulerId;
+        setDomainForm(createDomainForm({ regionPath: targetDirectory }));
+
+        const finalRulerId = finalEntity.ruler_id || trimmedRulerId || null;
         const successLabel = finalRulerId
           ? npcLabelById[finalRulerId] || npcLabelById[String(finalRulerId).toLowerCase()] || ''
           : '';
@@ -939,11 +1682,42 @@ export default function DndWorldRegions() {
           relPath: creation?.relPath || '',
           regionLabel: regionDescriptor,
           crumbTrail,
-          category: finalEntity.category || trimmedCategory,
+          category: Array.isArray(finalEntity.category) ? [...finalEntity.category] : finalEntity.category || normalizedCategory,
           capital: finalEntity.capital || trimmedCapital,
-          population: finalEntity.population,
+          seat_of_power: finalEntity.seat_of_power || trimmedSeatOfPower,
+          aliases: Array.isArray(finalEntity.aliases) ? [...finalEntity.aliases] : normalizedAliases,
+          affiliation: Array.isArray(finalEntity.affiliation) ? [...finalEntity.affiliation] : normalizedAffiliation,
+          population: finalEntity.population ?? normalizedPopulation ?? null,
+          primary_species: Array.isArray(finalEntity.primary_species) ? [...finalEntity.primary_species] : normalizedPrimarySpecies,
+          tags: Array.isArray(finalEntity.tags) ? [...finalEntity.tags] : normalizedTags,
+          keywords: Array.isArray(finalEntity.keywords) ? [...finalEntity.keywords] : normalizedKeywords,
+          alignment_or_reputation: Array.isArray(finalEntity.alignment_or_reputation)
+            ? [...finalEntity.alignment_or_reputation]
+            : normalizedAlignment,
+          canonical_summary: finalEntity.canonical_summary || domainForm.canonical_summary || '',
+          embedding_summary: finalEntity.embedding_summary || domainForm.embedding_summary || '',
+          player_facing: Array.isArray(finalEntity.player_facing) ? [...finalEntity.player_facing] : normalizedPlayerFacing,
+          gm_secrets: Array.isArray(finalEntity.gm_secrets) ? [...finalEntity.gm_secrets] : normalizedGmSecrets,
+          refusal_rules: Array.isArray(finalEntity.refusal_rules) ? [...finalEntity.refusal_rules] : normalizedRefusal,
           rulerId: finalRulerId,
           markdown: generated,
+          geography: deepCopy(finalEntity.geography || normalizedGeography),
+          history: deepCopy(finalEntity.history || normalizedHistory),
+          politics: deepCopy(finalEntity.politics || normalizedPolitics),
+          administrative_divisions: deepCopy(finalEntity.administrative_divisions || normalizedAdministrativeDivisions),
+          culture: deepCopy(finalEntity.culture || normalizedCulture),
+          economy: deepCopy(finalEntity.economy || normalizedEconomy),
+          military: deepCopy(finalEntity.military || normalizedMilitary),
+          locations: deepCopy(finalEntity.locations || normalizedLocations),
+          legends: Array.isArray(finalEntity.legends) ? [...finalEntity.legends] : normalizedLegends,
+          rumors: Array.isArray(finalEntity.rumors) ? [...finalEntity.rumors] : normalizedRumors,
+          relationships: deepCopy(finalEntity.relationships || normalizedRelationships),
+          political_state: deepCopy(finalEntity.political_state || normalizedPoliticalState),
+          session_state: deepCopy(finalEntity.session_state || normalizedSessionState),
+          related_docs: Array.isArray(finalEntity.related_docs) ? [...finalEntity.related_docs] : normalizedRelatedDocs,
+          art: deepCopy(finalEntity.art || normalizedArt),
+          music_cue_prompt: finalEntity.music_cue_prompt || domainForm.music_cue_prompt || '',
+          privacy: finalEntity.privacy || domainForm.privacy || '',
           countyDirectory: defaultCountyDir || targetDirectory,
         };
         setRecentDomain(domainContext);
@@ -974,13 +1748,7 @@ export default function DndWorldRegions() {
       basePath,
       crumbs,
       currentPath,
-      domainForm.name,
-      domainForm.category,
-      domainForm.capital,
-      domainForm.populationMin,
-      domainForm.populationMax,
-      domainForm.rulerId,
-      domainForm.regionPath,
+      domainForm,
       fetchList,
       items,
       npcLabelById,
