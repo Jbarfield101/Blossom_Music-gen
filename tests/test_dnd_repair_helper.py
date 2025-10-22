@@ -79,3 +79,67 @@ def test_main_handles_missing_vault(monkeypatch, tmp_path):
     }
     assert summary["total"] == len(request["npc_ids"])
     assert summary["requested"] == request["npc_ids"]
+
+
+def test_main_handles_missing_template(monkeypatch, tmp_path):
+    dnd_repair_helper = _load_helper(monkeypatch)
+
+    request = {"run_id": 17, "npc_ids": ["npc_gamma", "npc_delta"]}
+    stdin = io.StringIO(json.dumps(request))
+    stdout = io.StringIO()
+
+    monkeypatch.setattr(dnd_repair_helper.sys, "stdin", stdin)
+    monkeypatch.setattr(dnd_repair_helper.sys, "stdout", stdout)
+
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    monkeypatch.setattr(
+        dnd_repair_helper, "DEFAULT_DREADHAVEN_ROOT", vault, raising=False
+    )
+
+    monkeypatch.setattr(
+        dnd_repair_helper.index_cache, "load_index", lambda _vault: {"entities": {}}
+    )
+
+    def _raise_missing_template():
+        raise FileNotFoundError("template.json is missing")
+
+    monkeypatch.setattr(
+        "notes.repair_npc.load_template", _raise_missing_template, raising=False
+    )
+    monkeypatch.setattr(dnd_repair_helper, "load_template", _raise_missing_template)
+
+    result = dnd_repair_helper.main()
+
+    assert result == 0
+
+    lines = [json.loads(line) for line in stdout.getvalue().splitlines() if line]
+    assert len(lines) == len(request["npc_ids"]) + 2
+    assert lines[0] == {"run_id": request["run_id"], "status": "started", "total": 2}
+
+    expected_error = "template.json is missing"
+
+    failure_events = lines[1:-1]
+    for event, npc_id in zip(failure_events, request["npc_ids"]):
+        assert event["run_id"] == request["run_id"]
+        assert event["npc_id"] == npc_id
+        assert event["status"] == "failed"
+        assert event["error"] == expected_error
+        assert event["message"] == "Template not found or invalid"
+        assert event["updated"] is False
+
+    summary_event = lines[-1]
+    assert summary_event["status"] == "completed"
+    assert summary_event["run_id"] == request["run_id"]
+
+    summary = summary_event["summary"]
+    assert summary["failed"] == request["npc_ids"]
+    assert summary["verified"] == []
+    assert summary["errors"] == {
+        npc_id: expected_error for npc_id in request["npc_ids"]
+    }
+    assert summary["status_map"] == {
+        npc_id: "failed" for npc_id in request["npc_ids"]
+    }
+    assert summary["total"] == len(request["npc_ids"])
+    assert summary["requested"] == request["npc_ids"]

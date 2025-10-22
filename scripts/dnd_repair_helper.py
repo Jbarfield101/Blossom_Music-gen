@@ -273,7 +273,42 @@ def main() -> int:
 
     entities = _load_index_entities(vault)
     existing_ids = _collect_existing_ids(entities)
-    template = load_template()
+    try:
+        template = load_template()
+    except (FileNotFoundError, ValueError) as exc:
+        error_text = str(exc)
+        status_map: Dict[str, str] = {}
+        failed: List[str] = []
+        errors: Dict[str, str] = {}
+
+        for npc_id in npc_ids:
+            status_map[npc_id] = "failed"
+            failed.append(npc_id)
+            errors[npc_id] = error_text
+            _print_event(
+                {
+                    "run_id": run_id,
+                    "npc_id": npc_id,
+                    "status": "failed",
+                    "error": error_text,
+                    "message": "Template not found or invalid",
+                    "updated": False,
+                }
+            )
+
+        duration_ms = int((time.time() - start_time) * 1000)
+        summary = {
+            "run_id": run_id,
+            "total": len(npc_ids),
+            "requested": npc_ids,
+            "status_map": status_map,
+            "verified": [],
+            "failed": failed,
+            "duration_ms": duration_ms,
+            "errors": errors,
+        }
+        _print_event({"run_id": run_id, "summary": summary, "status": "completed"})
+        return 0
 
     status_map: Dict[str, str] = {}
     verified: List[str] = []
