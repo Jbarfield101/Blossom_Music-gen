@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { invoke } from '@tauri-apps/api/core';
+import { readDir, stat } from '@tauri-apps/plugin-fs';
 import BackButton from '../components/BackButton.jsx';
 import { loadVaultIndex, resolveVaultPath } from '../lib/vaultIndex.js';
 import { openPath } from '../api/files.js';
@@ -8,6 +9,263 @@ import { getDreadhavenRoot } from '../api/config.js';
 import { openCommandPalette } from '../lib/commandPalette.js';
 import './Dnd.css';
 
+
+const PINNED_RESULT_LIMIT = 8;
+const RECENT_RESULT_LIMIT = 12;
+const RECENT_SCAN_FILE_LIMIT = 1500;
+const RECENT_SCAN_DIRECTORY_LIMIT = 450;
+const RECENT_SCAN_MAX_DEPTH = 12;
+const RECENT_BUFFER_MULTIPLIER = 4;
+
+const SKIP_DIRECTORY_NAMES = new Set([
+  '.',
+  '..',
+  '.git',
+  '.obsidian',
+  '.trash',
+  '$recycle.bin',
+  '.recycle.bin',
+  'node_modules',
+  '.idea',
+  '.vscode',
+  '.cache',
+]);
+
+const SKIP_FILE_NAMES = new Set(['thumbs.db', '.ds_store']);
+const SKIP_FILE_EXTENSIONS = new Set(['tmp', 'log', 'lock', 'part']);
+
+function prefersBackslash(path) {
+  return /\\/.test(path) && !/\//.test(path);
+}
+
+function trimTrailingSeparators(path) {
+  if (typeof path !== 'string') return '';
+  return path.replace(/[\\/]+$/, '');
+}
+
+function normalizeFsPath(path) {
+  if (typeof path !== 'string') return '';
+  return path.replace(/\/g, '/');
+}
+
+function normalizeComparablePath(path) {
+  return normalizeFsPath(path).toLowerCase();
+}
+
+function joinFsPath(base, segment, useBackslash) {
+  const parent = trimTrailingSeparators(base || '');
+  const child = typeof segment === 'string' ? segment.replace(/^[\\/]+/, '') : '';
+  if (!parent) return child;
+  if (!child) return parent;
+  const separator = useBackslash ? '\\' : '/';
+  return `${parent}${separator}${child}`;
+}
+
+function computeRelativeFsPath(root, target, useBackslash) {
+  const normalizedRoot = normalizeFsPath(root);
+  const normalizedTarget = normalizeFsPath(target);
+  if (!normalizedRoot || !normalizedTarget) return '';
+  if (normalizedTarget === normalizedRoot) return '';
+  const prefix = `${normalizedRoot}/`;
+  if (normalizedTarget.startsWith(prefix)) {
+    const remainder = normalizedTarget.slice(prefix.length);
+    return useBackslash ? remainder.replace(/\//g, '\\') : remainder;
+  }
+  if (normalizedTarget.startsWith(normalizedRoot)) {
+    const remainder = normalizedTarget.slice(normalizedRoot.length).replace(/^\/+/, '');
+    return useBackslash ? remainder.replace(/\//g, '\\') : remainder;
+  }
+  return '';
+}
+
+function shouldSkipDirectory(name) {
+  if (!name) return true;
+  const normalized = name.toLowerCase();
+  if (SKIP_DIRECTORY_NAMES.has(normalized)) return true;
+  if (normalized.startsWith('.')) return true;
+  return false;
+}
+
+function shouldSkipFile(name) {
+  if (!name) return true;
+  const normalized = name.toLowerCase();
+  if (SKIP_FILE_NAMES.has(normalized)) return true;
+  const dotIndex = normalized.lastIndexOf('.');
+  if (dotIndex > 0) {
+    const ext = normalized.slice(dotIndex + 1);
+    if (SKIP_FILE_EXTENSIONS.has(ext)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function uniqueEntryKey(entry) {
+  const parts = [];
+  if (entry.id) {
+    parts.push(`id:${entry.id}`);
+  }
+  if (entry.path) {
+    parts.push(`path:${normalizeComparablePath(entry.path)}`);
+  }
+  if (!parts.length) {
+    parts.push(`name:${entry.name || 'unknown'}`);
+  }
+  return parts.join('|');
+}
+
+async function scanVaultRecentFiles(root, options = {}) {
+  const {
+    limit = RECENT_RESULT_LIMIT,
+    maxFiles = RECENT_SCAN_FILE_LIMIT,
+    maxDirectories = RECENT_SCAN_DIRECTORY_LIMIT,
+    maxDepth = RECENT_SCAN_MAX_DEPTH,
+    knownPaths = new Set(),
+    isCancelled = () => false,
+  } = options;
+
+  const normalizedRoot = trimTrailingSeparators(root);
+  if (!normalizedRoot) {
+    return { items: [], truncated: false };
+  }
+
+  const preferBackslash = prefersBackslash(normalizedRoot);
+  const queue = [{ path: normalizedRoot, depth: 0 }];
+  const visitedDirectories = new Set();
+  const buffer = [];
+  const threshold = Math.max(limit * RECENT_BUFFER_MULTIPLIER, limit);
+  const known = new Set();
+  for (const entry of knownPaths) {
+    if (entry) {
+      known.add(normalizeComparablePath(entry));
+    }
+  }
+
+  let scannedFiles = 0;
+  let truncated = false;
+
+  while (queue.length > 0) {
+    if (isCancelled()) {
+      return { items: [], truncated: false };
+    }
+
+    const current = queue.shift();
+    if (!current) {
+      break;
+    }
+    if (visitedDirectories.has(current.path)) {
+      continue;
+    }
+    visitedDirectories.add(current.path);
+    if (visitedDirectories.size > maxDirectories) {
+      truncated = true;
+      break;
+    }
+
+    let entries;
+    try {
+      entries = await readDir(current.path);
+    } catch (err) {
+      truncated = true;
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (isCancelled()) {
+        return { items: [], truncated: false };
+      }
+
+      const name = entry?.name || '';
+      const fullPath = joinFsPath(current.path, name, preferBackslash);
+      if (entry?.isDirectory) {
+        if (current.depth + 1 <= maxDepth && !shouldSkipDirectory(name)) {
+          queue.push({ path: fullPath, depth: current.depth + 1 });
+        }
+        continue;
+      }
+      if (!entry?.isFile || shouldSkipFile(name)) {
+        continue;
+      }
+
+      const normalizedPath = normalizeComparablePath(fullPath);
+      if (known.has(normalizedPath)) {
+        continue;
+      }
+
+      scannedFiles += 1;
+      if (scannedFiles > maxFiles) {
+        truncated = true;
+        break;
+      }
+
+      let modified = null;
+      try {
+        const metadata = await stat(fullPath);
+        if (metadata?.mtime instanceof Date) {
+          const timestamp = metadata.mtime.getTime();
+          if (Number.isFinite(timestamp)) {
+            modified = timestamp;
+          }
+        }
+      } catch (err) {
+        continue;
+      }
+
+      buffer.push({
+        id: fullPath,
+        type: 'file',
+        name,
+        path: fullPath,
+        relPath: computeRelativeFsPath(normalizedRoot, fullPath, preferBackslash),
+        modified,
+        metadata: {},
+        fields: {},
+        pinned: false,
+      });
+
+      if (buffer.length > threshold) {
+        buffer.sort((a, b) => (b.modified ?? 0) - (a.modified ?? 0));
+        buffer.length = threshold;
+      }
+    }
+
+    if (scannedFiles > maxFiles) {
+      break;
+    }
+  }
+
+  buffer.sort((a, b) => (b.modified ?? 0) - (a.modified ?? 0));
+  const items = buffer.slice(0, limit);
+  const hasMoreBuffer = buffer.length > limit;
+  const exceededDirectories = visitedDirectories.size > maxDirectories;
+  const exceededFiles = scannedFiles > maxFiles;
+  return {
+    items,
+    truncated: truncated || hasMoreBuffer || exceededDirectories || exceededFiles,
+  };
+}
+
+function combineRecentEntries(indexEntries, fileEntries, limit) {
+  const combined = [...indexEntries, ...fileEntries];
+  combined.sort((a, b) => (b.modified ?? 0) - (a.modified ?? 0));
+  const seen = new Set();
+  const items = [];
+  let hasMore = false;
+  for (const entry of combined) {
+    const key = uniqueEntryKey(entry);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    if (items.length < limit) {
+      items.push(entry);
+    } else {
+      hasMore = true;
+      break;
+    }
+  }
+  return { items, hasMore };
+}
 
 const QUICK_CREATE_ACTIONS = [
   {
@@ -69,11 +327,6 @@ function formatRelativeTime(timestampMs) {
   return rtf.format(-weeks, 'week');
 }
 
-function pickStatus(meta = {}, fields = {}) {
-  const raw = meta.status ?? fields.status ?? meta.state ?? fields.state ?? '';
-  return typeof raw === 'string' ? raw.trim().toLowerCase() : '';
-}
-
 function extractSummary(meta = {}, fields = {}) {
   const candidates = [
     meta.canonical_summary,
@@ -108,8 +361,9 @@ export default function DndCampaignDashboard() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [pinnedItems, setPinnedItems] = useState([]);
   const [recentItems, setRecentItems] = useState([]);
-  const [sessionItems, setSessionItems] = useState([]);
+  const [recentOverflow, setRecentOverflow] = useState(false);
   const [botInfo, setBotInfo] = useState({ running: false, pid: null, exit: null });
   const [discordLogs, setDiscordLogs] = useState([]);
   const [discordError, setDiscordError] = useState('');
@@ -381,7 +635,9 @@ export default function DndCampaignDashboard() {
         if (cancelled) return;
         const root = snapshot?.root || '';
         setVaultRoot(root);
-        const entries = Object.values(snapshot?.entities || {})
+
+        const rawEntries = Object.values(snapshot?.entities || {});
+        const entries = rawEntries
           .map((entity) => {
             if (!entity || typeof entity !== 'object') return null;
             const metadata = entity.metadata || {};
@@ -399,8 +655,16 @@ export default function DndCampaignDashboard() {
               metadata.title ||
               fields.name ||
               '';
+            const fallbackId =
+              (typeof entity.id === 'string' && entity.id.trim()) ||
+              (relPath && relPath.trim()) ||
+              (absolutePath && absolutePath.trim()) ||
+              (typeof name === 'string' ? name.trim() : '');
+            if (!fallbackId || !name) {
+              return null;
+            }
             return {
-              id: entity.id || '',
+              id: fallbackId,
               type,
               name,
               path: absolutePath,
@@ -413,38 +677,51 @@ export default function DndCampaignDashboard() {
           })
           .filter((entry) => entry && entry.id && entry.name);
 
-        const sortedRecents = [...entries]
-          .sort((a, b) => {
-            if (a.pinned && !b.pinned) return -1;
-            if (!a.pinned && b.pinned) return 1;
-            return (b.modified ?? 0) - (a.modified ?? 0);
-          })
-          .slice(0, 8);
-
-        const sessionCandidates = entries.filter((entry) => entry.type === 'session');
-        const activeSessions = sessionCandidates.filter((entry) => {
-          const status = pickStatus(entry.metadata, entry.fields);
-          return (
-            !status ||
-            status === 'active' ||
-            status === 'in-progress' ||
-            status === 'ongoing' ||
-            status === 'current'
-          );
+        const knownPaths = new Set();
+        entries.forEach((entry) => {
+          if (entry.path) {
+            knownPaths.add(entry.path);
+          } else if (entry.relPath && root) {
+            knownPaths.add(resolveVaultPath(root, entry.relPath));
+          }
         });
 
-        const sortedSessions = (activeSessions.length ? activeSessions : sessionCandidates)
-          .sort((a, b) => {
-            if (a.pinned && !b.pinned) return -1;
-            if (!a.pinned && b.pinned) return 1;
-            return (b.modified ?? 0) - (a.modified ?? 0);
-          })
-          .slice(0, 4);
+        const pinnedCandidates = entries.filter((entry) => entry.pinned);
+        const limitedPinned = pinnedCandidates
+          .sort((a, b) => (b.modified ?? 0) - (a.modified ?? 0))
+          .slice(0, PINNED_RESULT_LIMIT);
 
-        setRecentItems(sortedRecents);
-        setSessionItems(sortedSessions);
+        const unpinnedEntries = entries.filter((entry) => !entry.pinned);
+        const sortedIndexRecents = [...unpinnedEntries].sort(
+          (a, b) => (b.modified ?? 0) - (a.modified ?? 0),
+        );
+        const indexRecentLimit = RECENT_RESULT_LIMIT * 2;
+        const hasExtraIndex = sortedIndexRecents.length > indexRecentLimit;
+        if (sortedIndexRecents.length > indexRecentLimit) {
+          sortedIndexRecents.length = indexRecentLimit;
+        }
+
+        let scanResult = { items: [], truncated: false };
+        if (root) {
+          scanResult = await scanVaultRecentFiles(root, {
+            limit: RECENT_RESULT_LIMIT,
+            knownPaths,
+            isCancelled: () => cancelled,
+          });
+        }
+        if (cancelled) return;
+
+        const { items: combinedRecent, hasMore } = combineRecentEntries(
+          sortedIndexRecents,
+          scanResult.items,
+          RECENT_RESULT_LIMIT,
+        );
+
+        setPinnedItems(limitedPinned);
+        setRecentItems(combinedRecent);
+        setRecentOverflow(hasExtraIndex || scanResult.truncated || hasMore);
         setError('');
-       setErrorHint('');
+        setErrorHint('');
       } catch (err) {
         const rawMessage =
           err instanceof Error ? err.message : typeof err === 'string' ? err : String(err || '');
@@ -473,8 +750,9 @@ export default function DndCampaignDashboard() {
         if (!cancelled) {
           setError(displayMessage);
           setErrorHint(hintMessage);
+          setPinnedItems([]);
           setRecentItems([]);
-          setSessionItems([]);
+          setRecentOverflow(false);
         }
       } finally {
         if (!cancelled) {
@@ -507,22 +785,27 @@ export default function DndCampaignDashboard() {
     [navigate],
   );
 
-  const sessionDisplay = useMemo(
+  const pinnedDisplay = useMemo(
     () =>
-      sessionItems.map((entry) => ({
-        ...entry,
-        status: pickStatus(entry.metadata, entry.fields),
-        summary: extractSummary(entry.metadata, entry.fields),
-      })),
-    [sessionItems],
+      pinnedItems.map((entry) => {
+        const summary = extractSummary(entry.metadata, entry.fields);
+        return {
+          ...entry,
+          summary: summary || entry.relPath || '',
+        };
+      }),
+    [pinnedItems],
   );
 
   const recentDisplay = useMemo(
     () =>
-      recentItems.map((entry) => ({
-        ...entry,
-        summary: extractSummary(entry.metadata, entry.fields),
-      })),
+      recentItems.map((entry) => {
+        const summary = extractSummary(entry.metadata, entry.fields);
+        return {
+          ...entry,
+          summary: summary || entry.relPath || '',
+        };
+      }),
     [recentItems],
   );
 
@@ -674,18 +957,20 @@ export default function DndCampaignDashboard() {
           <article className="campaign-card">
             <header className="campaign-card__header">
               <div>
-                <h2>Pinned &amp; Recent</h2>
-                <p>Your latest edits across the vault.</p>
+                <h2>Pinned Notes</h2>
+                <p>Keep your go-to references one click away.</p>
               </div>
             </header>
-            {loading && recentDisplay.length === 0 ? (
-              <div className="campaign-empty">Loading index&hellip;</div>
-            ) : recentDisplay.length === 0 ? (
-              <div className="campaign-empty">No recent entities yet. Create one to get started.</div>
+            {loading && pinnedDisplay.length === 0 ? (
+              <div className="campaign-empty">Loading pins&hellip;</div>
+            ) : pinnedDisplay.length === 0 ? (
+              <div className="campaign-empty">No pinned entities yet. Pin a note to see it here.</div>
             ) : (
               <ul className="campaign-list">
-                {recentDisplay.map((entry) => (
-                  <li key={`${entry.type}-${entry.id}`}>
+                {pinnedDisplay.map((entry) => (
+                  <li
+                    key={entry.id ? `${entry.type || 'entity'}-${entry.id}` : entry.path || entry.name}
+                  >
                     <button
                       type="button"
                       className="campaign-item"
@@ -695,7 +980,7 @@ export default function DndCampaignDashboard() {
                         <span className={`campaign-pill campaign-pill--${entry.type || 'entity'}`}>
                           {entry.type || 'entity'}
                         </span>
-                        {entry.pinned && <span className="campaign-pin" aria-hidden="true">📌</span>}
+                        <span className="campaign-pin" aria-hidden="true">📌</span>
                         <span className="campaign-time">
                           {entry.modified ? formatRelativeTime(entry.modified) : 'Unknown'}
                         </span>
@@ -713,59 +998,50 @@ export default function DndCampaignDashboard() {
           <article className="campaign-card">
             <header className="campaign-card__header">
               <div>
-                <h2>Active Sessions</h2>
-                <p>Keep prep, agendas, and recaps at your fingertips.</p>
+                <h2>Recent Activity</h2>
+                <p>Latest edits and new files across the vault.</p>
               </div>
             </header>
-            {loading && sessionDisplay.length === 0 ? (
-              <div className="campaign-empty">Scanning for session notes&hellip;</div>
-            ) : sessionDisplay.length === 0 ? (
-              <div className="campaign-empty">No session notes found.</div>
+            {loading && recentDisplay.length === 0 ? (
+              <div className="campaign-empty">Scanning vault&hellip;</div>
+            ) : recentDisplay.length === 0 ? (
+              <div className="campaign-empty">No recent entities yet. Create one to get started.</div>
             ) : (
-              <ul className="campaign-list">
-                {sessionDisplay.map((entry) => (
-                  <li key={entry.id}>
-                    <button
-                      type="button"
-                      className="campaign-item"
-                      onClick={() => handleOpenEntity(entry)}
+              <>
+                <ul className="campaign-list">
+                  {recentDisplay.map((entry) => (
+                    <li
+                      key={entry.id ? `${entry.type || 'entity'}-${entry.id}` : entry.path || entry.name}
                     >
-                      <div className="campaign-item__meta">
-                        <span className="campaign-pill campaign-pill--session">session</span>
-                        {entry.status && (
-                          <span className="campaign-status">{entry.status}</span>
+                      <button
+                        type="button"
+                        className="campaign-item"
+                        onClick={() => handleOpenEntity(entry)}
+                      >
+                        <div className="campaign-item__meta">
+                          <span className={`campaign-pill campaign-pill--${entry.type || 'entity'}`}>
+                            {entry.type || 'entity'}
+                          </span>
+                          {entry.pinned && <span className="campaign-pin" aria-hidden="true">📌</span>}
+                          <span className="campaign-time">
+                            {entry.modified ? formatRelativeTime(entry.modified) : 'Unknown'}
+                          </span>
+                        </div>
+                        <div className="campaign-item__title">{entry.name}</div>
+                        {entry.summary && (
+                          <div className="campaign-item__summary">{entry.summary}</div>
                         )}
-                        <span className="campaign-time">
-                          {entry.modified ? formatRelativeTime(entry.modified) : 'Unknown'}
-                        </span>
-                      </div>
-                      <div className="campaign-item__title">{entry.name}</div>
-                      {entry.summary && (
-                        <div className="campaign-item__summary">{entry.summary}</div>
-                      )}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                {recentOverflow && (
+                  <div className="campaign-hint">
+                    Showing the latest {recentDisplay.length} items. Use search to explore older notes.
+                  </div>
+                )}
+              </>
             )}
-          </article>
-          <article className="campaign-card">
-            <header className="campaign-card__header">
-              <div>
-                <h2>Next Session &amp; Recap</h2>
-                <p>Plan the upcoming session and capture the recap.</p>
-              </div>
-            </header>
-            <div className="campaign-empty">Campaign has not started yet</div>
-          </article>
-          <article className="campaign-card">
-            <header className="campaign-card__header">
-              <div>
-                <h2>Upcoming Tasks</h2>
-                <p>Track preparation tasks before the campaign begins.</p>
-              </div>
-            </header>
-            <div className="campaign-empty">Campaign has not started yet</div>
           </article>
           <article className="campaign-card">
             <header className="campaign-card__header">
