@@ -32,6 +32,22 @@ const TEXTAREA_BASE_STYLE = Object.freeze({
   boxShadow: 'inset 0 2px 6px rgba(15, 23, 42, 0.08)',
 });
 
+function dedupeOutputs(items) {
+  if (!Array.isArray(items)) return [];
+  const seen = new Set();
+  const result = [];
+  for (const item of items) {
+    if (!item) continue;
+    const key = typeof item.path === 'string' && item.path ? item.path : item.filename;
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
+}
+
 function extractPromptField(result, key) {
   if (!result || typeof result !== 'object') {
     return '';
@@ -102,6 +118,20 @@ export default function LofiSceneMaker() {
 
   const [imageOutputs, setImageOutputs] = useState([]);
   const [outputsLoading, setOutputsLoading] = useState(false);
+  const [previewedOutput, setPreviewedOutput] = useState(null);
+
+  useEffect(() => {
+    if (!previewedOutput) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setPreviewedOutput(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [previewedOutput]);
 
   const { queue, refresh: refreshQueue } = useJobQueue(2000);
 
@@ -214,9 +244,10 @@ export default function LofiSceneMaker() {
           return { filename: name, path };
         })
         .filter(Boolean);
+      const deduped = dedupeOutputs(filtered);
       cleanupPreviews();
       const hydrated = [];
-      for (const item of filtered) {
+      for (const item of deduped) {
         hydrated.push(await buildImageEntry(item.filename, item.path));
       }
       setImageOutputs(hydrated);
@@ -466,7 +497,7 @@ export default function LofiSceneMaker() {
 
         cleanupPreviews();
         const resolved = [];
-        for (const output of outputs) {
+        for (const output of dedupeOutputs(outputs)) {
           resolved.push(await buildImageEntry(output.filename, output.path));
         }
         setImageOutputs(resolved);
@@ -985,7 +1016,7 @@ export default function LofiSceneMaker() {
             flexWrap: 'wrap',
           }}
         >
-          <h2>Latest ComfyUI Images</h2>
+          <h2>Recent Images</h2>
           <PrimaryButton
             type="button"
             className="mt-sm"
@@ -1023,11 +1054,24 @@ export default function LofiSceneMaker() {
                 }}
               >
                 {output.url ? (
-                  <img
-                    src={output.url}
-                    alt={output.filename}
-                    style={{ width: '100%', height: 'auto', borderRadius: '8px' }}
-                  />
+                  <button
+                    type="button"
+                    onClick={() => setPreviewedOutput(output)}
+                    style={{
+                      border: 'none',
+                      padding: 0,
+                      background: 'transparent',
+                      cursor: 'zoom-in',
+                      width: '100%',
+                      display: 'block',
+                    }}
+                  >
+                    <img
+                      src={output.url}
+                      alt={output.filename}
+                      style={{ width: '100%', height: 'auto', borderRadius: '8px', display: 'block' }}
+                    />
+                  </button>
                 ) : (
                   <div
                     style={{
@@ -1053,6 +1097,59 @@ export default function LofiSceneMaker() {
       </section>
 
       <JobQueuePanel queue={queue} onCancel={cancelFromQueue} activeId={jobId || undefined} />
+
+      {previewedOutput && (
+        <div
+          role="presentation"
+          onClick={() => setPreviewedOutput(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.65)',
+            display: 'grid',
+            placeItems: 'center',
+            padding: '2rem',
+            zIndex: 1000,
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={previewedOutput.filename}
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              maxWidth: 'min(90vw, 1200px)',
+              maxHeight: '90vh',
+              display: 'grid',
+              gap: '0.75rem',
+              background: 'var(--card-bg)',
+              padding: '1rem',
+              borderRadius: '12px',
+              boxShadow: '0 12px 40px rgba(15, 23, 42, 0.4)',
+            }}
+          >
+            <img
+              src={previewedOutput.url}
+              alt={previewedOutput.filename}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain',
+                borderRadius: '8px',
+              }}
+            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div className="card-caption" style={{ wordBreak: 'break-word' }}>
+                <strong>{previewedOutput.filename}</strong>
+                {previewedOutput.path && <div>{previewedOutput.path}</div>}
+              </div>
+              <PrimaryButton type="button" onClick={() => setPreviewedOutput(null)}>
+                Close
+              </PrimaryButton>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
