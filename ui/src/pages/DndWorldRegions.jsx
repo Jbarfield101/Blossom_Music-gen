@@ -15,6 +15,10 @@ import { ENTITY_ID_PATTERN } from '../lib/dndIds.js';
 import { saveEntity } from '../lib/vaultAdapter.js';
 import DomainSmithModal from '../components/DomainSmithModal.jsx';
 import CountySmithModal from '../components/CountySmithModal.jsx';
+import {
+  DEFAULT_DOMAIN_CATEGORY,
+  DOMAIN_CATEGORY_SUGGESTIONS,
+} from '../constants/domainOptions.js';
 import { DOMAIN_TEMPLATE } from '../templates/domainTemplate.js';
 import { COUNTY_TEMPLATE } from '../templates/countyTemplate.js';
 import { createDomain, createCounty } from '../api/entities.js';
@@ -387,7 +391,7 @@ function randomHash(length = 6) {
 
 const DEFAULT_DOMAIN_FORM = {
   name: '',
-  category: '',
+  category: DEFAULT_DOMAIN_CATEGORY,
   capital: '',
   populationMin: 0,
   populationMax: 0,
@@ -783,6 +787,11 @@ export default function DndWorldRegions() {
       const trimmedCategory = String(domainForm.category || '').trim();
       const trimmedCapital = String(domainForm.capital || '').trim();
       const trimmedRulerId = domainForm.rulerId ? String(domainForm.rulerId).trim() : '';
+      const categoryPrompt = trimmedCategory
+        ? `Category input: ${trimmedCategory}. Use this value for the front matter category field.`
+        : DOMAIN_CATEGORY_SUGGESTIONS.length
+          ? `Category inspiration: consider domains such as ${DOMAIN_CATEGORY_SUGGESTIONS.join(', ')}.`
+          : '';
       let [populationMin, populationMax] = normalizePopulationRange(
         domainForm.populationMin,
         domainForm.populationMax,
@@ -811,9 +820,7 @@ export default function DndWorldRegions() {
         : '';
       const promptSections = [
         `Fill out the Dungeons & Dragons domain template for a new domain named "${trimmedName}".`,
-        trimmedCategory
-          ? `Category input: ${trimmedCategory}. Use this value for the front matter category field.`
-          : '',
+        categoryPrompt,
         trimmedCapital
           ? `Capital input: ${trimmedCapital}. Use this value for the front matter capital field.`
           : '',

@@ -1,5 +1,6 @@
 import Icon from './Icon.jsx';
 import EntityLinkPicker from '../components/EntityLinkPicker.jsx';
+import { DOMAIN_CATEGORY_OPTIONS } from '../constants/domainOptions.js';
 
 function DomainSmithModal({
   open,
@@ -165,14 +166,24 @@ function DomainSmithModal({
 
             <label className="dnd-label">
               <span>Domain Category (Theme or Sphere)</span>
-              <input
-                type="text"
+              <select
                 value={category}
                 onChange={handleCategoryChange}
-                placeholder="e.g. Twilight, Tempest, or Harvest"
                 disabled={busy}
-              />
-              <small className="muted">Describe the domain’s nature — Twilight, Tempest, Harvest, etc.</small>
+              >
+                <option value="">Select a domain category</option>
+                {DOMAIN_CATEGORY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <small className="muted">
+                Choose the domain’s nature —
+                {' '}
+                {DOMAIN_CATEGORY_OPTIONS.map((option) => option.label).join(', ')}
+                .
+              </small>
             </label>
 
             <label className="dnd-label">
