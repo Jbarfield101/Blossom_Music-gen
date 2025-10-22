@@ -113,6 +113,11 @@ function DomainSmithModal({
     ? `Recent rulers: ${sampleRulers.join(', ')}`
     : 'Link an existing NPC to anchor this domain.';
 
+  const populationHelperText =
+    normalizedPopulationMin !== 0 || normalizedPopulationMax !== 0
+      ? `Estimated population between ${formatPopulation(normalizedPopulationMin)} and ${formatPopulation(normalizedPopulationMax)} citizens.`
+      : 'Set the sliders to choose an estimated population (0 – 1,000,000 citizens).';
+
   const canSubmit = !busy && name.trim() && regionPath.trim();
 
   return (
@@ -199,10 +204,7 @@ function DomainSmithModal({
                 disabled={busy}
               />
             </div>
-            <small className="muted">
-              Estimated population between {formatPopulation(normalizedPopulationMin)} and{' '}
-              {formatPopulation(normalizedPopulationMax)} citizens.
-            </small>
+            <small className="muted">{populationHelperText}</small>
           </label>
 
           <label className="dnd-label">
