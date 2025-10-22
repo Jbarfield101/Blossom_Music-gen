@@ -150,29 +150,19 @@ export default function DndWorldCalendar() {
               <button type="button" onClick={nextMonth} aria-label="Next month">Next</button>
             </div>
           </div>
-          <div role="grid" aria-label={`Month grid for ${currentMonthName} ${state.year}`} style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0,1fr))', gap: '6px' }}>
+          <div
+            role="grid"
+            aria-label={`Month grid for ${currentMonthName} ${state.year}`}
+            className="dnd-calendar-grid"
+          >
             {WEEKDAYS.map((name) => (
-              <div key={name} role="columnheader" className="muted" style={{ textAlign: 'center', padding: '6px 0', borderBottom: '1px solid var(--border)' }}>{name}</div>
+              <div key={name} role="columnheader" className="dnd-calendar-header">{name}</div>
             ))}
             {calendarWeeks.map((week, wi) => (
               <div key={`w-${wi}`} role="row" style={{ display: 'contents' }}>
                 {week.map((n, di) => {
                   const inMonth = n >= 1 && n <= currentMonthLen;
                   const isSelected = inMonth && n === state.day;
-                  const baseStyle = {
-                    position: 'relative',
-                    minHeight: 100,
-                    borderRadius: 10,
-                    padding: '28px 10px 10px',
-                    textAlign: 'left',
-                    border: '1px solid var(--border)',
-                    background: 'var(--panel)'
-                  };
-                  const style = {
-                    ...baseStyle,
-                    opacity: inMonth ? 1 : 0.5,
-                    boxShadow: isSelected ? 'inset 0 0 0 2px var(--accent)' : 'none',
-                  };
                   const handleClick = () => {
                     if (inMonth) {
                       setDay(n);
@@ -184,9 +174,27 @@ export default function DndWorldCalendar() {
                       setTimeout(() => setDay(clampDay(n - currentMonthLen, monthLength((state.month + 1) % FR_MONTHS.length))), 0);
                     }
                   };
+                  const dayNumber = inMonth
+                    ? n
+                    : (n < 1
+                        ? (monthLength((state.month + FR_MONTHS.length - 1) % FR_MONTHS.length) + n)
+                        : (n - currentMonthLen));
+                  const className = [
+                    'dnd-calendar-cell',
+                    inMonth ? null : 'is-muted',
+                    isSelected ? 'is-selected' : null,
+                  ].filter(Boolean).join(' ');
                   return (
-                    <button key={`d-${wi}-${di}`} type="button" role="gridcell" onClick={handleClick} style={style} aria-pressed={isSelected} aria-current={isSelected ? 'date' : undefined}>
-                      <span style={{ position: 'absolute', top: 6, right: 8, fontSize: 12, fontWeight: 700, opacity: 0.8 }}>{inMonth ? n : (n < 1 ? (monthLength((state.month + FR_MONTHS.length - 1) % FR_MONTHS.length) + n) : (n - currentMonthLen))}</span>
+                    <button
+                      key={`d-${wi}-${di}`}
+                      type="button"
+                      role="gridcell"
+                      onClick={handleClick}
+                      className={className}
+                      aria-pressed={isSelected}
+                      aria-current={isSelected ? 'date' : undefined}
+                    >
+                      <span className="dnd-calendar-day-number">{dayNumber}</span>
                     </button>
                   );
                 })}

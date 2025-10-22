@@ -44,6 +44,18 @@ h1, h2, h3 {
   --panel-bg: var(--card-bg);
   --panel-hover-bg: var(--card-hover-bg);
   --panel-shadow: var(--card-shadow);
+  /* calendar tokens */
+  --calendar-header-bg: color-mix(in srgb, var(--card-bg) 85%, white 15%);
+  --calendar-header-text: color-mix(in srgb, var(--text) 95%, white 5%);
+  --calendar-cell-bg: color-mix(in srgb, var(--card-bg) 80%, white 20%);
+  --calendar-cell-bg-hover: color-mix(in srgb, var(--card-hover-bg) 65%, white 35%);
+  --calendar-cell-bg-muted: color-mix(in srgb, var(--calendar-cell-bg) 70%, white 30%);
+  --calendar-cell-text: var(--text);
+  --calendar-cell-text-muted: color-mix(in srgb, var(--text) 70%, transparent);
+  --calendar-cell-border: color-mix(in srgb, var(--text) 22%, transparent);
+  --calendar-cell-selected-border: color-mix(in srgb, var(--accent) 80%, white 20%);
+  --calendar-cell-selected-bg: color-mix(in srgb, var(--accent) 25%, var(--card-bg) 75%);
+  --calendar-cell-focus-ring: color-mix(in srgb, var(--accent) 70%, white 30%);
 }
 
 [data-theme="light"] {
@@ -66,6 +78,18 @@ h1, h2, h3 {
   --panel-bg: var(--card-bg);
   --panel-hover-bg: var(--card-hover-bg);
   --panel-shadow: var(--card-shadow);
+  /* calendar tokens */
+  --calendar-header-bg: color-mix(in srgb, var(--card-bg) 90%, var(--accent) 10%);
+  --calendar-header-text: color-mix(in srgb, var(--text) 90%, black 10%);
+  --calendar-cell-bg: color-mix(in srgb, var(--card-bg) 95%, white 5%);
+  --calendar-cell-bg-hover: color-mix(in srgb, var(--card-hover-bg) 85%, white 15%);
+  --calendar-cell-bg-muted: color-mix(in srgb, var(--calendar-cell-bg) 80%, var(--card-hover-bg) 20%);
+  --calendar-cell-text: color-mix(in srgb, var(--text) 94%, black 6%);
+  --calendar-cell-text-muted: color-mix(in srgb, var(--text) 65%, transparent);
+  --calendar-cell-border: color-mix(in srgb, var(--text) 20%, transparent);
+  --calendar-cell-selected-border: color-mix(in srgb, var(--accent) 75%, black 25%);
+  --calendar-cell-selected-bg: color-mix(in srgb, var(--accent) 18%, var(--card-bg) 82%);
+  --calendar-cell-focus-ring: color-mix(in srgb, var(--accent) 65%, black 35%);
 }
 
 /* Ensure the model dropdown stays visible and sized */

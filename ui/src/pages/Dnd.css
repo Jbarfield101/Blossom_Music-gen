@@ -26,6 +26,74 @@
   font-size: 0.95rem;
 }
 
+.dnd-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.dnd-calendar-header {
+  text-align: center;
+  padding: 6px 0;
+  font-weight: 700;
+  border-bottom: 1px solid var(--calendar-cell-border);
+  border-radius: 8px;
+  background: var(--calendar-header-bg);
+  color: var(--calendar-header-text);
+}
+
+.dnd-calendar-cell {
+  position: relative;
+  min-height: 100px;
+  border-radius: 10px;
+  padding: 28px 10px 10px;
+  text-align: left;
+  border: 1px solid var(--calendar-cell-border);
+  background: var(--calendar-cell-bg);
+  color: var(--calendar-cell-text);
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+}
+
+.dnd-calendar-cell:hover {
+  background: var(--calendar-cell-bg-hover);
+  border-color: var(--calendar-cell-selected-border);
+}
+
+.dnd-calendar-cell:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--calendar-cell-focus-ring);
+}
+
+.dnd-calendar-cell.is-selected,
+.dnd-calendar-cell[aria-pressed='true'] {
+  border-color: var(--calendar-cell-selected-border);
+  background: var(--calendar-cell-selected-bg);
+  box-shadow: inset 0 0 0 1px var(--calendar-cell-selected-border);
+}
+
+.dnd-calendar-cell.is-muted {
+  color: var(--calendar-cell-text-muted);
+  background: var(--calendar-cell-bg-muted);
+}
+
+.dnd-calendar-day-number {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.85;
+}
+
+.dnd-calendar-cell.is-muted .dnd-calendar-day-number {
+  opacity: 0.75;
+}
+
+.dnd-calendar-cell.is-selected:focus-visible,
+.dnd-calendar-cell[aria-pressed='true']:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--calendar-cell-selected-border), 0 0 0 2px var(--calendar-cell-focus-ring);
+}
+
 .discord-bot-controls {
   display: grid;
   gap: 0.75rem;
