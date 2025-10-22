@@ -5468,9 +5468,19 @@ struct DirEntryItem {
     modified_ms: i64,
 }
 
+fn resolve_requested_path(path: &str) -> PathBuf {
+    let trimmed = path.trim();
+    let requested = PathBuf::from(trimmed);
+    if requested.is_absolute() {
+        requested
+    } else {
+        project_root().join(requested)
+    }
+}
+
 #[tauri::command]
 fn dir_list(path: String) -> Result<Vec<DirEntryItem>, String> {
-    let base = PathBuf::from(&path);
+    let base = resolve_requested_path(&path);
     if !base.exists() {
         return Err(format!("Path does not exist: {}", path));
     }
