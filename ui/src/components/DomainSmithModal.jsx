@@ -144,100 +144,112 @@ function DomainSmithModal({
           Capture the domain&apos;s identity and pick where Blossom should save the finished brief.
         </p>
         <form onSubmit={onSubmit} className="dnd-modal-body" style={{ gridTemplateColumns: '1fr' }}>
-          <label className="dnd-label">
-            <span>Domain name</span>
-            <input
-              type="text"
-              value={name}
-              onChange={handleNameChange}
-              placeholder="e.g. Bloodreed Hold"
-              autoFocus
-              disabled={busy}
-              required
-            />
-            <small className="muted">This becomes the headline and filename.</small>
-          </label>
-
-          <label className="dnd-label">
-            <span>Domain Category (Theme or Sphere)</span>
-            <input
-              type="text"
-              value={category}
-              onChange={handleCategoryChange}
-              placeholder="e.g. Twilight, Tempest, or Harvest"
-              disabled={busy}
-            />
-            <small className="muted">Describe the domain’s nature — Twilight, Tempest, Harvest, etc.</small>
-          </label>
-
-          <label className="dnd-label">
-            <span>Primary Seat of Power (optional)</span>
-            <input
-              type="text"
-              value={capital}
-              onChange={handleCapitalChange}
-              placeholder="e.g. Moonpetal Citadel"
-              disabled={busy}
-            />
-            <small className="muted">Optional: describe the primary seat anchoring this domain.</small>
-          </label>
-
-          <label className="dnd-label">
-            <span>Population range</span>
-            <div className="population-range-inputs">
+          <div className="dnd-modal-section">
+            <h3>Identity</h3>
+            <label className="dnd-label">
+              <span>Domain name</span>
               <input
-                type="range"
-                min={POPULATION_MIN_LIMIT}
-                max={POPULATION_MAX_LIMIT}
-                step={POPULATION_STEP}
-                value={normalizedPopulationMin}
-                onChange={handlePopulationMinChange}
+                type="text"
+                value={name}
+                onChange={handleNameChange}
+                placeholder="e.g. Bloodreed Hold"
+                autoFocus
+                disabled={busy}
+                required
+              />
+              <small className="muted">This becomes the headline and filename.</small>
+            </label>
+
+            <label className="dnd-label">
+              <span>Domain Category (Theme or Sphere)</span>
+              <input
+                type="text"
+                value={category}
+                onChange={handleCategoryChange}
+                placeholder="e.g. Twilight, Tempest, or Harvest"
                 disabled={busy}
               />
+              <small className="muted">Describe the domain’s nature — Twilight, Tempest, Harvest, etc.</small>
+            </label>
+
+            <label className="dnd-label">
+              <span>Primary Seat of Power (optional)</span>
               <input
-                type="range"
-                min={POPULATION_MIN_LIMIT}
-                max={POPULATION_MAX_LIMIT}
-                step={POPULATION_STEP}
-                value={normalizedPopulationMax}
-                onChange={handlePopulationMaxChange}
+                type="text"
+                value={capital}
+                onChange={handleCapitalChange}
+                placeholder="e.g. Moonpetal Citadel"
                 disabled={busy}
               />
-            </div>
-            <small className="muted">{populationHelperText}</small>
-          </label>
+              <small className="muted">Optional: describe the primary seat anchoring this domain.</small>
+            </label>
+          </div>
 
-          <label className="dnd-label">
-            <span>Ruling NPC</span>
-            <EntityLinkPicker
-              value={rulerId || ''}
-              onChange={handleRulerChange}
-              entityTypes={['npc']}
-              placeholder="Search for an NPC by name or ID…"
-              disabled={busy}
-              helperText={rulerHelperText}
-            />
-          </label>
+          <div className="dnd-modal-section">
+            <h3>Demographics</h3>
+            <label className="dnd-label">
+              <span>Population range</span>
+              <div className="population-range-inputs">
+                <input
+                  type="range"
+                  min={POPULATION_MIN_LIMIT}
+                  max={POPULATION_MAX_LIMIT}
+                  step={POPULATION_STEP}
+                  value={normalizedPopulationMin}
+                  onChange={handlePopulationMinChange}
+                  disabled={busy}
+                />
+                <input
+                  type="range"
+                  min={POPULATION_MIN_LIMIT}
+                  max={POPULATION_MAX_LIMIT}
+                  step={POPULATION_STEP}
+                  value={normalizedPopulationMax}
+                  onChange={handlePopulationMaxChange}
+                  disabled={busy}
+                />
+              </div>
+              <small className="muted">{populationHelperText}</small>
+            </label>
+          </div>
 
-          <label className="dnd-label">
-            <span>Save Location</span>
-            <select
-              value={regionPath}
-              onChange={handleRegionChange}
-              disabled={busy}
-              required
-            >
-              <option value="" disabled>
-                Select a region folder…
-              </option>
-              {options.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
+          <div className="dnd-modal-section">
+            <h3>Governance</h3>
+            <label className="dnd-label">
+              <span>Ruling NPC</span>
+              <EntityLinkPicker
+                value={rulerId || ''}
+                onChange={handleRulerChange}
+                entityTypes={['npc']}
+                placeholder="Search for an NPC by name or ID…"
+                disabled={busy}
+                helperText={rulerHelperText}
+              />
+            </label>
+          </div>
+
+          <div className="dnd-modal-section">
+            <h3>Storage</h3>
+            <label className="dnd-label">
+              <span>Save Location</span>
+              <select
+                value={regionPath}
+                onChange={handleRegionChange}
+                disabled={busy}
+                required
+              >
+                <option value="" disabled>
+                  Select a region folder…
                 </option>
-              ))}
-            </select>
-            <small className="muted">Select which regional folder this domain file will be stored in.</small>
-          </label>
+                {options.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <small className="muted">Select which regional folder this domain file will be stored in.</small>
+            </label>
+          </div>
 
           {error ? (
             <div className="dnd-modal-error" role="alert">
