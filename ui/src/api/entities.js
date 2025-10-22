@@ -133,11 +133,15 @@ async function generateUniqueFilePath(root, relDir, stem) {
   throw new Error('Unable to choose a unique filename for new entity');
 }
 
-async function createSimpleEntity(type, name) {
+async function createSimpleEntity(type, name, options = {}) {
   const config = ENTITY_CONFIG[type];
   if (!config) {
     throw new Error(`Unsupported entity type: ${type}`);
   }
+
+  const normalizedOptions = options && typeof options === 'object' ? options : {};
+  const overrideDirRaw = typeof normalizedOptions.targetDir === 'string' ? normalizedOptions.targetDir : '';
+  const overrideDir = overrideDirRaw.trim().replace(/^[/\\]+/, '').replace(/\\/g, '/');
 
   const displayName = normalizeName(name, config.defaultName);
 
@@ -153,7 +157,7 @@ async function createSimpleEntity(type, name) {
   const existingIds = new Set(entries.map((entry) => entry.id || entry.index?.id).filter(Boolean));
   const entityId = makeId(entityType, displayName, existingIds);
 
-  const relDir = config.dir;
+  const relDir = overrideDir || config.dir;
   const dirPath = resolveVaultPath(vaultRoot, relDir);
   await ensureDir(dirPath);
 
@@ -179,12 +183,20 @@ export function createQuest(name) {
   return createSimpleEntity('quest', name);
 }
 
-export function createLocation(name) {
-  return createSimpleEntity('domain', name);
+export function createLocation(name, options) {
+  return createSimpleEntity('domain', name, options);
 }
 
-export function createDomain(name) {
-  return createSimpleEntity('domain', name);
+/**
+ * Create a new domain entity within the DreadHaven vault.
+ *
+ * @param {string} name - Display name for the new domain.
+ * @param {object} [options]
+ * @param {string} [options.targetDir] - Relative directory (e.g., "10_World/Regions/Nir")
+ *   where the domain file should be created. Defaults to the standard domains folder.
+ */
+export function createDomain(name, options) {
+  return createSimpleEntity('domain', name, options);
 }
 
 export function createFaction(name) {
