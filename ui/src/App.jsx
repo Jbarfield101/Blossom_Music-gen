@@ -56,6 +56,7 @@ import LofiSceneMaker from './pages/LofiSceneMaker.jsx';
 import Queue from './pages/Queue.jsx';
 import Tools from './pages/Tools.jsx';
 import Fusion from './pages/Fusion.jsx';
+import Pipeline from './pages/Pipeline.jsx';
 import LoopMaker from './pages/LoopMaker.jsx';
 import BeatMaker from './pages/BeatMaker.jsx';
 import Games from './pages/Games.jsx';
@@ -450,6 +451,7 @@ export default function App() {
             <Route path="/calendar" element={<Calendar />} />
             <Route path="/chat" element={<GeneralChat />} />
             <Route path="/queue" element={<Queue />} />
+            <Route path="/pipeline" element={<Pipeline />} />
             <Route path="/fusion" element={<Fusion />} />
             <Route path="/loopmaker" element={<LoopMaker />} />
             <Route path="/beatmaker" element={<BeatMaker />} />
