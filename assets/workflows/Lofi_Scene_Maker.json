@@ -694,7 +694,7 @@
       "widgets_values": [
         1328,
         720,
-        10
+        1
       ]
     },
     {
@@ -745,7 +745,7 @@
       "title": "CLIP Text Encode (Positive Prompt)",
       "type": "CLIPTextEncode",
       "widgets_values": [
-        "In an ethereal icy expanse, a mesmerizing cluster of luminescent auroras pulsate, their shimmering hues of celestial blues and purples dancing against the stark backdrop of frozen terrain. The swarm seems to defy gravity, suspended above an otherworldly oasis that glows from within, emanating a warm amber light from its veins of molten lava. An icy stalactite forest hovers over the landscape, casting long, dramatic shadows against the vibrant auroral display. The overall composition exudes a surreal, awe-inspiring mood, as if capturing a fleeting moment where dreams and fire-warmed sanctuaries intertwine in the cold embrace of a fantastical winter night. The color palette is a breathtaking balance between the cool glow of the auroras and the fiery warmth emanating from the oasis, creating an image that transcends reality."
+        "In a surreal twilight landscape, a luminous meadow of fireflowers blooms under an ethereal sky ablaze with the hues of the aurora borealis. The fireflowers' glow emanates a warm, inviting light that dances across the petals, casting long, gentle shadows on the dew-kissed grass below. Caves hidden within the meadow's edge shimmer with iridescent crystals, their entrances illuminated by the aurora's vibrant radiance. The composition juxtaposes the open, organic forms of the meadow against the cave's geometric structures, creating a harmonious interplay of nature and mystique. Painted in a cool color palette dominated by blues, purples, and greens, accented by the fiery yellow-orange hues of the fireflowers, this artwork evokes a sense of wonder, tranquility, and enchantment."
       ]
     },
     {
@@ -835,7 +835,7 @@
       "title": "CLIP Text Encode (Negative Prompt)",
       "type": "CLIPTextEncode",
       "widgets_values": [
-        "pixelated, digital glitch, neon glow, harsh lighting, futuristic, abstract shapes, bright colors, minimalist, lack of reef elements, absence of comforting gothic motifs, excessive use of sharp angles, no blur, no extra structures, high contrast, no text, no watermark, no digital artifacts,hazy, lackluster auroras, sparse ice formations, incorrect color temperature, unnatural embers, blurry details, excessive glare, flat composition, overly saturated or unsaturated colors, geometric aberrations, inaccurate lighting, missing ice structures, superfluous vegetation."
+        "pixelation, static, unnatural color shift, incorrect lighting, lack of shimmer, absence of meadow or cave details, inaccurate floral features, missing aurora arcs, rigid structures, overly saturated colors, low resolution, excess glare, harsh shadows"
       ]
     }
   ],
