@@ -204,6 +204,21 @@
   color: rgba(241, 245, 249, 0.9);
 }
 
+.dnd-label {
+  display: grid;
+  gap: 0.4rem;
+  font-weight: 600;
+}
+
+.dnd-label > span {
+  font-size: 0.95rem;
+}
+
+.dnd-label > small {
+  font-weight: 400;
+  color: rgba(226, 232, 240, 0.75);
+}
+
 .dual-range-slider {
   position: relative;
   width: 100%;
