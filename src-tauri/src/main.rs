@@ -2006,6 +2006,27 @@ fn filesystem_npc_names(_app: &AppHandle) -> Result<Vec<String>, String> {
     Ok(names)
 }
 
+fn merge_filesystem_npcs(
+    npcs: &mut Vec<Npc>,
+    seen: &mut HashSet<String>,
+    existing_ids: &mut HashSet<String>,
+    fallback_names: Vec<String>,
+) {
+    for name in fallback_names {
+        let key = name.to_ascii_lowercase();
+        if seen.insert(key) {
+            let (id, _) = normalize_npc_id(None, &name, existing_ids);
+            npcs.push(Npc {
+                id,
+                name,
+                description: String::new(),
+                prompt: String::new(),
+                voice: String::new(),
+            });
+        }
+    }
+}
+
 #[tauri::command]
 fn npc_list(app: AppHandle) -> Result<Vec<Npc>, String> {
     let mut npcs = read_npcs(&app)?;
@@ -2015,7 +2036,6 @@ fn npc_list(app: AppHandle) -> Result<Vec<Npc>, String> {
         .collect();
     let mut existing_ids: HashSet<String> = npcs.iter().map(|npc| npc.id.clone()).collect();
 
-    let mut service_had_entries = false;
     let mut cmd = python_command();
     if let Ok(output) = cmd
         .args([
@@ -2026,7 +2046,6 @@ fn npc_list(app: AppHandle) -> Result<Vec<Npc>, String> {
     {
         if output.status.success() {
             if let Ok(notes) = serde_json::from_slice::<Vec<Value>>(&output.stdout) {
-                service_had_entries = !notes.is_empty();
                 for note in notes {
                     let alias_name = note
                         .get("aliases")
@@ -2095,30 +2114,61 @@ fn npc_list(app: AppHandle) -> Result<Vec<Npc>, String> {
         }
     }
 
-    if !service_had_entries {
-        match filesystem_npc_names(&app) {
-            Ok(fallback_names) => {
-                for name in fallback_names {
-                    let key = name.to_ascii_lowercase();
-                    if seen.insert(key) {
-                        let (id, _) = normalize_npc_id(None, &name, &mut existing_ids);
-                        npcs.push(Npc {
-                            id,
-                            name,
-                            description: String::new(),
-                            prompt: String::new(),
-                            voice: String::new(),
-                        });
-                    }
-                }
-            }
-            Err(err) => {
-                eprintln!("[blossom] npc_list: fallback scan failed: {}", err);
-            }
+    match filesystem_npc_names(&app) {
+        Ok(fallback_names) => {
+            merge_filesystem_npcs(&mut npcs, &mut seen, &mut existing_ids, fallback_names);
+        }
+        Err(err) => {
+            eprintln!("[blossom] npc_list: fallback scan failed: {}", err);
         }
     }
 
     Ok(npcs)
+}
+
+#[cfg(test)]
+mod npc_list_tests {
+    use super::{merge_filesystem_npcs, Npc};
+    use std::collections::HashSet;
+
+    #[test]
+    fn merges_filesystem_npcs_after_partial_service_results() {
+        let mut npcs = vec![Npc {
+            id: "npc_existing".to_string(),
+            name: "Existing NPC".to_string(),
+            description: String::new(),
+            prompt: String::new(),
+            voice: String::new(),
+        }];
+
+        let mut seen: HashSet<String> = npcs
+            .iter()
+            .map(|npc| npc.name.to_ascii_lowercase())
+            .collect();
+        let mut existing_ids: HashSet<String> = npcs.iter().map(|npc| npc.id.clone()).collect();
+
+        merge_filesystem_npcs(
+            &mut npcs,
+            &mut seen,
+            &mut existing_ids,
+            vec![
+                "Existing NPC".to_string(),
+                "Nested Subfolder NPC".to_string(),
+            ],
+        );
+
+        assert_eq!(
+            npcs.iter().filter(|npc| npc.name == "Existing NPC").count(),
+            1
+        );
+
+        assert!(
+            npcs
+                .iter()
+                .any(|npc| npc.name == "Nested Subfolder NPC"),
+            "NPCs discovered under nested folders should be merged in alongside service results",
+        );
+    }
 }
 
 #[tauri::command]
