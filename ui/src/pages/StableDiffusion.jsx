@@ -100,13 +100,18 @@ function parseStableAudioPrompt(text) {
   return result;
 }
 
+const SURFACE_BORDER_COLOR = 'color-mix(in srgb, var(--text) 18%, transparent)';
+const SUBTLE_TEXT_COLOR = 'color-mix(in srgb, var(--text) 72%, transparent)';
+const SELECTED_OPTION_BG = 'color-mix(in srgb, var(--accent) 22%, var(--card-bg) 78%)';
+const SELECTED_OPTION_SHADOW = 'inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent)';
+
 const TEXTAREA_BASE_STYLE = Object.freeze({
   width: '100%',
   padding: '1.1rem',
   fontSize: '1.05rem',
   lineHeight: 1.6,
   borderRadius: '14px',
-  border: '1px solid rgba(15, 23, 42, 0.2)',
+  border: `1px solid ${SURFACE_BORDER_COLOR}`,
   background: 'var(--card-bg)',
   color: 'var(--text)',
   resize: 'vertical',
@@ -782,7 +787,7 @@ const handleSubmit = async (event) => {
                 minWidth: '220px',
                 padding: '0.7rem 0.85rem',
                 borderRadius: '12px',
-                border: '1px solid rgba(15, 23, 42, 0.2)',
+                border: `1px solid ${SURFACE_BORDER_COLOR}`,
                 background: 'var(--card-bg)',
                 color: 'var(--text)',
               }}
@@ -809,7 +814,7 @@ const handleSubmit = async (event) => {
                 width: '100%',
                 padding: '0.7rem 0.85rem',
                 borderRadius: '12px',
-                border: '1px solid rgba(15, 23, 42, 0.2)',
+                border: `1px solid ${SURFACE_BORDER_COLOR}`,
                 background: 'var(--card-bg)',
                 color: 'var(--text)',
               }}
@@ -828,7 +833,7 @@ const handleSubmit = async (event) => {
                 width: '100%',
                 padding: '0.7rem 0.85rem',
                 borderRadius: '12px',
-                border: '1px solid rgba(15, 23, 42, 0.2)',
+                border: `1px solid ${SURFACE_BORDER_COLOR}`,
                 background: 'var(--card-bg)',
                 color: 'var(--text)',
               }}
@@ -848,7 +853,7 @@ const handleSubmit = async (event) => {
                 width: '140px',
                 padding: '0.7rem 0.85rem',
                 borderRadius: '12px',
-                border: '1px solid rgba(15, 23, 42, 0.2)',
+                border: `1px solid ${SURFACE_BORDER_COLOR}`,
                 background: 'var(--card-bg)',
                 color: 'var(--text)',
               }}
@@ -868,7 +873,7 @@ const handleSubmit = async (event) => {
             background: 'var(--card-bg)',
             padding: '1.25rem 1.5rem',
             borderRadius: '16px',
-            border: '1px solid rgba(15, 23, 42, 0.12)',
+            border: `1px solid ${SURFACE_BORDER_COLOR}`,
             boxShadow: '0 2px 6px rgba(15, 23, 42, 0.08)',
           }}
         >
@@ -888,7 +893,7 @@ const handleSubmit = async (event) => {
                   <fieldset
                     key={key}
                     style={{
-                      border: '1px solid rgba(15, 23, 42, 0.18)',
+                      border: `1px solid ${SURFACE_BORDER_COLOR}`,
                       borderRadius: '14px',
                       padding: '1rem 1.25rem',
                       background: 'var(--card-bg)',
@@ -920,9 +925,9 @@ const handleSubmit = async (event) => {
                                 gap: '0.45rem',
                                 padding: '0.35rem 0.6rem',
                                 borderRadius: '10px',
-                                border: '1px solid rgba(15, 23, 42, 0.2)',
-                                background: checked ? 'rgba(15, 23, 42, 0.08)' : 'var(--card-bg)',
-                                boxShadow: checked ? 'inset 0 0 0 1px rgba(15, 23, 42, 0.2)' : 'none',
+                                border: `1px solid ${SURFACE_BORDER_COLOR}`,
+                                background: checked ? SELECTED_OPTION_BG : 'var(--card-bg)',
+                                boxShadow: checked ? SELECTED_OPTION_SHADOW : 'none',
                                 cursor: disabled ? 'not-allowed' : 'pointer',
                                 opacity: disabled ? 0.6 : 1,
                               }}
@@ -942,7 +947,7 @@ const handleSubmit = async (event) => {
                     ) : (
                       <p
                         className="card-caption"
-                        style={{ margin: 0, color: 'rgba(15, 23, 42, 0.65)' }}
+                        style={{ margin: 0, color: SUBTLE_TEXT_COLOR }}
                       >
                         Options coming soon.
                       </p>
