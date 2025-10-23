@@ -9,25 +9,35 @@ export default function LabeledToggle({
   onChange,
   style,
 }) {
-  const handleToggle = (event) => {
-    if (typeof onChange !== 'function' || disabled) {
+  const handleInputChange = (event) => {
+    if (typeof onChange !== 'function') {
       return;
     }
-    onChange(!checked, event);
+
+    if (disabled) {
+      event.preventDefault();
+      return;
+    }
+
+    onChange(event.target.checked, event);
   };
 
   const trackStyle = {
     width: '2.75rem',
     height: '1.5rem',
     borderRadius: '999px',
-    border: '1px solid rgba(15, 23, 42, 0.2)',
-    background: checked ? 'var(--accent)' : 'rgba(15, 23, 42, 0.1)',
+    border: '1px solid color-mix(in srgb, var(--text) 24%, transparent)',
+    background: checked
+      ? 'var(--accent)'
+      : 'color-mix(in srgb, var(--text) 18%, transparent)',
     transition: 'background 0.2s ease, border-color 0.2s ease',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: checked ? 'flex-end' : 'flex-start',
     padding: '0 0.2rem',
-    boxShadow: checked ? 'inset 0 0 0 1px rgba(255, 255, 255, 0.25)' : 'none',
+    boxShadow: checked
+      ? 'inset 0 0 0 1px color-mix(in srgb, var(--text) 15%, transparent)'
+      : 'none',
     opacity: disabled ? 0.6 : 1,
   };
 
@@ -59,7 +69,7 @@ export default function LabeledToggle({
           <span
             className="card-caption"
             style={{
-              color: 'rgba(15, 23, 42, 0.68)',
+              color: 'color-mix(in srgb, var(--text) 80%, transparent)',
               fontSize: '0.9rem',
               lineHeight: 1.4,
             }}
@@ -68,32 +78,40 @@ export default function LabeledToggle({
           </span>
         ) : null}
       </div>
-      <button
-        id={id}
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-labelledby={`${id}-label`}
-        onClick={handleToggle}
-        disabled={disabled}
+      <label
+        htmlFor={id}
         style={{
           position: 'relative',
-          border: 'none',
-          background: 'transparent',
-          padding: 0,
-          cursor: disabled ? 'not-allowed' : 'pointer',
+          borderRadius: '999px',
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
-          minHeight: '1.5rem',
-          borderRadius: '999px',
-          outlineOffset: '3px',
+          cursor: disabled ? 'not-allowed' : 'pointer',
         }}
       >
+        <input
+          id={id}
+          type="checkbox"
+          role="switch"
+          aria-checked={checked}
+          aria-labelledby={`${id}-label`}
+          checked={checked}
+          onChange={handleInputChange}
+          disabled={disabled}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            opacity: 0,
+            margin: 0,
+            cursor: disabled ? 'not-allowed' : 'pointer',
+          }}
+        />
         <span aria-hidden style={trackStyle}>
           <span style={thumbStyle} />
         </span>
-      </button>
+      </label>
     </div>
   );
 }
