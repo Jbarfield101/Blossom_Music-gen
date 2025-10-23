@@ -28,9 +28,11 @@ export default function Fusion() {
   const [loadingB, setLoadingB] = useState(false);
   const [loadingFuse, setLoadingFuse] = useState(false);
   const [error, setError] = useState('');
-  const [includeNegative, setIncludeNegative] = useState(false);
+  const [includeNegative, setIncludeNegative] = useState(true);
   const [negativeResult, setNegativeResult] = useState('');
-  const [history, setHistory] = useState([]); // [{a,b,prompt,negative,candidates?,ts}]
+  const [generateAudioPrompt, setGenerateAudioPrompt] = useState(false);
+  const [audioPromptResult, setAudioPromptResult] = useState('');
+  const [history, setHistory] = useState([]); // [{a,b,prompt,negative,audioPrompt,candidates?,ts}]
   const [promptCandidates, setPromptCandidates] = useState([]);
   const [selectedCandidateIndex, setSelectedCandidateIndex] = useState(0);
   const [isTauriEnv, setIsTauriEnv] = useState(false);
@@ -73,6 +75,8 @@ export default function Fusion() {
           const normalized = parsed.map((entry) => ({
             ...entry,
             mode: entry?.mode === 'tiktok' ? 'tiktok' : 'lofi',
+            audioPrompt:
+              typeof entry?.audioPrompt === 'string' ? entry.audioPrompt.trim() : '',
           }));
           setHistory(normalized);
         }
@@ -295,6 +299,7 @@ export default function Fusion() {
     setNegativeResult('');
     setPromptCandidates([]);
     setSelectedCandidateIndex(0);
+    setAudioPromptResult('');
     if (!a && !b) {
       setFusionResult('Enter concepts to explore their fusion.');
       return;
@@ -367,11 +372,37 @@ export default function Fusion() {
         setNegativeResult(negative);
       }
 
+      let audioPrompt = '';
+      if (generateAudioPrompt) {
+        const audioSystem = isTikTok
+          ? 'You are Blossom, an enthusiastic music director for short-form content. Craft a concise production brief that highlights instrumentation, rhythm, energy, and modern mixing touches for a high-impact track. Use 3-5 sentences, no lists or headings.'
+          : 'You are Blossom, a chill music director for lo-fi. Craft a concise production brief that highlights instrumentation, rhythm, mood, and production vibe for a cozy beat. Use 3-5 sentences, no lists or headings.';
+        const audioPromptInput = isTikTok
+          ? `Concept A: ${a}\nConcept B: ${b}\nDescribe the audio direction for a high-energy, short-form ready soundtrack blending these ideas. Mention instrumentation, rhythm, energy, and production vibe.`
+          : `Concept A: ${a}\nConcept B: ${b}\nDescribe the audio direction for a mellow lo-fi beat blending these ideas. Mention instrumentation, rhythm, mood, and production vibe.`;
+        try {
+          const audioResponse = await invoke('generate_llm', {
+            prompt: audioPromptInput,
+            system: audioSystem,
+            temperature: randomTemperature(0.55, 0.85),
+            seed: randomSeed(),
+          });
+          const cleanedAudio = String(audioResponse || '').trim();
+          if (cleanedAudio) {
+            audioPrompt = cleanedAudio;
+            setAudioPromptResult(cleanedAudio);
+          }
+        } catch (audioError) {
+          console.error('fusion audio prompt failed', audioError);
+        }
+      }
+
       const entry = {
         a,
         b,
         prompt: main,
         negative,
+        audioPrompt,
         candidates: uniqueCandidates.map((c) => ({
           text: c.text,
           temperature: c.temperature,
@@ -391,6 +422,7 @@ export default function Fusion() {
   };
 
   const trimmedFusionPrompt = fusionResult.trim();
+  const trimmedAudioPrompt = audioPromptResult.trim();
   const isGenerateDisabled = loadingFuse || !trimmedFusionPrompt || dialogLoading || isDialogOpen;
 
   const statusPalette = {
@@ -407,7 +439,7 @@ export default function Fusion() {
       <h1>Fusion</h1>
       <div className="fusion-mode-toggle" role="group" aria-label="Fusion style">
         {[
-          { value: 'lofi', label: 'Lo-fi chill' },
+          { value: 'lofi', label: 'Lo-fi' },
           { value: 'tiktok', label: 'TikTok hype' },
         ].map((option) => {
           const isActive = option.value === mode;
@@ -466,8 +498,28 @@ export default function Fusion() {
       </form>
       <div className="fusion-options" style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-          <input type="checkbox" checked={includeNegative} onChange={(e) => setIncludeNegative(e.target.checked)} disabled={loadingFuse} />
+          <input
+            type="checkbox"
+            checked={includeNegative}
+            onChange={(e) => setIncludeNegative(e.target.checked)}
+            disabled={loadingFuse}
+          />
           Include negative prompt
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <input
+            type="checkbox"
+            checked={generateAudioPrompt}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              setGenerateAudioPrompt(checked);
+              if (!checked) {
+                setAudioPromptResult('');
+              }
+            }}
+            disabled={loadingFuse}
+          />
+          Generate audio prompt
         </label>
       </div>
       <div
@@ -544,6 +596,22 @@ export default function Fusion() {
                 <textarea readOnly value={negativeResult} rows={3} style={{ width: '100%', resize: 'vertical' }} />
                 <div style={{ marginTop: '0.25rem' }}>
                   <button type="button" className="p-sm" onClick={() => copyText(negativeResult)} disabled={!negativeResult}>Copy</button>
+                </div>
+              </div>
+            )}
+            {trimmedAudioPrompt && (
+              <div>
+                <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>Audio Prompt</div>
+                <textarea readOnly value={audioPromptResult} rows={4} style={{ width: '100%', resize: 'vertical' }} />
+                <div style={{ marginTop: '0.25rem' }}>
+                  <button
+                    type="button"
+                    className="p-sm"
+                    onClick={() => copyText(audioPromptResult)}
+                    disabled={!trimmedAudioPrompt}
+                  >
+                    Copy
+                  </button>
                 </div>
               </div>
             )}
@@ -759,12 +827,20 @@ export default function Fusion() {
                       setSelectedCandidateIndex(0);
                       setFusionResult((candidates[0] && candidates[0].text) || h.prompt || '');
                       setNegativeResult(h.negative || '');
+                      const restoredAudio = typeof h.audioPrompt === 'string' ? h.audioPrompt.trim() : '';
+                      setGenerateAudioPrompt(Boolean(restoredAudio));
+                      setAudioPromptResult(restoredAudio);
                     }}
                   >
                     Load
                   </button>
                   <button type="button" className="p-sm" onClick={() => copyText(h.prompt)} disabled={!h.prompt}>Copy prompt</button>
                   {h.negative && <button type="button" className="p-sm" onClick={() => copyText(h.negative)}>Copy negative</button>}
+                  {h.audioPrompt && (
+                    <button type="button" className="p-sm" onClick={() => copyText(h.audioPrompt)}>
+                      Copy audio prompt
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
