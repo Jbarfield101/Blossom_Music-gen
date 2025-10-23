@@ -155,7 +155,7 @@
   width: 100%;
   max-width: 1600px;
   margin: 0 auto;
-  padding: 0 var(--space-xl) var(--space-xl);
+  padding: 0 var(--space-xl) var(--space-lg);
 }
 
 .screen-wrapper {
@@ -163,7 +163,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 76vh;
   position: relative;
 }
 
@@ -272,17 +271,13 @@
   width: 100%;
   max-width: 1800px;
   margin: 0 auto;
-  padding: 0 var(--space-xl) var(--space-xl);
+  padding: 0 var(--space-xl) var(--space-lg);
   box-sizing: border-box;
 }
 
 .feature-wheel {
   max-width: 320px;
   margin: var(--space-md) 0;
-}
-
-.screen-wrapper {
-  min-height: 80vh;
 }
 
 /* remove overriding width to keep clamp sizing above */
@@ -292,7 +287,7 @@
     grid-template-columns: minmax(0, 1fr);
     justify-items: center;
     gap: var(--space-xl);
-    padding: 0 var(--space-lg) var(--space-xl);
+    padding: 0 var(--space-lg) var(--space-lg);
   }
 
   .feature-wheel,

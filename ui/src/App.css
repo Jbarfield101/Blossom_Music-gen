@@ -294,7 +294,14 @@ header {
   width: 100%;
   box-sizing: border-box;
   padding: var(--space-lg);
+}
+
+.app-layout__content:not(.app-layout__content--dashboard) {
   overflow-y: auto;
+}
+
+.app-layout__content--dashboard {
+  overflow-y: visible;
 }
 
 @media (max-width: 959.98px) {
