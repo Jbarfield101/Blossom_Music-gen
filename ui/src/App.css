@@ -272,7 +272,9 @@ header {
   text-decoration: none;
   color: inherit;
   font-weight: 600;
-  transition: background 0.2s ease, color 0.2s ease;
+  border: 1px solid transparent;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .main-nav__link:is(:hover, :focus-visible) {
@@ -282,6 +284,39 @@ header {
 .main-nav__link.is-active {
   background: color-mix(in srgb, var(--accent) 20%, transparent);
   color: var(--accent);
+}
+
+.main-nav__link--back {
+  background: color-mix(in srgb, var(--card-bg) 70%, var(--accent) 30%);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--accent) 15%, transparent);
+  color: color-mix(in srgb, var(--text) 96%, white 4%);
+}
+
+.main-nav__link--back:is(:hover, :focus-visible) {
+  background: color-mix(in srgb, var(--card-hover-bg) 55%, var(--accent) 45%);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  color: var(--text);
+}
+
+.main-nav__back-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  line-height: 1;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+  color: inherit;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 22%, transparent);
+  transition: background 0.2s ease, box-shadow 0.2s ease, color 0.2s ease;
+}
+
+.main-nav__link--back:is(:hover, :focus-visible) .main-nav__back-icon {
+  background: color-mix(in srgb, var(--accent) 30%, var(--card-bg) 70%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent);
 }
 
 .main-nav__text {

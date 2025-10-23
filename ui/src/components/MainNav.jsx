@@ -63,7 +63,14 @@ export default function MainNav({ isOpen, onNavigate, navId = 'main-navigation',
       <ul className="main-nav__list">
         {shouldShowBack && (
           <li className="main-nav__item">
-            <button type="button" className="main-nav__link" onClick={handleBack}>
+            <button
+              type="button"
+              className={classNames('main-nav__link', 'main-nav__link--back')}
+              onClick={handleBack}
+            >
+              <span aria-hidden="true" className="main-nav__back-icon">
+                ←
+              </span>
               <span className="main-nav__text">{backLabel}</span>
             </button>
           </li>
