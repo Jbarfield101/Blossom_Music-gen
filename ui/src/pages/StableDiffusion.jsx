@@ -28,12 +28,32 @@ const PROMPT_TEMPLATE_FIELDS = [
 const PROMPT_BUILDER_SECTIONS = [
   { key: 'format', label: 'Format', options: ['Solo', 'Band', 'Orchestra', 'Chorus', 'Duet'] },
   { key: 'genre', label: 'Genre', options: ['Rock', 'Pop', 'Hip Hop', 'Indie', 'Foley', 'RnB'] },
-  { key: 'subGenre', label: 'Sub Genre', options: [] },
-  { key: 'instruments', label: 'Instruments', options: [] },
-  { key: 'mood', label: 'Moods', options: [] },
-  { key: 'style', label: 'Styles', options: [] },
-  { key: 'tempoDescriptor', label: 'Tempo', options: [] },
-  { key: 'bpm', label: 'BPM', options: [] },
+  {
+    key: 'subGenre',
+    label: 'Sub Genre',
+    options: ['Drum Loops', 'Electric Guitar', 'Pop Music', 'Chillout', 'Ambient', 'Techno', 'Fantasy'],
+  },
+  {
+    key: 'instruments',
+    label: 'Instruments',
+    options: ['Piano', 'Drum Machine', 'Synthesizer', 'Snare Drum', 'Keyboard', 'Organ', 'Strings', 'Percussion', 'Ukulele', 'Flute', 'Lute'],
+  },
+  {
+    key: 'mood',
+    label: 'Moods',
+    options: ['Dramatic', 'Inspiring', 'Magical', 'Uplifting', 'Driving', 'Animated', 'Tag', 'Atmospheric', 'Happy', 'Sad', 'Battle Music'],
+  },
+  {
+    key: 'style',
+    label: 'Styles',
+    options: ['Film Instrumental', '2000s', '1960s', '1980s', 'Dance', 'Video Games', 'High Tech', 'Sci-Fi'],
+  },
+  {
+    key: 'tempoDescriptor',
+    label: 'Tempo',
+    options: ['Medium', 'Slow', 'Building', 'Fast', 'Very Fast'],
+  },
+  { key: 'bpm', label: 'BPM', options: ['180', '140', '120', '100', '60'] },
 ];
 
 const SECTION_LIMITS = Object.freeze({
