@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 
 const links = [
   { to: '/', label: 'Home', end: true },
@@ -16,12 +16,32 @@ function classNames(...values) {
   return values.filter(Boolean).join(' ');
 }
 
-export default function MainNav({ isOpen, onNavigate, navId = 'main-navigation' }) {
+export default function MainNav({ isOpen, onNavigate, navId = 'main-navigation', backLink = null }) {
+  const navigate = useNavigate();
+
   const handleNavigate = () => {
     if (typeof onNavigate === 'function') {
       onNavigate();
     }
   };
+
+  const handleBack = () => {
+    if (!backLink) {
+      return;
+    }
+
+    if (backLink.to) {
+      navigate(backLink.to);
+    } else {
+      navigate(-1);
+    }
+
+    handleNavigate();
+  };
+
+  const shouldShowBack = Boolean(backLink);
+
+  const backLabel = backLink && backLink.label ? backLink.label : 'Back';
 
   return (
     <nav
@@ -41,6 +61,13 @@ export default function MainNav({ isOpen, onNavigate, navId = 'main-navigation' 
         Blossom
       </div>
       <ul className="main-nav__list">
+        {shouldShowBack && (
+          <li className="main-nav__item">
+            <button type="button" className="main-nav__link" onClick={handleBack}>
+              <span className="main-nav__text">{backLabel}</span>
+            </button>
+          </li>
+        )}
         {links.map(({ to, label, end }) => (
           <li key={to} className="main-nav__item">
             <NavLink
