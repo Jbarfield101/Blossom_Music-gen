@@ -25,32 +25,65 @@ const PROMPT_TEMPLATE_FIELDS = [
   { key: 'bpm', label: 'BPM' },
 ];
 
-const DEFAULT_PROMPT_BUILDER_VALUES = Object.freeze({
-  format: 'Song',
-  genre: 'Electronic',
-  subGenre: 'Synthwave',
-  instruments: 'Analog polysynths, punchy drum machines, warm bass guitar, airy pads',
-  mood: 'Uplifting and nostalgic with a confident energy',
-  style: 'Cinematic retro-futuristic production with modern polish',
-  tempoDescriptor: 'Driving four-on-the-floor groove with shimmering textures',
-  bpm: '118',
-});
+const PROMPT_BUILDER_SECTIONS = [
+  { key: 'format', label: 'Format', options: ['Solo', 'Band', 'Orchestra', 'Chorus', 'Duet'] },
+  { key: 'genre', label: 'Genre', options: ['Rock', 'Pop', 'Hip Hop', 'Indie', 'Foley', 'RnB'] },
+  { key: 'subGenre', label: 'Sub Genre', options: [] },
+  { key: 'instruments', label: 'Instruments', options: [] },
+  { key: 'mood', label: 'Moods', options: [] },
+  { key: 'style', label: 'Styles', options: [] },
+  { key: 'tempoDescriptor', label: 'Tempo', options: [] },
+  { key: 'bpm', label: 'BPM', options: [] },
+];
 
 const LABEL_TO_FIELD_KEY = PROMPT_TEMPLATE_FIELDS.reduce((map, field) => {
   map[field.label.toLowerCase()] = field.key;
   return map;
 }, {});
 
+function createDefaultBuilderValues() {
+  return PROMPT_TEMPLATE_FIELDS.reduce((acc, field) => {
+    acc[field.key] = [];
+    return acc;
+  }, {});
+}
+
+function normalizeBuilderValue(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === 'string' ? item.trim() : String(item ?? '')))
+      .map((item) => item.replace(/\s+/g, ' ').trim())
+      .filter((item) => item.length > 0);
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value
+      .split(/[\n,]/)
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+    return normalized;
+  }
+
+  if (typeof value === 'number') {
+    return [String(value)];
+  }
+
+  return [];
+}
+
 function composeStableAudioPrompt(values) {
-  return PROMPT_TEMPLATE_FIELDS.map(({ key, label }) => `${label}: ${values[key] ?? ''}`).join('\n');
+  return PROMPT_TEMPLATE_FIELDS.map(({ key, label }) => {
+    const items = normalizeBuilderValue(values[key]);
+    return `${label}: ${items.join(', ')}`;
+  }).join('\n');
 }
 
 function parseStableAudioPrompt(text) {
   if (typeof text !== 'string' || !text.trim()) {
-    return { ...DEFAULT_PROMPT_BUILDER_VALUES };
+    return createDefaultBuilderValues();
   }
 
-  const result = { ...DEFAULT_PROMPT_BUILDER_VALUES };
+  const result = createDefaultBuilderValues();
   const lines = text.split(/\r?\n/);
 
   lines.forEach((line) => {
@@ -61,7 +94,7 @@ function parseStableAudioPrompt(text) {
     const key = LABEL_TO_FIELD_KEY[label];
     if (!key) return;
     const value = rest.join(':').trim();
-    result[key] = value;
+    result[key] = normalizeBuilderValue(value);
   });
 
   return result;
@@ -142,26 +175,38 @@ export default function StableDiffusion() {
   const [queueEtaSeconds, setQueueEtaSeconds] = useState(null);
 
   const [isPromptBuilderActive, setIsPromptBuilderActive] = useState(false);
-  const [builderFormat, setBuilderFormat] = useState(DEFAULT_PROMPT_BUILDER_VALUES.format);
-  const [builderGenre, setBuilderGenre] = useState(DEFAULT_PROMPT_BUILDER_VALUES.genre);
-  const [builderSubGenre, setBuilderSubGenre] = useState(DEFAULT_PROMPT_BUILDER_VALUES.subGenre);
-  const [builderInstruments, setBuilderInstruments] = useState(DEFAULT_PROMPT_BUILDER_VALUES.instruments);
-  const [builderMood, setBuilderMood] = useState(DEFAULT_PROMPT_BUILDER_VALUES.mood);
-  const [builderStyle, setBuilderStyle] = useState(DEFAULT_PROMPT_BUILDER_VALUES.style);
-  const [builderTempoDescriptor, setBuilderTempoDescriptor] = useState(DEFAULT_PROMPT_BUILDER_VALUES.tempoDescriptor);
-  const [builderBpm, setBuilderBpm] = useState(DEFAULT_PROMPT_BUILDER_VALUES.bpm);
+  const [builderValues, setBuilderValues] = useState(() => createDefaultBuilderValues());
 
   const builderUpdateRef = useRef(false);
 
   const applyBuilderValues = useCallback((values) => {
-    setBuilderFormat(values.format ?? DEFAULT_PROMPT_BUILDER_VALUES.format);
-    setBuilderGenre(values.genre ?? DEFAULT_PROMPT_BUILDER_VALUES.genre);
-    setBuilderSubGenre(values.subGenre ?? DEFAULT_PROMPT_BUILDER_VALUES.subGenre);
-    setBuilderInstruments(values.instruments ?? DEFAULT_PROMPT_BUILDER_VALUES.instruments);
-    setBuilderMood(values.mood ?? DEFAULT_PROMPT_BUILDER_VALUES.mood);
-    setBuilderStyle(values.style ?? DEFAULT_PROMPT_BUILDER_VALUES.style);
-    setBuilderTempoDescriptor(values.tempoDescriptor ?? DEFAULT_PROMPT_BUILDER_VALUES.tempoDescriptor);
-    setBuilderBpm(values.bpm ?? DEFAULT_PROMPT_BUILDER_VALUES.bpm);
+    setBuilderValues(() => {
+      const next = createDefaultBuilderValues();
+      PROMPT_TEMPLATE_FIELDS.forEach(({ key }) => {
+        next[key] = normalizeBuilderValue(values[key]);
+      });
+      return next;
+    });
+  }, []);
+
+  const toggleBuilderOption = useCallback((sectionKey, option) => {
+    setBuilderValues((prev) => {
+      const current = normalizeBuilderValue(prev[sectionKey]);
+      const exists = current.includes(option);
+      let nextValues = exists
+        ? current.filter((item) => item !== option)
+        : [...current, option];
+      const section = PROMPT_BUILDER_SECTIONS.find((item) => item.key === sectionKey);
+      if (!exists && section && Array.isArray(section.options) && section.options.length > 0) {
+        const orderMap = new Map(section.options.map((opt, index) => [opt, index]));
+        nextValues = nextValues.sort((a, b) => {
+          const orderA = orderMap.has(a) ? orderMap.get(a) : Number.MAX_SAFE_INTEGER;
+          const orderB = orderMap.has(b) ? orderMap.get(b) : Number.MAX_SAFE_INTEGER;
+          return orderA - orderB;
+        });
+      }
+      return { ...prev, [sectionKey]: nextValues };
+    });
   }, []);
 
   useEffect(() => {
@@ -180,30 +225,8 @@ export default function StableDiffusion() {
       return;
     }
     builderUpdateRef.current = true;
-    setPrompt(
-      composeStableAudioPrompt({
-        format: builderFormat,
-        genre: builderGenre,
-        subGenre: builderSubGenre,
-        instruments: builderInstruments,
-        mood: builderMood,
-        style: builderStyle,
-        tempoDescriptor: builderTempoDescriptor,
-        bpm: builderBpm,
-      }),
-    );
-  }, [
-    isPromptBuilderActive,
-    builderFormat,
-    builderGenre,
-    builderSubGenre,
-    builderInstruments,
-    builderMood,
-    builderStyle,
-    builderTempoDescriptor,
-    builderBpm,
-    setPrompt,
-  ]);
+    setPrompt(composeStableAudioPrompt(builderValues));
+  }, [isPromptBuilderActive, builderValues]);
 
   const { queue, refresh: refreshQueue } = useJobQueue(2000);
 
@@ -264,7 +287,7 @@ export default function StableDiffusion() {
         if (resolvedPrompt) {
           applyBuilderValues(parseStableAudioPrompt(resolvedPrompt));
         } else {
-          applyBuilderValues({ ...DEFAULT_PROMPT_BUILDER_VALUES });
+          applyBuilderValues(createDefaultBuilderValues());
         }
         navPromptRef.current = '';
         setNegativePrompt(fetchedNegative);
@@ -430,6 +453,8 @@ export default function StableDiffusion() {
       setPrompt(templatePrompt);
       if (templatePrompt) {
         applyBuilderValues(parseStableAudioPrompt(templatePrompt));
+      } else {
+        applyBuilderValues(createDefaultBuilderValues());
       }
       setNegativePrompt(template.negativePrompt || '');
       setFilePrefix(template.fileNamePrefix || DEFAULT_FILE_PREFIX);
@@ -857,139 +882,74 @@ const handleSubmit = async (event) => {
           />
           {isPromptBuilderActive ? (
             <div style={{ display: 'grid', gap: '1rem' }}>
-              <label htmlFor="stable-builder-format" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
-                <span>Format</span>
-                <input
-                  id="stable-builder-format"
-                  type="text"
-                  value={builderFormat}
-                  onChange={(event) => setBuilderFormat(event.target.value)}
-                  disabled={disabled}
-                  style={{
-                    padding: '0.7rem 0.85rem',
-                    borderRadius: '12px',
-                    border: '1px solid rgba(15, 23, 42, 0.2)',
-                    background: 'var(--card-bg)',
-                    color: 'var(--text)',
-                  }}
-                />
-              </label>
-              <label htmlFor="stable-builder-genre" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
-                <span>Genre</span>
-                <input
-                  id="stable-builder-genre"
-                  type="text"
-                  value={builderGenre}
-                  onChange={(event) => setBuilderGenre(event.target.value)}
-                  disabled={disabled}
-                  style={{
-                    padding: '0.7rem 0.85rem',
-                    borderRadius: '12px',
-                    border: '1px solid rgba(15, 23, 42, 0.2)',
-                    background: 'var(--card-bg)',
-                    color: 'var(--text)',
-                  }}
-                />
-              </label>
-              <label htmlFor="stable-builder-subgenre" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
-                <span>Sub-Genre</span>
-                <input
-                  id="stable-builder-subgenre"
-                  type="text"
-                  value={builderSubGenre}
-                  onChange={(event) => setBuilderSubGenre(event.target.value)}
-                  disabled={disabled}
-                  style={{
-                    padding: '0.7rem 0.85rem',
-                    borderRadius: '12px',
-                    border: '1px solid rgba(15, 23, 42, 0.2)',
-                    background: 'var(--card-bg)',
-                    color: 'var(--text)',
-                  }}
-                />
-              </label>
-              <label htmlFor="stable-builder-instruments" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
-                <span>Instruments</span>
-                <textarea
-                  id="stable-builder-instruments"
-                  value={builderInstruments}
-                  onChange={(event) => setBuilderInstruments(event.target.value)}
-                  disabled={disabled}
-                  rows={3}
-                  style={{
-                    ...TEXTAREA_BASE_STYLE,
-                    minHeight: '6rem',
-                    borderRadius: '12px',
-                  }}
-                />
-              </label>
-              <label htmlFor="stable-builder-mood" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
-                <span>Mood</span>
-                <input
-                  id="stable-builder-mood"
-                  type="text"
-                  value={builderMood}
-                  onChange={(event) => setBuilderMood(event.target.value)}
-                  disabled={disabled}
-                  style={{
-                    padding: '0.7rem 0.85rem',
-                    borderRadius: '12px',
-                    border: '1px solid rgba(15, 23, 42, 0.2)',
-                    background: 'var(--card-bg)',
-                    color: 'var(--text)',
-                  }}
-                />
-              </label>
-              <label htmlFor="stable-builder-style" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
-                <span>Style</span>
-                <input
-                  id="stable-builder-style"
-                  type="text"
-                  value={builderStyle}
-                  onChange={(event) => setBuilderStyle(event.target.value)}
-                  disabled={disabled}
-                  style={{
-                    padding: '0.7rem 0.85rem',
-                    borderRadius: '12px',
-                    border: '1px solid rgba(15, 23, 42, 0.2)',
-                    background: 'var(--card-bg)',
-                    color: 'var(--text)',
-                  }}
-                />
-              </label>
-              <label htmlFor="stable-builder-tempo" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
-                <span>Tempo Descriptor</span>
-                <textarea
-                  id="stable-builder-tempo"
-                  value={builderTempoDescriptor}
-                  onChange={(event) => setBuilderTempoDescriptor(event.target.value)}
-                  disabled={disabled}
-                  rows={3}
-                  style={{
-                    ...TEXTAREA_BASE_STYLE,
-                    minHeight: '6rem',
-                    borderRadius: '12px',
-                  }}
-                />
-              </label>
-              <label htmlFor="stable-builder-bpm" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
-                <span>BPM</span>
-                <input
-                  id="stable-builder-bpm"
-                  type="number"
-                  min="0"
-                  value={builderBpm}
-                  onChange={(event) => setBuilderBpm(event.target.value)}
-                  disabled={disabled}
-                  style={{
-                    padding: '0.7rem 0.85rem',
-                    borderRadius: '12px',
-                    border: '1px solid rgba(15, 23, 42, 0.2)',
-                    background: 'var(--card-bg)',
-                    color: 'var(--text)',
-                  }}
-                />
-              </label>
+              {PROMPT_BUILDER_SECTIONS.map(({ key, label, options }) => {
+                const selectedValues = normalizeBuilderValue(builderValues[key]);
+                return (
+                  <fieldset
+                    key={key}
+                    style={{
+                      border: '1px solid rgba(15, 23, 42, 0.18)',
+                      borderRadius: '14px',
+                      padding: '1rem 1.25rem',
+                      background: 'var(--card-bg)',
+                      display: 'grid',
+                      gap: '0.75rem',
+                    }}
+                  >
+                    <legend
+                      style={{
+                        fontWeight: 600,
+                        fontSize: '1rem',
+                        padding: '0 0.5rem',
+                      }}
+                    >
+                      {label}
+                    </legend>
+                    {options.length > 0 ? (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem 1rem' }}>
+                        {options.map((option) => {
+                          const optionId = `stable-builder-${key}-${option.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+                          const checked = selectedValues.includes(option);
+                          return (
+                            <label
+                              key={option}
+                              htmlFor={optionId}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.45rem',
+                                padding: '0.35rem 0.6rem',
+                                borderRadius: '10px',
+                                border: '1px solid rgba(15, 23, 42, 0.2)',
+                                background: checked ? 'rgba(15, 23, 42, 0.08)' : 'var(--card-bg)',
+                                boxShadow: checked ? 'inset 0 0 0 1px rgba(15, 23, 42, 0.2)' : 'none',
+                                cursor: disabled ? 'not-allowed' : 'pointer',
+                                opacity: disabled ? 0.6 : 1,
+                              }}
+                            >
+                              <input
+                                id={optionId}
+                                type="checkbox"
+                                checked={checked}
+                                disabled={disabled}
+                                onChange={() => toggleBuilderOption(key, option)}
+                              />
+                              <span>{option}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p
+                        className="card-caption"
+                        style={{ margin: 0, color: 'rgba(15, 23, 42, 0.65)' }}
+                      >
+                        Options coming soon.
+                      </p>
+                    )}
+                  </fieldset>
+                );
+              })}
             </div>
           ) : null}
         </div>
