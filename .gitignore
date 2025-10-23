@@ -53,4 +53,8 @@ assets/voice_models/*
 !assets/voice_models/.gitkeep
 
 # Generated media gallery
-assets/gallery/
+assets/gallery/*
+!assets/gallery/.gitkeep
+!assets/gallery/audio/
+assets/gallery/audio/*
+!assets/gallery/audio/.gitkeep

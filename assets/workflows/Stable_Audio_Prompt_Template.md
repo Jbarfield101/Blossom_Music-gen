@@ -1,113 +1,58 @@
 # 🎵 Stable Audio Prompt Template
 
-## 🪄 Main Concept
-Describe the general idea of the track.
-> Example: “Lo-fi hip-hop beat for late-night studying”  
-> Example: “Epic cinematic score for a fantasy trailer”  
+Use this guided checklist to brief Stable Audio with the right musical context. Capture each section with short, descriptive phrases—then let the builder generate polished prompts for you.
 
-**Your Entry:**  
-[WRITE HERE]
+## 1. 🪄 Main Concept
+Describe the core idea or narrative for the track. Focus on the scene, performer, or purpose.
+> Example: “Dreamy bedroom producer lullaby for stargazing”
 
----
+## 2. 🎶 Genre / Style
+Name the primary genre or hybrid style that anchors the piece.
+> Example: “Lo-fi chillwave with downtempo influence”
 
-## 🎶 Genre / Style
-Name one or two genres or hybrid styles.  
-> Example: “Chillout,” “Ambient electronic,” “Synthwave pop.”
+## 3. 🎹 Featured Instruments
+List the standout instruments, sound sources, or textures you want in the mix.
+> Example: “Tape-warped electric piano, brushed drums, gentle bass guitar”
 
-**Your Entry:**  
-[WRITE HERE]
+## 4. 💫 Mood / Emotion
+Capture the emotional target, vibe, or energy level.
+> Example: “Warm, nostalgic, slightly bittersweet”
 
----
+## 5. 🕰️ Era / Influence
+Call out decade cues, cultural touchstones, or artist inspirations (optional but helpful).
+> Example: “Mid-2000s indie electronica influences”
 
-## 🎹 Instrumentation
-List the main instruments or sounds you want to feature.  
-> Example: “Piano, soft drums, bass guitar, analog pads.”  
-> Example: “Electric guitar, ambient synths, field recordings.”
+## 6. 🔊 Structure / Progression
+Sketch how the music should evolve or loop.
+> Example: “Loopable 16-bar progression with soft swells in the second half”
 
-**Your Entry:**  
-[WRITE HERE]
+## 7. 🎚️ Sound Design & Mix Notes
+Note the production finish, textures, and mix treatments you expect.
+> Example: “Vinyl crackle, tape saturation, airy reverb with wide stereo image”
 
----
-
-## 💫 Mood / Emotion
-What emotion or atmosphere should it create?  
-> Example: “Peaceful and nostalgic,” “Dark and mysterious,” “Magical and hopeful.”
-
-**Your Entry:**  
-[WRITE HERE]
+## 8. 🕹️ Tempo Details
+Specify tempo, BPM, feel, and optional duration cues.
+> Example: “82 BPM with a relaxed swing, 60-second render”
 
 ---
 
-## 🕰️ Era / Influence (Optional)
-If you want a specific decade or cultural flavor.  
-> Example: “2000s indie film vibe,” “80s synthwave feel,” “Modern lo-fi aesthetic.”
-
-**Your Entry:**  
-[WRITE HERE]
-
----
-
-## 🔊 Structure / Progression
-Describe how the song should evolve.  
-> Example: “Loopable chill beat with gentle build-up.”  
-> Example: “Starts slow, builds into an emotional climax.”  
-
-**Your Entry:**  
-[WRITE HERE]
-
----
-
-## 🎚️ Sound Design / Mix Notes
-Add production notes about texture, tone, or mixing.  
-> Example: “Warm analog sound, tape hiss, reverb-heavy.”  
-> Example: “Clean mastering, wide stereo field.”  
-
-**Your Entry:**  
-[WRITE HERE]
-
----
-
-## 🕹️ Tempo & Duration
-Specify BPM (optional but useful) and track length.  
-> Example: “90 BPM | 45 seconds”  
-> Example: “120 BPM | 2 minutes”
-
-**Your Entry:**  
-[WRITE HERE]
-
----
-
-## 🧩 Final Prompt
-Combine all of the above into one clear paragraph for Stable Audio.  
+## 🧩 Final Prompt Pattern
 > “A [Main Concept] in [Genre/Style] featuring [Instruments], evoking a [Mood/Emotion] vibe inspired by [Era/Influence]. [Structure/Progression details]. [Sound design or mix notes]. [Tempo].”
 
 ---
 
-# 🎵 Stable Audio Prompt Example
+## 🎧 Worked Example
 
-## 🪄 Main Concept
-Solo indie chillout piano track.
+- **Main Concept:** Dreamy bedroom producer lullaby for stargazing.
+- **Genre / Style:** Lo-fi chillwave with downtempo influence.
+- **Featured Instruments:** Tape-warped electric piano, brushed drums, gentle bass guitar.
+- **Mood / Emotion:** Warm, nostalgic, slightly bittersweet.
+- **Era / Influence:** Mid-2000s indie electronica influences.
+- **Structure / Progression:** Loopable 16-bar progression with soft swells in the second half.
+- **Sound Design & Mix Notes:** Vinyl crackle, tape saturation, airy reverb with wide stereo image.
+- **Tempo Details:** 82 BPM with a relaxed swing, 60-second render.
 
-## 🎶 Genre / Style
-Indie / Chillout.
+**Final Prompt:**
 
-## 🎹 Instrumentation
-Solo piano with gentle ambient layers.
+A dreamy bedroom producer lullaby for stargazing in lo-fi chillwave with downtempo influence featuring tape-warped electric piano, brushed drums, gentle bass guitar, evoking a warm, nostalgic, slightly bittersweet vibe inspired by mid-2000s indie electronica influences. Loopable 16-bar progression with soft swells in the second half. Vinyl crackle, tape saturation, airy reverb with wide stereo image. 82 BPM with a relaxed swing, 60-second render.
 
-## 💫 Mood / Emotion
-Magical, peaceful, nostalgic.
-
-## 🕰️ Era / Influence
-2000s indie film vibe.
-
-## 🔊 Structure / Progression
-Soft and steady rhythm with minimal build; loopable 60-second piece.
-
-## 🎚️ Sound Design / Mix Notes
-Warm piano tone, subtle lo-fi texture, airy ambience, medium intensity.
-
-## 🕹️ Tempo & Duration
-60 BPM | 60 seconds.
-
-## 🧩 Final Prompt
-A solo indie chillout piano track with a magical 2000s vibe. Gentle, nostalgic melodies with airy ambience and soft reverb, evoking a peaceful, dreamlike feeling. Medium intensity and relaxed groove at 60 BPM. Balanced mix with warm piano tone and subtle lo-fi textures for emotional depth. Duration: 60 seconds.

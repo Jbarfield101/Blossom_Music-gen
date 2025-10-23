@@ -10484,6 +10484,8 @@ async fn run_stable_audio_job(
                                     })
                                     .collect();
 
+                                let mut gallery_artifacts: Vec<JobArtifact> = Vec::new();
+
                                 if !artifacts.is_empty() {
                                     if let Err(err) = register_job_artifacts(
                                         app_handle.state::<JobRegistry>(),
@@ -10499,6 +10501,40 @@ async fn run_stable_audio_job(
                                             ),
                                         );
                                     }
+
+                                    for artifact in &artifacts {
+                                        match copy_artifact_into_gallery(job_id, artifact) {
+                                            Ok(Some(copy)) => gallery_artifacts.push(copy),
+                                            Ok(None) => {}
+                                            Err(err) => {
+                                                let registry = app_handle.state::<JobRegistry>();
+                                                registry.append_job_stderr(
+                                                    job_id,
+                                                    &format!(
+                                                        "Failed to copy artifact into gallery: {}",
+                                                        err
+                                                    ),
+                                                );
+                                            }
+                                        }
+                                    }
+
+                                    if !gallery_artifacts.is_empty() {
+                                        if let Err(err) = register_job_artifacts(
+                                            app_handle.state::<JobRegistry>(),
+                                            job_id,
+                                            gallery_artifacts.clone(),
+                                        ) {
+                                            let registry = app_handle.state::<JobRegistry>();
+                                            registry.append_job_stderr(
+                                                job_id,
+                                                &format!(
+                                                    "Failed to register gallery artifacts: {}",
+                                                    err
+                                                ),
+                                            );
+                                        }
+                                    }
                                 }
 
                                 {
@@ -10511,12 +10547,27 @@ async fn run_stable_audio_job(
                                             );
                                         }
                                     }
+                                    if !gallery_artifacts.is_empty() {
+                                        for artifact in &gallery_artifacts {
+                                            registry.append_job_stdout(
+                                                job_id,
+                                                &format!(
+                                                    "Gallery copy saved: {}",
+                                                    artifact.path
+                                                ),
+                                            );
+                                        }
+                                    }
                                     let summary = json!({
                                         "prompt": prompt_text,
                                         "negativePrompt": negative_prompt,
                                         "fileNamePrefix": file_prefix,
                                         "seconds": seconds,
                                         "outputs": artifacts.iter().map(|a| a.path.clone()).collect::<Vec<_>>(),
+                                        "galleryCopies": gallery_artifacts
+                                            .iter()
+                                            .map(|a| a.path.clone())
+                                            .collect::<Vec<_>>(),
                                     });
                                     registry.append_job_stdout(
                                         job_id,
