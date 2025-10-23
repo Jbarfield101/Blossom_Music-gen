@@ -336,6 +336,12 @@ header {
 }
 
 .app-layout__content--dashboard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-xl);
+  min-height: 100vh;
+  padding: var(--space-xl) var(--space-xl) var(--space-lg);
   overflow-y: visible;
 }
 
