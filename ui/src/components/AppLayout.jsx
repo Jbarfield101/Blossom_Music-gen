@@ -12,6 +12,8 @@ export const NavContext = createContext({
   showNav: false,
   navId: '',
   registerNavAnchor: undefined,
+  setBackLink: undefined,
+  backLink: null,
 });
 
 function getIsDesktop() {
@@ -33,6 +35,7 @@ export default function AppLayout({ greetingPlayback = null }) {
     return showNav && getIsDesktop();
   });
   const [navAnchorCount, setNavAnchorCount] = useState(0);
+  const [backLink, setBackLink] = useState(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -80,6 +83,10 @@ export default function AppLayout({ greetingPlayback = null }) {
     return () => {
       setNavAnchorCount((count) => Math.max(0, count - 1));
     };
+  }, []);
+
+  const updateBackLink = useCallback((link) => {
+    setBackLink(link);
   }, []);
 
   const navId = 'main-navigation';
@@ -247,8 +254,10 @@ export default function AppLayout({ greetingPlayback = null }) {
       showNav,
       navId,
       registerNavAnchor,
+      setBackLink: updateBackLink,
+      backLink,
     }),
-    [toggleNav, closeNav, isNavOpen, showNav, navId, registerNavAnchor],
+    [toggleNav, closeNav, isNavOpen, showNav, navId, registerNavAnchor, updateBackLink, backLink],
   );
 
   return (
@@ -271,7 +280,12 @@ export default function AppLayout({ greetingPlayback = null }) {
           </div>
         )}
         {showNav && (
-          <MainNav isOpen={isNavOpen} onNavigate={closeNav} navId={navId} />
+          <MainNav
+            isOpen={isNavOpen}
+            onNavigate={closeNav}
+            navId={navId}
+            backLink={backLink}
+          />
         )}
         {showNav && (
           <div className="app-layout__scrim" aria-hidden="true" onClick={closeNav} />
