@@ -1,15 +1,14 @@
 import { NavLink } from 'react-router-dom';
 
 const links = [
-  { to: '/', label: 'Dashboard', end: true },
+  { to: '/', label: 'Home', end: true },
   { to: '/musicgen', label: 'Sound Lab' },
   { to: '/dnd', label: 'D&D' },
+  { to: '/dnd/dungeon-master', label: 'Dungeon Master Dashboard' },
   { to: '/games', label: 'Games' },
   { to: '/tools', label: 'Tools' },
   { to: '/visual-generator', label: 'Visual Generator' },
   { to: '/queue', label: 'Queue' },
-  { to: '/profiles', label: 'Profiles' },
-  { to: '/train', label: 'Training' },
   { to: '/settings', label: 'Settings' },
 ];
 
