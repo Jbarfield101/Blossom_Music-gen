@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import FeatureWheel from '../components/FeatureWheel.jsx';
+import Icon from '../components/Icon.jsx';
 import Screen from '../components/Screen.jsx';
 import './Dashboard.css';
 
 export default function Dashboard() {
   const [version, setVersion] = useState("");
   const [comfyStatus, setComfyStatus] = useState('offline');
+  const [isOnline, setIsOnline] = useState(
+    typeof navigator !== 'undefined' ? Boolean(navigator.onLine) : true,
+  );
   const comfyPollTimerRef = useRef(null);
   const comfyFailureCountRef = useRef(0);
   const comfySeenSuccessRef = useRef(false);
@@ -18,6 +22,22 @@ export default function Dashboard() {
       comfyPollTimerRef.current = null;
     }
   };
+
+  useEffect(() => {
+    const updateOnlineStatus = () => {
+      if (typeof navigator === 'undefined') return;
+      setIsOnline(Boolean(navigator.onLine));
+    };
+
+    updateOnlineStatus();
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+
+    return () => {
+      window.removeEventListener('online', updateOnlineStatus);
+      window.removeEventListener('offline', updateOnlineStatus);
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -93,6 +113,42 @@ export default function Dashboard() {
       clearComfyPollTimer();
     };
   }, []);
+
+  const internetStatus = isOnline ? 'online' : 'offline';
+  const comfyIndicatorStatus =
+    comfyStatus === 'online'
+      ? 'online'
+      : comfyStatus === 'starting'
+        ? 'starting'
+        : 'offline';
+
+  const statusIndicators = [
+    {
+      id: 'internet',
+      label: 'Internet',
+      value: isOnline ? 'Online' : 'Offline',
+      status: internetStatus,
+      icon: isOnline ? 'Wifi' : 'WifiOff',
+    },
+    {
+      id: 'comfy',
+      label: 'ComfyUI',
+      value:
+        comfyIndicatorStatus === 'starting'
+          ? 'Starting'
+          : comfyIndicatorStatus === 'online'
+            ? 'Online'
+            : 'Offline',
+      status: comfyIndicatorStatus,
+      icon:
+        comfyIndicatorStatus === 'starting'
+          ? 'Loader2'
+          : comfyIndicatorStatus === 'online'
+            ? 'Camera'
+            : 'CameraOff',
+      spin: comfyIndicatorStatus === 'starting',
+    },
+  ];
   const items = [
     { to: '/musicgen', icon: 'Music', title: 'Sound Lab' },
     { to: '/calendar', icon: 'CalendarDays', title: 'Calendar' },
@@ -109,6 +165,26 @@ export default function Dashboard() {
       <header className="dashboard-header">
         <h1 className="dashboard-title">Blossom</h1>
         {version && <div className="dashboard-version">v{version}</div>}
+        <ul className="dashboard-status-icons" aria-label="System status">
+          {statusIndicators.map((indicator) => (
+            <li
+              key={indicator.id}
+              className={`status-indicator status-indicator--${indicator.status}`}
+              aria-label={`${indicator.label} ${indicator.value}`}
+              title={`${indicator.label} ${indicator.value}`}
+            >
+              <Icon
+                name={indicator.icon}
+                size={18}
+                className={`status-icon${indicator.spin ? ' status-icon--spin' : ''}`}
+              />
+              <div className="status-copy">
+                <span className="status-label">{indicator.label}</span>
+                <span className="status-value">{indicator.value}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
       </header>
       <section className="dashboard-main">
         <FeatureWheel items={items} />
