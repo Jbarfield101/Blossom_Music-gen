@@ -13,6 +13,59 @@ const JOB_POLL_INTERVAL_MS = 1500;
 const DEFAULT_FILE_PREFIX = 'audio/ComfyUI';
 const DEFAULT_SECONDS = '120';
 
+const PROMPT_TEMPLATE_FIELDS = [
+  { key: 'format', label: 'Format' },
+  { key: 'genre', label: 'Genre' },
+  { key: 'subGenre', label: 'Sub-Genre' },
+  { key: 'instruments', label: 'Instruments' },
+  { key: 'mood', label: 'Mood' },
+  { key: 'style', label: 'Style' },
+  { key: 'tempoDescriptor', label: 'Tempo Descriptor' },
+  { key: 'bpm', label: 'BPM' },
+];
+
+const DEFAULT_PROMPT_BUILDER_VALUES = Object.freeze({
+  format: 'Song',
+  genre: 'Electronic',
+  subGenre: 'Synthwave',
+  instruments: 'Analog polysynths, punchy drum machines, warm bass guitar, airy pads',
+  mood: 'Uplifting and nostalgic with a confident energy',
+  style: 'Cinematic retro-futuristic production with modern polish',
+  tempoDescriptor: 'Driving four-on-the-floor groove with shimmering textures',
+  bpm: '118',
+});
+
+const LABEL_TO_FIELD_KEY = PROMPT_TEMPLATE_FIELDS.reduce((map, field) => {
+  map[field.label.toLowerCase()] = field.key;
+  return map;
+}, {});
+
+function composeStableAudioPrompt(values) {
+  return PROMPT_TEMPLATE_FIELDS.map(({ key, label }) => `${label}: ${values[key] ?? ''}`).join('\n');
+}
+
+function parseStableAudioPrompt(text) {
+  if (typeof text !== 'string' || !text.trim()) {
+    return { ...DEFAULT_PROMPT_BUILDER_VALUES };
+  }
+
+  const result = { ...DEFAULT_PROMPT_BUILDER_VALUES };
+  const lines = text.split(/\r?\n/);
+
+  lines.forEach((line) => {
+    if (!line) return;
+    const [rawLabel, ...rest] = line.split(':');
+    if (!rawLabel || rest.length === 0) return;
+    const label = rawLabel.trim().toLowerCase();
+    const key = LABEL_TO_FIELD_KEY[label];
+    if (!key) return;
+    const value = rest.join(':').trim();
+    result[key] = value;
+  });
+
+  return result;
+}
+
 const TEXTAREA_BASE_STYLE = Object.freeze({
   width: '100%',
   padding: '1.1rem',
@@ -87,6 +140,70 @@ export default function StableDiffusion() {
   const [queuePosition, setQueuePosition] = useState(null);
   const [queueEtaSeconds, setQueueEtaSeconds] = useState(null);
 
+  const [isPromptBuilderActive, setIsPromptBuilderActive] = useState(false);
+  const [builderFormat, setBuilderFormat] = useState(DEFAULT_PROMPT_BUILDER_VALUES.format);
+  const [builderGenre, setBuilderGenre] = useState(DEFAULT_PROMPT_BUILDER_VALUES.genre);
+  const [builderSubGenre, setBuilderSubGenre] = useState(DEFAULT_PROMPT_BUILDER_VALUES.subGenre);
+  const [builderInstruments, setBuilderInstruments] = useState(DEFAULT_PROMPT_BUILDER_VALUES.instruments);
+  const [builderMood, setBuilderMood] = useState(DEFAULT_PROMPT_BUILDER_VALUES.mood);
+  const [builderStyle, setBuilderStyle] = useState(DEFAULT_PROMPT_BUILDER_VALUES.style);
+  const [builderTempoDescriptor, setBuilderTempoDescriptor] = useState(DEFAULT_PROMPT_BUILDER_VALUES.tempoDescriptor);
+  const [builderBpm, setBuilderBpm] = useState(DEFAULT_PROMPT_BUILDER_VALUES.bpm);
+
+  const builderUpdateRef = useRef(false);
+
+  const applyBuilderValues = useCallback((values) => {
+    setBuilderFormat(values.format ?? DEFAULT_PROMPT_BUILDER_VALUES.format);
+    setBuilderGenre(values.genre ?? DEFAULT_PROMPT_BUILDER_VALUES.genre);
+    setBuilderSubGenre(values.subGenre ?? DEFAULT_PROMPT_BUILDER_VALUES.subGenre);
+    setBuilderInstruments(values.instruments ?? DEFAULT_PROMPT_BUILDER_VALUES.instruments);
+    setBuilderMood(values.mood ?? DEFAULT_PROMPT_BUILDER_VALUES.mood);
+    setBuilderStyle(values.style ?? DEFAULT_PROMPT_BUILDER_VALUES.style);
+    setBuilderTempoDescriptor(values.tempoDescriptor ?? DEFAULT_PROMPT_BUILDER_VALUES.tempoDescriptor);
+    setBuilderBpm(values.bpm ?? DEFAULT_PROMPT_BUILDER_VALUES.bpm);
+  }, []);
+
+  useEffect(() => {
+    if (!isPromptBuilderActive) {
+      return;
+    }
+    if (builderUpdateRef.current) {
+      builderUpdateRef.current = false;
+      return;
+    }
+    applyBuilderValues(parseStableAudioPrompt(prompt));
+  }, [prompt, isPromptBuilderActive, applyBuilderValues]);
+
+  useEffect(() => {
+    if (!isPromptBuilderActive) {
+      return;
+    }
+    builderUpdateRef.current = true;
+    setPrompt(
+      composeStableAudioPrompt({
+        format: builderFormat,
+        genre: builderGenre,
+        subGenre: builderSubGenre,
+        instruments: builderInstruments,
+        mood: builderMood,
+        style: builderStyle,
+        tempoDescriptor: builderTempoDescriptor,
+        bpm: builderBpm,
+      }),
+    );
+  }, [
+    isPromptBuilderActive,
+    builderFormat,
+    builderGenre,
+    builderSubGenre,
+    builderInstruments,
+    builderMood,
+    builderStyle,
+    builderTempoDescriptor,
+    builderBpm,
+    setPrompt,
+  ]);
+
   const { queue, refresh: refreshQueue } = useJobQueue(2000);
 
   const formatEta = useCallback((value) => {
@@ -141,7 +258,13 @@ export default function StableDiffusion() {
         const fetchedPrefix = extractPromptField(promptsResult, 'fileNamePrefix');
         const fetchedSeconds = extractPromptField(promptsResult, 'seconds');
         const cardPrompt = (navPromptRef.current || '').trim();
-        setPrompt(cardPrompt ? cardPrompt : fetchedPrompt);
+        const resolvedPrompt = cardPrompt ? cardPrompt : fetchedPrompt;
+        setPrompt(resolvedPrompt);
+        if (resolvedPrompt) {
+          applyBuilderValues(parseStableAudioPrompt(resolvedPrompt));
+        } else {
+          applyBuilderValues({ ...DEFAULT_PROMPT_BUILDER_VALUES });
+        }
         navPromptRef.current = '';
         setNegativePrompt(fetchedNegative);
         setFilePrefix(fetchedPrefix || DEFAULT_FILE_PREFIX);
@@ -291,22 +414,29 @@ export default function StableDiffusion() {
     await updateComfySettings({ autoLaunch: next });
   }, [autoLaunch, isTauriEnv, updateComfySettings]);
 
-  const handleTemplateSelect = useCallback((event) => {
-    const name = event.target.value;
-    setSelectedTemplate(name);
-    if (!name) {
-      return;
-    }
-    const template = templates.find((item) => item.name === name);
-    if (!template) {
-      return;
-    }
-    setPrompt(template.prompt || '');
-    setNegativePrompt(template.negativePrompt || '');
-    setFilePrefix(template.fileNamePrefix || DEFAULT_FILE_PREFIX);
-    setSeconds(String(template.seconds ?? Number(DEFAULT_SECONDS)));
-    setTemplateName(template.name);
-  }, [templates]);
+  const handleTemplateSelect = useCallback(
+    (event) => {
+      const name = event.target.value;
+      setSelectedTemplate(name);
+      if (!name) {
+        return;
+      }
+      const template = templates.find((item) => item.name === name);
+      if (!template) {
+        return;
+      }
+      const templatePrompt = template.prompt || '';
+      setPrompt(templatePrompt);
+      if (templatePrompt) {
+        applyBuilderValues(parseStableAudioPrompt(templatePrompt));
+      }
+      setNegativePrompt(template.negativePrompt || '');
+      setFilePrefix(template.fileNamePrefix || DEFAULT_FILE_PREFIX);
+      setSeconds(String(template.seconds ?? Number(DEFAULT_SECONDS)));
+      setTemplateName(template.name);
+    },
+    [templates, applyBuilderValues],
+  );
 
   const pollJobStatus = useCallback(async (id) => {
     if (!id || jobIdRef.current !== id) return;
@@ -701,24 +831,205 @@ const handleSubmit = async (event) => {
         {comfyStatus.pending > 0 && (
           <div style={{ fontWeight: 600 }}>Pending ComfyUI tasks: {comfyStatus.pending}</div>
         )}
-        <label htmlFor="stable-diffusion-prompt" className="form-label">
-          Prompt
-        </label>
-        <textarea
-          id="stable-diffusion-prompt"
-          placeholder="Enter audio prompt..."
-          value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
-          rows={10}
+        <div
           style={{
-            ...TEXTAREA_BASE_STYLE,
-            width: 'min(95vw, 1300px)',
-            minHeight: '20rem',
-            fontSize: '1.05rem',
-            lineHeight: 1.6,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '1rem',
+            flexWrap: 'wrap',
           }}
-          disabled={disabled}
-        />
+        >
+          <label
+            htmlFor={isPromptBuilderActive ? 'stable-builder-format' : 'stable-diffusion-prompt'}
+            className="form-label"
+            style={{ marginBottom: 0 }}
+          >
+            Prompt
+          </label>
+          <label
+            className="form-label"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              marginBottom: 0,
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={isPromptBuilderActive}
+              onChange={(event) => setIsPromptBuilderActive(event.target.checked)}
+              disabled={disabled}
+            />
+            Build a Prompt
+          </label>
+        </div>
+        {isPromptBuilderActive ? (
+          <div
+            style={{
+              display: 'grid',
+              gap: '1rem',
+              background: 'var(--card-bg)',
+              padding: '1.25rem',
+              borderRadius: '14px',
+              border: '1px solid rgba(15, 23, 42, 0.15)',
+              boxShadow: 'inset 0 2px 6px rgba(15, 23, 42, 0.05)',
+            }}
+          >
+            <label htmlFor="stable-builder-format" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
+              <span>Format</span>
+              <input
+                id="stable-builder-format"
+                type="text"
+                value={builderFormat}
+                onChange={(event) => setBuilderFormat(event.target.value)}
+                disabled={disabled}
+                style={{
+                  padding: '0.7rem 0.85rem',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(15, 23, 42, 0.2)',
+                  background: 'var(--card-bg)',
+                  color: 'var(--text)',
+                }}
+              />
+            </label>
+            <label htmlFor="stable-builder-genre" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
+              <span>Genre</span>
+              <input
+                id="stable-builder-genre"
+                type="text"
+                value={builderGenre}
+                onChange={(event) => setBuilderGenre(event.target.value)}
+                disabled={disabled}
+                style={{
+                  padding: '0.7rem 0.85rem',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(15, 23, 42, 0.2)',
+                  background: 'var(--card-bg)',
+                  color: 'var(--text)',
+                }}
+              />
+            </label>
+            <label htmlFor="stable-builder-subgenre" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
+              <span>Sub-Genre</span>
+              <input
+                id="stable-builder-subgenre"
+                type="text"
+                value={builderSubGenre}
+                onChange={(event) => setBuilderSubGenre(event.target.value)}
+                disabled={disabled}
+                style={{
+                  padding: '0.7rem 0.85rem',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(15, 23, 42, 0.2)',
+                  background: 'var(--card-bg)',
+                  color: 'var(--text)',
+                }}
+              />
+            </label>
+            <label htmlFor="stable-builder-instruments" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
+              <span>Instruments</span>
+              <textarea
+                id="stable-builder-instruments"
+                value={builderInstruments}
+                onChange={(event) => setBuilderInstruments(event.target.value)}
+                disabled={disabled}
+                rows={3}
+                style={{
+                  ...TEXTAREA_BASE_STYLE,
+                  minHeight: '6rem',
+                  resize: 'vertical',
+                }}
+              />
+            </label>
+            <label htmlFor="stable-builder-mood" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
+              <span>Mood</span>
+              <input
+                id="stable-builder-mood"
+                type="text"
+                value={builderMood}
+                onChange={(event) => setBuilderMood(event.target.value)}
+                disabled={disabled}
+                style={{
+                  padding: '0.7rem 0.85rem',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(15, 23, 42, 0.2)',
+                  background: 'var(--card-bg)',
+                  color: 'var(--text)',
+                }}
+              />
+            </label>
+            <label htmlFor="stable-builder-style" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
+              <span>Style</span>
+              <input
+                id="stable-builder-style"
+                type="text"
+                value={builderStyle}
+                onChange={(event) => setBuilderStyle(event.target.value)}
+                disabled={disabled}
+                style={{
+                  padding: '0.7rem 0.85rem',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(15, 23, 42, 0.2)',
+                  background: 'var(--card-bg)',
+                  color: 'var(--text)',
+                }}
+              />
+            </label>
+            <label htmlFor="stable-builder-tempo" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
+              <span>Tempo Descriptor</span>
+              <input
+                id="stable-builder-tempo"
+                type="text"
+                value={builderTempoDescriptor}
+                onChange={(event) => setBuilderTempoDescriptor(event.target.value)}
+                disabled={disabled}
+                style={{
+                  padding: '0.7rem 0.85rem',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(15, 23, 42, 0.2)',
+                  background: 'var(--card-bg)',
+                  color: 'var(--text)',
+                }}
+              />
+            </label>
+            <label htmlFor="stable-builder-bpm" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
+              <span>BPM</span>
+              <input
+                id="stable-builder-bpm"
+                type="number"
+                min="0"
+                value={builderBpm}
+                onChange={(event) => setBuilderBpm(event.target.value)}
+                disabled={disabled}
+                style={{
+                  padding: '0.7rem 0.85rem',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(15, 23, 42, 0.2)',
+                  background: 'var(--card-bg)',
+                  color: 'var(--text)',
+                }}
+              />
+            </label>
+          </div>
+        ) : (
+          <textarea
+            id="stable-diffusion-prompt"
+            placeholder="Enter audio prompt..."
+            value={prompt}
+            onChange={(event) => setPrompt(event.target.value)}
+            rows={10}
+            style={{
+              ...TEXTAREA_BASE_STYLE,
+              width: 'min(95vw, 1300px)',
+              minHeight: '20rem',
+              fontSize: '1.05rem',
+              lineHeight: 1.6,
+            }}
+            disabled={disabled}
+          />
+        )}
         <label htmlFor="stable-diffusion-negative" className="form-label">
           Negative Prompt
         </label>
