@@ -28,14 +28,34 @@ export default function AppLayout({ greetingPlayback = null }) {
   const showNav = normalizedPath !== '/';
   const isDashboardRoute = normalizedPath === '/';
   const [isDesktop, setIsDesktop] = useState(getIsDesktop);
+  const hasWindow = typeof window !== 'undefined';
+  const initialManualClose = hasWindow ? window.localStorage.getItem('navManualClose') === 'true' : false;
+  const manualCloseTimestampRef = useRef(initialManualClose ? Date.now() : 0);
+  const manualOpenTimestampRef = useRef(0);
+  const lastShowNavRef = useRef(showNav);
+  const prevIsDesktopRef = useRef(isDesktop);
   const [isNavOpen, setIsNavOpen] = useState(() => {
-    const stored = typeof window !== 'undefined' ? window.localStorage.getItem('navOpen') : null;
-    if (stored === 'true') return true;
-    if (stored === 'false') return false;
+    if (initialManualClose) return false;
     return showNav && getIsDesktop();
   });
   const [navAnchorCount, setNavAnchorCount] = useState(0);
   const [backLink, setBackLink] = useState(null);
+
+  const recordManualClose = useCallback(() => {
+    manualCloseTimestampRef.current = Date.now();
+    manualOpenTimestampRef.current = 0;
+    if (hasWindow) {
+      window.localStorage.setItem('navManualClose', 'true');
+    }
+  }, [hasWindow]);
+
+  const recordManualOpen = useCallback(() => {
+    manualOpenTimestampRef.current = Date.now();
+    manualCloseTimestampRef.current = 0;
+    if (hasWindow) {
+      window.localStorage.removeItem('navManualClose');
+    }
+  }, [hasWindow]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -55,29 +75,54 @@ export default function AppLayout({ greetingPlayback = null }) {
   }, []);
 
   useEffect(() => {
-    if (!showNav) {
+    const wasShowingNav = lastShowNavRef.current;
+    if (!wasShowingNav && showNav) {
+      const lastManualClose = manualCloseTimestampRef.current;
+      const lastManualOpen = manualOpenTimestampRef.current;
+      const manualCloseStillActive = lastManualClose && (!lastManualOpen || lastManualClose > lastManualOpen);
+      if (!manualCloseStillActive) {
+        setIsNavOpen(true);
+      }
+    } else if (wasShowingNav && !showNav) {
       setIsNavOpen(false);
+      if (isDashboardRoute && hasWindow) {
+        window.localStorage.removeItem('navManualClose');
+      }
+      if (isDashboardRoute) {
+        manualCloseTimestampRef.current = 0;
+        manualOpenTimestampRef.current = 0;
+      }
     }
-  }, [showNav]);
+    lastShowNavRef.current = showNav;
+  }, [showNav, isDashboardRoute, hasWindow]);
 
   useEffect(() => {
-    if (!isDesktop) {
+    const wasDesktop = prevIsDesktopRef.current;
+    if (wasDesktop && !isDesktop) {
       setIsNavOpen(false);
     }
-  }, [location.pathname, isDesktop]);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('navOpen', String(isNavOpen));
-    }
-  }, [isNavOpen]);
+    prevIsDesktopRef.current = isDesktop;
+  }, [isDesktop]);
 
   const closeNav = useCallback(() => {
-    setIsNavOpen(false);
-  }, []);
+    setIsNavOpen((prev) => {
+      if (prev) {
+        recordManualClose();
+      }
+      return false;
+    });
+  }, [recordManualClose]);
   const toggleNav = useCallback(() => {
-    setIsNavOpen((prev) => !prev);
-  }, []);
+    setIsNavOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        recordManualOpen();
+      } else {
+        recordManualClose();
+      }
+      return next;
+    });
+  }, [recordManualClose, recordManualOpen]);
   const registerNavAnchor = useCallback(() => {
     setNavAnchorCount((count) => count + 1);
     return () => {
