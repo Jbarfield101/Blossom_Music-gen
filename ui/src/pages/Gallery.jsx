@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { isTauri } from '@tauri-apps/api/core';
+import { invoke, isTauri } from '@tauri-apps/api/core';
 import BackButton from '../components/BackButton.jsx';
 import PrimaryButton from '../components/PrimaryButton.jsx';
 import { listDir } from '../api/dir.js';
@@ -7,7 +7,7 @@ import { openPath } from '../api/files.js';
 import { fileSrc } from '../lib/paths.js';
 import './Gallery.css';
 
-const GALLERY_ROOT = 'assets/gallery';
+const DEFAULT_GALLERY_ROOT = 'assets/gallery';
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif']);
 const AUDIO_EXTENSIONS = new Set(['wav', 'mp3', 'ogg', 'flac', 'm4a', 'aac']);
@@ -126,8 +126,30 @@ async function enumerateGallery(root, signal) {
   return results;
 }
 
-function relativeGalleryPath(path) {
-  if (typeof path !== 'string') return '';
+function normalizeForComparison(value) {
+  return value.replace(/\\/g, '/');
+}
+
+function relativeGalleryPath(path, root) {
+  if (typeof path !== 'string' || !path) return '';
+
+  if (typeof root === 'string' && root) {
+    const normalizedRoot = normalizeForComparison(root).replace(/\/+$/, '');
+    if (normalizedRoot) {
+      const normalizedPath = normalizeForComparison(path);
+      const lowerPath = normalizedPath.toLowerCase();
+      const lowerRoot = normalizedRoot.toLowerCase();
+      const idx = lowerPath.lastIndexOf(lowerRoot);
+      if (idx >= 0) {
+        const relative = normalizedPath.slice(idx + normalizedRoot.length).replace(/^\/+/, '');
+        if (relative) {
+          return relative;
+        }
+        return normalizedPath.slice(idx);
+      }
+    }
+  }
+
   const lowered = path.toLowerCase();
   const idx = lowered.lastIndexOf('assets\\gallery');
   if (idx >= 0) {
@@ -145,13 +167,18 @@ export default function Gallery() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [isTauriEnv, setIsTauriEnv] = useState(false);
+  const [galleryRoot, setGalleryRoot] = useState(DEFAULT_GALLERY_ROOT);
   const [activeFilter, setActiveFilter] = useState('all');
 
   const loadGallery = useCallback(
-    async ({ signal } = {}) => {
+    async ({ signal, rootOverride } = {}) => {
+      const targetRoot =
+        typeof rootOverride === 'string' && rootOverride
+          ? rootOverride
+          : galleryRoot || DEFAULT_GALLERY_ROOT;
       setLoading(true);
       try {
-        const files = await enumerateGallery(GALLERY_ROOT, signal);
+        const files = await enumerateGallery(targetRoot, signal);
         if (signal?.aborted) return;
         files.sort((a, b) => {
           const left = typeof b.modifiedMs === 'number' ? b.modifiedMs : 0;
@@ -171,7 +198,7 @@ export default function Gallery() {
         }
       }
     },
-    [],
+    [galleryRoot],
   );
 
   useEffect(() => {
@@ -186,7 +213,20 @@ export default function Gallery() {
           setLoading(false);
           return;
         }
-        await loadGallery({ signal });
+        let resolvedRoot = DEFAULT_GALLERY_ROOT;
+        try {
+          const root = await invoke('gallery_root_path');
+          if (!signal.aborted && typeof root === 'string' && root.trim()) {
+            resolvedRoot = root.trim();
+            setGalleryRoot(resolvedRoot);
+          }
+        } catch (invokeError) {
+          if (!signal.aborted) {
+            setGalleryRoot(DEFAULT_GALLERY_ROOT);
+            console.warn('Failed to resolve gallery root:', invokeError);
+          }
+        }
+        await loadGallery({ signal, rootOverride: resolvedRoot });
       } catch (err) {
         if (signal.aborted) return;
         const message = err instanceof Error ? err.message : String(err);
@@ -226,7 +266,7 @@ export default function Gallery() {
         <div>
           <h1>Gallery</h1>
           <p className="card-caption">
-            Everything saved under <code>{GALLERY_ROOT}</code> is collected here. Use it to
+            Everything saved under <code>{galleryRoot}</code> is collected here. Use it to
             keep renders, exports, and captures in one place.
           </p>
         </div>
@@ -277,7 +317,7 @@ export default function Gallery() {
         ) : filteredItems.length === 0 ? (
           <p className="card-caption">
             {activeFilter === 'all'
-              ? 'Drop images, audio, or video into assets/gallery to see them here.'
+              ? 'Drop images, audio, or video into D:\\Blossom\\Blossom_Music\\assets\\gallery to see them here.'
               : `No ${activeFilter} assets yet. Render or export something to populate this tab.`}
           </p>
         ) : (
@@ -320,7 +360,9 @@ export default function Gallery() {
                     {metaParts.length > 0 && (
                       <p className="card-caption">{metaParts.join(' • ')}</p>
                     )}
-                    <p className="card-caption gallery-path">{relativeGalleryPath(item.path)}</p>
+                    <p className="card-caption gallery-path">
+                      {relativeGalleryPath(item.path, galleryRoot)}
+                    </p>
                   </div>
                   <div className="gallery-card-actions">
                     <button

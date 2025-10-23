@@ -45,6 +45,10 @@ fn dreadhaven_root() -> PathBuf {
     PathBuf::from(config::DEFAULT_DREADHAVEN_ROOT)
 }
 
+fn gallery_root_dir() -> PathBuf {
+    PathBuf::from(r"D:\Blossom\Blossom_Music\assets\gallery")
+}
+
 fn default_greeting_path() -> String {
     project_root()
         .join("assets")
@@ -9913,7 +9917,7 @@ fn copy_artifact_into_gallery(
         return Ok(None);
     };
 
-    let gallery_dir = project_root().join("assets").join("gallery").join(category);
+    let gallery_dir = gallery_root_dir().join(category);
     if !gallery_dir.exists() {
         fs::create_dir_all(&gallery_dir).map_err(|err| {
             format!(
@@ -11401,6 +11405,11 @@ fn discord_profile_set(guild_id: u64, channel_id: u64, profile: Value) -> Result
 }
 
 #[tauri::command]
+fn gallery_root_path() -> Result<String, String> {
+    Ok(gallery_root_dir().to_string_lossy().to_string())
+}
+
+#[tauri::command]
 fn open_path(app: AppHandle, path: String) -> Result<(), String> {
     if let Ok(url) = Url::parse(&path) {
         // Use new tauri_plugin_opener API which requires an optional identifier
@@ -11658,6 +11667,7 @@ fn main() {
             record_manual_job,
             discord_profile_get,
             discord_profile_set,
+            gallery_root_path,
             open_path,
             export_loop_video,
             get_dreadhaven_root,
