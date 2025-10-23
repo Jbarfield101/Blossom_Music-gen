@@ -36,6 +36,11 @@ const PROMPT_BUILDER_SECTIONS = [
   { key: 'bpm', label: 'BPM', options: [] },
 ];
 
+const SECTION_LIMITS = Object.freeze({
+  format: 1,
+  genre: 2,
+});
+
 const LABEL_TO_FIELD_KEY = PROMPT_TEMPLATE_FIELDS.reduce((map, field) => {
   map[field.label.toLowerCase()] = field.key;
   return map;
@@ -201,6 +206,16 @@ export default function StableDiffusion() {
       let nextValues = exists
         ? current.filter((item) => item !== option)
         : [...current, option];
+
+      const limit = SECTION_LIMITS[sectionKey];
+      if (!exists && Number.isFinite(limit) && limit > 0) {
+        if (limit === 1) {
+          nextValues = [option];
+        } else if (nextValues.length > limit) {
+          return prev;
+        }
+      }
+
       const section = PROMPT_BUILDER_SECTIONS.find((item) => item.key === sectionKey);
       if (!exists && section && Array.isArray(section.options) && section.options.length > 0) {
         const orderMap = new Map(section.options.map((opt, index) => [opt, index]));
