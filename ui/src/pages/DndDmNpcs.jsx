@@ -703,6 +703,7 @@ function DndDmNpcsContent() {
   const [regionOptions, setRegionOptions] = useState([]);
   const [establishmentName, setEstablishmentName] = useState('');
   const [establishmentRecord, setEstablishmentRecord] = useState('');
+  const [establishmentsRoot, setEstablishmentsRoot] = useState('');
   const [establishments, setEstablishments] = useState([]);
   const [establishmentsLoading, setEstablishmentsLoading] = useState(false);
   const [establishmentsError, setEstablishmentsError] = useState('');
@@ -1700,8 +1701,15 @@ const establishmentOptions = useMemo(() => {
     if (selPurpose !== 'Shopkeeper') {
       setEstablishmentName('');
       setEstablishmentRecord('');
+      setEstablishmentsRoot('');
     }
   }, [selPurpose]);
+
+  useEffect(() => {
+    if (!showCreate) {
+      setEstablishmentsRoot('');
+    }
+  }, [showCreate]);
 
   useEffect(() => {
     if (!establishmentRecord) return;
