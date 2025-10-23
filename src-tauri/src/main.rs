@@ -9331,6 +9331,7 @@ fn ace_output_files(app: AppHandle, limit: Option<usize>) -> Result<Vec<AudioOut
     stable_audio_output_files(app, limit)
 }
 
+#[tauri::command]
 fn register_job_artifacts(
     registry: State<JobRegistry>,
     job_id: u64,
