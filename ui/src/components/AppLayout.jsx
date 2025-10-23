@@ -24,6 +24,7 @@ export default function AppLayout({ greetingPlayback = null }) {
   const location = useLocation();
   const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
   const showNav = normalizedPath !== '/';
+  const isDashboardRoute = normalizedPath === '/';
   const [isDesktop, setIsDesktop] = useState(getIsDesktop);
   const [isNavOpen, setIsNavOpen] = useState(() => {
     const stored = typeof window !== 'undefined' ? window.localStorage.getItem('navOpen') : null;
@@ -204,7 +205,11 @@ export default function AppLayout({ greetingPlayback = null }) {
         {showNav && (
           <div className="app-layout__scrim" aria-hidden="true" onClick={closeNav} />
         )}
-        <main id="main-content" className="app-layout__content" tabIndex={-1}>
+        <main
+          id="main-content"
+          className={`app-layout__content${isDashboardRoute ? ' app-layout__content--dashboard' : ''}`}
+          tabIndex={-1}
+        >
           <Outlet />
         </main>
         {shouldDisplayGreetingToast && (
