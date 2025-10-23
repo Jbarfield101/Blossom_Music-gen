@@ -37,6 +37,20 @@ function sanitizeJsonBlock(raw) {
   return trimmed;
 }
 
+const AUDIO_PROMPT_TEMPLATE =
+  'A {mainConcept} in {genreStyle} featuring {instruments}, evoking a {moodEmotion} vibe inspired by {eraInfluence}. {structureProgression}. {soundDesignMix}. {tempo}.';
+
+const AUDIO_TEMPLATE_KEYS = [
+  'mainConcept',
+  'genreStyle',
+  'instruments',
+  'moodEmotion',
+  'eraInfluence',
+  'structureProgression',
+  'soundDesignMix',
+  'tempo',
+];
+
 function parseAudioPromptPayload(raw) {
   const cleaned = sanitizeJsonBlock(typeof raw === 'string' ? raw : String(raw ?? ''));
   if (!cleaned) {
@@ -57,48 +71,99 @@ function buildAudioPromptString(payload) {
   if (!payload || typeof payload !== 'object') {
     return '';
   }
+
   const get = (key) => extractPromptField(payload, key).trim();
-  const format = get('format');
-  const genre = get('genre');
-  const subGenre = get('subGenre');
-  const instruments = get('instruments');
-  const mood = get('mood');
-  const style = get('style');
-  const tempoDescriptor = get('tempoDescriptor');
-  const bpmRaw = get('bpm');
 
-  const baseLabelParts = [];
-  if (format && genre) {
-    baseLabelParts.push(`${format}: ${genre}${subGenre ? ` (${subGenre})` : ''}`);
-  } else if (format) {
-    baseLabelParts.push(`${format}`);
-  } else if (genre) {
-    baseLabelParts.push(`${genre}${subGenre ? ` (${subGenre})` : ''}`);
-  }
-  let baseSentence = baseLabelParts.length > 0 ? `${baseLabelParts.join(' ')} track` : 'Track';
-  if (instruments) {
-    baseSentence += ` featuring ${instruments}`;
-  }
-  if (!baseSentence.endsWith('.')) {
-    baseSentence = `${baseSentence.trim()}.`;
-  }
+  const values = {
+    mainConcept: get('mainConcept'),
+    genreStyle: get('genreStyle'),
+    instruments: get('instruments'),
+    moodEmotion: get('moodEmotion'),
+    eraInfluence: get('eraInfluence'),
+    structureProgression: get('structureProgression') || get('structure'),
+    soundDesignMix:
+      get('soundDesignMix') ||
+      get('soundDesign') ||
+      get('mixNotes') ||
+      get('texture'),
+    tempo: get('tempo'),
+  };
 
-  const detailSegments = [];
-  if (mood) {
-    detailSegments.push(`Mood: ${mood}.`);
-  }
-  if (style) {
-    detailSegments.push(`Style: ${style}.`);
-  }
-  if (tempoDescriptor) {
-    detailSegments.push(`Tempo: ${tempoDescriptor}.`);
-  }
-  if (bpmRaw) {
-    const bpmValue = bpmRaw.replace(/[^0-9.]/g, '');
-    detailSegments.push(`BPM: ${bpmValue || bpmRaw}.`);
+  if (!values.mainConcept) {
+    const format = get('format');
+    const concept = get('concept');
+    const style = get('style');
+    values.mainConcept = [format, concept || style]
+      .map((part) => part && part.trim())
+      .filter(Boolean)
+      .join(' ')
+      .trim();
   }
 
-  return [baseSentence, ...detailSegments].join(' ').replace(/\s+/g, ' ').trim();
+  if (!values.genreStyle) {
+    const genre = get('genre');
+    const subGenre = get('subGenre');
+    const style = get('style');
+    const combo = [genre, subGenre].map((part) => part && part.trim()).filter(Boolean).join(' ');
+    values.genreStyle = combo.trim() || style;
+  }
+
+  if (!values.instruments) {
+    values.instruments = get('instruments');
+  }
+
+  if (!values.moodEmotion) {
+    values.moodEmotion = get('mood') || get('emotion');
+  }
+
+  if (!values.eraInfluence) {
+    values.eraInfluence = get('era') || get('influence') || get('style');
+  }
+
+  if (!values.structureProgression) {
+    values.structureProgression = get('structure') || get('arrangement');
+  }
+
+  if (!values.soundDesignMix) {
+    const style = get('style');
+    const mix = get('mix');
+    const tempoDescriptor = get('tempoDescriptor');
+    values.soundDesignMix = [get('soundDesign'), mix, style, tempoDescriptor]
+      .map((part) => part && part.trim())
+      .filter(Boolean)
+      .join(', ')
+      .trim();
+  }
+
+  if (!values.tempo) {
+    const tempoDescriptor = get('tempoDescriptor');
+    const bpm = get('bpm');
+    const duration = get('duration');
+    const tempoParts = [];
+    if (tempoDescriptor) {
+      tempoParts.push(tempoDescriptor);
+    }
+    if (bpm) {
+      const sanitized = bpm.replace(/[^0-9.]/g, '');
+      tempoParts.push(`${sanitized || bpm} BPM`);
+    }
+    if (duration) {
+      tempoParts.push(duration);
+    }
+    values.tempo = tempoParts.join(', ').trim();
+  }
+
+  const missing = AUDIO_TEMPLATE_KEYS.some((key) => !values[key]);
+  if (missing) {
+    return '';
+  }
+
+  let prompt = AUDIO_PROMPT_TEMPLATE.replace(/\{(\w+)\}/g, (_, key) => values[key] || '');
+  prompt = prompt.replace(/\s+/g, ' ').replace(/\s([,.;])/g, '$1').trim();
+  if (prompt && !/[.!?]$/.test(prompt)) {
+    prompt = `${prompt}.`;
+  }
+  return prompt;
 }
 
 export default function Fusion() {
@@ -457,11 +522,11 @@ export default function Fusion() {
       let audioPrompt = '';
       if (generateAudioPrompt) {
         const audioSystem = isTikTok
-          ? 'You are Blossom, an enthusiastic music director for short-form content. Respond ONLY with JSON describing the music brief using the keys format, genre, subGenre, instruments, mood, style, tempoDescriptor, and bpm. No narration or extra text.'
-          : 'You are Blossom, a chill music director for lo-fi. Respond ONLY with JSON describing the music brief using the keys format, genre, subGenre, instruments, mood, style, tempoDescriptor, and bpm. No narration or extra text.';
+          ? 'You are Blossom, an enthusiastic music director for short-form content. Respond ONLY with JSON containing the keys mainConcept, genreStyle, instruments, moodEmotion, eraInfluence, structureProgression, soundDesignMix, and tempo. Provide concise descriptive phrases for every field. No narration or extra text.'
+          : 'You are Blossom, a chill music director for lo-fi. Respond ONLY with JSON containing the keys mainConcept, genreStyle, instruments, moodEmotion, eraInfluence, structureProgression, soundDesignMix, and tempo. Provide concise descriptive phrases for every field. No narration or extra text.';
         const audioPromptInput = isTikTok
-          ? `Concept A: ${a}\nConcept B: ${b}\nReturn a JSON object like {"format":"","genre":"","subGenre":"","instruments":"","mood":"","style":"","tempoDescriptor":"","bpm":0} capturing a high-energy, short-form ready soundtrack that blends these ideas. Fill each field with a concise description, use an integer BPM, and do not include commentary.`
-          : `Concept A: ${a}\nConcept B: ${b}\nReturn a JSON object like {"format":"","genre":"","subGenre":"","instruments":"","mood":"","style":"","tempoDescriptor":"","bpm":0} capturing a mellow lo-fi beat that blends these ideas. Fill each field with a concise description, use an integer BPM, and do not include commentary.`;
+          ? `Concept A: ${a}\nConcept B: ${b}\nReturn a JSON object like {"mainConcept":"","genreStyle":"","instruments":"","moodEmotion":"","eraInfluence":"","structureProgression":"","soundDesignMix":"","tempo":""} capturing a high-energy, short-form ready soundtrack that blends these ideas. Ensure "tempo" includes BPM (and optional duration) and keep every field concise. Do not include commentary.`
+          : `Concept A: ${a}\nConcept B: ${b}\nReturn a JSON object like {"mainConcept":"","genreStyle":"","instruments":"","moodEmotion":"","eraInfluence":"","structureProgression":"","soundDesignMix":"","tempo":""} capturing a mellow lo-fi beat that blends these ideas. Ensure "tempo" includes BPM (and optional duration) and keep every field concise. Do not include commentary.`;
         try {
           const audioResponse = await invoke('generate_llm', {
             prompt: audioPromptInput,

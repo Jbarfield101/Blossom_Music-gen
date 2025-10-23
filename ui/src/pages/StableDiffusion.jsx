@@ -8,127 +8,307 @@ import LabeledToggle from '../components/LabeledToggle.jsx';
 import { fileSrc } from '../lib/paths.js';
 import { useJobQueue } from '../lib/useJobQueue.js';
 
-const WORKFLOW_PATH = 'assets/workflows/stable_audio.json';
 const STATUS_POLL_INTERVAL_MS = 5000;
 const JOB_POLL_INTERVAL_MS = 1500;
 const DEFAULT_FILE_PREFIX = 'audio/ComfyUI';
 const DEFAULT_SECONDS = '120';
 
-const PROMPT_TEMPLATE_FIELDS = [
-  { key: 'format', label: 'Format' },
-  { key: 'genre', label: 'Genre' },
-  { key: 'subGenre', label: 'Sub-Genre' },
-  { key: 'instruments', label: 'Instruments' },
-  { key: 'mood', label: 'Mood' },
-  { key: 'style', label: 'Style' },
-  { key: 'tempoDescriptor', label: 'Tempo Descriptor' },
-  { key: 'bpm', label: 'BPM' },
-];
+const POSITIVE_PROMPT_TEMPLATE =
+  'A {mainConcept} in {genreStyle} featuring {instruments}, evoking a {moodEmotion} vibe inspired by {eraInfluence}. {structureProgression}. {soundDesignMix}. {tempo}.';
 
-const PROMPT_BUILDER_SECTIONS = [
-  { key: 'format', label: 'Format', options: ['Solo', 'Band', 'Orchestra', 'Chorus', 'Duet'] },
-  { key: 'genre', label: 'Genre', options: ['Rock', 'Pop', 'Hip Hop', 'Indie', 'Foley', 'RnB'] },
+const TEMPLATE_PLACEHOLDERS = Object.freeze({
+  mainConcept: '[Main Concept]',
+  genreStyle: '[Genre/Style]',
+  instruments: '[Instruments]',
+  moodEmotion: '[Mood/Emotion]',
+  eraInfluence: '[Era/Influence]',
+  structureProgression: '[Structure/Progression details]',
+  soundDesignMix: '[Sound design or mix notes]',
+  tempo: '[Tempo]',
+});
+
+const PROMPT_TEMPLATE_FIELDS = [
   {
-    key: 'subGenre',
-    label: 'Sub Genre',
-    options: ['Drum Loops', 'Electric Guitar', 'Pop Music', 'Chillout', 'Ambient', 'Techno', 'Fantasy'],
+    key: 'mainConcept',
+    label: 'Main Concept',
+    description: 'Summarize the central idea, performer, or purpose of the track.',
+    placeholder: 'Dreamy bedroom producer lullaby for stargazing',
+  },
+  {
+    key: 'genreStyle',
+    label: 'Genre / Style',
+    description: 'Name the primary genre or hybrid style that frames the music.',
+    placeholder: 'Lo-fi chillwave with downtempo influence',
   },
   {
     key: 'instruments',
-    label: 'Instruments',
-    options: ['Piano', 'Drum Machine', 'Synthesizer', 'Snare Drum', 'Keyboard', 'Organ', 'Strings', 'Percussion', 'Ukulele', 'Flute', 'Lute'],
+    label: 'Featured Instruments',
+    description: 'List the key instruments, sound sources, or textures.',
+    placeholder: 'Tape-warped electric piano, brushed drums, gentle bass guitar',
   },
   {
-    key: 'mood',
-    label: 'Moods',
-    options: ['Dramatic', 'Inspiring', 'Magical', 'Uplifting', 'Driving', 'Animated', 'Tag', 'Atmospheric', 'Happy', 'Sad', 'Battle Music'],
+    key: 'moodEmotion',
+    label: 'Mood / Emotion',
+    description: 'Describe the intended emotional tone or vibe.',
+    placeholder: 'Warm, nostalgic, slightly bittersweet',
   },
   {
-    key: 'style',
-    label: 'Styles',
-    options: ['Film Instrumental', '2000s', '1960s', '1980s', 'Dance', 'Video Games', 'High Tech', 'Sci-Fi'],
+    key: 'eraInfluence',
+    label: 'Era / Influence',
+    description: 'Call out decades, scenes, or artists that inspire the sound.',
+    placeholder: 'Mid-2000s indie electronica influences',
   },
   {
-    key: 'tempoDescriptor',
-    label: 'Tempo',
-    options: ['Medium', 'Slow', 'Building', 'Fast', 'Very Fast'],
+    key: 'structureProgression',
+    label: 'Structure / Progression',
+    description: 'Outline how the arrangement should evolve or loop.',
+    placeholder: 'Loopable 16-bar progression with soft swells in the second half',
   },
-  { key: 'bpm', label: 'BPM', options: ['180', '140', '120', '100', '60'] },
+  {
+    key: 'soundDesignMix',
+    label: 'Sound Design & Mix Notes',
+    description: 'Note textures, processing, and mix direction.',
+    placeholder: 'Vinyl crackle, tape saturation, airy reverb with wide stereo image',
+  },
+  {
+    key: 'tempo',
+    label: 'Tempo Details',
+    description: 'Share BPM, tempo feel, and optional duration.',
+    placeholder: '82 BPM with a relaxed swing, 60-second render',
+  },
 ];
 
-const SECTION_LIMITS = Object.freeze({
-  format: 1,
-  genre: 2,
-});
+const BUILDER_KEYS = PROMPT_TEMPLATE_FIELDS.map((field) => field.key);
 
-const LABEL_TO_FIELD_KEY = PROMPT_TEMPLATE_FIELDS.reduce((map, field) => {
-  map[field.label.toLowerCase()] = field.key;
-  return map;
-}, {});
+const BASE_NEGATIVE_TERMS = Object.freeze([
+  'distortion',
+  'clipping',
+  'muddy mix',
+  'harsh highs',
+  'uneven dynamics',
+  'digital artifacts',
+  'overcompression',
+]);
+
+const PROMPT_GENERATION_SYSTEM =
+  'You are Blossom, an expert audio prompt writer for Stable Audio diffusion. When given structured musical details, respond ONLY with JSON containing two string fields: "positive" and "negative". The positive prompt must follow the exact sentence template "A {Main Concept} in {Genre/Style} featuring {Instruments}, evoking a {Mood/Emotion} vibe inspired by {Era/Influence}. {Structure/Progression details}. {Sound design or mix notes}. {Tempo}." Replace every placeholder with vivid but concise language, no brackets, no extra sentences. The negative prompt must be a single comma-separated list of production or mix issues to avoid, without the word "no", numbering, or explanations.';
 
 function createDefaultBuilderValues() {
-  return PROMPT_TEMPLATE_FIELDS.reduce((acc, field) => {
-    acc[field.key] = [];
+  return BUILDER_KEYS.reduce((acc, key) => {
+    acc[key] = '';
     return acc;
   }, {});
 }
 
-function normalizeBuilderValue(value) {
+function normalizeBuilderField(value) {
+  if (typeof value === 'string') {
+    return value.replace(/\s+/g, ' ').trim();
+  }
   if (Array.isArray(value)) {
     return value
-      .map((item) => (typeof item === 'string' ? item.trim() : String(item ?? '')))
-      .map((item) => item.replace(/\s+/g, ' ').trim())
-      .filter((item) => item.length > 0);
-  }
-
-  if (typeof value === 'string') {
-    const normalized = value
-      .split(/[\n,]/)
+      .map((item) => (typeof item === 'string' ? item : String(item ?? '')))
       .map((item) => item.trim())
-      .filter((item) => item.length > 0);
-    return normalized;
+      .filter((item) => item.length > 0)
+      .join(', ');
   }
-
   if (typeof value === 'number') {
-    return [String(value)];
+    return String(value);
   }
-
-  return [];
+  if (value == null) {
+    return '';
+  }
+  return String(value).trim();
 }
 
-function composeStableAudioPrompt(values) {
-  return PROMPT_TEMPLATE_FIELDS.map(({ key, label }) => {
-    const items = normalizeBuilderValue(values[key]);
-    return `${label}: ${items.join(', ')}`;
-  }).join('\n');
+function composePositivePrompt(values, { usePlaceholders = false } = {}) {
+  const filled = {};
+  BUILDER_KEYS.forEach((key) => {
+    const raw = values?.[key];
+    const trimmed = typeof raw === 'string' ? raw.trim() : '';
+    if (trimmed) {
+      filled[key] = trimmed;
+    } else if (usePlaceholders) {
+      filled[key] = TEMPLATE_PLACEHOLDERS[key] || `[${key}]`;
+    } else {
+      filled[key] = '';
+    }
+  });
+  if (!usePlaceholders) {
+    const missing = BUILDER_KEYS.some((key) => !filled[key]);
+    if (missing) {
+      return '';
+    }
+  }
+  let prompt = POSITIVE_PROMPT_TEMPLATE.replace(/\{(\w+)\}/g, (_, key) => filled[key] || '');
+  prompt = prompt.replace(/\s+/g, ' ').replace(/\s([,.;])/g, '$1').trim();
+  if (prompt && !/[.!?]$/.test(prompt)) {
+    prompt = `${prompt}.`;
+  }
+  return prompt;
+}
+
+function buildPositivePreview(values) {
+  return composePositivePrompt(values, { usePlaceholders: true });
+}
+
+function buildNegativePreview(values) {
+  const suggestions = new Set(BASE_NEGATIVE_TERMS);
+
+  const instruments = (values?.instruments || '').toLowerCase();
+  if (instruments.includes('vocal') || instruments.includes('voice')) {
+    suggestions.add('off-key vocals');
+  }
+  if (instruments.includes('guitar')) {
+    suggestions.add('out-of-tune guitar');
+  }
+  if (instruments.includes('drum') || instruments.includes('percussion')) {
+    suggestions.add('uneven drum hits');
+  }
+
+  const mood = (values?.moodEmotion || '').toLowerCase();
+  if (mood.includes('calm') || mood.includes('relax') || mood.includes('peace')) {
+    suggestions.add('aggressive percussion');
+  }
+  if (mood.includes('dark') || mood.includes('brooding') || mood.includes('moody')) {
+    suggestions.add('bright cheerful leads');
+  }
+
+  const structure = (values?.structureProgression || '').toLowerCase();
+  if (structure.includes('build') || structure.includes('crescendo')) {
+    suggestions.add('abrupt transitions');
+  }
+  if (structure.includes('loop')) {
+    suggestions.add('jarring loop points');
+  }
+
+  const tempo = (values?.tempo || '').toLowerCase();
+  if (tempo.includes('slow')) {
+    suggestions.add('rushed tempo');
+  } else if (tempo.includes('fast') || tempo.includes('energetic')) {
+    suggestions.add('dragging pace');
+  }
+
+  return Array.from(suggestions).join(', ');
+}
+
+function sanitizeJsonBlock(raw) {
+  if (typeof raw !== 'string') {
+    return '';
+  }
+  let trimmed = raw.trim();
+  if (!trimmed) {
+    return '';
+  }
+  trimmed = trimmed.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+  const firstBrace = trimmed.indexOf('{');
+  const lastBrace = trimmed.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace >= firstBrace) {
+    trimmed = trimmed.slice(firstBrace, lastBrace + 1);
+  }
+  return trimmed;
+}
+
+function parsePromptGenerationResponse(raw) {
+  if (raw == null) {
+    return null;
+  }
+  const text = typeof raw === 'string' ? raw : String(raw);
+  const cleaned = sanitizeJsonBlock(text) || text;
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+    const positive = normalizeBuilderField(extractPromptField(parsed, 'positive'));
+    const negative = normalizeBuilderField(extractPromptField(parsed, 'negative'));
+    return { positive, negative };
+  } catch (err) {
+    console.warn('Failed to parse prompt generation response', err);
+    return null;
+  }
+}
+
+function normalizeNegativePrompt(text) {
+  if (typeof text !== 'string') {
+    return '';
+  }
+  const cleaned = text.replace(/\r?\n/g, ' ').trim();
+  if (!cleaned) {
+    return '';
+  }
+  const seen = new Set();
+  const parts = cleaned
+    .split(',')
+    .map((part) => part.trim().replace(/^no\s+/i, '').replace(/\s+/g, ' '))
+    .filter((part) => part.length > 0);
+  const normalized = [];
+  parts.forEach((part) => {
+    const key = part.toLowerCase();
+    if (!seen.has(key)) {
+      seen.add(key);
+      normalized.push(part);
+    }
+  });
+  return normalized.join(', ');
+}
+
+function randomSeed() {
+  return Math.floor(Math.random() * 1_000_000_000);
+}
+
+function randomTemperature(min = 0.55, max = 0.85) {
+  const value = min + Math.random() * (max - min);
+  return Number(value.toFixed(2));
 }
 
 function parseStableAudioPrompt(text) {
-  if (typeof text !== 'string' || !text.trim()) {
-    return createDefaultBuilderValues();
+  const defaults = createDefaultBuilderValues();
+  if (typeof text !== 'string') {
+    return defaults;
+  }
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return defaults;
   }
 
-  const result = createDefaultBuilderValues();
-  const lines = text.split(/\r?\n/);
+  const firstSentenceMatch = trimmed.match(
+    /^A\s+(.+?)\s+in\s+(.+?)\s+featuring\s+(.+?),\s+evoking\s+a\s+(.+?)\s+vibe\s+inspired\s+by\s+(.+?)\./i,
+  );
+  if (!firstSentenceMatch) {
+    return defaults;
+  }
 
-  lines.forEach((line) => {
-    if (!line) return;
-    const [rawLabel, ...rest] = line.split(':');
-    if (!rawLabel || rest.length === 0) return;
-    const label = rawLabel.trim().toLowerCase();
-    const key = LABEL_TO_FIELD_KEY[label];
-    if (!key) return;
-    const value = rest.join(':').trim();
-    result[key] = normalizeBuilderValue(value);
-  });
+  const [, mainConcept, genreStyle, instruments, moodEmotion, eraInfluence] = firstSentenceMatch;
+  defaults.mainConcept = mainConcept.trim();
+  defaults.genreStyle = genreStyle.trim();
+  defaults.instruments = instruments.trim();
+  defaults.moodEmotion = moodEmotion.trim();
+  defaults.eraInfluence = eraInfluence.trim();
 
-  return result;
+  let remainder = trimmed.slice(firstSentenceMatch[0].length).trim();
+  remainder = remainder.replace(/\s+/g, ' ').replace(/\.{2,}/g, '.').trim();
+  if (remainder.startsWith('.')) {
+    remainder = remainder.slice(1).trim();
+  }
+
+  const segments = remainder
+    .split('.')
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0);
+
+  defaults.structureProgression = segments[0] || '';
+  defaults.soundDesignMix = segments[1] || '';
+  const tempoSegment = segments.length >= 3 ? segments.slice(2).join('. ').trim() : '';
+  defaults.tempo = tempoSegment;
+  if (defaults.tempo.endsWith('.')) {
+    defaults.tempo = defaults.tempo.replace(/\.+$/, '').trim();
+  }
+
+  return defaults;
 }
 
 const SURFACE_BORDER_COLOR = 'color-mix(in srgb, var(--text) 18%, transparent)';
 const SUBTLE_TEXT_COLOR = 'color-mix(in srgb, var(--text) 72%, transparent)';
-const SELECTED_OPTION_BG = 'color-mix(in srgb, var(--accent) 22%, var(--card-bg) 78%)';
-const SELECTED_OPTION_SHADOW = 'inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent)';
 
 const TEXTAREA_BASE_STYLE = Object.freeze({
   width: '100%',
@@ -206,67 +386,21 @@ export default function StableDiffusion() {
 
   const [isPromptBuilderActive, setIsPromptBuilderActive] = useState(false);
   const [builderValues, setBuilderValues] = useState(() => createDefaultBuilderValues());
-
-  const builderUpdateRef = useRef(false);
+  const [builderError, setBuilderError] = useState('');
+  const [builderNotice, setBuilderNotice] = useState('');
+  const [generatingPrompts, setGeneratingPrompts] = useState(false);
 
   const applyBuilderValues = useCallback((values) => {
     setBuilderValues(() => {
       const next = createDefaultBuilderValues();
-      PROMPT_TEMPLATE_FIELDS.forEach(({ key }) => {
-        next[key] = normalizeBuilderValue(values[key]);
-      });
+      if (values && typeof values === 'object') {
+        PROMPT_TEMPLATE_FIELDS.forEach(({ key }) => {
+          next[key] = normalizeBuilderField(values[key]);
+        });
+      }
       return next;
     });
   }, []);
-
-  const toggleBuilderOption = useCallback((sectionKey, option) => {
-    setBuilderValues((prev) => {
-      const current = normalizeBuilderValue(prev[sectionKey]);
-      const exists = current.includes(option);
-      let nextValues = exists
-        ? current.filter((item) => item !== option)
-        : [...current, option];
-
-      const limit = SECTION_LIMITS[sectionKey];
-      if (!exists && Number.isFinite(limit) && limit > 0) {
-        if (limit === 1) {
-          nextValues = [option];
-        } else if (nextValues.length > limit) {
-          return prev;
-        }
-      }
-
-      const section = PROMPT_BUILDER_SECTIONS.find((item) => item.key === sectionKey);
-      if (!exists && section && Array.isArray(section.options) && section.options.length > 0) {
-        const orderMap = new Map(section.options.map((opt, index) => [opt, index]));
-        nextValues = nextValues.sort((a, b) => {
-          const orderA = orderMap.has(a) ? orderMap.get(a) : Number.MAX_SAFE_INTEGER;
-          const orderB = orderMap.has(b) ? orderMap.get(b) : Number.MAX_SAFE_INTEGER;
-          return orderA - orderB;
-        });
-      }
-      return { ...prev, [sectionKey]: nextValues };
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!isPromptBuilderActive) {
-      return;
-    }
-    if (builderUpdateRef.current) {
-      builderUpdateRef.current = false;
-      return;
-    }
-    applyBuilderValues(parseStableAudioPrompt(prompt));
-  }, [prompt, isPromptBuilderActive, applyBuilderValues]);
-
-  useEffect(() => {
-    if (!isPromptBuilderActive) {
-      return;
-    }
-    builderUpdateRef.current = true;
-    setPrompt(composeStableAudioPrompt(builderValues));
-  }, [isPromptBuilderActive, builderValues]);
 
   const { queue, refresh: refreshQueue } = useJobQueue(2000);
 
@@ -503,6 +637,73 @@ export default function StableDiffusion() {
     },
     [templates, applyBuilderValues],
   );
+
+  const handleGeneratePrompts = useCallback(async () => {
+    setBuilderError('');
+    setBuilderNotice('');
+
+    if (!isTauriEnv) {
+      setBuilderError('Prompt generation requires the Blossom desktop app.');
+      return;
+    }
+
+    const trimmedValues = PROMPT_TEMPLATE_FIELDS.reduce((acc, { key }) => {
+      acc[key] = normalizeBuilderField(builderValues[key]);
+      return acc;
+    }, {});
+
+    const missingField = PROMPT_TEMPLATE_FIELDS.find(({ key }) => !trimmedValues[key]);
+    if (missingField) {
+      setBuilderError('Please complete every section before generating prompts.');
+      return;
+    }
+
+    const sectionsText = PROMPT_TEMPLATE_FIELDS.map(
+      ({ label, key }) => `${label}: ${trimmedValues[key]}`,
+    ).join('\n');
+
+    const userPrompt = `Use the following creative brief to craft Stable Audio prompts.\n\n${sectionsText}\n\nReturn JSON with the fields "positive" and "negative" only.`;
+
+    setGeneratingPrompts(true);
+    try {
+      const response = await invoke('generate_llm', {
+        prompt: userPrompt,
+        system: PROMPT_GENERATION_SYSTEM,
+        temperature: randomTemperature(0.58, 0.82),
+        seed: randomSeed(),
+      });
+
+      const parsed = parsePromptGenerationResponse(response);
+      if (!parsed || !parsed.positive) {
+        throw new Error('The AI response did not include a positive prompt.');
+      }
+
+      const parsedValues = parseStableAudioPrompt(parsed.positive);
+      const recomposed = composePositivePrompt(parsedValues);
+      const cleanedPositive = recomposed || normalizeBuilderField(parsed.positive);
+      if (!cleanedPositive) {
+        throw new Error('The positive prompt could not be composed.');
+      }
+
+      const cleanedNegative = normalizeNegativePrompt(parsed.negative || '') ||
+        normalizeNegativePrompt(buildNegativePreview(trimmedValues));
+
+      setPrompt(cleanedPositive);
+      setNegativePrompt(cleanedNegative);
+      if (recomposed) {
+        applyBuilderValues(parsedValues);
+      } else {
+        applyBuilderValues(trimmedValues);
+      }
+      setBuilderNotice('Prompts generated. Review the preview and save before rendering.');
+      setStatusMessage('AI-generated Stable Audio prompts are ready.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setBuilderError(message || 'Failed to generate prompts.');
+    } finally {
+      setGeneratingPrompts(false);
+    }
+  }, [applyBuilderValues, builderValues, isTauriEnv]);
 
   const pollJobStatus = useCallback(async (id) => {
     if (!id || jobIdRef.current !== id) return;
@@ -750,11 +951,21 @@ const handleSubmit = async (event) => {
   };
 
   const disabled = loading || saving;
+  const builderComplete = PROMPT_TEMPLATE_FIELDS.every(({ key }) => {
+    const value = builderValues[key];
+    return typeof value === 'string' && value.trim().length > 0;
+  });
+  const templatePositivePreview = buildPositivePreview(builderValues);
+  const templateNegativePreview = buildNegativePreview(builderValues);
+  const positivePreview = prompt.trim() || templatePositivePreview;
+  const negativePreview = negativePrompt.trim() || templateNegativePreview;
   const secondsValueRaw = Number.parseFloat(seconds.trim());
   const secondsValid = Number.isFinite(secondsValueRaw) && secondsValueRaw > 0;
   const submitDisabled = disabled || !isTauriEnv || !prompt.trim() || !secondsValid;
+  const generateDisabled = disabled || !isTauriEnv || generatingPrompts || !builderComplete;
   const renderDisabled = !isTauriEnv || rendering;
-  const promptControlId = isPromptBuilderActive ? 'stable-builder-format' : 'stable-diffusion-prompt';
+  const firstBuilderFieldId = `stable-builder-${PROMPT_TEMPLATE_FIELDS[0]?.key || 'mainConcept'}`;
+  const promptControlId = isPromptBuilderActive ? firstBuilderFieldId : 'stable-diffusion-prompt';
 
   return (
     <>
@@ -915,81 +1126,134 @@ const handleSubmit = async (event) => {
           <LabeledToggle
             id="stable-builder-toggle"
             label="Prompt Builder"
-            description="Use structured fields to compose the main prompt."
+            description="Use guided sections to plan the Stable Audio prompt."
             checked={isPromptBuilderActive}
             disabled={disabled}
-            onChange={(next) => setIsPromptBuilderActive(next)}
+            onChange={(next) => {
+              setIsPromptBuilderActive(next);
+              if (next) {
+                applyBuilderValues(parseStableAudioPrompt(prompt));
+                setBuilderError('');
+                setBuilderNotice('');
+              } else {
+                setBuilderError('');
+                setBuilderNotice('');
+              }
+            }}
           />
           {isPromptBuilderActive ? (
-            <div style={{ display: 'grid', gap: '1rem' }}>
-              {PROMPT_BUILDER_SECTIONS.map(({ key, label, options }) => {
-                const selectedValues = normalizeBuilderValue(builderValues[key]);
+            <div style={{ display: 'grid', gap: '1.25rem' }}>
+              <p className="card-caption" style={{ margin: 0, color: SUBTLE_TEXT_COLOR }}>
+                Fill out each section with short, descriptive phrases. The AI will follow the template when
+                generating your prompts.
+              </p>
+              {PROMPT_TEMPLATE_FIELDS.map(({ key, label, description, placeholder }) => {
+                const fieldId = `stable-builder-${key}`;
+                const value = builderValues[key] || '';
                 return (
-                  <fieldset
-                    key={key}
-                    style={{
-                      border: `1px solid ${SURFACE_BORDER_COLOR}`,
-                      borderRadius: '14px',
-                      padding: '1rem 1.25rem',
-                      background: 'var(--card-bg)',
-                      display: 'grid',
-                      gap: '0.75rem',
-                    }}
-                  >
-                    <legend
-                      style={{
-                        fontWeight: 600,
-                        fontSize: '1rem',
-                        padding: '0 0.5rem',
+                  <div key={key} style={{ display: 'grid', gap: '0.45rem' }}>
+                    <label htmlFor={fieldId} className="form-label" style={{ marginBottom: 0 }}>
+                      <span style={{ fontWeight: 600 }}>{label}</span>
+                      {description ? (
+                        <span className="card-caption" style={{ color: SUBTLE_TEXT_COLOR }}>
+                          {description}
+                        </span>
+                      ) : null}
+                    </label>
+                    <textarea
+                      id={fieldId}
+                      value={value}
+                      onChange={(event) => {
+                        const nextValue = event.target.value;
+                        setBuilderValues((prev) => ({ ...prev, [key]: nextValue }));
+                        setBuilderError('');
+                        setBuilderNotice('');
                       }}
-                    >
-                      {label}
-                    </legend>
-                    {options.length > 0 ? (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.6rem 1rem' }}>
-                        {options.map((option) => {
-                          const optionId = `stable-builder-${key}-${option.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
-                          const checked = selectedValues.includes(option);
-                          return (
-                            <label
-                              key={option}
-                              htmlFor={optionId}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.45rem',
-                                padding: '0.35rem 0.6rem',
-                                borderRadius: '10px',
-                                border: `1px solid ${SURFACE_BORDER_COLOR}`,
-                                background: checked ? SELECTED_OPTION_BG : 'var(--card-bg)',
-                                boxShadow: checked ? SELECTED_OPTION_SHADOW : 'none',
-                                cursor: disabled ? 'not-allowed' : 'pointer',
-                                opacity: disabled ? 0.6 : 1,
-                              }}
-                            >
-                              <input
-                                id={optionId}
-                                type="checkbox"
-                                checked={checked}
-                                disabled={disabled}
-                                onChange={() => toggleBuilderOption(key, option)}
-                              />
-                              <span>{option}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <p
-                        className="card-caption"
-                        style={{ margin: 0, color: SUBTLE_TEXT_COLOR }}
-                      >
-                        Options coming soon.
-                      </p>
-                    )}
-                  </fieldset>
+                      placeholder={placeholder}
+                      rows={3}
+                      style={{
+                        ...TEXTAREA_BASE_STYLE,
+                        minHeight: '5.25rem',
+                        fontSize: '0.95rem',
+                        lineHeight: 1.5,
+                        resize: 'vertical',
+                      }}
+                      disabled={disabled}
+                    />
+                  </div>
                 );
               })}
+              <div style={{ display: 'grid', gap: '0.75rem' }}>
+                <div
+                  className="card"
+                  style={{
+                    border: `1px solid ${SURFACE_BORDER_COLOR}`,
+                    borderRadius: '14px',
+                    padding: '1rem 1.1rem',
+                    background: 'var(--card-bg)',
+                    display: 'grid',
+                    gap: '0.5rem',
+                  }}
+                >
+                  <h3 style={{ margin: 0, fontSize: '1rem' }}>Positive prompt preview</h3>
+                  <p style={{ margin: 0, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{positivePreview}</p>
+                </div>
+                <div
+                  className="card"
+                  style={{
+                    border: `1px solid ${SURFACE_BORDER_COLOR}`,
+                    borderRadius: '14px',
+                    padding: '1rem 1.1rem',
+                    background: 'var(--card-bg)',
+                    display: 'grid',
+                    gap: '0.5rem',
+                  }}
+                >
+                  <h3 style={{ margin: 0, fontSize: '1rem' }}>Negative prompt preview</h3>
+                  <p style={{ margin: 0, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{negativePreview}</p>
+                </div>
+              </div>
+              {builderError && (
+                <div
+                  role="alert"
+                  style={{
+                    border: '1px solid var(--accent)',
+                    borderRadius: '12px',
+                    padding: '0.85rem 1rem',
+                    background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
+                  }}
+                >
+                  <p className="card-caption" style={{ margin: 0, color: 'var(--accent)' }}>
+                    {builderError}
+                  </p>
+                </div>
+              )}
+              {builderNotice && (
+                <div
+                  role="status"
+                  style={{
+                    border: `1px solid ${SURFACE_BORDER_COLOR}`,
+                    borderRadius: '12px',
+                    padding: '0.85rem 1rem',
+                  }}
+                >
+                  <p className="card-caption" style={{ margin: 0 }}>{builderNotice}</p>
+                </div>
+              )}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center' }}>
+                <PrimaryButton
+                  type="button"
+                  loading={generatingPrompts}
+                  loadingText="Contacting AI..."
+                  disabled={generateDisabled}
+                  onClick={handleGeneratePrompts}
+                >
+                  Generate prompts with AI
+                </PrimaryButton>
+                <span className="card-caption" style={{ color: SUBTLE_TEXT_COLOR }}>
+                  Prompts update below. Save changes before rendering in ComfyUI.
+                </span>
+              </div>
             </div>
           ) : null}
         </div>
