@@ -4,6 +4,7 @@ import { useLocation } from 'react-router-dom';
 import BackButton from '../components/BackButton.jsx';
 import PrimaryButton from '../components/PrimaryButton.jsx';
 import JobQueuePanel from '../components/JobQueuePanel.jsx';
+import LabeledToggle from '../components/LabeledToggle.jsx';
 import { fileSrc } from '../lib/paths.js';
 import { useJobQueue } from '../lib/useJobQueue.js';
 
@@ -688,6 +689,7 @@ const handleSubmit = async (event) => {
   const secondsValid = Number.isFinite(secondsValueRaw) && secondsValueRaw > 0;
   const submitDisabled = disabled || !isTauriEnv || !prompt.trim() || !secondsValid;
   const renderDisabled = !isTauriEnv || rendering;
+  const promptControlId = isPromptBuilderActive ? 'stable-builder-format' : 'stable-diffusion-prompt';
 
   return (
     <>
@@ -831,189 +833,167 @@ const handleSubmit = async (event) => {
         {comfyStatus.pending > 0 && (
           <div style={{ fontWeight: 600 }}>Pending ComfyUI tasks: {comfyStatus.pending}</div>
         )}
+        <label htmlFor={promptControlId} className="form-label" style={{ marginBottom: 0 }}>
+          Prompt
+        </label>
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '1rem',
-            flexWrap: 'wrap',
+            display: 'grid',
+            gap: isPromptBuilderActive ? '1.1rem' : '0.6rem',
+            background: 'var(--card-bg)',
+            padding: '1.25rem 1.5rem',
+            borderRadius: '16px',
+            border: '1px solid rgba(15, 23, 42, 0.12)',
+            boxShadow: '0 2px 6px rgba(15, 23, 42, 0.08)',
           }}
         >
-          <label
-            htmlFor={isPromptBuilderActive ? 'stable-builder-format' : 'stable-diffusion-prompt'}
-            className="form-label"
-            style={{ marginBottom: 0 }}
-          >
-            Prompt
-          </label>
-          <label
-            className="form-label"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              marginBottom: 0,
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={isPromptBuilderActive}
-              onChange={(event) => setIsPromptBuilderActive(event.target.checked)}
-              disabled={disabled}
-            />
-            Build a Prompt
-          </label>
+          <LabeledToggle
+            id="stable-builder-toggle"
+            label="Prompt Builder"
+            description="Use structured fields to compose the main prompt."
+            checked={isPromptBuilderActive}
+            disabled={disabled}
+            onChange={(next) => setIsPromptBuilderActive(next)}
+          />
+          {isPromptBuilderActive ? (
+            <div style={{ display: 'grid', gap: '1rem' }}>
+              <label htmlFor="stable-builder-format" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
+                <span>Format</span>
+                <input
+                  id="stable-builder-format"
+                  type="text"
+                  value={builderFormat}
+                  onChange={(event) => setBuilderFormat(event.target.value)}
+                  disabled={disabled}
+                  style={{
+                    padding: '0.7rem 0.85rem',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(15, 23, 42, 0.2)',
+                    background: 'var(--card-bg)',
+                    color: 'var(--text)',
+                  }}
+                />
+              </label>
+              <label htmlFor="stable-builder-genre" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
+                <span>Genre</span>
+                <input
+                  id="stable-builder-genre"
+                  type="text"
+                  value={builderGenre}
+                  onChange={(event) => setBuilderGenre(event.target.value)}
+                  disabled={disabled}
+                  style={{
+                    padding: '0.7rem 0.85rem',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(15, 23, 42, 0.2)',
+                    background: 'var(--card-bg)',
+                    color: 'var(--text)',
+                  }}
+                />
+              </label>
+              <label htmlFor="stable-builder-subgenre" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
+                <span>Sub-Genre</span>
+                <input
+                  id="stable-builder-subgenre"
+                  type="text"
+                  value={builderSubGenre}
+                  onChange={(event) => setBuilderSubGenre(event.target.value)}
+                  disabled={disabled}
+                  style={{
+                    padding: '0.7rem 0.85rem',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(15, 23, 42, 0.2)',
+                    background: 'var(--card-bg)',
+                    color: 'var(--text)',
+                  }}
+                />
+              </label>
+              <label htmlFor="stable-builder-instruments" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
+                <span>Instruments</span>
+                <textarea
+                  id="stable-builder-instruments"
+                  value={builderInstruments}
+                  onChange={(event) => setBuilderInstruments(event.target.value)}
+                  disabled={disabled}
+                  rows={3}
+                  style={{
+                    ...TEXTAREA_BASE_STYLE,
+                    minHeight: '6rem',
+                    borderRadius: '12px',
+                  }}
+                />
+              </label>
+              <label htmlFor="stable-builder-mood" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
+                <span>Mood</span>
+                <input
+                  id="stable-builder-mood"
+                  type="text"
+                  value={builderMood}
+                  onChange={(event) => setBuilderMood(event.target.value)}
+                  disabled={disabled}
+                  style={{
+                    padding: '0.7rem 0.85rem',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(15, 23, 42, 0.2)',
+                    background: 'var(--card-bg)',
+                    color: 'var(--text)',
+                  }}
+                />
+              </label>
+              <label htmlFor="stable-builder-style" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
+                <span>Style</span>
+                <input
+                  id="stable-builder-style"
+                  type="text"
+                  value={builderStyle}
+                  onChange={(event) => setBuilderStyle(event.target.value)}
+                  disabled={disabled}
+                  style={{
+                    padding: '0.7rem 0.85rem',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(15, 23, 42, 0.2)',
+                    background: 'var(--card-bg)',
+                    color: 'var(--text)',
+                  }}
+                />
+              </label>
+              <label htmlFor="stable-builder-tempo" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
+                <span>Tempo Descriptor</span>
+                <textarea
+                  id="stable-builder-tempo"
+                  value={builderTempoDescriptor}
+                  onChange={(event) => setBuilderTempoDescriptor(event.target.value)}
+                  disabled={disabled}
+                  rows={3}
+                  style={{
+                    ...TEXTAREA_BASE_STYLE,
+                    minHeight: '6rem',
+                    borderRadius: '12px',
+                  }}
+                />
+              </label>
+              <label htmlFor="stable-builder-bpm" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
+                <span>BPM</span>
+                <input
+                  id="stable-builder-bpm"
+                  type="number"
+                  min="0"
+                  value={builderBpm}
+                  onChange={(event) => setBuilderBpm(event.target.value)}
+                  disabled={disabled}
+                  style={{
+                    padding: '0.7rem 0.85rem',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(15, 23, 42, 0.2)',
+                    background: 'var(--card-bg)',
+                    color: 'var(--text)',
+                  }}
+                />
+              </label>
+            </div>
+          ) : null}
         </div>
-        {isPromptBuilderActive ? (
-          <div
-            style={{
-              display: 'grid',
-              gap: '1rem',
-              background: 'var(--card-bg)',
-              padding: '1.25rem',
-              borderRadius: '14px',
-              border: '1px solid rgba(15, 23, 42, 0.15)',
-              boxShadow: 'inset 0 2px 6px rgba(15, 23, 42, 0.05)',
-            }}
-          >
-            <label htmlFor="stable-builder-format" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
-              <span>Format</span>
-              <input
-                id="stable-builder-format"
-                type="text"
-                value={builderFormat}
-                onChange={(event) => setBuilderFormat(event.target.value)}
-                disabled={disabled}
-                style={{
-                  padding: '0.7rem 0.85rem',
-                  borderRadius: '12px',
-                  border: '1px solid rgba(15, 23, 42, 0.2)',
-                  background: 'var(--card-bg)',
-                  color: 'var(--text)',
-                }}
-              />
-            </label>
-            <label htmlFor="stable-builder-genre" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
-              <span>Genre</span>
-              <input
-                id="stable-builder-genre"
-                type="text"
-                value={builderGenre}
-                onChange={(event) => setBuilderGenre(event.target.value)}
-                disabled={disabled}
-                style={{
-                  padding: '0.7rem 0.85rem',
-                  borderRadius: '12px',
-                  border: '1px solid rgba(15, 23, 42, 0.2)',
-                  background: 'var(--card-bg)',
-                  color: 'var(--text)',
-                }}
-              />
-            </label>
-            <label htmlFor="stable-builder-subgenre" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
-              <span>Sub-Genre</span>
-              <input
-                id="stable-builder-subgenre"
-                type="text"
-                value={builderSubGenre}
-                onChange={(event) => setBuilderSubGenre(event.target.value)}
-                disabled={disabled}
-                style={{
-                  padding: '0.7rem 0.85rem',
-                  borderRadius: '12px',
-                  border: '1px solid rgba(15, 23, 42, 0.2)',
-                  background: 'var(--card-bg)',
-                  color: 'var(--text)',
-                }}
-              />
-            </label>
-            <label htmlFor="stable-builder-instruments" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
-              <span>Instruments</span>
-              <textarea
-                id="stable-builder-instruments"
-                value={builderInstruments}
-                onChange={(event) => setBuilderInstruments(event.target.value)}
-                disabled={disabled}
-                rows={3}
-                style={{
-                  ...TEXTAREA_BASE_STYLE,
-                  minHeight: '6rem',
-                  resize: 'vertical',
-                }}
-              />
-            </label>
-            <label htmlFor="stable-builder-mood" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
-              <span>Mood</span>
-              <input
-                id="stable-builder-mood"
-                type="text"
-                value={builderMood}
-                onChange={(event) => setBuilderMood(event.target.value)}
-                disabled={disabled}
-                style={{
-                  padding: '0.7rem 0.85rem',
-                  borderRadius: '12px',
-                  border: '1px solid rgba(15, 23, 42, 0.2)',
-                  background: 'var(--card-bg)',
-                  color: 'var(--text)',
-                }}
-              />
-            </label>
-            <label htmlFor="stable-builder-style" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
-              <span>Style</span>
-              <input
-                id="stable-builder-style"
-                type="text"
-                value={builderStyle}
-                onChange={(event) => setBuilderStyle(event.target.value)}
-                disabled={disabled}
-                style={{
-                  padding: '0.7rem 0.85rem',
-                  borderRadius: '12px',
-                  border: '1px solid rgba(15, 23, 42, 0.2)',
-                  background: 'var(--card-bg)',
-                  color: 'var(--text)',
-                }}
-              />
-            </label>
-            <label htmlFor="stable-builder-tempo" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
-              <span>Tempo Descriptor</span>
-              <input
-                id="stable-builder-tempo"
-                type="text"
-                value={builderTempoDescriptor}
-                onChange={(event) => setBuilderTempoDescriptor(event.target.value)}
-                disabled={disabled}
-                style={{
-                  padding: '0.7rem 0.85rem',
-                  borderRadius: '12px',
-                  border: '1px solid rgba(15, 23, 42, 0.2)',
-                  background: 'var(--card-bg)',
-                  color: 'var(--text)',
-                }}
-              />
-            </label>
-            <label htmlFor="stable-builder-bpm" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
-              <span>BPM</span>
-              <input
-                id="stable-builder-bpm"
-                type="number"
-                min="0"
-                value={builderBpm}
-                onChange={(event) => setBuilderBpm(event.target.value)}
-                disabled={disabled}
-                style={{
-                  padding: '0.7rem 0.85rem',
-                  borderRadius: '12px',
-                  border: '1px solid rgba(15, 23, 42, 0.2)',
-                  background: 'var(--card-bg)',
-                  color: 'var(--text)',
-                }}
-              />
-            </label>
-          </div>
-        ) : (
+        {!isPromptBuilderActive && (
           <textarea
             id="stable-diffusion-prompt"
             placeholder="Enter audio prompt..."
