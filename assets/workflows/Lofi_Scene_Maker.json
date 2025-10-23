@@ -694,7 +694,7 @@
       "widgets_values": [
         1328,
         720,
-        1
+        4
       ]
     },
     {
@@ -745,7 +745,7 @@
       "title": "CLIP Text Encode (Positive Prompt)",
       "type": "CLIPTextEncode",
       "widgets_values": [
-        "In a surreal twilight landscape, a luminous meadow of fireflowers blooms under an ethereal sky ablaze with the hues of the aurora borealis. The fireflowers' glow emanates a warm, inviting light that dances across the petals, casting long, gentle shadows on the dew-kissed grass below. Caves hidden within the meadow's edge shimmer with iridescent crystals, their entrances illuminated by the aurora's vibrant radiance. The composition juxtaposes the open, organic forms of the meadow against the cave's geometric structures, creating a harmonious interplay of nature and mystique. Painted in a cool color palette dominated by blues, purples, and greens, accented by the fiery yellow-orange hues of the fireflowers, this artwork evokes a sense of wonder, tranquility, and enchantment."
+        "In a surreal, ethereal landscape, a towering lighthouse stands with the grace of an ancient sentinel, its weathered timbers and gleaming glass capturing the dance of auroras above. The lighthouse's beam pierces the night, casting a soft glow upon a reef below teeming with bioluminescent corals, their luminescence mirroring the celestial display overhead. The composition balances between the earthbound and the ethereal, both elements bathed in a harmonious blend of cool blues, purples, and greens that create a dreamlike atmosphere under a starlit sky."
       ]
     },
     {
@@ -784,7 +784,7 @@
       ],
       "type": "SaveImage",
       "widgets_values": [
-        "Icy_Aurora"
+        "Dreamy Lighthouse"
       ]
     },
     {
@@ -835,7 +835,7 @@
       "title": "CLIP Text Encode (Negative Prompt)",
       "type": "CLIPTextEncode",
       "widgets_values": [
-        "pixelation, static, unnatural color shift, incorrect lighting, lack of shimmer, absence of meadow or cave details, inaccurate floral features, missing aurora arcs, rigid structures, overly saturated colors, low resolution, excess glare, harsh shadows"
+        "dreamy, blurry, extra lighthouses, starlight on land, low contrast, man-made structures in reef, daylight, high saturation, text, watermark, jpeg artifacts"
       ]
     }
   ],

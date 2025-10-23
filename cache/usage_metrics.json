@@ -2,7 +2,7 @@
   "elevenlabs": {
     "daily": {
       "characters": 0,
-      "date": "2025-10-22"
+      "date": "2025-10-23"
     },
     "total": {
       "characters": 0,
@@ -12,10 +12,10 @@
   },
   "openai": {
     "daily": {
-      "completion_tokens": 4969,
-      "date": "2025-10-22",
-      "prompt_tokens": 5332,
-      "tokens": 10301
+      "completion_tokens": 0,
+      "date": "2025-10-23",
+      "prompt_tokens": 0,
+      "tokens": 0
     },
     "total": {
       "completion_tokens": 4993,
