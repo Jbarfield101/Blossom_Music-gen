@@ -142,10 +142,16 @@ export default function AppLayout({ greetingPlayback = null }) {
   const isPlayingGreetingRef = useRef(false);
   const [shouldShowGreetingPrompt, setShouldShowGreetingPrompt] = useState(false);
   const [localGreetingError, setLocalGreetingError] = useState('');
+  const errorDismissTimeoutRef = useRef(null);
 
   const greetingAudio = greetingPlayback ? greetingPlayback.audio : null;
   const greetingEnabled = Boolean(greetingPlayback && (greetingPlayback.enabled || greetingPlayback.ready));
   const remoteGreetingError = greetingEnabled && greetingPlayback && greetingPlayback.error ? greetingPlayback.error : '';
+  const hasGreetingError = Boolean(localGreetingError || remoteGreetingError);
+  const currentGreetingErrorKey = hasGreetingError
+    ? `${remoteGreetingError || ''}||${localGreetingError || ''}`
+    : '';
+  const [dismissedGreetingErrorKey, setDismissedGreetingErrorKey] = useState(null);
   const isGreetingReady = Boolean(
     greetingPlayback &&
       greetingPlayback.ready &&
@@ -289,7 +295,47 @@ export default function AppLayout({ greetingPlayback = null }) {
     return () => window.removeEventListener('pointerdown', handleFirstInteraction);
   }, [shouldShowGreetingPrompt, playGreeting]);
 
-  const shouldDisplayGreetingToast = shouldShowGreetingPrompt || (greetingEnabled && (remoteGreetingError || localGreetingError));
+  useEffect(() => {
+    if (errorDismissTimeoutRef.current) {
+      clearTimeout(errorDismissTimeoutRef.current);
+      errorDismissTimeoutRef.current = null;
+    }
+
+    if (!currentGreetingErrorKey) {
+      setDismissedGreetingErrorKey(null);
+      return undefined;
+    }
+
+    setDismissedGreetingErrorKey(null);
+
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      if (errorDismissTimeoutRef.current === timeoutId) {
+        errorDismissTimeoutRef.current = null;
+      }
+      if (localGreetingError) {
+        setLocalGreetingError('');
+      }
+      setShouldShowGreetingPrompt(false);
+      setDismissedGreetingErrorKey(currentGreetingErrorKey);
+    }, 45000);
+
+    errorDismissTimeoutRef.current = timeoutId;
+
+    return () => {
+      clearTimeout(timeoutId);
+      if (errorDismissTimeoutRef.current === timeoutId) {
+        errorDismissTimeoutRef.current = null;
+      }
+    };
+  }, [currentGreetingErrorKey, localGreetingError]);
+
+  const shouldDisplayGreetingToast =
+    shouldShowGreetingPrompt ||
+    (greetingEnabled && currentGreetingErrorKey && currentGreetingErrorKey !== dismissedGreetingErrorKey);
 
   const navContextValue = useMemo(
     () => ({
