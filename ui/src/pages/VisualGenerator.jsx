@@ -17,7 +17,7 @@ export default function VisualGenerator() {
         <Card to="/visual-generator/lofi-scene-maker" icon="Sparkles" title="Lofi Scene Maker">
           Craft cozy animated scenes with looping ambience.
         </Card>
-        <Card icon="Film" title="Video Maker" disabled>
+        <Card to="/visual-generator/video-maker" icon="Film" title="Video Maker">
           Build short-form visuals from scripted storyboards.
         </Card>
         <Card to="/visual-generator/dnd-portrait" icon="UserCircle2" title="DND Portrait">
