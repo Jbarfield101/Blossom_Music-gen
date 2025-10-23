@@ -10,7 +10,7 @@
 
 .feature-wheel-item {
   position: absolute;
-  left: 16px; /* tighter to the edge */
+  left: 0;
   top: 40%;
   background: transparent;
   border: none;
@@ -152,14 +152,15 @@
 .dashboard-main {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(240px, 320px) minmax(520px, 1fr);
+  grid-template-columns: minmax(0, 300px) minmax(520px, 1fr);
   gap: var(--space-xl);
   align-items: center;
   align-content: center;
   width: 100%;
   max-width: 1200px;
   margin: 0 auto;
-  padding: 0 var(--space-xl);
+  padding: 0 var(--space-xl) 0 0;
+  justify-items: start;
 }
 
 .screen-wrapper {
