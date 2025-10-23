@@ -282,9 +282,17 @@ function UserSelectorOverlay({ onClose }) {
 }
 
 export default function App() {
-  const [needsUser, setNeedsUser] = useState(false);
-  const greetedRef = useRef(false);
   const location = useLocation();
+  const greetedRef = useRef(false);
+  const audioCacheRef = useRef(null);
+  const [needsUser, setNeedsUser] = useState(false);
+  const [greetingPlayback, setGreetingPlayback] = useState({
+    audio: null,
+    ready: false,
+    error: null,
+    enabled: false,
+  });
+
   useEffect(() => {
     (async () => {
       try {
@@ -305,61 +313,134 @@ export default function App() {
       }
     })();
   }, []);
+
   useEffect(() => {
     (async () => {
+      let audioGreetingPref = true;
       try {
         if (greetedRef.current) return;
         const store = await Store.load('users.json');
         const current = await store.get('currentUser');
         const user = typeof current === 'string' ? current : '';
-        if (!user) return;
+        if (!user) {
+          audioCacheRef.current = null;
+          setGreetingPlayback({ audio: null, ready: false, error: null, enabled: false });
+          greetedRef.current = true;
+          return;
+        }
+
         const prefs = await store.get('prefs');
         const p = (prefs && typeof prefs === 'object' && prefs[user]) || {};
+        audioGreetingPref = p.audioGreeting !== false;
         let voice = typeof p.voice === 'string' ? p.voice : '';
+
         try {
           const voices = await listPiperVoices();
           if (!voices || !voices.length) {
+            audioCacheRef.current = null;
+            setGreetingPlayback({
+              audio: null,
+              ready: false,
+              error: 'No available voices for greeting.',
+              enabled: audioGreetingPref,
+            });
+            greetedRef.current = true;
             return; // no available voices; skip greeting silently
           }
           if (!voice || voice === 'narrator') {
             voice = voices[0].id;
           }
-        } catch {}
+        } catch (error) {
+          console.warn('Failed to list voices for greeting', error);
+        }
+
+        if (!voice) {
+          audioCacheRef.current = null;
+          setGreetingPlayback({
+            audio: null,
+            ready: false,
+            error: audioGreetingPref ? 'No greeting voice configured.' : null,
+            enabled: audioGreetingPref,
+          });
+          greetedRef.current = true;
+          return;
+        }
+
         if (voice) {
           await apiSetPiper(voice).catch(() => {});
         }
-        const audioGreeting = p.audioGreeting !== false; // default to on unless explicitly disabled
-        if (audioGreeting) {
-          const tpl = typeof p.greetingText === 'string' && p.greetingText.trim()
-            ? p.greetingText.trim()
-            : `Welcome {name}, what shall we work on today?`;
-          const message = tpl.replaceAll('{name}', user);
-          try {
-            // Resolve a concrete model/config for the selected voice
-            let model = '';
-            let config = '';
-            try {
-              const opts = await listPiperVoices();
-              const list = Array.isArray(opts) ? opts : [];
-              const match = list.find((v) => v.id === (voice || '')) || list[0];
-              const resolved = await resolveVoiceResources(match);
-              model = resolved.modelPath;
-              config = resolved.configPath;
-            } catch {}
-            if (!model || !config) { throw new Error('No piper voice available'); }
-            // Synthesize locally to AppData to avoid touching watched src-tauri folders in dev
-            const wavPath = await synthWithPiper(message, model, config, {});
-            const url = fileSrc(wavPath);
-            if (url) {
-              const audio = new Audio(url);
-              audio.volume = 1.0;
-              audio.play().catch(() => {});
-            }
-          } catch {}
+
+        const audioGreeting = audioGreetingPref; // default to on unless explicitly disabled
+        if (!audioGreeting) {
+          audioCacheRef.current = null;
+          setGreetingPlayback({ audio: null, ready: false, error: null, enabled: false });
+          greetedRef.current = true;
+          return;
         }
+
+        const tpl = typeof p.greetingText === 'string' && p.greetingText.trim()
+          ? p.greetingText.trim()
+          : `Welcome {name}, what shall we work on today?`;
+        const message = tpl.replaceAll('{name}', user);
+
+        try {
+          // Resolve a concrete model/config for the selected voice
+          let model = '';
+          let config = '';
+          try {
+            const opts = await listPiperVoices();
+            const list = Array.isArray(opts) ? opts : [];
+            const match = list.find((v) => v.id === (voice || '')) || list[0];
+            const resolved = await resolveVoiceResources(match);
+            model = resolved.modelPath;
+            config = resolved.configPath;
+          } catch (error) {
+            console.warn('Failed to resolve voice resources for greeting', error);
+          }
+          if (!model || !config) {
+            throw new Error('No piper voice available');
+          }
+          // Synthesize locally to AppData to avoid touching watched src-tauri folders in dev
+          const wavPath = await synthWithPiper(message, model, config, {});
+          const url = fileSrc(wavPath);
+          if (url) {
+            if (audioCacheRef.current instanceof HTMLAudioElement) {
+              audioCacheRef.current.pause();
+            }
+            const audio = new Audio(url);
+            audio.volume = 1.0;
+            audioCacheRef.current = audio;
+            setGreetingPlayback({ audio, ready: true, error: null, enabled: true });
+          } else {
+            audioCacheRef.current = null;
+            setGreetingPlayback({
+              audio: null,
+              ready: false,
+              error: 'Unable to resolve synthesized greeting.',
+              enabled: true,
+            });
+          }
+        } catch (error) {
+          console.warn('Failed to synthesize greeting audio', error);
+          setGreetingPlayback({
+            audio: null,
+            ready: false,
+            error: error instanceof Error ? error.message : 'Unknown error while preparing greeting.',
+            enabled: true,
+          });
+          audioCacheRef.current = null;
+        }
+
         greetedRef.current = true;
       } catch (e) {
-        // ignore greeting errors
+        console.warn('Greeting preparation failed', e);
+        audioCacheRef.current = null;
+        setGreetingPlayback({
+          audio: null,
+          ready: false,
+          error: e instanceof Error ? e.message : 'Failed to prepare greeting audio.',
+          enabled: audioGreetingPref,
+        });
       }
     })();
   }, [needsUser]);
@@ -371,7 +452,7 @@ export default function App() {
       <VaultEventProvider>
         <div className="route-fade" key={location.pathname}>
           <Routes location={location} key={location.pathname}>
-            <Route element={<AppLayout />}>
+            <Route element={<AppLayout greetingPlayback={greetingPlayback} />}>
             <Route path="/" element={<Dashboard />} />
           <Route path="/musicgen" element={<SoundLab />}>
             <Route path="musicgen" element={<MusicGen />} />
