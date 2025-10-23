@@ -101,16 +101,73 @@ export default function AppLayout({ greetingPlayback = null }) {
   );
 
   useEffect(() => {
-    if (isGreetingReady) {
-      if (greetingAudioRef.current !== greetingAudio) {
-        greetingAudioRef.current = greetingAudio;
-        setShouldShowGreetingPrompt(true);
-        setLocalGreetingError('');
-      }
-    } else {
+    if (!isGreetingReady) {
       greetingAudioRef.current = null;
       setShouldShowGreetingPrompt(false);
+      return undefined;
     }
+
+    const audioElement = greetingAudio;
+    if (!(audioElement instanceof Audio)) {
+      greetingAudioRef.current = null;
+      setShouldShowGreetingPrompt(false);
+      return undefined;
+    }
+
+    const readyStateThreshold =
+      typeof HTMLMediaElement !== 'undefined' ? HTMLMediaElement.HAVE_CURRENT_DATA : 2;
+
+    let cancelled = false;
+
+    const markReady = () => {
+      if (cancelled) return;
+      if (greetingAudioRef.current !== audioElement) {
+        greetingAudioRef.current = audioElement;
+      }
+      setShouldShowGreetingPrompt(true);
+      setLocalGreetingError('');
+    };
+
+    const handleError = (event) => {
+      if (cancelled) return;
+      console.warn('Failed to load greeting audio', event);
+      greetingAudioRef.current = null;
+      setShouldShowGreetingPrompt(false);
+      setLocalGreetingError('Greeting audio is unavailable.');
+    };
+
+    if (typeof audioElement.readyState === 'number' && audioElement.readyState >= readyStateThreshold) {
+      markReady();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    audioElement.preload = 'auto';
+
+    const handleReady = () => {
+      audioElement.removeEventListener('canplaythrough', handleReady);
+      audioElement.removeEventListener('loadeddata', handleReady);
+      audioElement.removeEventListener('error', handleError);
+      markReady();
+    };
+
+    audioElement.addEventListener('canplaythrough', handleReady);
+    audioElement.addEventListener('loadeddata', handleReady);
+    audioElement.addEventListener('error', handleError);
+
+    try {
+      audioElement.load();
+    } catch (error) {
+      console.warn('Failed to prime greeting audio', error);
+    }
+
+    return () => {
+      cancelled = true;
+      audioElement.removeEventListener('canplaythrough', handleReady);
+      audioElement.removeEventListener('loadeddata', handleReady);
+      audioElement.removeEventListener('error', handleError);
+    };
   }, [isGreetingReady, greetingAudio]);
 
   const playGreeting = useCallback(() => {
@@ -124,11 +181,25 @@ export default function AppLayout({ greetingPlayback = null }) {
     }
     isPlayingGreetingRef.current = true;
     try {
+      audioElement.pause();
+    } catch (error) {
+      console.warn('Failed to pause greeting audio before replay', error);
+    }
+    try {
       audioElement.currentTime = 0;
     } catch (error) {
       console.warn('Failed to reset greeting audio', error);
     }
-    const playPromise = audioElement.play();
+    let playPromise;
+    try {
+      playPromise = audioElement.play();
+    } catch (error) {
+      isPlayingGreetingRef.current = false;
+      console.warn('Failed to play greeting audio', error);
+      setLocalGreetingError('Unable to play greeting audio. Tap to retry.');
+      setShouldShowGreetingPrompt(true);
+      return;
+    }
     if (playPromise && typeof playPromise.then === 'function') {
       playPromise
         .then(() => {
