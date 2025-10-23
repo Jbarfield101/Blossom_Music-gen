@@ -194,7 +194,7 @@ export default function Pipeline() {
       setPipelineStatus('online');
       setStatusMessage({
         type: 'success',
-        content: 'Lo-fi pipeline activated. Fusion and scene generation are now queued.',
+        content: 'Pipeline suite activated. Fusion and scene generation are now queued.',
       });
     } catch (err) {
       resetStages();
@@ -216,15 +216,15 @@ export default function Pipeline() {
     <div style={{ padding: 'var(--space-xl)', display: 'grid', gap: 'var(--space-xl)' }}>
       <BackButton />
       <header style={{ display: 'grid', gap: 'var(--space-md)', textAlign: 'center', maxWidth: '720px', margin: '0 auto' }}>
-        <h1>Pipeline</h1>
+        <h1>Pipelines</h1>
         <p>
-          Coordinate the automated Lo-fi workflow end-to-end. Activate the pipeline to fuse random concepts, capture scene
-          prompts, and queue renders without leaving the desktop shell.
+          Coordinate the automated pipelines end-to-end. Activate the suite to fuse random concepts, capture scene prompts,
+          and queue renders without leaving the desktop shell.
         </p>
       </header>
       <section style={{ display: 'grid', gap: 'var(--space-lg)', maxWidth: '720px', margin: '0 auto' }}>
         <Card
-          title="Lofi Video"
+          title="Pipelines"
           onClick={() => setDetailOpen((open) => !open)}
         >
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-xs)' }}>
@@ -261,7 +261,7 @@ export default function Pipeline() {
             }}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 'var(--space-md)' }}>
-              <h2 style={{ margin: 0 }}>Lo-fi pipeline</h2>
+              <h2 style={{ margin: 0 }}>Pipeline suite</h2>
               <span
                 style={{
                   display: 'inline-flex',
