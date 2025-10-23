@@ -2163,9 +2163,7 @@ mod npc_list_tests {
         );
 
         assert!(
-            npcs
-                .iter()
-                .any(|npc| npc.name == "Nested Subfolder NPC"),
+            npcs.iter().any(|npc| npc.name == "Nested Subfolder NPC"),
             "NPCs discovered under nested folders should be merged in alongside service results",
         );
     }
@@ -2435,9 +2433,7 @@ fn derive_repair_status(map: &Map<String, Value>) -> String {
     if let Some(value) = map.get("error") {
         match value {
             Value::Bool(true) => return "error".to_string(),
-            Value::String(text) if !text.trim().is_empty() => {
-                return "error".to_string()
-            }
+            Value::String(text) if !text.trim().is_empty() => return "error".to_string(),
             _ => {}
         }
     }
@@ -2490,12 +2486,20 @@ fn extract_repair_error(map: &Map<String, Value>) -> Option<String> {
     }
     extract_string_field(
         map,
-        &["errorMessage", "error_message", "failure_reason", "failureReason"],
+        &[
+            "errorMessage",
+            "error_message",
+            "failure_reason",
+            "failureReason",
+        ],
     )
 }
 
 fn extract_repair_message(map: &Map<String, Value>) -> Option<String> {
-    extract_string_field(map, &["message", "detail", "details", "note", "description"])
+    extract_string_field(
+        map,
+        &["message", "detail", "details", "note", "description"],
+    )
 }
 
 fn fail_entire_repair_run(
@@ -2594,9 +2598,7 @@ fn run_npc_repair_job(app: AppHandle, helper_path: PathBuf, run_id: u64, npc_ids
     if let Some(stdin) = child.stdin.as_mut() {
         if let Err(err) = serde_json::to_vec(&request)
             .map_err(|e| e.to_string())
-            .and_then(|payload| {
-                stdin.write_all(&payload).map_err(|e| e.to_string())
-            })
+            .and_then(|payload| stdin.write_all(&payload).map_err(|e| e.to_string()))
         {
             let msg = format!("Failed to communicate with repair helper: {}", err);
             let _ = child.kill();
@@ -2679,12 +2681,20 @@ fn run_npc_repair_job(app: AppHandle, helper_path: PathBuf, run_id: u64, npc_ids
                                 summary: None,
                             },
                         );
-                    } else if let Some(summary) = map.get("summary").and_then(|value| value.as_object()) {
-                        if let Some(status_map) = summary.get("status_map").and_then(|value| value.as_object()) {
+                    } else if let Some(summary) =
+                        map.get("summary").and_then(|value| value.as_object())
+                    {
+                        if let Some(status_map) = summary
+                            .get("status_map")
+                            .and_then(|value| value.as_object())
+                        {
                             let mut updates = Vec::new();
                             for (id, value) in status_map {
                                 if let Some(text) = value.as_str() {
-                                    updates.push((id.clone(), normalize_repair_status_text(text).to_string()));
+                                    updates.push((
+                                        id.clone(),
+                                        normalize_repair_status_text(text).to_string(),
+                                    ));
                                 }
                             }
                             if !updates.is_empty() {
@@ -2694,7 +2704,9 @@ fn run_npc_repair_job(app: AppHandle, helper_path: PathBuf, run_id: u64, npc_ids
                                 }
                             }
                         }
-                        if let Some(verified) = summary.get("verified").and_then(|value| value.as_array()) {
+                        if let Some(verified) =
+                            summary.get("verified").and_then(|value| value.as_array())
+                        {
                             let mut guard = stdout_statuses.lock().unwrap();
                             for entry in verified {
                                 if let Some(id) = entry.as_str() {
@@ -2702,7 +2714,9 @@ fn run_npc_repair_job(app: AppHandle, helper_path: PathBuf, run_id: u64, npc_ids
                                 }
                             }
                         }
-                        if let Some(failed) = summary.get("failed").and_then(|value| value.as_array()) {
+                        if let Some(failed) =
+                            summary.get("failed").and_then(|value| value.as_array())
+                        {
                             let mut guard = stdout_statuses.lock().unwrap();
                             for entry in failed {
                                 if let Some(id) = entry.as_str() {
@@ -2710,7 +2724,9 @@ fn run_npc_repair_job(app: AppHandle, helper_path: PathBuf, run_id: u64, npc_ids
                                 }
                             }
                         }
-                        if let Some(errors_obj) = summary.get("errors").and_then(|value| value.as_object()) {
+                        if let Some(errors_obj) =
+                            summary.get("errors").and_then(|value| value.as_object())
+                        {
                             let mut guard = stdout_errors.lock().unwrap();
                             for (id, value) in errors_obj {
                                 if let Some(text) = value.as_str() {
@@ -2779,7 +2795,10 @@ fn run_npc_repair_job(app: AppHandle, helper_path: PathBuf, run_id: u64, npc_ids
                 )
             })
             .unwrap_or_else(|| {
-                format!("Repair helper terminated by signal (status: {:?})", exit_status)
+                format!(
+                    "Repair helper terminated by signal (status: {:?})",
+                    exit_status
+                )
             });
         if let Some(existing) = run_error.as_mut() {
             existing.push_str("; ");
@@ -2854,11 +2873,7 @@ fn run_npc_repair_job(app: AppHandle, helper_path: PathBuf, run_id: u64, npc_ids
                 run_id,
                 npc_id: Some(id.clone()),
                 status: Some(final_status),
-                message: if is_error {
-                    error_entry.clone()
-                } else {
-                    None
-                },
+                message: if is_error { error_entry.clone() } else { None },
                 error: error_entry,
                 summary: None,
             },
@@ -4577,31 +4592,32 @@ Frontmatter:\n{frontmatter}\n---\nBody excerpt:\n{body}",
         );
 
         let system = "You return only compact JSON arrays of tags.";
-        let response = match generate_llm(prompt, Some(system.to_string()), None, None, None, None).await {
-            Ok(text) => text,
-            Err(err) => {
-                failed_notes += 1;
-                let msg = format!("Model call failed: {}", err);
-                registry.append_job_stderr(job_id, &format!("{}: {}", rel, msg));
-                emit_tag_event(
-                    &app,
-                    TagUpdateEvent {
-                        section: section_cfg.id.clone(),
-                        label: label.clone(),
-                        status: "error".into(),
-                        index: Some(index),
-                        total: Some(total),
-                        rel_path: Some(rel.clone()),
-                        tags: None,
-                        message: Some(msg),
-                        updated: None,
-                        skipped: None,
-                        failed: None,
-                    },
-                );
-                continue;
-            }
-        };
+        let response =
+            match generate_llm(prompt, Some(system.to_string()), None, None, None, None).await {
+                Ok(text) => text,
+                Err(err) => {
+                    failed_notes += 1;
+                    let msg = format!("Model call failed: {}", err);
+                    registry.append_job_stderr(job_id, &format!("{}: {}", rel, msg));
+                    emit_tag_event(
+                        &app,
+                        TagUpdateEvent {
+                            section: section_cfg.id.clone(),
+                            label: label.clone(),
+                            status: "error".into(),
+                            index: Some(index),
+                            total: Some(total),
+                            rel_path: Some(rel.clone()),
+                            tags: None,
+                            message: Some(msg),
+                            updated: None,
+                            skipped: None,
+                            failed: None,
+                        },
+                    );
+                    continue;
+                }
+            };
 
         let candidate_tags = match parse_model_tags(&response) {
             Ok(tags) => tags,
@@ -6748,9 +6764,7 @@ async fn god_create(
     } else {
         candidates.push(default_template.clone());
     }
-    let vault_default = vault_root
-        .join("_Templates")
-        .join("God_Template.md");
+    let vault_default = vault_root.join("_Templates").join("God_Template.md");
     if !candidates.contains(&default_template) {
         candidates.push(default_template.clone());
     }
@@ -6904,8 +6918,14 @@ async fn spell_create(
     );
     let default_template_names = ["Spell_Template.md"];
     let template_aliases: HashMap<&str, &str> = HashMap::from([
-        ("Spell Template + Universal (D&D 5e Spell).md", "Spell_Template.md"),
-        ("Spell Template + Universal (D&D 5e).md", "Spell_Template.md"),
+        (
+            "Spell Template + Universal (D&D 5e Spell).md",
+            "Spell_Template.md",
+        ),
+        (
+            "Spell Template + Universal (D&D 5e).md",
+            "Spell_Template.md",
+        ),
         ("Spell Template (D&D 5e).md", "Spell_Template.md"),
         ("Spell Template.md", "Spell_Template.md"),
     ]);
@@ -6918,8 +6938,7 @@ async fn spell_create(
             if let Some(resolved) = template_aliases.get(canonical_name.as_str()) {
                 eprintln!(
                     "[blossom] spell_create: resolving alias '{}' -> '{}'",
-                    canonical_name,
-                    resolved
+                    canonical_name, resolved
                 );
                 canonical_name = (*resolved).to_string();
             } else {
@@ -6951,7 +6970,10 @@ async fn spell_create(
                 if drive.is_ascii_alphabetic() && sep == '\\' && !name.contains(":\\") {
                     let rest: String = name.chars().skip(2).collect();
                     name = format!("{}:\\{}", drive, rest);
-                    eprintln!("[blossom] spell_create: normalized Windows path -> '{}'", name);
+                    eprintln!(
+                        "[blossom] spell_create: normalized Windows path -> '{}'",
+                        name
+                    );
                 }
             }
             let path_candidate = PathBuf::from(&name);
@@ -7051,25 +7073,17 @@ async fn spell_create(
         "You are an arcane archivist who outputs only valid Markdown with YAML frontmatter describing D&D 5e spells.\nEnsure level, school, casting time, range, components, duration, saving throws, damage, and scaling are detailed without using OGL-restricted phrasing.\n"
     ));
     eprintln!("[blossom] spell_create: invoking LLM generation");
-    let content = match generate_llm(
-        prompt,
-        system,
-        None,
-        None,
-        provider.clone(),
-        model.clone(),
-    )
-    .await
-    {
-        Ok(c) => {
-            eprintln!("[blossom] spell_create: LLM returned ({} bytes)", c.len());
-            c
-        }
-        Err(e) => {
-            eprintln!("[blossom] spell_create: LLM generation failed: {}", e);
-            return Err(e);
-        }
-    };
+    let content =
+        match generate_llm(prompt, system, None, None, provider.clone(), model.clone()).await {
+            Ok(c) => {
+                eprintln!("[blossom] spell_create: LLM returned ({} bytes)", c.len());
+                c
+            }
+            Err(e) => {
+                eprintln!("[blossom] spell_create: LLM generation failed: {}", e);
+                return Err(e);
+            }
+        };
     let content = strip_code_fence(&content).to_string();
 
     let mut fname = effective_name
@@ -7124,7 +7138,10 @@ async fn spell_create(
             "timestamp": Utc::now().to_rfc3339(),
         });
         if let Err(err) = app.emit("dnd::vault-changed", payload) {
-            eprintln!("[blossom] spell_create: failed to emit vault event: {}", err);
+            eprintln!(
+                "[blossom] spell_create: failed to emit vault event: {}",
+                err
+            );
         }
     }
 
@@ -7186,7 +7203,8 @@ async fn transcribe_whisper(audio: Vec<u8>) -> Result<String, String> {
         return Ok(String::new());
     }
     let text = async_runtime::spawn_blocking(move || -> Result<String, String> {
-        let temp_path = std::env::temp_dir().join(format!("blossom_whisper_{}.pcm", Uuid::new_v4()));
+        let temp_path =
+            std::env::temp_dir().join(format!("blossom_whisper_{}.pcm", Uuid::new_v4()));
         fs::write(&temp_path, &audio)
             .map_err(|e| format!("Failed to write Whisper audio buffer: {}", e))?;
         let script = r#"
@@ -8787,6 +8805,13 @@ struct ImageOutputEntry {
     modified_ms: i64,
 }
 
+#[derive(Clone, Serialize)]
+struct VideoOutputEntry {
+    name: String,
+    path: String,
+    modified_ms: i64,
+}
+
 fn comfy_audio_search_dirs(settings: Option<&commands::ComfyUISettings>) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
     if let Some(settings) = settings {
@@ -8975,6 +9000,100 @@ fn resolve_comfy_image_path(
     None
 }
 
+fn comfy_video_search_dirs(settings: Option<&commands::ComfyUISettings>) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    if let Some(settings) = settings {
+        if let Some(ref output_dir) = settings
+            .output_dir
+            .as_ref()
+            .and_then(|s| Some(s.trim().to_string()))
+            .filter(|s| !s.is_empty())
+        {
+            let base = PathBuf::from(output_dir);
+            if base.exists() {
+                dirs.push(base.clone());
+            }
+            let video_dir = base.join("video");
+            if video_dir.exists() {
+                dirs.push(video_dir);
+            }
+        }
+        if let Some(ref working_dir) = settings
+            .working_directory
+            .as_ref()
+            .and_then(|s| Some(s.trim().to_string()))
+            .filter(|s| !s.is_empty())
+        {
+            let working = PathBuf::from(working_dir);
+            let output = working.join("output");
+            if output.exists() {
+                dirs.push(output.clone());
+            }
+            let video = output.join("video");
+            if video.exists() {
+                dirs.push(video);
+            }
+        }
+    }
+    if cfg!(target_os = "windows") {
+        let win_base = PathBuf::from(r"C:\\Comfy\\output");
+        if win_base.exists() {
+            dirs.push(win_base.clone());
+        }
+        let win_video = win_base.join("video");
+        if win_video.exists() {
+            dirs.push(win_video);
+        }
+    }
+    let default_output = PathBuf::from("output");
+    if default_output.exists() {
+        dirs.push(default_output.clone());
+    }
+    let default_video = default_output.join("video");
+    if default_video.exists() {
+        dirs.push(default_video);
+    }
+
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut unique = Vec::new();
+    for dir in dirs {
+        let display = dir.to_string_lossy().to_string();
+        if seen.insert(display.clone()) {
+            unique.push(dir);
+        }
+    }
+    unique
+}
+
+fn resolve_comfy_video_path(
+    settings: Option<&commands::ComfyUISettings>,
+    existing: Option<&str>,
+    filename: &str,
+) -> Option<PathBuf> {
+    if let Some(candidate) = existing
+        .and_then(|raw| {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(PathBuf::from(trimmed))
+            }
+        })
+        .filter(|path| path.exists())
+    {
+        return Some(candidate);
+    }
+
+    for dir in comfy_video_search_dirs(settings) {
+        let candidate = dir.join(filename);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+
+    None
+}
+
 #[tauri::command]
 fn list_completed_jobs(registry: State<JobRegistry>) -> Vec<JobSummary> {
     let mut history = registry.list_history();
@@ -9120,7 +9239,8 @@ mod tests {
 
         assert_eq!(
             result,
-            "prompt=hello;system=None;temperature=None;seed=None;provider=None;model=None".to_string()
+            "prompt=hello;system=None;temperature=None;seed=None;provider=None;model=None"
+                .to_string()
         );
 
         if let Some(original) = original_py {
@@ -9138,11 +9258,79 @@ mod tests {
 }
 
 #[tauri::command]
+fn video_maker_output_files(
+    app: AppHandle,
+    limit: Option<usize>,
+) -> Result<Vec<VideoOutputEntry>, String> {
+    let settings = commands::get_comfyui_settings(app)
+        .map(Some)
+        .unwrap_or(None);
+    let mut files: Vec<VideoOutputEntry> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for dir in comfy_video_search_dirs(settings.as_ref()) {
+        let entries = match fs::read_dir(&dir) {
+            Ok(iter) => iter,
+            Err(err) => {
+                eprintln!(
+                    "[blossom] video_maker_output_files: failed to read {}: {}",
+                    dir.to_string_lossy(),
+                    err
+                );
+                continue;
+            }
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let extension = path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext.to_ascii_lowercase());
+            let is_video = extension
+                .as_deref()
+                .map(|ext| gallery_category_for_extension(ext) == Some("video"))
+                .unwrap_or(false);
+            if !is_video {
+                continue;
+            }
+            let path_str = path.to_string_lossy().to_string();
+            if !seen.insert(path_str.clone()) {
+                continue;
+            }
+            let name = path
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| path_str.clone());
+            let modified_ms = entry
+                .metadata()
+                .ok()
+                .and_then(|meta| meta.modified().ok())
+                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                .map(|duration| duration.as_millis() as i64)
+                .unwrap_or(0);
+            files.push(VideoOutputEntry {
+                name,
+                path: path_str,
+                modified_ms,
+            });
+        }
+    }
+    files.sort_by(|a, b| b.modified_ms.cmp(&a.modified_ms));
+    if let Some(limit) = limit {
+        if files.len() > limit {
+            files.truncate(limit);
+        }
+    }
+    Ok(files)
+}
+
+#[tauri::command]
 fn ace_output_files(app: AppHandle, limit: Option<usize>) -> Result<Vec<AudioOutputEntry>, String> {
     stable_audio_output_files(app, limit)
 }
 
-#[tauri::command]
 fn register_job_artifacts(
     registry: State<JobRegistry>,
     job_id: u64,
@@ -9218,6 +9406,411 @@ fn lofi_scene_job_label(prompt: &str) -> String {
     }
 }
 
+fn video_maker_job_label(prompt: &str) -> String {
+    let snippet = preview_text(prompt, 42);
+    if snippet.is_empty() {
+        "Video Maker Render".to_string()
+    } else {
+        format!("Video Maker · {}", snippet)
+    }
+}
+
+#[tauri::command]
+fn queue_video_maker_job(app: AppHandle, registry: State<JobRegistry>) -> Result<u64, String> {
+    let prompts = commands::get_video_maker_prompts()?;
+    let label = video_maker_job_label(&prompts.prompt);
+
+    let mut args = Vec::new();
+    args.push(format!("fps={:.3}", prompts.fps.max(0.0)));
+    if !prompts.file_name_prefix.trim().is_empty() {
+        args.push(format!("filePrefix={}", prompts.file_name_prefix.trim()));
+    }
+    if !prompts.image_filename.trim().is_empty() {
+        args.push(format!("image={}", prompts.image_filename.trim()));
+    }
+
+    let context = JobContext {
+        kind: Some("video_maker_render".into()),
+        label: Some(label),
+        source: Some("Video Maker".into()),
+        artifact_candidates: Vec::new(),
+    };
+
+    let job_id = registry.next_id();
+    let job = JobInfo::new_pending(args, &context);
+    let initial_snapshot = JobProgressSnapshot {
+        stage: Some("preparing".into()),
+        percent: Some(0),
+        message: Some("Preparing Video Maker workflow.".into()),
+        eta: None,
+        step: None,
+        total: None,
+        queue_position: None,
+        queue_eta_seconds: None,
+    };
+    registry.register_running_job(&app, job_id, job, initial_snapshot);
+
+    let prompt_preview = preview_text(&prompts.prompt, 160);
+    if !prompt_preview.is_empty() {
+        registry.append_job_stdout(job_id, &format!("Prompt: {}", prompt_preview));
+    }
+    let negative_preview = preview_text(&prompts.negative_prompt, 160);
+    if !negative_preview.is_empty() {
+        registry.append_job_stdout(job_id, &format!("Negative prompt: {}", negative_preview));
+    }
+    if !prompts.file_name_prefix.trim().is_empty() {
+        registry.append_job_stdout(
+            job_id,
+            &format!("Filename prefix: {}", prompts.file_name_prefix.trim()),
+        );
+    }
+    registry.append_job_stdout(job_id, &format!("FPS: {:.3}", prompts.fps));
+    if !prompts.image_filename.trim().is_empty() {
+        registry.append_job_stdout(
+            job_id,
+            &format!("Source image: {}", prompts.image_filename.trim()),
+        );
+    }
+    registry.append_job_stdout(job_id, "Submitting Video Maker workflow to ComfyUI...");
+
+    let app_handle = app.clone();
+    let prompt_text = prompts.prompt;
+    let negative_prompt = prompts.negative_prompt;
+    let file_prefix = prompts.file_name_prefix;
+    let fps = prompts.fps;
+    let image_filename = prompts.image_filename;
+
+    async_runtime::spawn(async move {
+        run_video_maker_job(
+            app_handle,
+            job_id,
+            prompt_text,
+            negative_prompt,
+            file_prefix,
+            fps,
+            image_filename,
+        )
+        .await;
+    });
+
+    Ok(job_id)
+}
+
+async fn run_video_maker_job(
+    app_handle: AppHandle,
+    job_id: u64,
+    _prompt_text: String,
+    _negative_prompt: String,
+    _file_prefix: String,
+    fps: f64,
+    _image_filename: String,
+) {
+    let comfy_settings = commands::get_comfyui_settings(app_handle.clone()).ok();
+    let mut final_success = false;
+    let mut final_message: Option<String> = None;
+
+    match commands::comfyui_submit_video_maker(app_handle.clone()).await {
+        Ok(response) => {
+            {
+                let registry = app_handle.state::<JobRegistry>();
+                registry.append_job_stdout(
+                    job_id,
+                    &format!("ComfyUI prompt id: {}", response.prompt_id),
+                );
+                registry.update_job_progress(
+                    &app_handle,
+                    job_id,
+                    JobProgressSnapshot {
+                        stage: Some("submitted".into()),
+                        percent: Some(10),
+                        message: Some("Workflow submitted to ComfyUI.".into()),
+                        eta: None,
+                        step: None,
+                        total: None,
+                        queue_position: None,
+                        queue_eta_seconds: None,
+                    },
+                );
+            }
+
+            let prompt_id = response.prompt_id.clone();
+            let mut consecutive_errors = 0usize;
+            loop {
+                if app_handle.state::<JobRegistry>().is_job_done(job_id) {
+                    return;
+                }
+
+                match commands::comfyui_job_status(app_handle.clone(), prompt_id.clone()).await {
+                    Ok(status) => {
+                        consecutive_errors = 0;
+                        let status_lower = status.status.to_ascii_lowercase();
+                        match status_lower.as_str() {
+                            "queued" => {
+                                let message = if status.pending > 0 {
+                                    format!("ComfyUI queue · {} pending", status.pending)
+                                } else {
+                                    "ComfyUI queue".to_string()
+                                };
+                                let registry = app_handle.state::<JobRegistry>();
+                                registry.update_job_progress(
+                                    &app_handle,
+                                    job_id,
+                                    JobProgressSnapshot {
+                                        stage: Some("queued".into()),
+                                        percent: Some(20),
+                                        message: Some(message),
+                                        eta: None,
+                                        step: None,
+                                        total: None,
+                                        queue_position: None,
+                                        queue_eta_seconds: None,
+                                    },
+                                );
+                            }
+                            "running" => {
+                                let message = if status.pending > 0 {
+                                    format!(
+                                        "ComfyUI rendering · {} pending, {} active",
+                                        status.pending, status.running
+                                    )
+                                } else {
+                                    "ComfyUI rendering".to_string()
+                                };
+                                let registry = app_handle.state::<JobRegistry>();
+                                registry.update_job_progress(
+                                    &app_handle,
+                                    job_id,
+                                    JobProgressSnapshot {
+                                        stage: Some("running".into()),
+                                        percent: Some(55),
+                                        message: Some(message),
+                                        eta: None,
+                                        step: None,
+                                        total: None,
+                                        queue_position: None,
+                                        queue_eta_seconds: None,
+                                    },
+                                );
+                            }
+                            "completed" => {
+                                let message = status
+                                    .message
+                                    .clone()
+                                    .unwrap_or_else(|| "ComfyUI render complete.".to_string());
+                                let artifacts: Vec<JobArtifact> = status
+                                    .outputs
+                                    .iter()
+                                    .filter_map(|output| {
+                                        let mut is_video = output
+                                            .kind
+                                            .as_deref()
+                                            .map(|kind| kind.eq_ignore_ascii_case("video"))
+                                            .unwrap_or(false);
+                                        if !is_video {
+                                            if let Some(ext) = Path::new(&output.filename)
+                                                .extension()
+                                                .and_then(|ext| ext.to_str())
+                                                .map(|ext| ext.to_ascii_lowercase())
+                                            {
+                                                if gallery_category_for_extension(&ext)
+                                                    == Some("video")
+                                                {
+                                                    is_video = true;
+                                                }
+                                            }
+                                        }
+                                        if !is_video {
+                                            return None;
+                                        }
+                                        resolve_comfy_video_path(
+                                            comfy_settings.as_ref(),
+                                            output.local_path.as_deref(),
+                                            &output.filename,
+                                        )
+                                        .map(|path| {
+                                            JobArtifact {
+                                                name: output.filename.clone(),
+                                                path: path.to_string_lossy().to_string(),
+                                            }
+                                        })
+                                    })
+                                    .collect();
+
+                                if !artifacts.is_empty() {
+                                    let registry = app_handle.state::<JobRegistry>();
+                                    for artifact in &artifacts {
+                                        registry.append_job_stdout(
+                                            job_id,
+                                            &format!("Video artifact: {}", artifact.path),
+                                        );
+                                    }
+                                    if let Err(err) = register_job_artifacts(
+                                        app_handle.state::<JobRegistry>(),
+                                        job_id,
+                                        artifacts.clone(),
+                                    ) {
+                                        let registry = app_handle.state::<JobRegistry>();
+                                        registry.append_job_stderr(
+                                            job_id,
+                                            &format!(
+                                                "Failed to register ComfyUI artifacts: {}",
+                                                err
+                                            ),
+                                        );
+                                    }
+
+                                    let mut gallery_artifacts: Vec<JobArtifact> = Vec::new();
+                                    for artifact in &artifacts {
+                                        match copy_artifact_into_gallery(job_id, artifact) {
+                                            Ok(Some(copy)) => gallery_artifacts.push(copy),
+                                            Ok(None) => {}
+                                            Err(err) => {
+                                                let registry = app_handle.state::<JobRegistry>();
+                                                registry.append_job_stderr(
+                                                    job_id,
+                                                    &format!(
+                                                        "Failed to copy artifact into gallery: {}",
+                                                        err
+                                                    ),
+                                                );
+                                            }
+                                        }
+                                    }
+
+                                    if !gallery_artifacts.is_empty() {
+                                        if let Err(err) = register_job_artifacts(
+                                            app_handle.state::<JobRegistry>(),
+                                            job_id,
+                                            gallery_artifacts.clone(),
+                                        ) {
+                                            let registry = app_handle.state::<JobRegistry>();
+                                            registry.append_job_stderr(
+                                                job_id,
+                                                &format!(
+                                                    "Failed to register gallery artifacts: {}",
+                                                    err
+                                                ),
+                                            );
+                                        }
+                                    }
+                                }
+
+                                {
+                                    let registry = app_handle.state::<JobRegistry>();
+                                    registry.update_job_progress(
+                                        &app_handle,
+                                        job_id,
+                                        JobProgressSnapshot {
+                                            stage: Some("completed".into()),
+                                            percent: Some(100),
+                                            message: Some(message.clone()),
+                                            eta: None,
+                                            step: None,
+                                            total: None,
+                                            queue_position: None,
+                                            queue_eta_seconds: None,
+                                        },
+                                    );
+                                }
+
+                                final_success = true;
+                                final_message = Some(message);
+                                break;
+                            }
+                            "error" => {
+                                final_message =
+                                    Some(status.message.clone().unwrap_or_else(|| {
+                                        "ComfyUI reported an error.".to_string()
+                                    }));
+                                break;
+                            }
+                            "offline" => {
+                                final_message = Some(
+                                    status
+                                        .message
+                                        .clone()
+                                        .unwrap_or_else(|| "ComfyUI appears offline.".to_string()),
+                                );
+                                break;
+                            }
+                            other => {
+                                let registry = app_handle.state::<JobRegistry>();
+                                registry.update_job_progress(
+                                    &app_handle,
+                                    job_id,
+                                    JobProgressSnapshot {
+                                        stage: Some(other.to_string()),
+                                        percent: Some(40),
+                                        message: status.message.clone(),
+                                        eta: None,
+                                        step: None,
+                                        total: None,
+                                        queue_position: None,
+                                        queue_eta_seconds: None,
+                                    },
+                                );
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        consecutive_errors += 1;
+                        let message = format!("Failed to poll ComfyUI status: {}", err);
+                        {
+                            let registry = app_handle.state::<JobRegistry>();
+                            registry.append_job_stderr(job_id, &message);
+                        }
+                        if consecutive_errors >= 3 {
+                            final_message = Some(message);
+                            break;
+                        }
+                    }
+                }
+
+                sleep(Duration::from_millis(1500)).await;
+            }
+        }
+        Err(err) => {
+            final_message = Some(format!("Failed to submit workflow to ComfyUI: {}", err));
+        }
+    }
+
+    if app_handle.state::<JobRegistry>().is_job_done(job_id) {
+        return;
+    }
+
+    if final_success {
+        let message = final_message.unwrap_or_else(|| "ComfyUI render complete.".into());
+        let registry = app_handle.state::<JobRegistry>();
+        registry.append_job_stdout(job_id, &format!("{} (FPS: {:.3})", message, fps));
+        registry.complete_job(&app_handle, job_id, true, Some(0), false);
+        return;
+    }
+
+    let message = final_message.unwrap_or_else(|| "Video Maker job failed.".into());
+
+    {
+        let registry = app_handle.state::<JobRegistry>();
+        registry.append_job_stderr(job_id, &message);
+        registry.update_job_progress(
+            &app_handle,
+            job_id,
+            JobProgressSnapshot {
+                stage: Some("error".into()),
+                percent: Some(100),
+                message: Some(message.clone()),
+                eta: None,
+                step: None,
+                total: None,
+                queue_position: None,
+                queue_eta_seconds: None,
+            },
+        );
+    }
+
+    let registry = app_handle.state::<JobRegistry>();
+    registry.complete_job(&app_handle, job_id, false, Some(1), false);
+}
+
 #[tauri::command]
 fn queue_lofi_scene_job(app: AppHandle, registry: State<JobRegistry>) -> Result<u64, String> {
     let prompts = commands::get_lofi_scene_prompts()?;
@@ -9259,10 +9852,7 @@ fn queue_lofi_scene_job(app: AppHandle, registry: State<JobRegistry>) -> Result<
         );
     }
     registry.append_job_stdout(job_id, &format!("Seed: {}", prompts.seed));
-    registry.append_job_stdout(
-        job_id,
-        &format!("Seed behavior: {}", prompts.seed_behavior),
-    );
+    registry.append_job_stdout(job_id, &format!("Seed behavior: {}", prompts.seed_behavior));
     registry.append_job_stdout(job_id, &format!("Steps: {}", prompts.steps));
     registry.append_job_stdout(job_id, &format!("Batch size: {}", prompts.batch_size));
     registry.append_job_stdout(job_id, &format!("CFG: {:.3}", prompts.cfg));
@@ -9496,9 +10086,11 @@ async fn run_lofi_scene_job(
                                             output.local_path.as_deref(),
                                             &output.filename,
                                         )
-                                        .map(|path| JobArtifact {
-                                            name: output.filename.clone(),
-                                            path: path.to_string_lossy().to_string(),
+                                        .map(|path| {
+                                            JobArtifact {
+                                                name: output.filename.clone(),
+                                                path: path.to_string_lossy().to_string(),
+                                            }
                                         })
                                     })
                                     .collect();
@@ -9609,11 +10201,10 @@ async fn run_lofi_scene_job(
                                 break;
                             }
                             "error" => {
-                                final_message = Some(
-                                    status
-                                        .message
-                                        .unwrap_or_else(|| "ComfyUI reported an error.".to_string()),
-                                );
+                                final_message =
+                                    Some(status.message.unwrap_or_else(|| {
+                                        "ComfyUI reported an error.".to_string()
+                                    }));
                                 break;
                             }
                             "offline" => {
@@ -9947,11 +10538,10 @@ async fn run_stable_audio_job(
                                 break;
                             }
                             "error" => {
-                                final_message = Some(
-                                    status
-                                        .message
-                                        .unwrap_or_else(|| "ComfyUI reported an error.".to_string()),
-                                );
+                                final_message =
+                                    Some(status.message.unwrap_or_else(|| {
+                                        "ComfyUI reported an error.".to_string()
+                                    }));
                                 break;
                             }
                             "offline" => {
@@ -10288,11 +10878,10 @@ async fn run_ace_audio_job(
                                 break;
                             }
                             "error" => {
-                                final_message = Some(
-                                    status
-                                        .message
-                                        .unwrap_or_else(|| "ComfyUI reported an error.".to_string()),
-                                );
+                                final_message =
+                                    Some(status.message.unwrap_or_else(|| {
+                                        "ComfyUI reported an error.".to_string()
+                                    }));
                                 break;
                             }
                             "offline" => {
@@ -11003,6 +11592,9 @@ fn main() {
             commands::update_stable_audio_prompts,
             commands::get_lofi_scene_prompts,
             commands::update_lofi_scene_prompts,
+            commands::get_video_maker_prompts,
+            commands::update_video_maker_prompts,
+            commands::upload_video_maker_image,
             commands::get_ace_workflow_prompts,
             commands::update_ace_workflow_prompts,
             commands::get_stable_audio_templates,
@@ -11012,13 +11604,16 @@ fn main() {
             commands::comfyui_status,
             commands::comfyui_submit_stable_audio,
             commands::comfyui_submit_lofi_scene,
+            commands::comfyui_submit_video_maker,
             commands::comfyui_submit_ace_audio,
             commands::comfyui_job_status,
             queue_stable_audio_job,
+            queue_video_maker_job,
             queue_lofi_scene_job,
             queue_ace_audio_job,
             dnd_watcher::vault_index_get_by_id,
             stable_audio_output_files,
+            video_maker_output_files,
             lofi_scene_output_files,
             ace_output_files,
             discord_listen_logs_tail,
@@ -11051,7 +11646,9 @@ fn main() {
             register_job_artifacts,
             prune_job_history,
             queue_stable_audio_job,
+            queue_video_maker_job,
             stable_audio_output_files,
+            video_maker_output_files,
             queue_musicgen_job,
             queue_riffusion_soundscape_job,
             queue_riffusion_job,

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 use tempfile::NamedTempFile;
@@ -23,12 +23,12 @@ const ACE_DEFAULT_GUIDANCE: f64 = 0.99;
 const ACE_DEFAULT_BPM: f64 = 120.0;
 const ACE_WORKFLOW_FILENAME: &str = "audio_ace_step_1_t2a_instrumentals.json";
 const LOFI_WORKFLOW_FILENAME: &str = "Lofi_Scene_Maker.json";
+const VIDEO_MAKER_WORKFLOW_FILENAME: &str = "img_2_Vid.json";
 const TEMPLATES_KEY: &str = "stableAudioTemplates";
 const COMFY_SETTINGS_KEY: &str = "comfyuiSettings";
 const DEFAULT_BASE_URL: &str = "http://127.0.0.1:8188";
 const DEFAULT_AUTO_LAUNCH: bool = true;
-const ALLOWED_LOFI_SEED_BEHAVIORS: &[&str] =
-    &["fixed", "increment", "decrement", "randomize"];
+const ALLOWED_LOFI_SEED_BEHAVIORS: &[&str] = &["fixed", "increment", "decrement", "randomize"];
 const CLIENT_NAMESPACE: &str = "blossom";
 const QUEUE_ENDPOINT: &str = "/queue";
 const PROMPT_ENDPOINT: &str = "/prompt";
@@ -55,7 +55,9 @@ fn canonical_string(path: PathBuf) -> String {
 
 #[cfg(windows)]
 fn normalize_canonical_output(path: String) -> String {
-    path.strip_prefix(r"\\?\").map(|s| s.to_string()).unwrap_or(path)
+    path.strip_prefix(r"\\?\")
+        .map(|s| s.to_string())
+        .unwrap_or(path)
 }
 
 #[cfg(not(windows))]
@@ -181,6 +183,30 @@ pub struct LofiScenePromptUpdate {
     pub cfg: Option<f64>,
     #[serde(default)]
     pub batch_size: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoMakerPrompts {
+    pub prompt: String,
+    pub negative_prompt: String,
+    pub file_name_prefix: String,
+    pub fps: f64,
+    pub image_filename: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoMakerPromptUpdate {
+    pub prompt: String,
+    #[serde(default)]
+    pub negative_prompt: Option<String>,
+    #[serde(default)]
+    pub file_name_prefix: Option<String>,
+    #[serde(default)]
+    pub fps: Option<f64>,
+    #[serde(default)]
+    pub image_filename: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -467,6 +493,43 @@ fn resolve_output_directory(settings: &ComfyUISettings, sys_paths: &SystemPaths)
     PathBuf::from("output")
 }
 
+fn resolve_input_directory(settings: &ComfyUISettings) -> PathBuf {
+    if let Some(ref working_dir) = settings
+        .working_directory
+        .as_ref()
+        .and_then(|s| Some(s.trim().to_string()))
+        .filter(|s| !s.is_empty())
+    {
+        return PathBuf::from(working_dir).join("input");
+    }
+
+    if let Some(ref output_dir) = settings
+        .output_dir
+        .as_ref()
+        .and_then(|s| Some(s.trim().to_string()))
+        .filter(|s| !s.is_empty())
+    {
+        let base = PathBuf::from(output_dir);
+        if base.is_absolute() {
+            if let Some(parent) = base.parent() {
+                if parent.as_os_str().is_empty() {
+                    return PathBuf::from("input");
+                }
+                return parent.join("input");
+            }
+            return PathBuf::from("input");
+        }
+        if let Some(parent) = base.parent() {
+            if parent.as_os_str().is_empty() {
+                return PathBuf::from("input");
+            }
+            return parent.to_path_buf().join("input");
+        }
+    }
+
+    PathBuf::from("input")
+}
+
 fn extract_outputs(
     outputs_value: Option<&Value>,
     settings: &ComfyUISettings,
@@ -485,6 +548,39 @@ fn extract_outputs(
                         let subfolder =
                             audio.get("subfolder").and_then(Value::as_str).unwrap_or("");
                         let kind = audio
+                            .get("type")
+                            .and_then(Value::as_str)
+                            .map(|s| s.to_string());
+                        let mut path = base_dir.clone();
+                        if !subfolder.is_empty() {
+                            for part in subfolder.replace('\\', "/").split('/') {
+                                if !part.is_empty() {
+                                    path.push(part);
+                                }
+                            }
+                        }
+                        path.push(filename);
+                        let local_path = path.to_string_lossy().to_string();
+                        outputs.push(ComfyUIOutput {
+                            node_id: node_id.clone(),
+                            filename: filename.to_string(),
+                            local_path: Some(local_path),
+                            subfolder: if subfolder.is_empty() {
+                                None
+                            } else {
+                                Some(subfolder.to_string())
+                            },
+                            kind,
+                        });
+                    }
+                }
+            }
+            if let Some(video_items) = ui.get("video").and_then(Value::as_array) {
+                for video in video_items {
+                    if let Some(filename) = video.get("filename").and_then(Value::as_str) {
+                        let subfolder =
+                            video.get("subfolder").and_then(Value::as_str).unwrap_or("");
+                        let kind = video
                             .get("type")
                             .and_then(Value::as_str)
                             .map(|s| s.to_string());
@@ -694,25 +790,8 @@ fn convert_node_to_prompt(
         match inputs_value {
             Value::Object(inputs) => {
                 for (key, value) in inputs {
-                    let input_value = if let Some(link_id) = value.get("link").and_then(Value::as_i64) {
-                        if let Some((origin, index)) = link_map.get(&link_id) {
-                            Value::Array(vec![
-                                Value::String(origin.to_string()),
-                                Value::Number((*index).into()),
-                            ])
-                        } else {
-                            Value::Null
-                        }
-                    } else {
-                        value.clone()
-                    };
-                    inputs_map.insert(key.clone(), input_value);
-                }
-            }
-            Value::Array(items) => {
-                for entry in items {
-                    if let Some(name) = entry.get("name").and_then(Value::as_str) {
-                        let input_value = if let Some(link_id) = entry.get("link").and_then(Value::as_i64) {
+                    let input_value =
+                        if let Some(link_id) = value.get("link").and_then(Value::as_i64) {
                             if let Some((origin, index)) = link_map.get(&link_id) {
                                 Value::Array(vec![
                                     Value::String(origin.to_string()),
@@ -721,11 +800,30 @@ fn convert_node_to_prompt(
                             } else {
                                 Value::Null
                             }
-                        } else if let Some(value) = entry.get("value") {
-                            value.clone()
                         } else {
-                            Value::Null
+                            value.clone()
                         };
+                    inputs_map.insert(key.clone(), input_value);
+                }
+            }
+            Value::Array(items) => {
+                for entry in items {
+                    if let Some(name) = entry.get("name").and_then(Value::as_str) {
+                        let input_value =
+                            if let Some(link_id) = entry.get("link").and_then(Value::as_i64) {
+                                if let Some((origin, index)) = link_map.get(&link_id) {
+                                    Value::Array(vec![
+                                        Value::String(origin.to_string()),
+                                        Value::Number((*index).into()),
+                                    ])
+                                } else {
+                                    Value::Null
+                                }
+                            } else if let Some(value) = entry.get("value") {
+                                value.clone()
+                            } else {
+                                Value::Null
+                            };
                         inputs_map.insert(name.to_string(), input_value);
                     }
                 }
@@ -942,7 +1040,9 @@ fn extract_latent_batch_size(data: &Value, node_id: i64) -> i64 {
                     .and_then(Value::as_array)
                     .and_then(|vals| vals.get(2))
                     .and_then(|value| {
-                        value.as_i64().or_else(|| value.as_f64().map(|v| v.round() as i64))
+                        value
+                            .as_i64()
+                            .or_else(|| value.as_f64().map(|v| v.round() as i64))
                     })
             })
         })
@@ -1168,6 +1268,225 @@ fn persist_lofi_workflow(data: &Value) -> Result<(), String> {
     let payload = serde_json::to_string_pretty(data)
         .map_err(|e| format!("Failed to serialize Lofi workflow: {}", e))?;
     fs::write(&path, payload).map_err(|e| format!("Failed to write Lofi workflow: {}", e))
+}
+
+fn video_maker_workflow_path() -> PathBuf {
+    project_root()
+        .join("assets")
+        .join("workflows")
+        .join(VIDEO_MAKER_WORKFLOW_FILENAME)
+}
+
+fn load_video_maker_workflow() -> Result<Value, String> {
+    let path = video_maker_workflow_path();
+    let raw = fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read {}: {}", VIDEO_MAKER_WORKFLOW_FILENAME, e))?;
+    serde_json::from_str(&raw)
+        .map_err(|e| format!("Failed to parse {}: {}", VIDEO_MAKER_WORKFLOW_FILENAME, e))
+}
+
+fn persist_video_maker_workflow(data: &Value) -> Result<(), String> {
+    let path = video_maker_workflow_path();
+    let payload = serde_json::to_string_pretty(data)
+        .map_err(|e| format!("Failed to serialize Video Maker workflow: {}", e))?;
+    fs::write(&path, payload).map_err(|e| format!("Failed to write Video Maker workflow: {}", e))
+}
+
+fn extract_video_maker_prompts(data: &Value) -> Result<VideoMakerPrompts, String> {
+    let nodes = data
+        .get("nodes")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "Workflow is missing a nodes array".to_string())?;
+
+    let mut positive_prompt: Option<String> = None;
+    let mut negative_prompt: Option<String> = None;
+    let mut file_prefix: Option<String> = None;
+    let mut fps: Option<f64> = None;
+    let mut image_filename: Option<String> = None;
+
+    for node in nodes {
+        let node_type = node.get("type").and_then(Value::as_str).unwrap_or("");
+        match node_type {
+            "CLIPTextEncode" => {
+                let title = node
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                let values = node
+                    .get("widgets_values")
+                    .and_then(Value::as_array)
+                    .and_then(|arr| arr.get(0))
+                    .and_then(Value::as_str)
+                    .map(|s| s.to_string());
+                if title.contains("negative") {
+                    if negative_prompt.is_none() {
+                        negative_prompt = values;
+                    }
+                } else if positive_prompt.is_none() {
+                    positive_prompt = values;
+                }
+            }
+            "SaveVideo" => {
+                if file_prefix.is_none() {
+                    file_prefix = node
+                        .get("widgets_values")
+                        .and_then(Value::as_array)
+                        .and_then(|arr| arr.get(0))
+                        .and_then(Value::as_str)
+                        .map(|s| s.to_string());
+                }
+            }
+            "CreateVideo" => {
+                if fps.is_none() {
+                    fps = node
+                        .get("widgets_values")
+                        .and_then(Value::as_array)
+                        .and_then(|arr| arr.get(0))
+                        .and_then(|value| {
+                            if let Some(number) = value.as_f64() {
+                                Some(number)
+                            } else if let Some(int_val) = value.as_i64() {
+                                Some(int_val as f64)
+                            } else {
+                                None
+                            }
+                        });
+                }
+            }
+            "LoadImage" => {
+                if image_filename.is_none() {
+                    image_filename = node
+                        .get("widgets_values")
+                        .and_then(Value::as_array)
+                        .and_then(|arr| arr.get(0))
+                        .and_then(Value::as_str)
+                        .map(|s| s.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let prompt = positive_prompt
+        .ok_or_else(|| "CLIPTextEncode positive prompt node not found in workflow".to_string())?;
+    let negative = negative_prompt
+        .ok_or_else(|| "CLIPTextEncode negative prompt node not found in workflow".to_string())?;
+    let prefix = file_prefix.ok_or_else(|| "SaveVideo node not found in workflow".to_string())?;
+    let fps_value = fps.ok_or_else(|| "CreateVideo node not found in workflow".to_string())?;
+    let image_name =
+        image_filename.ok_or_else(|| "LoadImage node not found in workflow".to_string())?;
+
+    Ok(VideoMakerPrompts {
+        prompt,
+        negative_prompt: negative,
+        file_name_prefix: prefix,
+        fps: fps_value,
+        image_filename: image_name,
+    })
+}
+
+fn apply_video_maker_prompts(data: &mut Value, prompts: &VideoMakerPrompts) -> Result<(), String> {
+    let nodes = data
+        .get_mut("nodes")
+        .and_then(Value::as_array_mut)
+        .ok_or_else(|| "Workflow is missing a nodes array".to_string())?;
+
+    let mut positive_count = 0usize;
+    let mut negative_count = 0usize;
+    let mut save_count = 0usize;
+    let mut create_count = 0usize;
+    let mut image_count = 0usize;
+
+    let fps_number = Number::from_f64(prompts.fps)
+        .ok_or_else(|| "FPS must be a finite positive number".to_string())?;
+
+    for node in nodes.iter_mut() {
+        let node_type = node.get("type").and_then(Value::as_str).unwrap_or("");
+        match node_type {
+            "CLIPTextEncode" => {
+                let title = node
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                let replacement = if title.contains("negative") {
+                    negative_count += 1;
+                    Value::String(prompts.negative_prompt.clone())
+                } else {
+                    positive_count += 1;
+                    Value::String(prompts.prompt.clone())
+                };
+                let values = node
+                    .get_mut("widgets_values")
+                    .and_then(Value::as_array_mut)
+                    .ok_or_else(|| "CLIPTextEncode node missing widgets_values".to_string())?;
+                if values.is_empty() {
+                    values.push(replacement);
+                } else {
+                    values[0] = replacement;
+                }
+            }
+            "SaveVideo" => {
+                save_count += 1;
+                let values = node
+                    .get_mut("widgets_values")
+                    .and_then(Value::as_array_mut)
+                    .ok_or_else(|| "SaveVideo node missing widgets_values".to_string())?;
+                let replacement = Value::String(prompts.file_name_prefix.clone());
+                if values.is_empty() {
+                    values.push(replacement);
+                } else {
+                    values[0] = replacement;
+                }
+            }
+            "CreateVideo" => {
+                create_count += 1;
+                let values = node
+                    .get_mut("widgets_values")
+                    .and_then(Value::as_array_mut)
+                    .ok_or_else(|| "CreateVideo node missing widgets_values".to_string())?;
+                let replacement = Value::Number(fps_number.clone());
+                if values.is_empty() {
+                    values.push(replacement);
+                } else {
+                    values[0] = replacement;
+                }
+            }
+            "LoadImage" => {
+                image_count += 1;
+                let values = node
+                    .get_mut("widgets_values")
+                    .and_then(Value::as_array_mut)
+                    .ok_or_else(|| "LoadImage node missing widgets_values".to_string())?;
+                let replacement = Value::String(prompts.image_filename.clone());
+                if values.is_empty() {
+                    values.push(replacement);
+                } else {
+                    values[0] = replacement;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if positive_count == 0 {
+        return Err("CLIPTextEncode positive prompt node not found in workflow".into());
+    }
+    if negative_count == 0 {
+        return Err("CLIPTextEncode negative prompt node not found in workflow".into());
+    }
+    if save_count == 0 {
+        return Err("SaveVideo node not found in workflow".into());
+    }
+    if create_count == 0 {
+        return Err("CreateVideo node not found in workflow".into());
+    }
+    if image_count == 0 {
+        return Err("LoadImage node not found in workflow".into());
+    }
+
+    Ok(())
 }
 
 fn locate_ace_text_node<'a>(data: &'a Value) -> Result<&'a Value, String> {
@@ -1524,6 +1843,146 @@ pub fn update_lofi_scene_prompts(
 }
 
 #[tauri::command]
+pub fn get_video_maker_prompts() -> Result<VideoMakerPrompts, String> {
+    let data = load_video_maker_workflow()?;
+    extract_video_maker_prompts(&data)
+}
+
+#[tauri::command]
+pub fn update_video_maker_prompts(
+    update: VideoMakerPromptUpdate,
+) -> Result<VideoMakerPrompts, String> {
+    let mut data = load_video_maker_workflow()?;
+    let current = extract_video_maker_prompts(&data)?;
+
+    let prompt = update.prompt.trim();
+    if prompt.is_empty() {
+        return Err("Prompt cannot be empty.".into());
+    }
+
+    let negative_prompt = update
+        .negative_prompt
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+        .unwrap_or(current.negative_prompt);
+
+    let file_name_prefix = update
+        .file_name_prefix
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+        .unwrap_or(current.file_name_prefix);
+
+    let fps = update.fps.unwrap_or(current.fps);
+    if !fps.is_finite() || fps <= 0.0 {
+        return Err("FPS must be a positive number.".into());
+    }
+
+    let image_filename = update
+        .image_filename
+        .as_ref()
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+        .unwrap_or(current.image_filename);
+
+    let prompts = VideoMakerPrompts {
+        prompt: prompt.to_string(),
+        negative_prompt,
+        file_name_prefix,
+        fps,
+        image_filename,
+    };
+
+    apply_video_maker_prompts(&mut data, &prompts)?;
+    persist_video_maker_workflow(&data)?;
+
+    Ok(prompts)
+}
+
+#[tauri::command]
+pub fn upload_video_maker_image(
+    app: AppHandle,
+    source_path: String,
+) -> Result<VideoMakerPrompts, String> {
+    let trimmed = source_path.trim();
+    if trimmed.is_empty() {
+        return Err("Source path is required.".into());
+    }
+
+    let source = Path::new(trimmed);
+    if !source.exists() || !source.is_file() {
+        return Err(format!("Source file does not exist: {}", trimmed));
+    }
+
+    let file_name = source
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "Uploaded file must have a valid filename.".to_string())?;
+
+    let store = settings_store(&app)?;
+    let mut settings = load_comfyui_settings_from_store(store.as_ref());
+    if ensure_settings_defaults(&mut settings) {
+        persist_comfyui_settings(store.as_ref(), &settings)?;
+    }
+
+    let input_dir = resolve_input_directory(&settings);
+    fs::create_dir_all(&input_dir).map_err(|err| {
+        format!(
+            "Failed to create ComfyUI input directory {}: {}",
+            input_dir.to_string_lossy(),
+            err
+        )
+    })?;
+
+    let mut stored_name = file_name.to_string();
+    let mut target_path = input_dir.join(&stored_name);
+    if target_path.exists() {
+        let stem = source
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("input");
+        let extension = source
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("");
+        let mut counter = 1usize;
+        loop {
+            stored_name = if extension.is_empty() {
+                format!("{}-{}", stem, counter)
+            } else {
+                format!("{}-{}.{}", stem, counter, extension)
+            };
+            target_path = input_dir.join(&stored_name);
+            if !target_path.exists() {
+                break;
+            }
+            counter += 1;
+        }
+    }
+
+    fs::copy(source, &target_path).map_err(|err| {
+        format!(
+            "Failed to copy {} to {}: {}",
+            source.to_string_lossy(),
+            target_path.to_string_lossy(),
+            err
+        )
+    })?;
+
+    let mut data = load_video_maker_workflow()?;
+    let mut prompts = extract_video_maker_prompts(&data)?;
+    prompts.image_filename = stored_name;
+    apply_video_maker_prompts(&mut data, &prompts)?;
+    persist_video_maker_workflow(&data)?;
+
+    Ok(prompts)
+}
+
+#[tauri::command]
 pub fn get_ace_workflow_prompts() -> Result<AceWorkflowPrompts, String> {
     let data = load_ace_workflow()?;
     extract_ace_prompts(&data)
@@ -1767,6 +2226,39 @@ pub async fn comfyui_status(
             Err(format!("Unable to reach ComfyUI at {}: {}", base_url, err))
         }
     }
+}
+
+#[tauri::command]
+pub async fn comfyui_submit_video_maker(app: AppHandle) -> Result<ComfyUISubmitResponse, String> {
+    let store = settings_store(&app)?;
+    let mut settings = load_comfyui_settings_from_store(store.as_ref());
+    if ensure_settings_defaults(&mut settings) {
+        persist_comfyui_settings(store.as_ref(), &settings)?;
+    }
+
+    let workflow = load_video_maker_workflow()?;
+    let prompt_map = convert_workflow_to_prompt(&workflow)?;
+    let prompt_value = Value::Object(prompt_map);
+    let client_id = format!("{}-{}", CLIENT_NAMESPACE, Uuid::new_v4());
+    let base_url = settings.base_url();
+    let url = format!("{}{}", base_url, PROMPT_ENDPOINT);
+    let response = post_json(
+        url,
+        json!({
+            "prompt": prompt_value,
+            "client_id": client_id,
+        }),
+    )
+    .await?;
+    let prompt_id = response
+        .get("prompt_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "ComfyUI submission did not return a prompt_id.".to_string())?;
+
+    Ok(ComfyUISubmitResponse {
+        prompt_id: prompt_id.to_string(),
+        client_id,
+    })
 }
 
 #[tauri::command]
