@@ -79,7 +79,7 @@ Specify BPM (optional but useful) and track length.
 
 ## 🧩 Final Prompt
 Combine all of the above into one clear paragraph for Stable Audio.  
-> “A [Main Concept] in [Genre/Style] featuring [Instruments], evoking a [Mood/Emotion] vibe inspired by [Era/Influence]. [Structure/Progression details]. [Sound design or mix notes]. [Tempo & Duration].”
+> “A [Main Concept] in [Genre/Style] featuring [Instruments], evoking a [Mood/Emotion] vibe inspired by [Era/Influence]. [Structure/Progression details]. [Sound design or mix notes]. [Tempo].”
 
 ---
 
