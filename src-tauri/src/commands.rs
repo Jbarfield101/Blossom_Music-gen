@@ -640,6 +640,8 @@ fn widget_input_names(node_type: &str) -> Option<&'static [&'static str]> {
     match node_type {
         "CLIPLoader" => Some(&["clip_name", "type", "clip"]),
         "CLIPTextEncode" => Some(&["text"]),
+        "CheckpointLoaderSimple" => Some(&["ckpt_name"]),
+        "EmptyLatentAudio" => Some(&["seconds", "batch_size"]),
         "EmptySD3LatentImage" => Some(&["width", "height", "batch_size"]),
         "KSampler" => Some(&[
             "seed",
@@ -652,6 +654,7 @@ fn widget_input_names(node_type: &str) -> Option<&'static [&'static str]> {
         ]),
         "LoraLoaderModelOnly" => Some(&["lora_name", "strength_model"]),
         "ModelSamplingAuraFlow" => Some(&["shift"]),
+        "SaveAudio" => Some(&["filename_prefix"]),
         "SaveImage" => Some(&["filename_prefix"]),
         "UNETLoader" => Some(&["unet_name", "weight_dtype"]),
         "VAELoader" => Some(&["vae_name", "vae_type"]),
