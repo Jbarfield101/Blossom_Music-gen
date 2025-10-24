@@ -92,6 +92,10 @@ pub struct RiffusionResult {
     pub path: String,
 }
 
+fn default_batch_size() -> i64 {
+    1
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StableAudioPrompts {
@@ -99,6 +103,7 @@ pub struct StableAudioPrompts {
     pub negative_prompt: String,
     pub file_name_prefix: String,
     pub seconds: f64,
+    pub batch_size: i64,
 }
 
 #[derive(Deserialize)]
@@ -110,6 +115,8 @@ pub struct StableAudioPromptUpdate {
     pub file_name_prefix: Option<String>,
     #[serde(default)]
     pub seconds: Option<f64>,
+    #[serde(default)]
+    pub batch_size: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -140,6 +147,8 @@ pub struct StableAudioTemplate {
     pub negative_prompt: String,
     pub file_name_prefix: String,
     pub seconds: f64,
+    #[serde(default = "default_batch_size")]
+    pub batch_size: i64,
 }
 
 #[derive(Deserialize)]
@@ -150,6 +159,8 @@ pub struct StableAudioTemplatePayload {
     pub negative_prompt: String,
     pub file_name_prefix: String,
     pub seconds: f64,
+    #[serde(default = "default_batch_size")]
+    pub batch_size: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1039,9 +1050,18 @@ fn extract_latent_batch_size(data: &Value, node_id: i64) -> i64 {
                 if node.get("id").and_then(Value::as_i64) != Some(node_id) {
                     return None;
                 }
+                let index = match node.get("type").and_then(Value::as_str) {
+                    Some("EmptyLatentAudio") => 1usize,
+                    _ => 2usize,
+                };
                 node.get("widgets_values")
-                    .and_then(Value::as_array)
-                    .and_then(|vals| vals.get(2))
+                    .and_then(|vals| {
+                        if let Some(arr) = vals.as_array() {
+                            arr.get(index).cloned()
+                        } else {
+                            None
+                        }
+                    })
                     .and_then(|value| {
                         value
                             .as_i64()
@@ -1066,31 +1086,51 @@ fn set_latent_batch_size(data: &mut Value, node_id: i64, batch_size: i64) -> Res
     let node = nodes
         .iter_mut()
         .find(|node| node.get("id").and_then(Value::as_i64) == Some(node_id))
-        .ok_or_else(|| format!("EmptySD3LatentImage node {} not found in workflow", node_id))?;
+        .ok_or_else(|| format!("Latent node {} not found in workflow", node_id))?;
+
+    let node_type = node
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
 
     let obj = node
         .as_object_mut()
-        .ok_or_else(|| format!("EmptySD3LatentImage node {} is not an object", node_id))?;
+        .ok_or_else(|| format!("Latent node {} is not an object", node_id))?;
 
     let value = obj
         .entry("widgets_values".to_string())
         .or_insert_with(|| Value::Array(Vec::new()));
 
-    let arr = match value {
-        Value::Array(arr) => arr,
-        _ => {
-            *value = Value::Array(Vec::new());
-            value
-                .as_array_mut()
-                .ok_or_else(|| "Failed to initialize widgets_values array".to_string())?
-        }
+    let index = match node_type.as_str() {
+        "EmptyLatentAudio" => 1usize,
+        _ => 2usize,
     };
 
-    while arr.len() < 3 {
+    if !value.is_array() {
+        let preserved = if let Value::Number(num) = value {
+            Some(Value::Number(num.clone()))
+        } else {
+            None
+        };
+        *value = Value::Array(Vec::new());
+        if let Some(first) = preserved {
+            if let Value::Array(arr) = value {
+                arr.push(first);
+            }
+        }
+    }
+
+    let arr = match value {
+        Value::Array(arr) => arr,
+        _ => unreachable!(),
+    };
+
+    while arr.len() < index + 1 {
         arr.push(Value::Null);
     }
 
-    arr[2] = Value::Number(Number::from(batch_size));
+    arr[index] = Value::Number(Number::from(batch_size));
 
     Ok(())
 }
@@ -1694,6 +1734,7 @@ pub fn get_stable_audio_prompts() -> Result<StableAudioPrompts, String> {
         negative_prompt: extract_prompt_text(&data, negative_id),
         file_name_prefix: extract_save_audio_prefix(&data, save_node),
         seconds: extract_latent_seconds(&data, latent_node),
+        batch_size: extract_latent_batch_size(&data, latent_node),
     })
 }
 
@@ -1705,6 +1746,7 @@ pub fn update_stable_audio_prompts(
     let (positive_id, negative_id) = locate_stable_audio_nodes(&data)?;
     let save_node = locate_save_audio_node(&data)?;
     let latent_node = locate_empty_latent_audio_node(&data)?;
+    let current_batch_size = extract_latent_batch_size(&data, latent_node);
 
     let prompt = payload.prompt.trim().to_string();
     let negative = payload.negative_prompt.trim().to_string();
@@ -1725,11 +1767,17 @@ pub fn update_stable_audio_prompts(
             }
         })
         .unwrap_or(DEFAULT_SECONDS);
+    let batch_size = match payload.batch_size {
+        Some(value) if value > 0 => value,
+        Some(_) => return Err("Batch size must be positive.".into()),
+        None => current_batch_size,
+    };
 
     set_prompt_text(&mut data, positive_id, &prompt)?;
     set_prompt_text(&mut data, negative_id, &negative)?;
     set_save_audio_prefix(&mut data, save_node, &prefix)?;
     set_latent_seconds(&mut data, latent_node, seconds)?;
+    set_latent_batch_size(&mut data, latent_node, batch_size)?;
     persist_stable_audio_workflow(&data)?;
 
     Ok(StableAudioPrompts {
@@ -1737,6 +1785,7 @@ pub fn update_stable_audio_prompts(
         negative_prompt: negative,
         file_name_prefix: prefix,
         seconds,
+        batch_size,
     })
 }
 
@@ -2080,6 +2129,11 @@ pub fn save_stable_audio_template(
     } else {
         DEFAULT_SECONDS
     };
+    let batch_size = if template.batch_size > 0 {
+        template.batch_size
+    } else {
+        default_batch_size()
+    };
 
     let new_template = StableAudioTemplate {
         name: name.to_string(),
@@ -2087,6 +2141,7 @@ pub fn save_stable_audio_template(
         negative_prompt: negative.to_string(),
         file_name_prefix: prefix,
         seconds,
+        batch_size,
     };
 
     let store = settings_store(&app)?;

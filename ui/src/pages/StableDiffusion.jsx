@@ -357,6 +357,7 @@ export default function StableDiffusion() {
   const [negativePrompt, setNegativePrompt] = useState('');
   const [filePrefix, setFilePrefix] = useState(DEFAULT_FILE_PREFIX);
   const [seconds, setSeconds] = useState(DEFAULT_SECONDS);
+  const [batchSize, setBatchSize] = useState('1');
   const [templates, setTemplates] = useState([]);
   const [selectedTemplate, setSelectedTemplate] = useState('');
   const [templateName, setTemplateName] = useState('');
@@ -455,6 +456,7 @@ export default function StableDiffusion() {
         const fetchedNegative = extractPromptField(promptsResult, 'negativePrompt');
         const fetchedPrefix = extractPromptField(promptsResult, 'fileNamePrefix');
         const fetchedSeconds = extractPromptField(promptsResult, 'seconds');
+        const fetchedBatchSize = extractPromptField(promptsResult, 'batchSize');
         const cardPrompt = (navPromptRef.current || '').trim();
         const resolvedPrompt = cardPrompt ? cardPrompt : fetchedPrompt;
         setPrompt(resolvedPrompt);
@@ -467,6 +469,14 @@ export default function StableDiffusion() {
         setNegativePrompt(fetchedNegative);
         setFilePrefix(fetchedPrefix || DEFAULT_FILE_PREFIX);
         setSeconds(fetchedSeconds || DEFAULT_SECONDS);
+        const normalizedBatchSize = (() => {
+          const parsed = Number.parseInt((fetchedBatchSize || '').trim(), 10);
+          if (Number.isFinite(parsed) && parsed > 0) {
+            return String(parsed);
+          }
+          return '1';
+        })();
+        setBatchSize(normalizedBatchSize);
         setError('');
         setStatusMessage('');
       } catch (err) {
@@ -567,6 +577,15 @@ export default function StableDiffusion() {
           typeof template?.seconds === 'number'
             ? template.seconds
             : Number.parseFloat(String(template?.seconds ?? DEFAULT_SECONDS)) || Number(DEFAULT_SECONDS),
+        batchSize: (() => {
+          const raw = template?.batch_size ?? template?.batchSize ?? 1;
+          let value = typeof raw === 'number' ? raw : Number.parseInt(String(raw ?? ''), 10);
+          if (!Number.isFinite(value)) {
+            value = 1;
+          }
+          value = Math.round(value);
+          return value > 0 ? value : 1;
+        })(),
       }))
       .filter((template) => template.name.trim().length > 0);
       normalized.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
@@ -633,6 +652,7 @@ export default function StableDiffusion() {
       setNegativePrompt(template.negativePrompt || '');
       setFilePrefix(template.fileNamePrefix || DEFAULT_FILE_PREFIX);
       setSeconds(String(template.seconds ?? Number(DEFAULT_SECONDS)));
+      setBatchSize(String(template.batchSize ?? 1));
       setTemplateName(template.name);
     },
     [templates, applyBuilderValues],
@@ -876,7 +896,7 @@ export default function StableDiffusion() {
     }
   }, [isTauriEnv, refreshQueue, refreshStatus, rendering, startJobPolling]);
 
-const handleSubmit = async (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
     setStatusMessage('');
     setError('');
@@ -891,6 +911,8 @@ const handleSubmit = async (event) => {
     const cleanedFilePrefix = filePrefix.trim() || DEFAULT_FILE_PREFIX;
     const cleanedSeconds = seconds.trim();
     const secondsValue = Number.parseFloat(cleanedSeconds);
+    const cleanedBatchSize = batchSize.trim();
+    const batchValue = Number.parseInt(cleanedBatchSize, 10);
 
     if (!cleanedPrompt) {
       setError('Prompt cannot be empty.');
@@ -902,6 +924,11 @@ const handleSubmit = async (event) => {
       return;
     }
 
+    if (!Number.isInteger(batchValue) || batchValue <= 0) {
+      setError('Batch size must be a positive whole number.');
+      return;
+    }
+
     setSaving(true);
     try {
       const result = await invoke('update_stable_audio_prompts', {
@@ -909,15 +936,25 @@ const handleSubmit = async (event) => {
         negativePrompt: cleanedNegative,
         fileNamePrefix: cleanedFilePrefix,
         seconds: secondsValue,
+        batchSize: batchValue,
       });
       const savedPrompt = extractPromptField(result, 'prompt') || cleanedPrompt;
       const savedNegative = extractPromptField(result, 'negativePrompt') || cleanedNegative;
       const savedPrefix = extractPromptField(result, 'fileNamePrefix') || cleanedFilePrefix;
       const savedSeconds = extractPromptField(result, 'seconds') || String(secondsValue);
+      const savedBatchSizeRaw = extractPromptField(result, 'batchSize');
+      const resolvedBatchSize = (() => {
+        const parsed = Number.parseInt((savedBatchSizeRaw || '').trim(), 10);
+        if (Number.isInteger(parsed) && parsed > 0) {
+          return parsed;
+        }
+        return batchValue;
+      })();
       setPrompt(savedPrompt);
       setNegativePrompt(savedNegative);
       setFilePrefix(savedPrefix);
       setSeconds(savedSeconds);
+      setBatchSize(String(resolvedBatchSize));
 
       const trimmedTemplateName = templateName.trim();
       if (trimmedTemplateName) {
@@ -929,6 +966,7 @@ const handleSubmit = async (event) => {
               negativePrompt: savedNegative,
               fileNamePrefix: savedPrefix,
               seconds: Number.parseFloat(savedSeconds) || secondsValue,
+              batchSize: resolvedBatchSize,
             },
           });
           setTemplates(normalizeTemplates(templatesResult));
@@ -1085,26 +1123,56 @@ const handleSubmit = async (event) => {
               }}
             />
           </label>
-          <label htmlFor="stable-diffusion-seconds" className="form-label" style={{ display: 'grid', gap: '0.4rem' }}>
-            <span>Duration (seconds)</span>
-            <input
-              id="stable-diffusion-seconds"
-              type="number"
-              min="1"
-              step="0.1"
-              value={seconds}
-              onChange={(event) => setSeconds(event.target.value)}
-              disabled={disabled}
-              style={{
-                width: '140px',
-                padding: '0.7rem 0.85rem',
-                borderRadius: '12px',
-                border: `1px solid ${SURFACE_BORDER_COLOR}`,
-                background: 'var(--card-bg)',
-                color: 'var(--text)',
-              }}
-            />
-          </label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
+            <label
+              htmlFor="stable-diffusion-seconds"
+              className="form-label"
+              style={{ display: 'grid', gap: '0.4rem' }}
+            >
+              <span>Duration (seconds)</span>
+              <input
+                id="stable-diffusion-seconds"
+                type="number"
+                min="1"
+                step="0.1"
+                value={seconds}
+                onChange={(event) => setSeconds(event.target.value)}
+                disabled={disabled}
+                style={{
+                  width: '140px',
+                  padding: '0.7rem 0.85rem',
+                  borderRadius: '12px',
+                  border: `1px solid ${SURFACE_BORDER_COLOR}`,
+                  background: 'var(--card-bg)',
+                  color: 'var(--text)',
+                }}
+              />
+            </label>
+            <label
+              htmlFor="stable-diffusion-batch-size"
+              className="form-label"
+              style={{ display: 'grid', gap: '0.4rem' }}
+            >
+              <span>Batch Size</span>
+              <input
+                id="stable-diffusion-batch-size"
+                type="number"
+                min="1"
+                step="1"
+                value={batchSize}
+                onChange={(event) => setBatchSize(event.target.value)}
+                disabled={disabled}
+                style={{
+                  width: '120px',
+                  padding: '0.7rem 0.85rem',
+                  borderRadius: '12px',
+                  border: `1px solid ${SURFACE_BORDER_COLOR}`,
+                  background: 'var(--card-bg)',
+                  color: 'var(--text)',
+                }}
+              />
+            </label>
+          </div>
         </div>
         {comfyStatus.pending > 0 && (
           <div style={{ fontWeight: 600 }}>Pending ComfyUI tasks: {comfyStatus.pending}</div>

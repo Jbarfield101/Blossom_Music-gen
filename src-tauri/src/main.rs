@@ -10305,6 +10305,7 @@ fn queue_stable_audio_job(app: AppHandle, registry: State<JobRegistry>) -> Resul
     let mut args = Vec::new();
     args.push(format!("seconds={:.3}", prompts.seconds));
     args.push(format!("filePrefix={}", prompts.file_name_prefix));
+    args.push(format!("batchSize={}", prompts.batch_size));
 
     let context = JobContext {
         kind: Some("stable_audio_render".into()),
@@ -10336,6 +10337,10 @@ fn queue_stable_audio_job(app: AppHandle, registry: State<JobRegistry>) -> Resul
         registry.append_job_stdout(job_id, &format!("Negative prompt: {}", negative_preview));
     }
     registry.append_job_stdout(job_id, &format!("Seconds: {:.3}", prompts.seconds.max(0.0)));
+    registry.append_job_stdout(
+        job_id,
+        &format!("Batch size: {}", prompts.batch_size.max(1)),
+    );
     if !prompts.file_name_prefix.trim().is_empty() {
         registry.append_job_stdout(
             job_id,
@@ -10349,6 +10354,7 @@ fn queue_stable_audio_job(app: AppHandle, registry: State<JobRegistry>) -> Resul
     let negative_prompt = prompts.negative_prompt;
     let file_prefix = prompts.file_name_prefix;
     let seconds = prompts.seconds;
+    let batch_size = prompts.batch_size;
 
     async_runtime::spawn(async move {
         run_stable_audio_job(
@@ -10358,6 +10364,7 @@ fn queue_stable_audio_job(app: AppHandle, registry: State<JobRegistry>) -> Resul
             negative_prompt,
             file_prefix,
             seconds,
+            batch_size,
         )
         .await;
     });
@@ -10372,6 +10379,7 @@ async fn run_stable_audio_job(
     negative_prompt: String,
     file_prefix: String,
     seconds: f64,
+    batch_size: i64,
 ) {
     let comfy_settings = commands::get_comfyui_settings(app_handle.clone()).ok();
     let mut final_success = false;
@@ -10551,10 +10559,7 @@ async fn run_stable_audio_job(
                                         for artifact in &gallery_artifacts {
                                             registry.append_job_stdout(
                                                 job_id,
-                                                &format!(
-                                                    "Gallery copy saved: {}",
-                                                    artifact.path
-                                                ),
+                                                &format!("Gallery copy saved: {}", artifact.path),
                                             );
                                         }
                                     }
@@ -10563,6 +10568,7 @@ async fn run_stable_audio_job(
                                         "negativePrompt": negative_prompt,
                                         "fileNamePrefix": file_prefix,
                                         "seconds": seconds,
+                                        "batchSize": batch_size,
                                         "outputs": artifacts.iter().map(|a| a.path.clone()).collect::<Vec<_>>(),
                                         "galleryCopies": gallery_artifacts
                                             .iter()
