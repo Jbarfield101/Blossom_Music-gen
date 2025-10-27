@@ -79,6 +79,76 @@ function normalizePathSlashes(path) {
   return String(path || '').replace(/\\/g, '/');
 }
 
+const IS_WINDOWS = (() => {
+  if (typeof navigator !== 'undefined') {
+    const descriptor = `${navigator.userAgent || ''}${navigator.platform || ''}`.toLowerCase();
+    return descriptor.includes('win');
+  }
+  if (typeof process !== 'undefined' && typeof process.platform === 'string') {
+    return process.platform === 'win32';
+  }
+  return false;
+})();
+
+function decodeUriComponentSafe(value) {
+  if (typeof value !== 'string') return '';
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function coercePortraitFieldToPath(raw) {
+  const str = String(raw ?? '').trim();
+  if (!str) return '';
+  const assetMatch = str.match(/^(?:asset|tauri):\/\/localhost\/(.+)$/i);
+  if (assetMatch) {
+    const decoded = decodeUriComponentSafe(assetMatch[1]);
+    return decoded.replace(/^@fs\//i, '');
+  }
+  if (/^@fs\//i.test(str)) {
+    return decodeUriComponentSafe(str.slice(4));
+  }
+  if (/^file:\/\//i.test(str)) {
+    try {
+      const parsed = new URL(str);
+      const host = decodeUriComponentSafe(parsed.host || '');
+      const pathname = decodeUriComponentSafe(parsed.pathname || '');
+      if (host) {
+        return `//${host}${pathname}`;
+      }
+      if (/^\/[a-zA-Z]:/.test(pathname)) {
+        return pathname.slice(1);
+      }
+      return pathname;
+    } catch {
+      const fallback = decodeUriComponentSafe(str.replace(/^file:\/+/i, ''));
+      if (/^\/[a-zA-Z]:/.test(fallback)) {
+        return fallback.slice(1);
+      }
+      return fallback;
+    }
+  }
+  if (/^[a-z]+:\/\//i.test(str)) {
+    return '';
+  }
+  return str;
+}
+
+function ensureWindowsPath(value) {
+  const str = String(value || '');
+  if (!IS_WINDOWS) {
+    return str;
+  }
+  if (!str) return '';
+  const normalized = str.includes('/') ? str.replace(/\//g, '\\') : str;
+  if (/^\\{3,}/.test(normalized)) {
+    return `\\\\${normalized.replace(/^\\+/, '').replace(/\\+/g, '\\')}`;
+  }
+  return normalized;
+}
+
 function formatUpdatedTimestamp(ms) {
   if (!ms) return '—';
   try {
@@ -1814,15 +1884,16 @@ const establishmentOptions = useMemo(() => {
         if (portraitUrls[it.id]) continue;
         const portraitField =
           it.index?.metadata?.portrait || it.index?.fields?.portrait || it.portrait || '';
+        const coercedPortrait = coercePortraitFieldToPath(portraitField);
         let imgPath = '';
-        if (portraitField) {
-          const normalizedPortrait = normalizePathSlashes(portraitField);
+        if (coercedPortrait) {
+          const normalizedPortrait = normalizePathSlashes(coercedPortrait);
           if (/^[a-zA-Z]:/.test(normalizedPortrait) || normalizedPortrait.startsWith('/')) {
             imgPath = normalizedPortrait;
           } else if (vaultRoot) {
             imgPath = resolveVaultPath(vaultRoot, normalizedPortrait);
           } else {
-            const directKey = normalizePortraitKey(portraitField);
+            const directKey = normalizePortraitKey(coercedPortrait);
             if (directKey && portraitIndex[directKey]) {
               imgPath = portraitIndex[directKey];
             }
@@ -1835,10 +1906,11 @@ const establishmentOptions = useMemo(() => {
           }
         }
         if (!imgPath) continue;
+        const resolvedImgPath = ensureWindowsPath(imgPath);
         try {
-          const bytes = await readFileBytes(imgPath);
+          const bytes = await readFileBytes(resolvedImgPath);
           if (cancelled) break;
-          const ext = imgPath.split('.').pop().toLowerCase();
+          const ext = resolvedImgPath.split('.').pop().toLowerCase();
           const mime =
             ext === 'png'
               ? 'image/png'
@@ -1861,7 +1933,15 @@ const establishmentOptions = useMemo(() => {
         } catch (err) {
           if (cancelled) break;
           encounteredError = true;
-          console.error(`Failed to load portrait for NPC ${it?.id || it?.name || 'unknown'}`, err);
+          console.error(
+            `Failed to load portrait for NPC ${it?.id || it?.name || 'unknown'}`,
+            {
+              portraitField,
+              coercedPortrait,
+              resolvedImgPath,
+            },
+            err
+          );
         }
       }
       if (encounteredError && !cancelled) {

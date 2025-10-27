@@ -10,6 +10,8 @@ repository.
 from dataclasses import dataclass
 from io import StringIO
 from typing import Any, Dict, IO
+import json
+
 import mini_yaml as yaml
 
 
@@ -39,3 +41,29 @@ def loads(text: str) -> Post:
     """Parse a string containing frontmatter into a :class:`Post`."""
 
     return load(StringIO(text))
+
+
+def _format_value(value: Any) -> str:
+    if isinstance(value, (list, dict, bool, int, float)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
+def dumps(post: Post) -> str:
+    """Serialise ``post`` back into a frontmatter string."""
+
+    lines = ["---"]
+    for key, value in post.metadata.items():
+        lines.append(f"{key}: {_format_value(value)}")
+    lines.append("---")
+    body = "\n".join(lines)
+    content = post.content or ""
+    if content:
+        if not content.startswith("\n"):
+            body += "\n"
+        body += content
+        if not content.endswith("\n"):
+            body += "\n"
+    else:
+        body += "\n"
+    return body

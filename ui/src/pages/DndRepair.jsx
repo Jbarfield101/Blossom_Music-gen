@@ -374,7 +374,7 @@ export default function DndRepair() {
   return (
     <>
       <BackButton />
-      <h1>Dungeons &amp; Dragons · Repair</h1>
+      <h1>Dungeons &amp; Dragons &middot; Repair</h1>
       <p className="muted" style={{ marginTop: '-0.5rem' }}>
         Validate campaign records, fill in missing metadata, and stream progress updates from the repair service.
       </p>
@@ -427,7 +427,7 @@ export default function DndRepair() {
               disabled={running || !selected.length}
             >
               {running
-                ? 'Repair in progress…'
+                ? 'Repair in progress...'
                 : selected.length
                   ? `Repair ${selected.length} ${selected.length === 1 ? 'record' : 'records'}`
                   : 'Repair selected records'}
@@ -438,7 +438,7 @@ export default function DndRepair() {
         {runError && <div className="dnd-modal-error" role="status">{runError}</div>}
 
         {loading ? (
-          <div className="muted" role="status">Loading NPCs…</div>
+          <div className="muted" role="status">Loading NPCs...</div>
         ) : loadError ? (
           <div className="warning" role="alert">{loadError}</div>
         ) : !filteredEntities.length ? (
@@ -470,7 +470,7 @@ export default function DndRepair() {
                         {npc.id && <span className="chip">ID: {npc.id}</span>}
                       </div>
                       {npc.description && (
-                        <p className="repair-entity-description">{npc.description.slice(0, 160)}{npc.description.length > 160 ? '…' : ''}</p>
+                        <p className="repair-entity-description">{npc.description.slice(0, 160)}{npc.description.length > 160 ? '...' : ''}</p>
                       )}
                     </div>
                   </label>

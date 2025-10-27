@@ -325,12 +325,16 @@ def list_npcs() -> List[Dict[str, Any]]:
             parsed = parse_note(note_file)
         except NoteParseError:
             continue
+        metadata = parsed.metadata or {}
         results.append(
             {
                 "path": rel_path,
                 "aliases": parsed.aliases,
                 "tags": parsed.tags,
                 "fields": parsed.fields,
+                "id": metadata.get("id"),
+                "name": metadata.get("name") or metadata.get("title"),
+                "metadata": metadata,
             }
         )
     return results
