@@ -1,21 +1,21 @@
-# 📜 NPC
-
 ---
 id: npc_<slug>_<hash>            # e.g., npc_brakka_shortchange_voss_3f9a
 type: npc
 name: 
 aliases: []
 titles: []
-importance: 3                     # 1 minor – 5 major
+importance: 3                     # 1 minor - 5 major
 region: 
 location:                         # city/settlement
 faction: 
 role:                             # bartender, fence, priest, etc.
 tags: []                          # searchable chips (orc, gambler, witch-lord, etc.)
 keywords: []                      # extra retrieval terms
+---
 
+# ?? NPC
 # Canon anchors (the LLM should not drift from these)
-canonical_summary: >              # 1–3 sentences: who they are + core truth
+canonical_summary: >              # 1-3 sentences: who they are + core truth
   ...
 embedding_summary: >              # 1 paragraph used for search/embeddings
   ...
@@ -133,4 +133,3 @@ privacy: gm|player                # default rendering mode in UI
 - **Social failure:** they demand: …
 - **Intimidation success:** …
 - **Perception success near them:** …
-

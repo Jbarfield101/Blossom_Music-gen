@@ -8,6 +8,7 @@ repository.
 """
 
 from dataclasses import dataclass
+from io import StringIO
 from typing import Any, Dict, IO
 import mini_yaml as yaml
 
@@ -32,3 +33,9 @@ def load(fh: IO[str]) -> Post:
             body = body[1:]
         return Post(content=body, metadata=metadata)
     return Post(content=text, metadata={})
+
+
+def loads(text: str) -> Post:
+    """Parse a string containing frontmatter into a :class:`Post`."""
+
+    return load(StringIO(text))

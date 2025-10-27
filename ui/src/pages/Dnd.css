@@ -783,6 +783,27 @@
   cursor: not-allowed;
 }
 
+.repair-coming-soon {
+  margin: 0.75rem 0 1rem;
+  font-size: 0.9rem;
+}
+
+.dnd-task-status {
+  margin-top: 0.5rem;
+  font-size: 0.95rem;
+}
+
+.dnd-task-status .task-log {
+  margin-top: 0.5rem;
+}
+
+.dnd-task-status .task-log ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+  list-style: disc;
+  font-size: 0.9rem;
+}
+
 .repair-badge {
   display: inline-flex;
   align-items: center;

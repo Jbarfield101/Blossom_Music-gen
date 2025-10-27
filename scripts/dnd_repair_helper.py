@@ -68,6 +68,99 @@ def _resolve_vault() -> Path:
     return vault
 
 
+def _resolve_rel_path_from_id(vault: Path, npc_id: str) -> Optional[str]:
+    """Derive a vault-relative path when the index entry is missing."""
+
+    if not npc_id.startswith("path:"):
+        return None
+    raw_path = npc_id.split("path:", 1)[1].strip()
+    if not raw_path:
+        return None
+    candidate = Path(raw_path)
+    try:
+        candidate = candidate.resolve()
+    except OSError:
+        # If the path cannot be resolved, fall back to a best-effort interpretation.
+        candidate = candidate
+    if candidate.is_absolute():
+        try:
+            rel = candidate.relative_to(vault)
+            return rel.as_posix()
+        except ValueError:
+            # The candidate is outside the vault root; fall back to the stem under NPC directory.
+            return candidate.as_posix()
+    return candidate.as_posix()
+
+
+_NPC_DIR_CANDIDATES = [
+    Path("20_DM") / "NPC",
+    Path("20_DM") / "NPCs",
+    Path("20_DM") / "Npcs",
+]
+
+
+def _slugify(text: str) -> str:
+    cleaned = "".join(ch.lower() if ch.isalnum() else "-" for ch in text)
+    while "--" in cleaned:
+        cleaned = cleaned.replace("--", "-")
+    return cleaned.strip("-")
+
+
+def _search_vault_for_npc(vault: Path, npc_id: str) -> Optional[str]:
+    """Scan the vault for a markdown file referencing ``npc_id`` or its slug."""
+
+    if not npc_id:
+        return None
+    if npc_id.startswith("path:"):
+        return None
+
+    slug = ""
+    parts = npc_id.split("_", 2)
+    if len(parts) >= 2:
+        slug = parts[1]
+    slug = slug.strip().lower()
+
+    for relative_dir in _NPC_DIR_CANDIDATES:
+        root = vault / relative_dir
+        if not root.exists() or not root.is_dir():
+            continue
+        try:
+            for path in root.rglob("*.md"):
+                try:
+                    parsed = parse_note(path)
+                except NoteParseError:
+                    continue
+                metadata = parsed.metadata or {}
+                file_id = str(metadata.get("id") or metadata.get("Id") or "").strip()
+                if file_id:
+                    if file_id == npc_id:
+                        try:
+                            rel = path.resolve().relative_to(vault)
+                            return rel.as_posix()
+                        except ValueError:
+                            return path.as_posix()
+                    continue
+                if slug:
+                    name = str(metadata.get("name") or metadata.get("title") or "").strip()
+                    if name and _slugify(name) == slug:
+                        try:
+                            rel = path.resolve().relative_to(vault)
+                            return rel.as_posix()
+                        except ValueError:
+                            return path.as_posix()
+                    # Fallback to filename slug
+                    file_slug = _slugify(path.stem)
+                    if file_slug and file_slug == slug:
+                        try:
+                            rel = path.resolve().relative_to(vault)
+                            return rel.as_posix()
+                        except ValueError:
+                            return path.as_posix()
+        except OSError:
+            continue
+    return None
+
+
 def _load_index_entities(vault: Path) -> Dict[str, Dict[str, Any]]:
     data = index_cache.load_index(vault)
     entities = data.get("entities") if isinstance(data, dict) else None
@@ -319,6 +412,19 @@ def main() -> int:
     for npc_id in npc_ids:
         rel_entry = entities.get(npc_id)
         rel_path_str = rel_entry.get("path") if isinstance(rel_entry, Mapping) else None
+        if not rel_path_str:
+            fallback_rel = _resolve_rel_path_from_id(vault, npc_id)
+            if not fallback_rel:
+                fallback_rel = _search_vault_for_npc(vault, npc_id)
+            if fallback_rel:
+                rel_path_str = fallback_rel
+                if isinstance(rel_entry, Mapping):
+                    rel_entry = dict(rel_entry)
+                    rel_entry["path"] = rel_path_str
+                else:
+                    rel_entry = {"path": rel_path_str}
+                entities[npc_id] = rel_entry
+                existing_ids.add(npc_id)
         if not rel_path_str:
             outcome = RepairOutcome(
                 npc_id=npc_id,

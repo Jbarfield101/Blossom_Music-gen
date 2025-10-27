@@ -2976,6 +2976,112 @@ async fn npc_repair_run(app: AppHandle, npc_ids: Vec<String>) -> Result<NpcRepai
     })
 }
 
+#[tauri::command]
+async fn backfill_ids(app: AppHandle, dry_run: Option<bool>) -> Result<Value, String> {
+    let dry_run_flag = dry_run.unwrap_or(false);
+    let vault = dreadhaven_root();
+    let vault_literal = vault
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let dry_literal = if dry_run_flag { "True" } else { "False" };
+    let code = format!(
+        r#"
+import json
+import logging
+from pathlib import Path
+from scripts import backfill_dnd_ids
+
+logs = []
+
+class _Collector(logging.Handler):
+    def emit(self, record):
+        logs.append(self.format(record))
+
+handler = _Collector()
+handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
+logger = logging.getLogger('backfill_dnd_ids_ui')
+logger.setLevel(logging.INFO)
+logger.handlers.clear()
+logger.addHandler(handler)
+
+summary = backfill_dnd_ids.backfill_dnd_ids(Path(r"{vault}"), dry_run={dry}, logger=logger)
+logger.removeHandler(handler)
+
+result = {{
+    "updated": summary.updated,
+    "skipped": summary.skipped,
+    "errors": summary.errors,
+}}
+
+print(json.dumps({{"summary": result, "logs": logs}}))
+"#,
+        vault = vault_literal,
+        dry = dry_literal
+    );
+
+    let join_result = tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
+        let mut cmd = python_command();
+        cmd.args(["-c", &code])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let output = cmd.output().map_err(|e| e.to_string())?;
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if !output.status.success() {
+            let mut message = String::new();
+            if !stderr.is_empty() {
+                message.push_str(&stderr);
+            }
+            if !stdout.is_empty() {
+                if !message.is_empty() {
+                    message.push_str("\n");
+                }
+                message.push_str(&stdout);
+            }
+            if message.is_empty() {
+                message = "Backfill failed".to_string();
+            }
+            return Err(message);
+        }
+        let mut value: Value = if stdout.is_empty() {
+            json!({ "summary": { "updated": 0, "skipped": 0, "errors": 0 }, "logs": [] })
+        } else {
+            serde_json::from_str(&stdout)
+                .map_err(|e| format!("Failed to parse backfill response: {}", e))?
+        };
+        if !stderr.is_empty() {
+            match value.get_mut("logs") {
+                Some(Value::Array(logs)) => {
+                    if !stderr.is_empty() {
+                        logs.push(Value::String(stderr));
+                    }
+                }
+                _ => {
+                    value["logs"] = json!([stderr]);
+                }
+            }
+        }
+        Ok(value)
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+
+
+    match join_result {
+        Ok(value) => {
+            if !dry_run_flag {
+                let _ = app.emit(
+                    "dnd::vault-changed",
+                    json!({"paths": ["__all"]}),
+                );
+            }
+            Ok(value)
+        }
+        Err(err) => Err(err),
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct ProgressEvent {
     stage: Option<String>,
@@ -7285,6 +7391,7 @@ print(json.dumps({"text": result}))
     })
     .await
     .map_err(|e| e.to_string())?;
+
     let text = text?;
     Ok(text)
 }
@@ -11695,6 +11802,7 @@ fn main() {
             npc_save,
             npc_delete,
             npc_repair_run,
+            backfill_ids,
             update_section_tags,
             list_devices,
             set_devices,

@@ -768,19 +768,56 @@ function DndDmNpcsContent() {
     [],
   );
 
+  const baseResolver = useMemo(() => zodResolver(NPC_FORM_SCHEMA), []);
+
+  const formResolver = useCallback(
+    async (values, context, options) => {
+      if (
+        !documentReadyRef.current ||
+        !values ||
+        typeof values.id !== 'string' ||
+        !values.id ||
+        values.id.startsWith('path:')
+      ) {
+        return {
+          values,
+          errors: {},
+        };
+      }
+      try {
+        return await baseResolver(values, context, options);
+      } catch (err) {
+        return {
+          values,
+          errors: {},
+        };
+      }
+    },
+    [baseResolver],
+  );
+
   const {
     control,
     register,
     reset,
     watch,
     handleSubmit,
+    setValue: setFormValue,
     formState: { errors, isValid },
   } = useForm({
-    resolver: zodResolver(NPC_FORM_SCHEMA),
+    resolver: formResolver,
     defaultValues: NPC_FORM_DEFAULTS,
     mode: 'onChange',
     reValidateMode: 'onChange',
   });
+  const setValue = useCallback(
+    (field, value, options) => {
+      if (typeof setFormValue === 'function') {
+        setFormValue(field, value, options);
+      }
+    },
+    [setFormValue],
+  );
   const currentPortraitValue = watch('portrait');
 
   useEffect(() => {
@@ -1544,15 +1581,26 @@ const establishmentOptions = useMemo(() => {
               index: indexMeta,
             };
           });
-          runIfMounted(() => {
-            setItems(normalizedItems);
-            setLocations(locMap);
-            setTypeMap(typeMapNext);
-            setFactionMap(factionMapNext);
-            setTagMap(tagMapNext);
-            setUsingIndex(true);
-          });
-          return;
+          if (normalizedItems.length > 0) {
+            runIfMounted(() => {
+              setItems(normalizedItems);
+              setLocations(locMap);
+              setTypeMap(typeMapNext);
+              setFactionMap(factionMapNext);
+              setTagMap(tagMapNext);
+              setUsingIndex(true);
+            });
+            return;
+          }
+
+          if (!isCancelled()) {
+            console.warn('NPC index returned no entries; falling back to directory scan.');
+            runIfMounted(() => {
+              setError((prev) => prev || 'NPC index empty. Scanning NPC directory directly.');
+              setItems([]);
+              setUsingIndex(false);
+            });
+          }
         } catch (err) {
           if (!isCancelled()) {
             console.warn('Failed to load NPC index, falling back to directory scan', err);

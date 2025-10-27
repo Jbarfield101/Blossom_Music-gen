@@ -28,14 +28,19 @@ def safe_load(text: str) -> Dict[str, Any]:
         value = value.strip()
         if not key:
             raise YAMLError("Empty key")
+        if "#" in value:
+            hash_index = value.find("#")
+            if hash_index == 0:
+                value = ""
+            else:
+                value = value[:hash_index].rstrip()
         if value.startswith("["):
             if not value.endswith("]"):
                 raise YAMLError("Unclosed list")
             items = [v.strip() for v in value[1:-1].split(",") if v.strip()]
             result[key] = items
         elif not value:
-            raise YAMLError("Missing value")
+            result[key] = ""
         else:
             result[key] = value
     return result
-

@@ -87,6 +87,10 @@ function isCompletionEvent(payload) {
 
 export default function DndRepair() {
   const [category, setCategory] = useState('npc');
+  const disabledCategoryNames = useMemo(
+    () => CATEGORY_OPTIONS.filter((option) => !option.enabled).map((option) => option.label),
+    [],
+  );
   const [npcs, setNpcs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -397,6 +401,13 @@ export default function DndRepair() {
           );
         })}
       </div>
+
+      {disabledCategoryNames.length > 0 && (
+        <div className="repair-coming-soon muted" role="note">
+          Only NPC repair runs are available right now; {disabledCategoryNames.join(' and ')} automation is still in
+          progress.
+        </div>
+      )}
 
       <section className="repair-layout">
         <header className="repair-actions">

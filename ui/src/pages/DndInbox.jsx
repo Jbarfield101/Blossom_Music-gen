@@ -209,7 +209,8 @@ export default function DndInbox() {
     (option) => {
       if (!option || !activePath) return;
       const baseContent = editing ? editBody : activeContent;
-      const fallback = selected?.title || selected?.name || 'Converted Note';
+      const current = items.find((i) => i.path === activePath);
+      const fallback = current?.title || current?.name || 'Converted Note';
       const initialTitle = deriveTitle(baseContent, fallback) || fallback;
       setConvertTarget(option);
       setConvertTitle(initialTitle);
@@ -218,7 +219,7 @@ export default function DndInbox() {
       setConvertError('');
       setConvertMenuOpen(false);
     },
-    [activeContent, activePath, deriveTitle, editBody, editing, selected]
+    [activeContent, activePath, deriveTitle, editBody, editing, items]
   );
 
   const fetchItems = useCallback(async () => {

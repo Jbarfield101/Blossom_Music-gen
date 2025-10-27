@@ -11,6 +11,7 @@ import { listNpcs } from '../api/npcs';
 import { saveGodPortrait, saveNpcPortrait } from '../api/images';
 import { createSpell } from '../api/spells';
 import { invoke } from '@tauri-apps/api/core';
+import { resetVaultIndexCache } from '../lib/vaultIndex.js';
 
 const STATUS_LABELS = {
   started: 'Started',
@@ -52,6 +53,10 @@ export default function DndTasks() {
   const [progressRunId, setProgressRunId] = useState(0);
   const [summaries, setSummaries] = useState({});
   const runIdRef = useRef(0);
+  const [backfillRunning, setBackfillRunning] = useState(false);
+  const [backfillSummary, setBackfillSummary] = useState(null);
+  const [backfillError, setBackfillError] = useState('');
+  const [backfillLogs, setBackfillLogs] = useState([]);
 
   // Images task state
   const [imagesOpen, setImagesOpen] = useState(false);
@@ -360,6 +365,35 @@ export default function DndTasks() {
     return items;
   }, [summaries]);
 
+  const triggerBackfill = useCallback(async () => {
+    if (backfillRunning) return;
+    setBackfillRunning(true);
+    setBackfillError('');
+    setBackfillSummary(null);
+    setBackfillLogs([]);
+    try {
+      const result = await invoke('backfill_ids', { dryRun: false });
+      if (result && typeof result === 'object') {
+        const { summary, logs } = result;
+        if (summary && typeof summary === 'object') {
+          setBackfillSummary({
+            updated: Number(summary.updated) || 0,
+            skipped: Number(summary.skipped) || 0,
+            errors: Number(summary.errors) || 0,
+          });
+        }
+        if (Array.isArray(logs)) {
+          setBackfillLogs(logs.map((line) => String(line)));
+        }
+      }
+      resetVaultIndexCache();
+    } catch (err) {
+      setBackfillError(err?.message || String(err));
+    } finally {
+      setBackfillRunning(false);
+    }
+  }, [backfillRunning]);
+
   return (
     <>
       <BackButton />
@@ -375,6 +409,37 @@ export default function DndTasks() {
         >
           Paste a list of spell names and auto-generate entries in the SpellBook.
         </Card>
+        <Card
+          icon="ClipboardCheck"
+          title="Backfill NPC IDs"
+          onClick={triggerBackfill}
+          disabled={backfillRunning}
+        >
+          Assign canonical IDs to NPC notes and refresh the index cache.
+        </Card>
+        {(backfillRunning || backfillSummary || backfillError) && (
+          <div className="dnd-task-status" style={{ gridColumn: '1 / -1' }}>
+            {backfillRunning && <p className="muted">Backfill in progress…</p>}
+            {backfillSummary && (
+              <p className="muted">
+                Updated {backfillSummary.updated ?? 0}, skipped {backfillSummary.skipped ?? 0}, errors {backfillSummary.errors ?? 0}.
+              </p>
+            )}
+            {backfillError && <p className="error">{backfillError}</p>}
+          </div>
+        )}
+        {backfillLogs.length > 0 && (
+          <div className="dnd-task-status" style={{ gridColumn: '1 / -1' }}>
+            <details className="task-log">
+              <summary>View backfill log</summary>
+              <ul>
+                {backfillLogs.map((line, index) => (
+                  <li key={`backfill-log-${index}`}>{line}</li>
+                ))}
+              </ul>
+            </details>
+          </div>
+        )}
         <Card icon="Image" title="Update Images" onClick={async () => {
           setImagesOpen(true);
           setImageScanError('');

@@ -245,6 +245,13 @@ def backfill_dnd_ids(vault: Path, *, dry_run: bool = False, logger: logging.Logg
         summary.updated += 1
         active_logger.info("Assigned %s to %s", new_id, rel_display)
 
+    if summary.updated and not dry_run:
+        try:
+            index_cache.save_index(resolved_vault, force=True)
+        except Exception as exc:
+            summary.errors += 1
+            active_logger.error("Failed to persist index: %s", exc)
+
     active_logger.info(
         "Backfill complete: %s updated, %s skipped, %s errors",
         summary.updated,
