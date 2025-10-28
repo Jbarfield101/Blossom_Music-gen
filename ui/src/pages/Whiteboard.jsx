@@ -4,8 +4,9 @@ import '@excalidraw/excalidraw/index.css';
 import BackButton from '../components/BackButton.jsx';
 import './Whiteboard.css';
 
-const STORAGE_KEY = 'blossom.whiteboard.scenes';
+const STORAGE_KEY = 'blossom.whiteboard.boards';
 const DEFAULT_BACKGROUND = '#0f172a';
+
 const DEFAULT_APP_STATE = {
   viewBackgroundColor: DEFAULT_BACKGROUND,
   theme: 'dark',
@@ -15,13 +16,23 @@ const DEFAULT_APP_STATE = {
   viewModeEnabled: false,
 };
 
-const BACKGROUND_OPTIONS = [
-  '#0f172a',
-  '#111827',
-  '#0c4a6e',
-  '#083344',
-  '#3b0764',
-  '#7c2d12',
+const BACKGROUNDS = [
+  { id: 'slate', color: '#0f172a', label: 'Midnight' },
+  { id: 'indigo', color: '#312e81', label: 'Indigo' },
+  { id: 'emerald', color: '#064e3b', label: 'Emerald' },
+  { id: 'sand', color: '#fef3c7', label: 'Parchment' },
+];
+
+const THEMES = [
+  { id: 'dark', label: 'Dark', theme: 'dark' },
+  { id: 'light', label: 'Light', theme: 'light' },
+  { id: 'paper', label: 'Paper', theme: 'light', background: '#f5f1e6' },
+];
+
+const GRID_OPTIONS = [
+  { id: 'off', label: 'Off', gridSize: 0 },
+  { id: 'grid', label: 'Grid', gridSize: 20 },
+  { id: 'dots', label: 'Dots', gridSize: 20, gridMode: 'dots' },
 ];
 
 const PRESET_TOKENS = [
@@ -34,7 +45,7 @@ const PRESET_ROOMS = [
   {
     id: 'tavern',
     label: 'Tavern Room',
-    width: 520,
+    width: 480,
     height: 360,
     strokeColor: '#f97316',
     backgroundColor: 'rgba(249, 115, 22, 0.18)',
@@ -42,8 +53,8 @@ const PRESET_ROOMS = [
   {
     id: 'dungeon',
     label: 'Dungeon Chamber',
-    width: 480,
-    height: 460,
+    width: 520,
+    height: 420,
     strokeColor: '#22d3ee',
     backgroundColor: 'rgba(34, 211, 238, 0.18)',
   },
@@ -64,7 +75,7 @@ function generateId(prefix = 'whiteboard') {
   return `${prefix}_${Date.now()}_${Math.round(Math.random() * 10_000)}`;
 }
 
-function loadScenes() {
+function loadBoards() {
   if (typeof window === 'undefined') {
     return [];
   }
@@ -75,7 +86,14 @@ function loadScenes() {
     }
     const parsed = JSON.parse(stored);
     if (Array.isArray(parsed)) {
-      return parsed;
+      return parsed.map((board) => ({
+        id: board.id ?? generateId('board'),
+        name: board.name ?? 'Untitled Board',
+        elements: Array.isArray(board.elements) ? board.elements : [],
+        appState: sanitizeAppState(board.appState ?? {}),
+        files: board.files ?? {},
+        updatedAt: board.updatedAt ?? Date.now(),
+      }));
     }
   } catch (error) {
     console.warn('Failed to load whiteboards from storage', error);
@@ -83,12 +101,12 @@ function loadScenes() {
   return [];
 }
 
-function saveScenes(scenes) {
+function persistBoards(boards) {
   if (typeof window === 'undefined') {
     return;
   }
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(scenes));
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(boards));
   } catch (error) {
     console.warn('Failed to persist whiteboards', error);
   }
@@ -108,12 +126,8 @@ function filesMapToObject(files) {
   if (!files) {
     return {};
   }
-  return JSON.parse(
-    JSON.stringify(
-      Object.fromEntries(
-        Array.from(files.entries()).map(([fileId, data]) => [fileId, { ...data }]),
-      ),
-    ),
+  return Object.fromEntries(
+    Array.from(files.entries()).map(([fileId, data]) => [fileId, { ...data }]),
   );
 }
 
@@ -196,482 +210,402 @@ function createTextElement({ text, x, y, color }) {
   };
 }
 
-function createTokenElements(preset) {
-  const baseX = 140 + Math.random() * 180;
-  const baseY = 140 + Math.random() * 180;
-  const ellipse = createBaseShape({
+function createTokenElements(preset, origin) {
+  const { x, y } = origin;
+  const base = createBaseShape({
     type: 'ellipse',
-    x: baseX,
-    y: baseY,
-    width: 140,
-    height: 140,
+    x: x - 80,
+    y: y - 80,
+    width: 160,
+    height: 160,
     strokeColor: preset.color,
     backgroundColor: preset.fill,
   });
-  const label = createTextElement({
-    text: preset.text,
-    x: baseX + 20,
-    y: baseY + 46,
-    color: preset.color,
-  });
-  return [ellipse, label];
+  const label = createTextElement({ text: preset.text, x: x - 60, y: y - 20, color: preset.color });
+  return [base, label];
 }
 
-function createRoomElements(preset) {
-  const originX = 120 + Math.random() * 160;
-  const originY = 120 + Math.random() * 160;
-  const room = createBaseShape({
+function createRoomElements(room, origin) {
+  const { x, y } = origin;
+  const rect = createBaseShape({
     type: 'rectangle',
-    x: originX,
-    y: originY,
-    width: preset.width,
-    height: preset.height,
-    strokeColor: preset.strokeColor,
-    backgroundColor: preset.backgroundColor,
+    x: x - room.width / 2,
+    y: y - room.height / 2,
+    width: room.width,
+    height: room.height,
+    strokeColor: room.strokeColor,
+    backgroundColor: room.backgroundColor,
   });
-  const label = createTextElement({
-    text: preset.label,
-    x: originX + preset.width / 2 - 80,
-    y: originY - 56,
-    color: preset.strokeColor,
-  });
-  return [room, label];
+  return [rect];
 }
 
-export default function Whiteboard() {
+function createEmptyBoard(name) {
+  return {
+    id: generateId('board'),
+    name,
+    elements: [],
+    appState: { ...DEFAULT_APP_STATE },
+    files: {},
+    updatedAt: Date.now(),
+  };
+}
+
+function getViewportCenter(appState) {
+  const { scrollX = 0, scrollY = 0, zoom = 1, width = window.innerWidth, height = window.innerHeight } = appState;
+  const centerX = -scrollX + width / 2 / zoom;
+  const centerY = -scrollY + height / 2 / zoom;
+  return { x: centerX, y: centerY };
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
+function WhiteboardPage() {
   const excalidrawRef = useRef(null);
   const fileInputRef = useRef(null);
-  const [scenes, setScenes] = useState(() => {
-    const existing = loadScenes();
-    if (existing.length > 0) {
-      return existing;
+  const [boards, setBoards] = useState(() => {
+    const stored = loadBoards();
+    if (stored.length) {
+      return stored;
     }
-    const now = new Date().toISOString();
-    const initial = {
-      id: generateId(),
-      name: 'Untitled Board',
-      createdAt: now,
-      updatedAt: now,
-      elements: [],
-      appState: { ...DEFAULT_APP_STATE },
-      files: {},
-    };
-    saveScenes([initial]);
+    const initial = createEmptyBoard('Campaign Whiteboard');
+    persistBoards([initial]);
     return [initial];
   });
-  const [currentSceneId, setCurrentSceneId] = useState(() => (scenes[0] ? scenes[0].id : null));
-  const [sceneSnapshot, setSceneSnapshot] = useState(() => ({
-    elements: scenes[0]?.elements ?? [],
-    appState: scenes[0]?.appState ?? { ...DEFAULT_APP_STATE },
-    files: scenes[0]?.files ?? {},
-  }));
+  const [activeBoardId, setActiveBoardId] = useState(() => {
+    const stored = loadBoards();
+    if (stored.length) {
+      return stored[0].id;
+    }
+    const initial = createEmptyBoard('Campaign Whiteboard');
+    persistBoards([initial]);
+    return initial.id;
+  });
+  const [isDirty, setIsDirty] = useState(false);
 
   useEffect(() => {
-    saveScenes(scenes);
-  }, [scenes]);
-
-  const currentScene = useMemo(() => {
-    if (!scenes.length) {
-      return null;
+    if (!activeBoardId && boards.length) {
+      setActiveBoardId(boards[0].id);
     }
-    return scenes.find((scene) => scene.id === currentSceneId) ?? scenes[0];
-  }, [scenes, currentSceneId]);
+  }, [boards, activeBoardId]);
 
   useEffect(() => {
-    if (!currentScene) {
-      return;
-    }
-    setSceneSnapshot({
-      elements: currentScene.elements ?? [],
-      appState: { ...DEFAULT_APP_STATE, ...(currentScene.appState ?? {}) },
-      files: currentScene.files ?? {},
-    });
-    if (excalidrawRef.current) {
-      excalidrawRef.current.updateScene({
-        elements: currentScene.elements ?? [],
-        appState: { ...DEFAULT_APP_STATE, ...(currentScene.appState ?? {}) },
-        files: filesObjectToMap(currentScene.files ?? {}),
+    persistBoards(boards);
+  }, [boards]);
+
+  const activeBoard = useMemo(() => boards.find((board) => board.id === activeBoardId) ?? null, [boards, activeBoardId]);
+
+  const applyScene = useCallback(
+    (board) => {
+      if (!board || !excalidrawRef.current) {
+        return;
+      }
+      const api = excalidrawRef.current;
+      api.updateScene({
+        elements: board.elements,
+        appState: sanitizeAppState(board.appState),
+        files: filesObjectToMap(board.files),
       });
-    }
-  }, [currentScene, currentSceneId]);
-
-  const isDirty = useMemo(() => {
-    if (!currentScene) {
-      return sceneSnapshot.elements.length > 0;
-    }
-    try {
-      return (
-        JSON.stringify(sceneSnapshot.elements ?? []) !== JSON.stringify(currentScene.elements ?? []) ||
-        JSON.stringify(sceneSnapshot.appState ?? {}) !== JSON.stringify(currentScene.appState ?? {}) ||
-        JSON.stringify(sceneSnapshot.files ?? {}) !== JSON.stringify(currentScene.files ?? {})
-      );
-    } catch (error) {
-      console.warn('Failed to diff whiteboard state', error);
-      return true;
-    }
-  }, [currentScene, sceneSnapshot]);
-
-  const handleSceneChange = useCallback((elements, appState, files) => {
-    setSceneSnapshot({
-      elements: JSON.parse(JSON.stringify(elements ?? [])),
-      appState: sanitizeAppState(appState),
-      files: filesMapToObject(files),
-    });
-  }, []);
-
-  const handleSelectScene = useCallback(
-    (sceneId) => {
-      if (sceneId === currentSceneId) {
-        return;
-      }
-      if (isDirty) {
-        const proceed = window.confirm('You have unsaved changes. Continue without saving?');
-        if (!proceed) {
-          return;
-        }
-      }
-      const targetScene = scenes.find((scene) => scene.id === sceneId);
-      if (!targetScene) {
-        return;
-      }
-      setCurrentSceneId(sceneId);
+      setIsDirty(false);
     },
-    [currentSceneId, isDirty, scenes],
+    [],
   );
 
-  const handleCreateScene = useCallback(() => {
-    const name = window.prompt('Name for the new whiteboard', `Board ${scenes.length + 1}`);
-    if (name === null) {
+  useEffect(() => {
+    if (activeBoard) {
+      applyScene(activeBoard);
+    }
+  }, [activeBoard, applyScene]);
+
+  const handleChange = useCallback(() => {
+    setIsDirty(true);
+  }, []);
+
+  const handleCreateBoard = useCallback(() => {
+    const name = window.prompt('Board name', 'New Whiteboard');
+    if (!name) {
       return;
     }
-    const boardName = name.trim() || `Board ${scenes.length + 1}`;
-    const now = new Date().toISOString();
-    const newScene = {
-      id: generateId(),
-      name: boardName,
-      createdAt: now,
-      updatedAt: now,
-      elements: [],
-      appState: { ...DEFAULT_APP_STATE },
-      files: {},
+    const board = createEmptyBoard(name.trim());
+    setBoards((prev) => [...prev, board]);
+    setActiveBoardId(board.id);
+  }, []);
+
+  const handleRenameBoard = useCallback(() => {
+    if (!activeBoard) {
+      return;
+    }
+    const name = window.prompt('Rename board', activeBoard.name);
+    if (!name) {
+      return;
+    }
+    setBoards((prev) =>
+      prev.map((board) => (board.id === activeBoard.id ? { ...board, name: name.trim(), updatedAt: Date.now() } : board)),
+    );
+  }, [activeBoard]);
+
+  const handleDeleteBoard = useCallback(
+    (boardId) => {
+      const board = boards.find((item) => item.id === boardId);
+      if (!board) {
+        return;
+      }
+      if (!window.confirm(`Delete "${board.name}"? This cannot be undone.`)) {
+        return;
+      }
+      setBoards((prev) => {
+        const next = prev.filter((item) => item.id !== boardId);
+        if (boardId === activeBoardId) {
+          setActiveBoardId(next[0]?.id ?? null);
+        }
+        return next;
+      });
+    },
+    [boards, activeBoardId],
+  );
+
+  const requestSwitchBoard = useCallback(
+    (boardId) => {
+      if (boardId === activeBoardId) {
+        return;
+      }
+      if (isDirty && !window.confirm('You have unsaved changes. Switch boards anyway?')) {
+        return;
+      }
+      setActiveBoardId(boardId);
+    },
+    [activeBoardId, isDirty],
+  );
+
+  const handleSaveBoard = useCallback(() => {
+    if (!activeBoard || !excalidrawRef.current) {
+      return;
+    }
+    const api = excalidrawRef.current;
+    const elements = api.getSceneElements();
+    const appState = sanitizeAppState(api.getAppState());
+    const files = filesMapToObject(api.getFiles());
+    const updated = {
+      ...activeBoard,
+      elements,
+      appState,
+      files,
+      updatedAt: Date.now(),
     };
-    setScenes((prev) => [...prev, newScene]);
-    setCurrentSceneId(newScene.id);
-    setSceneSnapshot({ elements: [], appState: { ...DEFAULT_APP_STATE }, files: {} });
-    if (excalidrawRef.current) {
-      excalidrawRef.current.resetScene({
-        elements: [],
-        appState: { ...DEFAULT_APP_STATE },
-        files: new Map(),
-      });
-    }
-  }, [scenes.length]);
+    setBoards((prev) => prev.map((board) => (board.id === updated.id ? updated : board)));
+    setIsDirty(false);
+  }, [activeBoard]);
 
-  const handleRenameScene = useCallback(() => {
-    if (!currentScene) {
-      return;
+  const handleLoadBoard = useCallback(() => {
+    if (activeBoard) {
+      applyScene(activeBoard);
     }
-    const name = window.prompt('Rename whiteboard', currentScene.name);
-    if (name === null) {
-      return;
-    }
-    const trimmed = name.trim();
-    if (!trimmed) {
-      return;
-    }
-    setScenes((prev) =>
-      prev.map((scene) =>
-        scene.id === currentScene.id
-          ? {
-              ...scene,
-              name: trimmed.slice(0, 80),
-              updatedAt: new Date().toISOString(),
-            }
-          : scene,
-      ),
-    );
-  }, [currentScene]);
-
-  const handleDeleteScene = useCallback(
-    (sceneId) => {
-      const scene = scenes.find((item) => item.id === sceneId);
-      if (!scene) {
-        return;
-      }
-      const message = sceneId === currentSceneId ? 'Delete current whiteboard?' : `Delete "${scene.name}"?`;
-      if (!window.confirm(message)) {
-        return;
-      }
-      setScenes((prev) => prev.filter((item) => item.id !== sceneId));
-      if (sceneId === currentSceneId) {
-        const remaining = scenes.filter((item) => item.id !== sceneId);
-        const nextScene = remaining[0] ?? null;
-        setCurrentSceneId(nextScene ? nextScene.id : null);
-        setSceneSnapshot({
-          elements: nextScene?.elements ?? [],
-          appState: { ...DEFAULT_APP_STATE, ...(nextScene?.appState ?? {}) },
-          files: nextScene?.files ?? {},
-        });
-        if (excalidrawRef.current) {
-          excalidrawRef.current.updateScene({
-            elements: nextScene?.elements ?? [],
-            appState: { ...DEFAULT_APP_STATE, ...(nextScene?.appState ?? {}) },
-            files: filesObjectToMap(nextScene?.files ?? {}),
-          });
-        }
-      }
-    },
-    [currentSceneId, scenes],
-  );
-
-  const handleSaveScene = useCallback(() => {
-    if (!currentScene) {
-      return;
-    }
-    const now = new Date().toISOString();
-    setScenes((prev) =>
-      prev.map((scene) =>
-        scene.id === currentScene.id
-          ? {
-              ...scene,
-              updatedAt: now,
-              elements: JSON.parse(JSON.stringify(sceneSnapshot.elements ?? [])),
-              appState: JSON.parse(JSON.stringify(sceneSnapshot.appState ?? {})),
-              files: JSON.parse(JSON.stringify(sceneSnapshot.files ?? {})),
-            }
-          : scene,
-      ),
-    );
-  }, [currentScene, sceneSnapshot]);
-
-  const handleLoadScene = useCallback(() => {
-    if (!currentScene || !excalidrawRef.current) {
-      return;
-    }
-    excalidrawRef.current.updateScene({
-      elements: currentScene.elements ?? [],
-      appState: { ...DEFAULT_APP_STATE, ...(currentScene.appState ?? {}) },
-      files: filesObjectToMap(currentScene.files ?? {}),
-    });
-  }, [currentScene]);
-
-  const handleThemeChange = useCallback((theme) => {
-    if (!excalidrawRef.current) {
-      return;
-    }
-    excalidrawRef.current.setAppState({ theme });
-  }, []);
+  }, [activeBoard, applyScene]);
 
   const handleBackgroundChange = useCallback((color) => {
     if (!excalidrawRef.current) {
       return;
     }
-    excalidrawRef.current.setAppState({ viewBackgroundColor: color });
+    const api = excalidrawRef.current;
+    const nextState = {
+      ...sanitizeAppState(api.getAppState()),
+      viewBackgroundColor: color,
+    };
+    api.updateScene({ appState: nextState });
+    setIsDirty(true);
   }, []);
 
-  const handleToggleOverlay = useCallback((mode) => {
+  const handleThemeChange = useCallback((option) => {
     if (!excalidrawRef.current) {
       return;
     }
-    const appState = excalidrawRef.current.getAppState();
-    const isActive =
-      (appState.gridSize ?? 0) > 0 && (appState.gridMode ?? 'grid') === mode;
-    if (isActive) {
-      excalidrawRef.current.setAppState({ gridSize: 0 });
-    } else {
-      excalidrawRef.current.setAppState({ gridSize: 20, gridMode: mode });
-    }
+    const api = excalidrawRef.current;
+    const baseState = sanitizeAppState(api.getAppState());
+    const nextState = {
+      ...baseState,
+      theme: option.theme,
+      viewBackgroundColor: option.background ?? baseState.viewBackgroundColor,
+    };
+    api.updateScene({ appState: nextState });
+    setIsDirty(true);
   }, []);
 
-  const handleAddToken = useCallback((preset) => {
+  const handleGridChange = useCallback((option) => {
     if (!excalidrawRef.current) {
       return;
     }
-    const existing = excalidrawRef.current.getSceneElements() ?? [];
-    const additions = createTokenElements(preset);
-    excalidrawRef.current.updateScene({
-      elements: [...existing, ...additions],
-    });
+    const api = excalidrawRef.current;
+    const baseState = sanitizeAppState(api.getAppState());
+    const nextState = {
+      ...baseState,
+      gridSize: option.gridSize,
+      gridMode: option.gridMode ?? 'grid',
+    };
+    api.updateScene({ appState: nextState });
+    setIsDirty(true);
   }, []);
 
-  const handleAddRoom = useCallback((preset) => {
-    if (!excalidrawRef.current) {
+  const insertElements = useCallback((elements) => {
+    if (!excalidrawRef.current || !elements.length) {
       return;
     }
-    const existing = excalidrawRef.current.getSceneElements() ?? [];
-    const additions = createRoomElements(preset);
-    excalidrawRef.current.updateScene({
-      elements: [...existing, ...additions],
-    });
+    const api = excalidrawRef.current;
+    const currentElements = api.getSceneElements();
+    api.updateScene({ elements: [...currentElements, ...elements] });
+    setIsDirty(true);
   }, []);
 
-  const handleUploadImage = useCallback(
-    async (event) => {
-      const { files } = event.target;
-      if (!files || !files.length || !excalidrawRef.current) {
-        return;
-      }
-      const fileList = Array.from(files).filter((file) => file.type.startsWith('image/'));
-      if (!fileList.length) {
+  const handleAddToken = useCallback(
+    (preset) => {
+      if (!excalidrawRef.current) {
         return;
       }
       const api = excalidrawRef.current;
-      const toDataUrl = (file) =>
-        new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-      try {
-        for (const file of fileList) {
-          const dataURL = await toDataUrl(file);
-          await api.addImageElement({
-            file: {
-              id: generateId('image'),
-              dataURL,
-              mimeType: file.type || 'image/png',
-              created: Date.now(),
-              lastRetrieved: Date.now(),
-              name: file.name,
-            },
-          });
-        }
-      } catch (error) {
-        console.error('Failed to add image', error);
-      } finally {
-        event.target.value = '';
+      const origin = getViewportCenter(api.getAppState());
+      insertElements(createTokenElements(preset, origin));
+    },
+    [insertElements],
+  );
+
+  const handleAddRoom = useCallback(
+    (room) => {
+      if (!excalidrawRef.current) {
+        return;
       }
+      const api = excalidrawRef.current;
+      const origin = getViewportCenter(api.getAppState());
+      insertElements(createRoomElements(room, origin));
+    },
+    [insertElements],
+  );
+
+  const handleImageUpload = useCallback(
+    async (event) => {
+      const file = event.target.files?.[0];
+      if (!file || !excalidrawRef.current) {
+        return;
+      }
+      const api = excalidrawRef.current;
+      const origin = getViewportCenter(api.getAppState());
+      await api.addImageElement({
+        file,
+        mimeType: file.type,
+        x: origin.x - 200,
+        y: origin.y - 200,
+      });
+      setIsDirty(true);
+      event.target.value = '';
     },
     [],
   );
 
+  const requestImageUpload = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
   const handleExportPng = useCallback(async () => {
-    if (!excalidrawRef.current) {
+    if (!excalidrawRef.current || !activeBoard) {
       return;
     }
-    try {
-      const elements = excalidrawRef.current.getSceneElements();
-      const appState = excalidrawRef.current.getAppState();
-      const files = excalidrawRef.current.getFiles();
-      const blob = await exportToBlob({
-        elements,
-        appState,
-        files,
-        mimeType: 'image/png',
-      });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      const filename = (currentScene?.name || 'whiteboard').replace(/\s+/g, '_');
-      link.download = `${filename}.png`;
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Failed to export PNG', error);
-    }
-  }, [currentScene]);
+    const api = excalidrawRef.current;
+    const blob = await exportToBlob({
+      elements: api.getSceneElements(),
+      appState: { ...sanitizeAppState(api.getAppState()), exportBackground: true },
+      files: api.getFiles(),
+      mimeType: 'image/png',
+    });
+    downloadBlob(blob, `${activeBoard.name.replace(/\s+/g, '_').toLowerCase()}_whiteboard.png`);
+  }, [activeBoard]);
 
   const handleExportSvg = useCallback(async () => {
-    if (!excalidrawRef.current) {
+    if (!excalidrawRef.current || !activeBoard) {
       return;
     }
-    try {
-      const elements = excalidrawRef.current.getSceneElements();
-      const appState = excalidrawRef.current.getAppState();
-      const files = excalidrawRef.current.getFiles();
-      const svgElement = await exportToSvg({
-        elements,
-        appState,
-        files,
-      });
-      const serializer = new XMLSerializer();
-      const svgData = serializer.serializeToString(svgElement);
-      const blob = new Blob([svgData], { type: 'image/svg+xml' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      const filename = (currentScene?.name || 'whiteboard').replace(/\s+/g, '_');
-      link.download = `${filename}.svg`;
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Failed to export SVG', error);
-    }
-  }, [currentScene]);
+    const api = excalidrawRef.current;
+    const svg = await exportToSvg({
+      elements: api.getSceneElements(),
+      appState: { ...sanitizeAppState(api.getAppState()), exportBackground: true },
+      files: api.getFiles(),
+    });
+    const blob = new Blob([svg.outerHTML], { type: 'image/svg+xml' });
+    downloadBlob(blob, `${activeBoard.name.replace(/\s+/g, '_').toLowerCase()}_whiteboard.svg`);
+  }, [activeBoard]);
 
-  const handleShareJson = useCallback(() => {
+  const handleExportJson = useCallback(() => {
+    if (!excalidrawRef.current || !activeBoard) {
+      return;
+    }
+    const api = excalidrawRef.current;
     const payload = {
-      id: currentScene?.id ?? generateId(),
-      name: currentScene?.name ?? 'whiteboard',
-      updatedAt: new Date().toISOString(),
-      elements: sceneSnapshot.elements ?? [],
-      appState: sceneSnapshot.appState ?? {},
-      files: sceneSnapshot.files ?? {},
+      elements: api.getSceneElements(),
+      appState: sanitizeAppState(api.getAppState()),
+      files: filesMapToObject(api.getFiles()),
+      name: activeBoard.name,
+      savedAt: new Date().toISOString(),
     };
-    try {
-      const blob = new Blob([JSON.stringify(payload, null, 2)], {
-        type: 'application/json',
-      });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      const filename = (currentScene?.name || 'whiteboard').replace(/\s+/g, '_');
-      link.download = `${filename}.json`;
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Failed to export JSON', error);
-    }
-  }, [currentScene, sceneSnapshot]);
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    downloadBlob(blob, `${activeBoard.name.replace(/\s+/g, '_').toLowerCase()}_whiteboard.json`);
+  }, [activeBoard]);
 
-  const currentAppState = sceneSnapshot.appState ?? DEFAULT_APP_STATE;
-  const currentBackground = currentAppState.viewBackgroundColor ?? DEFAULT_BACKGROUND;
-  const currentTheme = currentAppState.theme ?? DEFAULT_APP_STATE.theme;
-  const isGridActive = (currentAppState.gridSize ?? 0) > 0 && (currentAppState.gridMode ?? 'grid') === 'grid';
-  const isDotsActive = (currentAppState.gridSize ?? 0) > 0 && (currentAppState.gridMode ?? 'grid') === 'dot';
-  const toolbarLabel = currentScene ? `${currentScene.name}${isDirty ? ' *' : ''}` : 'Whiteboard';
+  const handleShareBoard = useCallback(() => {
+    handleExportJson();
+  }, [handleExportJson]);
 
   return (
     <div className="whiteboard-page">
-      <BackButton />
+      <div className="whiteboard-header">
+        <BackButton to="/tools" />
+        <h1>Whiteboard</h1>
+      </div>
+
       <div className="whiteboard-toolbar">
-        <div className="whiteboard-toolbar__title">{toolbarLabel}</div>
+        <div className="whiteboard-toolbar__title">
+          {activeBoard ? activeBoard.name : 'No boards'}
+          {isDirty ? <span className="whiteboard-toolbar__dirty"> • Unsaved changes</span> : null}
+        </div>
         <div className="whiteboard-toolbar__actions">
-          <button type="button" onClick={handleSaveScene} disabled={!currentScene}>
+          <button type="button" onClick={handleSaveBoard} disabled={!activeBoard}>
             Save
           </button>
-          <button type="button" onClick={handleLoadScene} disabled={!currentScene}>
+          <button type="button" onClick={handleLoadBoard} disabled={!activeBoard}>
             Load
           </button>
-          <button type="button" onClick={handleExportPng} disabled={!currentScene}>
+          <button type="button" onClick={handleExportPng} disabled={!activeBoard}>
             Export PNG
           </button>
-          <button type="button" onClick={handleExportSvg} disabled={!currentScene}>
+          <button type="button" onClick={handleExportSvg} disabled={!activeBoard}>
             Export SVG
           </button>
-          <button type="button" onClick={handleShareJson} disabled={!currentScene}>
+          <button type="button" onClick={handleShareBoard} disabled={!activeBoard}>
             Share JSON
           </button>
         </div>
       </div>
+
       <div className="whiteboard-layout">
         <aside className="whiteboard-sidebar">
-          <div className="whiteboard-sidebar__section">
+          <section className="whiteboard-sidebar__section">
             <div className="whiteboard-sidebar__header">
               <h2>Boards</h2>
-              <button type="button" onClick={handleCreateScene}>
+              <button type="button" onClick={handleCreateBoard}>
                 + New
               </button>
             </div>
             <ul className="whiteboard-board-list">
-              {scenes.map((scene) => (
-                <li key={scene.id} className={scene.id === currentScene?.id ? 'active' : ''}>
-                  <button type="button" onClick={() => handleSelectScene(scene.id)}>
-                    {scene.name}
+              {boards.map((board) => (
+                <li key={board.id} className={board.id === activeBoardId ? 'active' : ''}>
+                  <button type="button" onClick={() => requestSwitchBoard(board.id)}>
+                    <span className="whiteboard-board__name">{board.name}</span>
+                    <span className="whiteboard-board__meta">{new Date(board.updatedAt).toLocaleString()}</span>
                   </button>
                   <div className="whiteboard-board-list__actions">
-                    <button type="button" onClick={() => handleDeleteScene(scene.id)} aria-label="Delete board">
+                    <button type="button" onClick={() => handleDeleteBoard(board.id)} aria-label="Delete board">
                       ×
                     </button>
                   </div>
@@ -679,108 +613,92 @@ export default function Whiteboard() {
               ))}
             </ul>
             <div className="whiteboard-sidebar__board-actions">
-              <button type="button" onClick={handleRenameScene} disabled={!currentScene}>
+              <button type="button" onClick={handleRenameBoard} disabled={!activeBoard}>
                 Rename
               </button>
+              <button type="button" onClick={handleLoadBoard} disabled={!activeBoard}>
+                Reset View
+              </button>
             </div>
-          </div>
-          <div className="whiteboard-sidebar__section">
-            <h2>Theme & Grid</h2>
+          </section>
+
+          <section className="whiteboard-sidebar__section">
+            <h2>Appearance</h2>
             <div className="whiteboard-theme-buttons">
-              <button
-                type="button"
-                className={currentTheme === 'dark' ? 'active' : ''}
-                onClick={() => handleThemeChange('dark')}
-              >
-                Dark
-              </button>
-              <button
-                type="button"
-                className={currentTheme === 'light' ? 'active' : ''}
-                onClick={() => handleThemeChange('light')}
-              >
-                Light
-              </button>
+              {THEMES.map((theme) => (
+                <button key={theme.id} type="button" onClick={() => handleThemeChange(theme)}>
+                  {theme.label}
+                </button>
+              ))}
             </div>
-            <div className="whiteboard-grid-buttons">
-              <button
-                type="button"
-                className={isGridActive ? 'active' : ''}
-                onClick={() => handleToggleOverlay('grid')}
-              >
-                Grid
-              </button>
-              <button
-                type="button"
-                className={isDotsActive ? 'active' : ''}
-                onClick={() => handleToggleOverlay('dot')}
-              >
-                Dots
-              </button>
-            </div>
-            <div className="whiteboard-background-picker">
-              {BACKGROUND_OPTIONS.map((color) => (
+            <div className="whiteboard-background-swatches">
+              {BACKGROUNDS.map((option) => (
                 <button
-                  key={color}
+                  key={option.id}
                   type="button"
-                  className={color === currentBackground ? 'active' : ''}
-                  style={{ background: color }}
-                  onClick={() => handleBackgroundChange(color)}
-                  aria-label={`Set background ${color}`}
+                  className="whiteboard-background-swatch"
+                  style={{ backgroundColor: option.color }}
+                  onClick={() => handleBackgroundChange(option.color)}
+                  aria-label={`Switch background to ${option.label}`}
                 />
               ))}
             </div>
-          </div>
-          <div className="whiteboard-sidebar__section">
-            <h2>Preset Tokens</h2>
-            <div className="whiteboard-token-buttons">
-              {PRESET_TOKENS.map((preset) => (
-                <button key={preset.id} type="button" onClick={() => handleAddToken(preset)}>
-                  {preset.label}
+            <div className="whiteboard-grid-buttons">
+              {GRID_OPTIONS.map((option) => (
+                <button key={option.id} type="button" onClick={() => handleGridChange(option)}>
+                  {option.label}
                 </button>
               ))}
             </div>
-          </div>
-          <div className="whiteboard-sidebar__section">
-            <h2>Room Layouts</h2>
+          </section>
+
+          <section className="whiteboard-sidebar__section">
+            <h2>Tokens</h2>
             <div className="whiteboard-token-buttons">
-              {PRESET_ROOMS.map((preset) => (
-                <button key={preset.id} type="button" onClick={() => handleAddRoom(preset)}>
-                  {preset.label}
+              {PRESET_TOKENS.map((token) => (
+                <button key={token.id} type="button" onClick={() => handleAddToken(token)}>
+                  {token.label}
                 </button>
               ))}
             </div>
-          </div>
-          <div className="whiteboard-sidebar__section">
-            <h2>Images</h2>
-            <div className="whiteboard-image-uploader">
-              <button type="button" onClick={() => fileInputRef.current?.click()}>
-                Upload PNG / JPG
+          </section>
+
+          <section className="whiteboard-sidebar__section">
+            <h2>Rooms</h2>
+            <div className="whiteboard-token-buttons">
+              {PRESET_ROOMS.map((room) => (
+                <button key={room.id} type="button" onClick={() => handleAddRoom(room)}>
+                  {room.label}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <section className="whiteboard-sidebar__section">
+            <h2>Assets</h2>
+            <div className="whiteboard-assets">
+              <button type="button" onClick={requestImageUpload}>
+                Upload Image
               </button>
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/png,image/jpeg,image/webp"
-                multiple
-                onChange={handleUploadImage}
+                accept="image/png,image/jpeg,image/svg+xml"
+                className="whiteboard-file-input"
+                onChange={handleImageUpload}
               />
             </div>
-          </div>
+          </section>
         </aside>
-        <main className="whiteboard-stage">
+
+        <div className="whiteboard-stage">
           <div className="whiteboard-stage__canvas">
-            <Excalidraw
-              ref={excalidrawRef}
-              initialData={{
-                elements: currentScene?.elements ?? [],
-                appState: { ...DEFAULT_APP_STATE, ...(currentScene?.appState ?? {}) },
-                files: filesObjectToMap(currentScene?.files ?? {}),
-              }}
-              onChange={handleSceneChange}
-            />
+            <Excalidraw excalidrawAPI={(api) => (excalidrawRef.current = api)} onChange={handleChange} />
           </div>
-        </main>
+        </div>
       </div>
     </div>
   );
 }
+
+export default WhiteboardPage;
