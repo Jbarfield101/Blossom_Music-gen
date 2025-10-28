@@ -698,7 +698,9 @@ export default function Calendar() {
 
   const weekdayLabels = useMemo(() => {
     return Array.from({ length: 7 }, (_, index) => {
-      const date = new Date(Date.UTC(2021, 7, 1 + weekStart + index));
+      // Use a midday UTC timestamp so locale conversions never shift the date
+      // into the previous day for negative time zones.
+      const date = new Date(Date.UTC(2021, 7, 1 + weekStart + index, 12));
       return {
         short: shortWeekdayFormatter.format(date),
         long: longWeekdayFormatter.format(date),
