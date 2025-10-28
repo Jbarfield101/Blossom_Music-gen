@@ -227,6 +227,8 @@
 
 .whiteboard-stage {
   position: relative;
+  display: flex;
+  flex-direction: column;
   border-radius: 0.75rem;
   overflow: hidden;
   border: 1px solid rgba(148, 163, 184, 0.2);
@@ -234,15 +236,16 @@
   min-height: 72vh;
 }
 
-.whiteboard-stage__canvas,
-.whiteboard-stage__canvas .excalidraw {
-  height: 100%;
-}
-
 .whiteboard-stage__canvas {
   width: 100%;
+  flex: 1;
+  min-height: 70vh;
+  display: flex;
 }
 
-.whiteboard-stage__canvas > div {
-  height: 100%;
+.whiteboard-stage__canvas > div,
+.whiteboard-stage__canvas .excalidraw,
+.whiteboard-stage__canvas .excalidraw > div {
+  flex: 1;
+  min-height: 70vh;
 }
