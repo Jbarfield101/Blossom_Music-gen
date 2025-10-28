@@ -36,6 +36,10 @@ import 'react-mde/lib/styles/css/react-mde-all.css';
 const DEFAULT_NPC = 'D\\\\Documents\\\\DreadHaven\\\\20_DM\\\\NPC'.replace(/\\\\/g, '\\\\');
 const DEFAULT_PORTRAITS = 'D\\\\Documents\\\\DreadHaven\\\\30_Assets\\\\Images\\\\NPC_Portraits'.replace(/\\\\/g, '\\\\');
 const IMG_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
+const DND_PORTRAIT_NEGATIVE_PROMPT =
+  'low detail, lowres, blurry, distorted anatomy, extra limbs, text, typography, watermark, logo, cropped face';
+const DND_PORTRAIT_STYLE = 'illustrated';
+const DND_PORTRAIT_LIGHTING = 'dramatic';
 
 function normalizePortraitKey(source) {
   const base = String(source || '').split(/[\\/]/).pop() || '';
@@ -760,6 +764,9 @@ function DndDmNpcsContent() {
   const [portraitDropping, setPortraitDropping] = useState(false);
   const [portraitDropFeedback, setPortraitDropFeedback] = useState(null);
   const [portraitStatus, setPortraitStatus] = useState('');
+  const [portraitGenerating, setPortraitGenerating] = useState(false);
+  const [portraitGenerateStatus, setPortraitGenerateStatus] = useState('');
+  const [portraitGenerateTone, setPortraitGenerateTone] = useState('info');
   const portraitDropTimerRef = useRef(null);
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -2047,6 +2054,170 @@ const establishmentOptions = useMemo(() => {
     }
   }, [selectedId, showCopyToast]);
 
+  useEffect(() => {
+    setPortraitGenerating(false);
+    setPortraitGenerateStatus('');
+    setPortraitGenerateTone('info');
+  }, [selectedId, modalOpen]);
+
+  const handleGeneratePortrait = useCallback(async () => {
+    if (!selectedId || portraitGenerating) return;
+    if (!selected) {
+      showPortraitFeedback('Select an NPC before generating a portrait.', 'error', 4000);
+      return;
+    }
+
+    setPortraitGenerating(true);
+    setPortraitGenerateTone('info');
+    setPortraitGenerateStatus('Crafting portrait prompt from NPC notes...');
+
+    try {
+      const meta = activeMeta || {};
+      const aliasList = coerceStringArray(meta.aliases);
+      const tagList = coerceStringArray(meta.tags);
+      const keywordList = coerceStringArray(meta.keywords);
+      const summary = String(meta.canonical_summary || meta.embedding_summary || '').trim();
+      const role = String(meta.role || '').trim();
+      const faction = String(meta.faction || '').trim();
+      const region = String(meta.region || '').trim();
+      const location = String(meta.location || '').trim();
+      const rawImportance =
+        typeof meta.importance === 'number'
+          ? meta.importance
+          : Number.parseInt(String(meta.importance || '').trim(), 10);
+      const importance = Number.isFinite(rawImportance) ? rawImportance : null;
+      const bodyMarkdown = String(bodyRef.current || bodyValue || '');
+
+      const cleanMarkdown = (value, limit = 320) => {
+        if (!value) return '';
+        return String(value)
+          .replace(/```[\s\S]*?```/g, ' ')
+          .replace(/[*_`>#\[\]\(\)\|\-]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, limit);
+      };
+
+      const extractSectionSnippet = (keyword, limit = 300) => {
+        if (!bodyMarkdown) return '';
+        const pattern = new RegExp(`^##[^\\n]*${keyword}[^\\n]*$`, 'im');
+        const match = pattern.exec(bodyMarkdown);
+        if (!match) return '';
+        const start = match.index + match[0].length;
+        const rest = bodyMarkdown.slice(start);
+        const nextHeadingMatch = rest.search(/^##\s+/m);
+        const section = nextHeadingMatch >= 0 ? rest.slice(0, nextHeadingMatch) : rest;
+        return cleanMarkdown(section, limit);
+      };
+
+      const appearanceSnippet = extractSectionSnippet('appearance', 280);
+      const personalitySnippet = extractSectionSnippet('personality', 220);
+
+      let fallbackLore = cleanMarkdown(bodyMarkdown, 320);
+      if (appearanceSnippet) {
+        const index = fallbackLore.indexOf(appearanceSnippet);
+        if (index >= 0) {
+          fallbackLore = `${fallbackLore.slice(0, index)} ${fallbackLore.slice(index + appearanceSnippet.length)}`.trim();
+        }
+      }
+      if (fallbackLore.length > 320) {
+        fallbackLore = fallbackLore.slice(0, 320).trim();
+      }
+
+      const contextLines = [
+        meta.name ? `Name: ${meta.name}` : '',
+        aliasList.length ? `Aliases: ${aliasList.join(', ')}` : '',
+        role ? `Role: ${role}` : '',
+        faction ? `Faction: ${faction}` : '',
+        location ? `Location: ${location}` : '',
+        region ? `Region: ${region}` : '',
+        importance ? `Importance: ${importance}/5` : '',
+        tagList.length ? `Tags: ${tagList.join(', ')}` : '',
+        keywordList.length ? `Keywords: ${keywordList.join(', ')}` : '',
+        summary ? `Summary: ${summary}` : '',
+        appearanceSnippet ? `Appearance: ${appearanceSnippet}` : '',
+        personalitySnippet ? `Personality: ${personalitySnippet}` : '',
+      ].filter(Boolean);
+
+      if (!appearanceSnippet && fallbackLore) {
+        contextLines.push(`Lore: ${fallbackLore}`);
+      }
+
+      const contextBlock = contextLines.join('\n');
+
+      let promptText = '';
+      if (contextBlock) {
+        const system =
+          'You are an art director generating concise, vivid prompts for a fantasy portrait diffusion model. Return a single descriptive sentence under 55 words focused on physical appearance, attire, attitude, and cinematic lighting. Avoid meta language.';
+        const prompt = [
+          'Create a Dungeons & Dragons NPC portrait prompt using the context below.',
+          'Focus on clear physical descriptors, cultural cues, and mood.',
+          'Context:',
+          contextBlock,
+          'Return only the prompt sentence.',
+        ].join('\n\n');
+        try {
+          promptText = String(await invoke('generate_llm', { prompt, system }) || '').trim();
+        } catch (err) {
+          console.warn('Falling back to local portrait prompt synthesis', err);
+        }
+      }
+
+      if (!promptText) {
+        const name = meta.name || derivedTitle || selected.title || selected.name || 'mysterious NPC';
+        const vibeParts = [role, faction, region, location].filter(Boolean);
+        const descriptorPieces = [
+          appearanceSnippet,
+          summary,
+          fallbackLore,
+          tagList.slice(0, 4).join(', '),
+        ]
+          .filter(Boolean)
+          .join('. ');
+        const vibe = vibeParts.length ? `${vibeParts.join(', ')}` : '';
+        const base = [`Dramatic fantasy portrait of ${name}`];
+        if (vibe) base.push(vibe);
+        if (descriptorPieces) base.push(descriptorPieces);
+        base.push('rich illustration detail, expressive eyes, storytelling lighting');
+        promptText = base.join(', ').replace(/\s+/g, ' ').trim();
+      }
+
+      if (!promptText) {
+        throw new Error('Unable to craft a portrait prompt for this NPC.');
+      }
+
+      setPortraitGenerateStatus('Queuing DND Portrait workflow...');
+      await invoke('queue_dnd_portrait_job', {
+        prompt: promptText,
+        negativePrompt: DND_PORTRAIT_NEGATIVE_PROMPT,
+        characterName: meta.name || derivedTitle || selectedId,
+        characterClass: role || '',
+        stylePreset: DND_PORTRAIT_STYLE,
+        lighting: DND_PORTRAIT_LIGHTING,
+      });
+
+      setPortraitGenerateTone('info');
+      setPortraitGenerateStatus('Portrait render queued. Track progress in Visual Generator → Jobs.');
+      showPortraitFeedback('Queued portrait render via DND workflow.', 'info', 6000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err || 'Unexpected error');
+      console.error('Failed to queue DND portrait', err);
+      setPortraitGenerateTone('error');
+      setPortraitGenerateStatus(message || 'Failed to queue portrait render.');
+      showPortraitFeedback(message || 'Failed to queue portrait render.', 'error', 6000);
+    } finally {
+      setPortraitGenerating(false);
+    }
+  }, [
+    activeMeta,
+    bodyValue,
+    derivedTitle,
+    portraitGenerating,
+    selected,
+    selectedId,
+    showPortraitFeedback,
+  ]);
+
   const typeOptions = useMemo(() => {
     const vals = Object.values(typeMap).map((v) => sanitizeChip(v)).filter(Boolean);
     return Array.from(new Set(vals)).sort((a,b)=>a.localeCompare(b));
@@ -2873,6 +3044,30 @@ const establishmentOptions = useMemo(() => {
                           .join(' ')}
                       >
                         {portraitDropFeedback.message}
+                      </div>
+                    )}
+                    {!portraitUrls[selected.id] && (
+                      <div className="npc-portrait-actions">
+                        <button
+                          type="button"
+                          className="npc-portrait-generate"
+                          onClick={handleGeneratePortrait}
+                          disabled={portraitGenerating}
+                        >
+                          {portraitGenerating ? 'Preparing portrait...' : 'Generate portrait'}
+                        </button>
+                        {portraitGenerateStatus && (
+                          <div
+                            className={[
+                              'npc-portrait-action-status',
+                              portraitGenerateTone === 'error' ? 'error' : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' ')}
+                          >
+                            {portraitGenerateStatus}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

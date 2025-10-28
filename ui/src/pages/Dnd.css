@@ -2290,6 +2290,39 @@
   color: #f87171;
 }
 
+.npc-portrait-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: stretch;
+  width: 100%;
+  max-width: 220px;
+  margin-top: 0.4rem;
+}
+
+.npc-portrait-actions .npc-portrait-generate {
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.npc-portrait-actions .npc-portrait-generate[disabled] {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.npc-portrait-action-status {
+  font-size: 0.82rem;
+  text-align: center;
+  color: rgba(148, 163, 184, 0.85);
+  line-height: 1.35;
+}
+
+.npc-portrait-action-status.error {
+  color: #f87171;
+}
+
 .npc-view-toggle {
   display: inline-flex;
   gap: 0.35rem;
