@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Excalidraw, exportToBlob, exportToSvg } from '@excalidraw/excalidraw';
-import '@excalidraw/excalidraw/dist/index.css';
+import '@excalidraw/excalidraw/dist/prod/index.css';
 import BackButton from '../components/BackButton.jsx';
 import './Whiteboard.css';
 
