@@ -69,58 +69,104 @@ function DomainSmithModal({
     playerFacing = [],
     gmSecrets = [],
     refusalRules = [],
-    terrainDescription = '',
-    climateDescription = '',
-    landmarks = [],
-    hazards = [],
-    resources = [],
-    foundingStory = '',
-    riseToPower = '',
-    majorEvents = [],
-    recentHistory = '',
-    systemOfRule = '',
-    rulingFactions = [],
-    lawsAndJustice = [],
-    foreignRelations = [],
-    counties = [],
-    marches = [],
-    prefectures = [],
-    appearanceAndDress = [],
-    festivalsAndHolidays = [],
-    religionAndBeliefs = [],
-    artsAndEntertainment = [],
-    dailyLife = [],
-    valuesAndTaboos = [],
-    exports = [],
-    imports = [],
-    currency = '',
-    industries = [],
-    tradeRoutes = [],
-    standingForces = '',
-    specialUnits = [],
-    fortifications = [],
-    tacticsAndStrategies = [],
-    capitalSummary = '',
-    secondarySettlements = [],
-    strongholdsOrSites = [],
     legends = [],
     rumors = [],
-    allies = [],
-    rivals = [],
-    vassals = [],
-    foreignTies = [],
     relatedDocs = [],
-    mapAsset = '',
-    countiesMapAsset = '',
-    emblemAsset = '',
     musicCuePrompt = '',
-    politicalStability = '',
-    politicalProsperity = '',
-    politicalUnrest = '',
-    lastSeen = '',
-    recentEvents = [],
     privacy = '',
   } = form || {};
+
+  const geographySection = form?.geography && typeof form.geography === 'object' ? form.geography : {};
+  const terrainDescription = typeof geographySection.terrain === 'string' ? geographySection.terrain : '';
+  const climateDescription = typeof geographySection.climate === 'string' ? geographySection.climate : '';
+  const landmarks = Array.isArray(geographySection.landmarks) ? geographySection.landmarks : [];
+  const hazards = Array.isArray(geographySection.hazards) ? geographySection.hazards : [];
+  const resources = Array.isArray(geographySection.resources) ? geographySection.resources : [];
+
+  const historySection = form?.history && typeof form.history === 'object' ? form.history : {};
+  const foundingStory = typeof historySection.founding === 'string' ? historySection.founding : '';
+  const riseToPower = typeof historySection.rise_to_power === 'string' ? historySection.rise_to_power : '';
+  const majorEvents = Array.isArray(historySection.major_events) ? historySection.major_events : [];
+  const recentHistory = typeof historySection.recent_history === 'string' ? historySection.recent_history : '';
+
+  const politicsSection = form?.politics && typeof form.politics === 'object' ? form.politics : {};
+  const systemOfRule = typeof politicsSection.system_of_rule === 'string' ? politicsSection.system_of_rule : '';
+  const rulingFactions = Array.isArray(politicsSection.ruling_factions) ? politicsSection.ruling_factions : [];
+  const lawsAndJustice = Array.isArray(politicsSection.laws_and_justice) ? politicsSection.laws_and_justice : [];
+  const foreignRelations = Array.isArray(politicsSection.foreign_relations) ? politicsSection.foreign_relations : [];
+
+  const administrativeDivisionsSection =
+    form?.administrative_divisions && typeof form.administrative_divisions === 'object'
+      ? form.administrative_divisions
+      : {};
+  const counties = Array.isArray(administrativeDivisionsSection.counties)
+    ? administrativeDivisionsSection.counties
+    : [];
+  const marches = Array.isArray(administrativeDivisionsSection.marches)
+    ? administrativeDivisionsSection.marches
+    : [];
+  const prefectures = Array.isArray(administrativeDivisionsSection.prefectures)
+    ? administrativeDivisionsSection.prefectures
+    : [];
+
+  const cultureSection = form?.culture && typeof form.culture === 'object' ? form.culture : {};
+  const appearanceAndDress = Array.isArray(cultureSection.appearance_and_dress) ? cultureSection.appearance_and_dress : [];
+  const festivalsAndHolidays = Array.isArray(cultureSection.festivals_and_holidays)
+    ? cultureSection.festivals_and_holidays
+    : [];
+  const religionAndBeliefs = Array.isArray(cultureSection.religion_and_beliefs)
+    ? cultureSection.religion_and_beliefs
+    : [];
+  const artsAndEntertainment = Array.isArray(cultureSection.arts_and_entertainment)
+    ? cultureSection.arts_and_entertainment
+    : [];
+  const dailyLife = Array.isArray(cultureSection.daily_life) ? cultureSection.daily_life : [];
+  const valuesAndTaboos = Array.isArray(cultureSection.values_and_taboos) ? cultureSection.values_and_taboos : [];
+
+  const economySection = form?.economy && typeof form.economy === 'object' ? form.economy : {};
+  const exports = Array.isArray(economySection.exports) ? economySection.exports : [];
+  const imports = Array.isArray(economySection.imports) ? economySection.imports : [];
+  const currency = typeof economySection.currency === 'string' ? economySection.currency : '';
+  const industries = Array.isArray(economySection.industries) ? economySection.industries : [];
+  const tradeRoutes = Array.isArray(economySection.trade_routes) ? economySection.trade_routes : [];
+
+  const militarySection = form?.military && typeof form.military === 'object' ? form.military : {};
+  const standingForces = typeof militarySection.standing_forces === 'string' ? militarySection.standing_forces : '';
+  const specialUnits = Array.isArray(militarySection.special_units) ? militarySection.special_units : [];
+  const fortifications = Array.isArray(militarySection.fortifications) ? militarySection.fortifications : [];
+  const tacticsAndStrategies = Array.isArray(militarySection.tactics_and_strategies)
+    ? militarySection.tactics_and_strategies
+    : [];
+
+  const locationsSection = form?.locations && typeof form.locations === 'object' ? form.locations : {};
+  const capitalSummary = typeof locationsSection.capital_summary === 'string' ? locationsSection.capital_summary : '';
+  const secondarySettlements = Array.isArray(locationsSection.secondary_settlements)
+    ? locationsSection.secondary_settlements
+    : [];
+  const strongholdsOrSites = Array.isArray(locationsSection.strongholds_or_sites)
+    ? locationsSection.strongholds_or_sites
+    : [];
+
+  const relationshipsSection = form?.relationships && typeof form.relationships === 'object' ? form.relationships : {};
+  const allies = Array.isArray(relationshipsSection.allies) ? relationshipsSection.allies : [];
+  const rivals = Array.isArray(relationshipsSection.rivals) ? relationshipsSection.rivals : [];
+  const vassals = Array.isArray(relationshipsSection.vassals) ? relationshipsSection.vassals : [];
+  const foreignTies = Array.isArray(relationshipsSection.foreign_ties) ? relationshipsSection.foreign_ties : [];
+
+  const politicalStateSection =
+    form?.political_state && typeof form.political_state === 'object' ? form.political_state : {};
+  const politicalStability = typeof politicalStateSection.stability === 'string' ? politicalStateSection.stability : '';
+  const politicalProsperity = typeof politicalStateSection.prosperity === 'string' ? politicalStateSection.prosperity : '';
+  const politicalUnrest = typeof politicalStateSection.unrest_level === 'string' ? politicalStateSection.unrest_level : '';
+
+  const sessionStateSection = form?.session_state && typeof form.session_state === 'object' ? form.session_state : {};
+  const lastSeen = typeof sessionStateSection.last_seen === 'string' ? sessionStateSection.last_seen : '';
+  const recentEvents = Array.isArray(sessionStateSection.recent_events) ? sessionStateSection.recent_events : [];
+
+  const artSection = form?.art && typeof form.art === 'object' ? form.art : {};
+  const mapAsset = typeof artSection.map === 'string' ? artSection.map : '';
+  const countiesMapAsset = typeof artSection.counties_map === 'string' ? artSection.counties_map : '';
+  const emblemAsset = typeof artSection.emblem === 'string' ? artSection.emblem : '';
 
   const ensureArray = (value) => {
     if (Array.isArray(value)) return value;
@@ -201,6 +247,14 @@ function DomainSmithModal({
     onChange({ [key]: parseMultiline(event.target.value) });
   };
 
+  const createSectionTextHandler = (section, field) => (event) => {
+    onChange({ [section]: { [field]: event.target.value } });
+  };
+
+  const createSectionMultilineHandler = (section, field) => (event) => {
+    onChange({ [section]: { [field]: parseMultiline(event.target.value) } });
+  };
+
   const handleSeatOfPowerChange = createTextHandler('seatOfPower');
   const handleAliasesChange = createCommaListHandler('aliases');
   const handleAffiliationChange = createCommaListHandler('affiliation');
@@ -214,55 +268,55 @@ function DomainSmithModal({
   const handlePlayerFacingChange = createMultilineHandler('playerFacing');
   const handleGmSecretsChange = createMultilineHandler('gmSecrets');
   const handleRefusalRulesChange = createMultilineHandler('refusalRules');
-  const handleTerrainChange = createTextHandler('terrainDescription');
-  const handleClimateChange = createTextHandler('climateDescription');
-  const handleLandmarksChange = createMultilineHandler('landmarks');
-  const handleHazardsChange = createMultilineHandler('hazards');
-  const handleResourcesChange = createMultilineHandler('resources');
-  const handleFoundingChange = createTextHandler('foundingStory');
-  const handleRiseToPowerChange = createTextHandler('riseToPower');
-  const handleMajorEventsChange = createMultilineHandler('majorEvents');
-  const handleRecentHistoryChange = createTextHandler('recentHistory');
-  const handleSystemOfRuleChange = createTextHandler('systemOfRule');
-  const handleRulingFactionsChange = createMultilineHandler('rulingFactions');
-  const handleLawsChange = createMultilineHandler('lawsAndJustice');
-  const handleForeignRelationsChange = createMultilineHandler('foreignRelations');
-  const handleMarchesChange = createMultilineHandler('marches');
-  const handlePrefecturesChange = createMultilineHandler('prefectures');
-  const handleAppearanceChange = createMultilineHandler('appearanceAndDress');
-  const handleFestivalsChange = createMultilineHandler('festivalsAndHolidays');
-  const handleReligionChange = createMultilineHandler('religionAndBeliefs');
-  const handleArtsChange = createMultilineHandler('artsAndEntertainment');
-  const handleDailyLifeChange = createMultilineHandler('dailyLife');
-  const handleValuesChange = createMultilineHandler('valuesAndTaboos');
-  const handleExportsChange = createMultilineHandler('exports');
-  const handleImportsChange = createMultilineHandler('imports');
-  const handleCurrencyChange = createTextHandler('currency');
-  const handleIndustriesChange = createMultilineHandler('industries');
-  const handleTradeRoutesChange = createMultilineHandler('tradeRoutes');
-  const handleStandingForcesChange = createTextHandler('standingForces');
-  const handleSpecialUnitsChange = createMultilineHandler('specialUnits');
-  const handleFortificationsChange = createMultilineHandler('fortifications');
-  const handleTacticsChange = createMultilineHandler('tacticsAndStrategies');
-  const handleCapitalSummaryChange = createTextHandler('capitalSummary');
-  const handleSecondarySettlementsChange = createMultilineHandler('secondarySettlements');
-  const handleStrongholdsChange = createMultilineHandler('strongholdsOrSites');
+  const handleTerrainChange = createSectionTextHandler('geography', 'terrain');
+  const handleClimateChange = createSectionTextHandler('geography', 'climate');
+  const handleLandmarksChange = createSectionMultilineHandler('geography', 'landmarks');
+  const handleHazardsChange = createSectionMultilineHandler('geography', 'hazards');
+  const handleResourcesChange = createSectionMultilineHandler('geography', 'resources');
+  const handleFoundingChange = createSectionTextHandler('history', 'founding');
+  const handleRiseToPowerChange = createSectionTextHandler('history', 'rise_to_power');
+  const handleMajorEventsChange = createSectionMultilineHandler('history', 'major_events');
+  const handleRecentHistoryChange = createSectionTextHandler('history', 'recent_history');
+  const handleSystemOfRuleChange = createSectionTextHandler('politics', 'system_of_rule');
+  const handleRulingFactionsChange = createSectionMultilineHandler('politics', 'ruling_factions');
+  const handleLawsChange = createSectionMultilineHandler('politics', 'laws_and_justice');
+  const handleForeignRelationsChange = createSectionMultilineHandler('politics', 'foreign_relations');
+  const handleMarchesChange = createSectionMultilineHandler('administrativeDivisions', 'marches');
+  const handlePrefecturesChange = createSectionMultilineHandler('administrativeDivisions', 'prefectures');
+  const handleAppearanceChange = createSectionMultilineHandler('culture', 'appearance_and_dress');
+  const handleFestivalsChange = createSectionMultilineHandler('culture', 'festivals_and_holidays');
+  const handleReligionChange = createSectionMultilineHandler('culture', 'religion_and_beliefs');
+  const handleArtsChange = createSectionMultilineHandler('culture', 'arts_and_entertainment');
+  const handleDailyLifeChange = createSectionMultilineHandler('culture', 'daily_life');
+  const handleValuesChange = createSectionMultilineHandler('culture', 'values_and_taboos');
+  const handleExportsChange = createSectionMultilineHandler('economy', 'exports');
+  const handleImportsChange = createSectionMultilineHandler('economy', 'imports');
+  const handleCurrencyChange = createSectionTextHandler('economy', 'currency');
+  const handleIndustriesChange = createSectionMultilineHandler('economy', 'industries');
+  const handleTradeRoutesChange = createSectionMultilineHandler('economy', 'trade_routes');
+  const handleStandingForcesChange = createSectionTextHandler('military', 'standing_forces');
+  const handleSpecialUnitsChange = createSectionMultilineHandler('military', 'special_units');
+  const handleFortificationsChange = createSectionMultilineHandler('military', 'fortifications');
+  const handleTacticsChange = createSectionMultilineHandler('military', 'tactics_and_strategies');
+  const handleCapitalSummaryChange = createSectionTextHandler('locations', 'capital_summary');
+  const handleSecondarySettlementsChange = createSectionMultilineHandler('locations', 'secondary_settlements');
+  const handleStrongholdsChange = createSectionMultilineHandler('locations', 'strongholds_or_sites');
   const handleLegendsChange = createMultilineHandler('legends');
   const handleRumorsChange = createMultilineHandler('rumors');
-  const handleAlliesChange = createMultilineHandler('allies');
-  const handleRivalsChange = createMultilineHandler('rivals');
-  const handleVassalsChange = createMultilineHandler('vassals');
-  const handleForeignTiesChange = createMultilineHandler('foreignTies');
+  const handleAlliesChange = createSectionMultilineHandler('relationships', 'allies');
+  const handleRivalsChange = createSectionMultilineHandler('relationships', 'rivals');
+  const handleVassalsChange = createSectionMultilineHandler('relationships', 'vassals');
+  const handleForeignTiesChange = createSectionMultilineHandler('relationships', 'foreign_ties');
   const handleRelatedDocsChange = createMultilineHandler('relatedDocs');
-  const handleMapAssetChange = createTextHandler('mapAsset');
-  const handleCountiesMapAssetChange = createTextHandler('countiesMapAsset');
-  const handleEmblemAssetChange = createTextHandler('emblemAsset');
+  const handleMapAssetChange = createSectionTextHandler('art', 'map');
+  const handleCountiesMapAssetChange = createSectionTextHandler('art', 'counties_map');
+  const handleEmblemAssetChange = createSectionTextHandler('art', 'emblem');
   const handleMusicCueChange = createTextHandler('musicCuePrompt');
-  const handlePoliticalStabilityChange = createTextHandler('politicalStability');
-  const handlePoliticalProsperityChange = createTextHandler('politicalProsperity');
-  const handlePoliticalUnrestChange = createTextHandler('politicalUnrest');
-  const handleLastSeenChange = createTextHandler('lastSeen');
-  const handleRecentEventsChange = createMultilineHandler('recentEvents');
+  const handlePoliticalStabilityChange = createSectionTextHandler('politicalState', 'stability');
+  const handlePoliticalProsperityChange = createSectionTextHandler('politicalState', 'prosperity');
+  const handlePoliticalUnrestChange = createSectionTextHandler('politicalState', 'unrest_level');
+  const handleLastSeenChange = createSectionTextHandler('sessionState', 'last_seen');
+  const handleRecentEventsChange = createSectionMultilineHandler('sessionState', 'recent_events');
   const handlePrivacyChange = createTextHandler('privacy');
 
   const handleCategoryChange = (event) => {
@@ -296,7 +350,7 @@ function DomainSmithModal({
       if (idx !== index) return county || {};
       return { ...county, [field]: value };
     });
-    onChange({ counties: next });
+    onChange({ administrativeDivisions: { counties: next } });
   };
 
   const handleAddCounty = () => {
@@ -304,12 +358,12 @@ function DomainSmithModal({
       ...normalizedCounties,
       { id: '', name: '', seatOfPower: '', population: '', allegiance: '', notes: '' },
     ];
-    onChange({ counties: next });
+    onChange({ administrativeDivisions: { counties: next } });
   };
 
   const handleRemoveCounty = (index) => {
     const next = normalizedCounties.filter((_, idx) => idx !== index);
-    onChange({ counties: next });
+    onChange({ administrativeDivisions: { counties: next } });
   };
 
   const formatPopulation = (value) => {
