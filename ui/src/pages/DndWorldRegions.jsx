@@ -430,20 +430,46 @@ function normalizeInputListValue(value) {
   return [];
 }
 
+const POPULATION_MIN_LIMIT = 0;
+const POPULATION_MAX_LIMIT = 1000000;
+
+function clampPopulationEstimate(value) {
+  if (!Number.isFinite(value)) return null;
+  const rounded = Math.round(value);
+  if (rounded < POPULATION_MIN_LIMIT) return POPULATION_MIN_LIMIT;
+  if (rounded > POPULATION_MAX_LIMIT) return POPULATION_MAX_LIMIT;
+  return rounded;
+}
+
 function normalizePopulationValue(value) {
   if (value == null || value === '') return null;
   if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.max(0, Math.round(value));
+    return clampPopulationEstimate(value);
   }
   if (typeof value === 'string') {
     const cleaned = value.replace(/[,\s]+/g, ' ').trim();
     if (!cleaned) return null;
     const parsed = Number(cleaned.replace(/\s+/g, ''));
     if (Number.isFinite(parsed)) {
-      return Math.max(0, Math.round(parsed));
+      return clampPopulationEstimate(parsed);
     }
   }
   return null;
+}
+
+function normalizePopulationRange(value) {
+  if (!value || typeof value !== 'object') return null;
+  const minValue = clampPopulationEstimate(Number(value.min));
+  const maxValue = clampPopulationEstimate(Number(value.max));
+  if (minValue == null && maxValue == null) return null;
+  const fallback = minValue ?? maxValue;
+  if (fallback == null) return null;
+  const resolvedMin = minValue ?? fallback;
+  const resolvedMax = maxValue ?? fallback;
+  return {
+    min: Math.min(resolvedMin, resolvedMax),
+    max: Math.max(resolvedMin, resolvedMax),
+  };
 }
 
 function normalizeCountySummary(value) {
@@ -510,6 +536,7 @@ function createDomainForm(overrides = {}) {
     seat_of_power: '',
     capital: '',
     population: null,
+    population_range: null,
     primary_species: [],
     rulerId: null,
     tags: [],
@@ -659,6 +686,8 @@ function createDomainForm(overrides = {}) {
   if (overrides.related_docs) next.related_docs = normalizeInputListValue(overrides.related_docs);
   if (overrides.music_cue_prompt != null) next.music_cue_prompt = String(overrides.music_cue_prompt);
   if (overrides.population != null) next.population = normalizePopulationValue(overrides.population);
+  if (overrides.population_range) next.population_range = normalizePopulationRange(overrides.population_range);
+  if (overrides.populationRange) next.population_range = normalizePopulationRange(overrides.populationRange);
   if (overrides.rulerId != null) {
     const trimmed = typeof overrides.rulerId === 'string' ? overrides.rulerId.trim() : overrides.rulerId;
     next.rulerId = trimmed ? String(trimmed) : null;
@@ -1264,6 +1293,8 @@ export default function DndWorldRegions() {
               return 'related_docs';
             case 'musicCuePrompt':
               return 'music_cue_prompt';
+            case 'populationRange':
+              return 'population_range';
             default:
               return rawKey;
           }
@@ -1290,6 +1321,9 @@ export default function DndWorldRegions() {
             break;
           case 'population':
             next.population = normalizePopulationValue(rawValue);
+            break;
+          case 'population_range':
+            next.population_range = normalizePopulationRange(rawValue);
             break;
           case 'primary_species':
             next.primary_species = normalizeInputListValue(rawValue);
@@ -1728,6 +1762,10 @@ export default function DndWorldRegions() {
               ? `Ruler: ${successLabel} (${finalRulerId}).`
               : `Ruler ID: ${finalRulerId}.`,
           );
+        }
+        const resolvedPopulationForMessage = finalEntity.population ?? normalizedPopulation;
+        if (resolvedPopulationForMessage != null) {
+          successParts.push(`Population: approx ${formatPopulation(resolvedPopulationForMessage)} citizens.`);
         }
         const defaultCountyDir = targetDirectory ? joinPath(targetDirectory, 'Counties') : targetDirectory;
         const domainContext = {
