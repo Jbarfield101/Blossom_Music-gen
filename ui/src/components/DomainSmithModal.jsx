@@ -448,8 +448,8 @@ function DomainSmithModal({
         <p className="dnd-modal-subtitle">
           Capture the domain&apos;s identity and pick where Blossom should save the finished brief.
         </p>
-        <form onSubmit={onSubmit} className="dnd-modal-body" style={{ gridTemplateColumns: '1fr' }}>
-          <div className="dnd-modal-section">
+        <form onSubmit={onSubmit} className="dnd-modal-body domain-smith-body">
+          <div className="dnd-modal-section domain-smith-wide">
             <h3>📁 Save Location</h3>
             <label className="dnd-label">
               <span>Region folder</span>
@@ -472,7 +472,7 @@ function DomainSmithModal({
             </label>
           </div>
 
-          <div className="dnd-modal-section">
+          <div className="dnd-modal-section domain-smith-primary">
             <h3>📘 Basic Information</h3>
             <label className="dnd-label">
               <span>Domain name</span>
@@ -628,7 +628,7 @@ function DomainSmithModal({
             </label>
           </div>
 
-          <div className="dnd-modal-section">
+          <div className="dnd-modal-section domain-smith-primary">
             <h3>🧭 Overview</h3>
             <label className="dnd-label">
               <span>Overview hook</span>
@@ -697,7 +697,7 @@ function DomainSmithModal({
             </label>
           </div>
 
-          <div className="dnd-modal-section">
+          <div className="dnd-modal-section domain-smith-lore">
             <h3>🏞️ Geography</h3>
             <label className="dnd-label">
               <span>Terrain description</span>
@@ -755,7 +755,7 @@ function DomainSmithModal({
             </label>
           </div>
 
-          <div className="dnd-modal-section">
+          <div className="dnd-modal-section domain-smith-lore">
             <h3>📜 History</h3>
             <label className="dnd-label">
               <span>Founding story</span>
@@ -802,7 +802,7 @@ function DomainSmithModal({
             </label>
           </div>
 
-          <div className="dnd-modal-section">
+          <div className="dnd-modal-section domain-smith-primary">
             <h3>⚖️ Political Structure</h3>
             <label className="dnd-label">
               <span>System of rule</span>
@@ -849,7 +849,7 @@ function DomainSmithModal({
             </label>
           </div>
 
-          <div className="dnd-modal-section">
+          <div className="dnd-modal-section domain-smith-primary">
             <h3>🧩 Administrative Divisions</h3>
             <div className="county-list" style={{ display: 'grid', gap: '1rem' }}>
               {normalizedCounties.length === 0 ? (
@@ -976,7 +976,7 @@ function DomainSmithModal({
             </label>
           </div>
 
-          <div className="dnd-modal-section">
+          <div className="dnd-modal-section domain-smith-lore">
             <h3>🎭 Culture &amp; Society</h3>
             <label className="dnd-label">
               <span>Appearance and dress</span>
@@ -1045,7 +1045,7 @@ function DomainSmithModal({
             </label>
           </div>
 
-          <div className="dnd-modal-section">
+          <div className="dnd-modal-section domain-smith-primary">
             <h3>💰 Economy</h3>
             <label className="dnd-label">
               <span>Exports</span>
@@ -1103,7 +1103,7 @@ function DomainSmithModal({
             </label>
           </div>
 
-          <div className="dnd-modal-section">
+          <div className="dnd-modal-section domain-smith-primary">
             <h3>🛡️ Military &amp; Defense</h3>
             <label className="dnd-label">
               <span>Standing forces</span>
@@ -1150,7 +1150,7 @@ function DomainSmithModal({
             </label>
           </div>
 
-          <div className="dnd-modal-section">
+          <div className="dnd-modal-section domain-smith-lore">
             <h3>🏛️ Notable Locations</h3>
             <label className="dnd-label">
               <span>Capital summary</span>
@@ -1186,7 +1186,7 @@ function DomainSmithModal({
             </label>
           </div>
 
-          <div className="dnd-modal-section">
+          <div className="dnd-modal-section domain-smith-lore">
             <h3>🕯️ Legends &amp; Lore</h3>
             <label className="dnd-label">
               <span>Legends</span>
@@ -1211,7 +1211,7 @@ function DomainSmithModal({
             </label>
           </div>
 
-          <div className="dnd-modal-section">
+          <div className="dnd-modal-section domain-smith-lore">
             <h3>🤝 Relationships</h3>
             <label className="dnd-label">
               <span>Allies</span>
@@ -1269,7 +1269,7 @@ function DomainSmithModal({
             </label>
           </div>
 
-          <div className="dnd-modal-section">
+          <div className="dnd-modal-section domain-smith-lore">
             <h3>🖼️ Media &amp; Ambience</h3>
             <label className="dnd-label">
               <span>Map asset</span>
@@ -1326,7 +1326,7 @@ function DomainSmithModal({
             </label>
           </div>
 
-          <div className="dnd-modal-section">
+          <div className="dnd-modal-section domain-smith-primary">
             <h3>⚙️ Campaign State</h3>
             <label className="dnd-label">
               <span>Political stability</span>
@@ -1384,7 +1384,7 @@ function DomainSmithModal({
           </div>
 
           {formattedError ? (
-            <div className="dnd-modal-error" role="alert">
+            <div className="dnd-modal-error domain-smith-wide" role="alert">
               {formattedError}
               {errorDetails ? (
                 <pre
@@ -1401,15 +1401,15 @@ function DomainSmithModal({
             </div>
           ) : null}
           {message && !formattedError ? (
-            <div role="status" style={{ color: 'var(--success, #2dca8c)' }}>
+            <div role="status" className="domain-smith-wide domain-smith-status">
               {message}
             </div>
           ) : null}
 
           {canForgeCounties ? (
-            <div className="dnd-modal-section" style={{ border: '1px solid var(--accent-border, rgba(45, 202, 140, 0.35))', borderRadius: '12px', padding: '1rem', background: 'var(--accent-bg, rgba(45, 202, 140, 0.06))' }}>
-              <h3 style={{ marginTop: 0 }}>Forge this domain&apos;s counties</h3>
-              <p style={{ marginBottom: '0.75rem' }}>
+            <div className="dnd-modal-section domain-smith-wide domain-smith-highlight">
+              <h3>Forge this domain&apos;s counties</h3>
+              <p>
                 Detail the counties that belong to <strong>{forgedDomain.name}</strong> next.
                 You can generate one county at a time using the dedicated template.
               </p>
@@ -1424,7 +1424,7 @@ function DomainSmithModal({
             </div>
           ) : null}
 
-          <footer className="dnd-modal-actions">
+          <footer className="dnd-modal-actions domain-smith-wide">
             <button type="button" className="secondary" onClick={onClose} disabled={busy}>
               {success ? 'Close' : 'Cancel'}
             </button>
