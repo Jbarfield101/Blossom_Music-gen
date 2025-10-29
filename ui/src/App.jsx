@@ -69,7 +69,6 @@ import BrickBreaker from './pages/BrickBreaker.jsx';
 import Calendar from './pages/Calendar.jsx';
 import GeneralChat from './pages/GeneralChat.jsx';
 import Canvas from './pages/Canvas.jsx';
-import Whiteboard from './pages/Whiteboard.jsx';
 import DndTasks from './pages/DndTasks.jsx';
 import DndRepair from './pages/DndRepair.jsx';
 import DndDmWorldInventory from './pages/DndDmWorldInventory.jsx';
@@ -529,7 +528,6 @@ export default function App() {
             <Route path="/train" element={<Train />} />
             <Route path="/tools" element={<Tools />} />
             <Route path="/tools/canvas" element={<Canvas />} />
-            <Route path="/tools/whiteboard" element={<Whiteboard />} />
             <Route path="/visual-generator" element={<VisualGenerator />}>
               <Route path="lofi-scene-maker" element={<LofiSceneMaker />} />
               <Route path="video-maker" element={<VideoMaker />} />

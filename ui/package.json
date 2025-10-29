@@ -8,7 +8,6 @@
     "test": "node --test --loader ./tests/jsx-loader.mjs"
   },
   "dependencies": {
-    "@excalidraw/excalidraw": "^0.18.0",
     "@fontsource/urbanist": "^5.2.7",
     "@hookform/resolvers": "^3.9.0",
     "@tauri-apps/api": "^2.8.0",

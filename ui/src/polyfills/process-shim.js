@@ -1,6 +1,6 @@
 /**
  * Minimal browser-safe shim for the `process` global that some third-party
- * packages (e.g. @excalidraw/excalidraw) expect when running in a Node
+ * packages expect when running in a Node
  * environment. The library only reads from `process.env` to detect the current
  * mode, so we expose a lightweight object rather than pulling in the full node
  * polyfill bundle.

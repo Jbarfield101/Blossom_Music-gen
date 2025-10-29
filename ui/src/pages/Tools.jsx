@@ -31,9 +31,6 @@ export default function Tools() {
         <Card to="/tools/canvas" icon="Brush" title="Canvas">
           Collaborative art board
         </Card>
-        <Card to="/tools/whiteboard" icon="Presentation" title="White Board">
-          Shared planning space
-        </Card>
         <Card to="/train" icon="Sliders" title="Train Model">
           Custom Model Trainer
         </Card>
