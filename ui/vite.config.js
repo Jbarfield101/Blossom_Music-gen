@@ -37,6 +37,8 @@ export default defineConfig({
     },
     // Ensure a single React instance (fixes invalid hook call with linked deps)
     dedupe: ['react', 'react-dom'],
+    // Allow packages such as Excalidraw to expose CSS via conditional exports
+    conditions: ['development', 'production'],
   },
   optimizeDeps: {
     // Prevent esbuild pre-bundling glitches with tauri packages
