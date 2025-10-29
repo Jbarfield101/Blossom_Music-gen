@@ -182,6 +182,55 @@
   overflow-y: auto;
 }
 
+.domain-smith-body {
+  grid-template-columns: 1fr;
+  row-gap: var(--space-xl);
+}
+
+.domain-smith-body .dnd-modal-section + .dnd-modal-section {
+  margin-top: 0;
+}
+
+.domain-smith-body .domain-smith-wide {
+  grid-column: 1 / -1;
+}
+
+.domain-smith-status {
+  color: var(--success, #2dca8c);
+}
+
+.domain-smith-highlight {
+  border: 1px solid var(--accent-border, rgba(45, 202, 140, 0.35));
+  border-radius: 12px;
+  padding: 1rem;
+  background: var(--accent-bg, rgba(45, 202, 140, 0.06));
+}
+
+.domain-smith-highlight h3 {
+  margin-top: 0;
+}
+
+.domain-smith-highlight p {
+  margin-bottom: 0.75rem;
+}
+
+@media (min-width: 1024px) {
+  .domain-smith-body {
+    grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+    column-gap: var(--space-xl);
+    row-gap: var(--space-xl);
+    align-items: flex-start;
+  }
+
+  .domain-smith-body .domain-smith-primary {
+    grid-column: 1;
+  }
+
+  .domain-smith-body .domain-smith-lore {
+    grid-column: 2;
+  }
+}
+
 .dnd-modal-section {
   display: grid;
   gap: var(--space-md);
