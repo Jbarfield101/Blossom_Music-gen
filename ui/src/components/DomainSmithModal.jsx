@@ -52,8 +52,9 @@ function DomainSmithModal({
     name = '',
     category = '',
     capital = '',
-    populationMin: rawPopulationMin,
-    populationMax: rawPopulationMax,
+    population: rawPopulationValue,
+    population_range: rawPopulationRange,
+    populationRange: camelPopulationRange,
     rulerId = null,
     regionPath = '',
     aliases = [],
@@ -214,15 +215,46 @@ function DomainSmithModal({
   const POPULATION_MAX_LIMIT = 1000000;
   const POPULATION_STEP = 1000;
 
-  const normalizedPopulationMin = clampNumber(
-    rawPopulationMin,
-    POPULATION_MIN_LIMIT,
-    POPULATION_MAX_LIMIT,
-  );
-  const normalizedPopulationMax = Math.max(
-    normalizedPopulationMin,
-    clampNumber(rawPopulationMax, POPULATION_MIN_LIMIT, POPULATION_MAX_LIMIT),
-  );
+  const normalizePopulationNumber = (value) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return null;
+    return clampNumber(num, POPULATION_MIN_LIMIT, POPULATION_MAX_LIMIT);
+  };
+
+  const normalizedPopulationValue = normalizePopulationNumber(rawPopulationValue);
+
+  const normalizedPopulationRange = (() => {
+    const candidate = camelPopulationRange && typeof camelPopulationRange === 'object'
+      ? camelPopulationRange
+      : rawPopulationRange && typeof rawPopulationRange === 'object'
+        ? rawPopulationRange
+        : null;
+    if (!candidate) return null;
+    const minValue = normalizePopulationNumber(candidate.min);
+    const maxValue = normalizePopulationNumber(candidate.max);
+    if (minValue == null && maxValue == null) return null;
+    const fallback = minValue ?? maxValue;
+    if (fallback == null) return null;
+    const safeMin = minValue ?? fallback;
+    const safeMax = maxValue ?? fallback;
+    return {
+      min: Math.min(safeMin, safeMax),
+      max: Math.max(safeMin, safeMax),
+    };
+  })();
+
+  const sliderBaseMin = normalizedPopulationRange?.min ?? normalizedPopulationValue ?? POPULATION_MIN_LIMIT;
+  const sliderBaseMax = normalizedPopulationRange?.max ?? normalizedPopulationValue ?? POPULATION_MIN_LIMIT;
+  const normalizedSliderMin = normalizePopulationNumber(sliderBaseMin) ?? POPULATION_MIN_LIMIT;
+  const normalizedSliderMax = normalizePopulationNumber(sliderBaseMax) ?? POPULATION_MIN_LIMIT;
+  const sliderMinValue = Math.min(normalizedSliderMin, normalizedSliderMax);
+  const sliderMaxValue = Math.max(normalizedSliderMin, normalizedSliderMax);
+  const hasPopulationSelection = normalizedPopulationValue != null || normalizedPopulationRange != null;
+  const resolvedPopulationValue = normalizedPopulationValue != null
+    ? normalizedPopulationValue
+    : hasPopulationSelection
+      ? Math.round((sliderMinValue + sliderMaxValue) / 2)
+      : null;
 
   const handleBackdrop = (event) => {
     if (busy) return;
@@ -332,7 +364,11 @@ function DomainSmithModal({
     const nextMax = clampNumber(nextMaxRaw, POPULATION_MIN_LIMIT, POPULATION_MAX_LIMIT);
     const safeMin = Math.min(nextMin, nextMax);
     const safeMax = Math.max(nextMin, nextMax);
-    onChange({ populationMin: safeMin, populationMax: safeMax });
+    const resolvedValue = Math.round((safeMin + safeMax) / 2);
+    onChange({
+      population: clampNumber(resolvedValue, POPULATION_MIN_LIMIT, POPULATION_MAX_LIMIT),
+      populationRange: { min: safeMin, max: safeMax },
+    });
   };
 
   const handleRulerChange = (value) => {
@@ -381,10 +417,11 @@ function DomainSmithModal({
     ? `Recent rulers: ${sampleRulers.join(', ')}`
     : 'Link an existing NPC to anchor this domain.';
 
-  const populationHelperText =
-    normalizedPopulationMin !== 0 || normalizedPopulationMax !== 0
-      ? `Estimated population between ${formatPopulation(normalizedPopulationMin)} and ${formatPopulation(normalizedPopulationMax)} citizens.`
-      : 'Set the sliders to choose an estimated population (0 – 1,000,000 citizens).';
+  const populationHelperText = resolvedPopulationValue != null
+    ? normalizedPopulationRange && normalizedPopulationRange.min !== normalizedPopulationRange.max
+      ? `Estimated population around ${formatPopulation(resolvedPopulationValue)} citizens (${formatPopulation(sliderMinValue)} – ${formatPopulation(sliderMaxValue)}).`
+      : `Estimated population around ${formatPopulation(resolvedPopulationValue)} citizens.`
+    : 'Set the sliders to choose an estimated population (0 – 1,000,000 citizens).';
 
   const canSubmit = !busy && name.trim() && regionPath.trim();
 
@@ -526,7 +563,7 @@ function DomainSmithModal({
                 min={POPULATION_MIN_LIMIT}
                 max={POPULATION_MAX_LIMIT}
                 step={POPULATION_STEP}
-                value={[normalizedPopulationMin, normalizedPopulationMax]}
+                value={[sliderMinValue, sliderMaxValue]}
                 onChange={handlePopulationRangeChange}
                 disabled={busy}
               />
