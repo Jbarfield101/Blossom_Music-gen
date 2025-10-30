@@ -430,7 +430,7 @@ function normalizeDemographicsCollection(input, previous = []) {
   return fallback;
 }
 
-function coerceDemographicsForFrontMatter(entries) {
+export function coerceDemographicsForFrontMatter(entries) {
   if (!Array.isArray(entries)) return [];
   return entries
     .map((entry) => {
@@ -438,6 +438,7 @@ function coerceDemographicsForFrontMatter(entries) {
       const shareRaw = String(entry?.share ?? '').trim();
       const share = Number.parseFloat(shareRaw);
       if (!group || Number.isNaN(share)) return null;
+      if (share <= 0) return null;
       return {
         group,
         share: Math.round(share * 100) / 100,
