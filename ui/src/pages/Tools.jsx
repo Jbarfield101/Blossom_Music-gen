@@ -28,6 +28,9 @@ export default function Tools() {
         <Card to="/beatmaker" icon="AudioWaveform" title="Beat Maker">
           Audio Loop Builder
         </Card>
+        <Card to="/tools/video-to-image" icon="Clapperboard" title="Video to Image">
+          Extract frames from video
+        </Card>
         <Card to="/tools/canvas" icon="Brush" title="Canvas">
           Collaborative art board
         </Card>

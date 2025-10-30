@@ -11769,6 +11769,7 @@ fn main() {
             commands::get_video_maker_prompts,
             commands::update_video_maker_prompts,
             commands::upload_video_maker_image,
+            commands::video_to_image_extract,
             commands::get_ace_workflow_prompts,
             commands::update_ace_workflow_prompts,
             commands::get_stable_audio_templates,

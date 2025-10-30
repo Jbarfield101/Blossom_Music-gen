@@ -3,7 +3,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tempfile::NamedTempFile;
 
 use crate::{project_root, settings_store};
@@ -44,6 +44,34 @@ fn sanitize_optional_string(value: Option<String>) -> Option<String> {
             Some(trimmed.to_string())
         }
     })
+}
+
+fn sanitize_base_name(value: Option<String>, fallback: &str) -> String {
+    let input = sanitize_optional_string(value).unwrap_or_else(|| fallback.to_string());
+    let sanitized: String = input
+        .chars()
+        .map(|ch| {
+            let allowed = ch.is_ascii_alphanumeric()
+                || matches!(ch, ' ' | '-' | '_' | '.' | '(' | ')' | '[' | ']' | '{' | '}' );
+            if allowed {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let trimmed = sanitized.trim().trim_matches('.').trim();
+    let candidate = if trimmed.is_empty() {
+        fallback
+    } else {
+        trimmed
+    };
+    let cleaned: String = candidate.chars().filter(|c| !c.is_control()).take(120).collect();
+    if cleaned.is_empty() {
+        fallback.to_string()
+    } else {
+        cleaned
+    }
 }
 
 fn canonical_string(path: PathBuf) -> String {
@@ -161,6 +189,17 @@ pub struct StableAudioTemplatePayload {
     pub seconds: f64,
     #[serde(default = "default_batch_size")]
     pub batch_size: i64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoFrameExtractionResult {
+    pub folder: String,
+    pub base_name: String,
+    pub frame_count: usize,
+    pub sample_files: Vec<String>,
+    pub format: String,
+    pub pattern: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3011,4 +3050,148 @@ pub async fn album_concat(
     }
 
     Ok(out_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn video_to_image_extract(
+    video_path: String,
+    output_dir: Option<String>,
+    base_name: Option<String>,
+    format: Option<String>,
+) -> Result<VideoFrameExtractionResult, String> {
+    let trimmed_path = video_path.trim();
+    if trimmed_path.is_empty() {
+        return Err("Video path is required.".into());
+    }
+    let video_path_buf = PathBuf::from(trimmed_path);
+    let video_candidate = match video_path_buf.canonicalize() {
+        Ok(path) => path,
+        Err(_) => video_path_buf.clone(),
+    };
+    if !video_candidate.exists() {
+        return Err(format!("Video file not found: {}", trimmed_path));
+    }
+    let metadata = fs::metadata(&video_candidate)
+        .map_err(|e| format!("Failed to read video metadata: {}", e))?;
+    if !metadata.is_file() {
+        return Err(format!(
+            "Video path is not a file: {}",
+            video_candidate.to_string_lossy()
+        ));
+    }
+
+    let requested_format = format.map(|f| f.trim().to_lowercase());
+    let image_ext = match requested_format.as_deref() {
+        Some("png") => "png",
+        Some("jpg") | Some("jpeg") | None => "jpg",
+        Some(other) => return Err(format!("Unsupported image format: {}", other)),
+    };
+
+    let fallback_name = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(duration) => format!("video_frames_{}", duration.as_secs()),
+        Err(_) => "video_frames".to_string(),
+    };
+    let base_name_clean = sanitize_base_name(base_name, &fallback_name);
+
+    let mut output_root = sanitize_optional_string(output_dir)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| project_root().join("assets").join("gallery").join("image"));
+    if output_root.is_relative() {
+        output_root = project_root().join(&output_root);
+    }
+    let target_folder = output_root.join(&base_name_clean);
+
+    if target_folder.exists() {
+        return Err(format!(
+            "Output folder already exists: {}",
+            target_folder.to_string_lossy()
+        ));
+    }
+
+    fs::create_dir_all(&target_folder).map_err(|e| {
+        format!(
+            "Failed to create output directory {}: {}",
+            target_folder.to_string_lossy(),
+            e
+        )
+    })?;
+
+    let pattern = format!("{}_Frame_%05d.{}", base_name_clean, image_ext);
+    let output_pattern_for_ffmpeg = target_folder.join(&pattern);
+    let video_path_for_ffmpeg = video_candidate.clone();
+    let use_jpg_quality = image_ext == "jpg";
+
+    let ffmpeg_result = tauri::async_runtime::spawn_blocking(move || {
+        let mut cmd = Command::new("ffmpeg");
+        cmd.arg("-hide_banner")
+            .arg("-loglevel")
+            .arg("error")
+            .arg("-i")
+            .arg(&video_path_for_ffmpeg)
+            .arg("-vsync")
+            .arg("0")
+            .arg("-start_number")
+            .arg("1")
+            .arg("-an");
+        if use_jpg_quality {
+            cmd.args(["-qscale:v", "2"]);
+        }
+        cmd.arg(output_pattern_for_ffmpeg.as_os_str());
+        cmd.output()
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+
+    if !ffmpeg_result.status.success() {
+        let stderr = String::from_utf8_lossy(&ffmpeg_result.stderr);
+        if stderr.contains("not recognized") || stderr.contains("No such file or directory") {
+            return Err(
+                "ffmpeg not found. Please install FFmpeg and ensure it is on your PATH.".into(),
+            );
+        }
+        return Err(format!("ffmpeg failed: {}", stderr));
+    }
+
+    let mut frames: Vec<PathBuf> = Vec::new();
+    let prefix = format!("{}_Frame_", base_name_clean);
+    let expected_suffix = format!(".{}", image_ext);
+    for entry in fs::read_dir(&target_folder)
+        .map_err(|e| format!("Failed to read output directory: {}", e))?
+    {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let file_type = entry.file_type().map_err(|e| e.to_string())?;
+        if !file_type.is_file() {
+            continue;
+        }
+        if let Some(name) = entry.file_name().to_str() {
+            let lower = name.to_lowercase();
+            if name.starts_with(&prefix) && lower.ends_with(&expected_suffix) {
+                frames.push(entry.path());
+            }
+        }
+    }
+
+    frames.sort();
+
+    if frames.is_empty() {
+        return Err("No frames were produced by ffmpeg.".into());
+    }
+
+    let frame_count = frames.len();
+    let sample_files: Vec<String> = frames
+        .iter()
+        .take(5)
+        .map(|p| canonical_string(p.clone()))
+        .collect();
+    let folder_str = canonical_string(target_folder.clone());
+
+    Ok(VideoFrameExtractionResult {
+        folder: folder_str,
+        base_name: base_name_clean,
+        frame_count,
+        sample_files,
+        format: image_ext.to_string(),
+        pattern,
+    })
 }
