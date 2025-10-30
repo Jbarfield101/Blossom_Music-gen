@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import Icon from './Icon.jsx';
-import DualRangeSlider from './DualRangeSlider.jsx';
 import EntityLinkPicker from '../components/EntityLinkPicker.jsx';
 import { DOMAIN_CATEGORY_OPTIONS } from '../constants/domainOptions.js';
 
@@ -62,15 +61,8 @@ function DomainSmithModal({
     category = '',
     capital = '',
     population: rawPopulationValue,
-    population_range: rawPopulationRange,
-    populationRange: camelPopulationRange,
     rulerId = null,
     regionPath = '',
-    aliases = [],
-    affiliation = [],
-    tags = [],
-    keywords = [],
-    alignmentOrReputation = [],
     overviewSummary = '',
     canonicalSummary = '',
     embeddingSummary = '',
@@ -176,26 +168,6 @@ function DomainSmithModal({
   const countiesMapAsset = typeof artSection.counties_map === 'string' ? artSection.counties_map : '';
   const emblemAsset = typeof artSection.emblem === 'string' ? artSection.emblem : '';
 
-  const ensureArray = (value) => {
-    if (Array.isArray(value)) return value;
-    if (typeof value === 'string') {
-      const trimmed = value.trim();
-      if (!trimmed) return [];
-      return [trimmed];
-    }
-    return [];
-  };
-
-  const toCommaSeparated = (value) => ensureArray(value).join(', ');
-
-  const parseCommaSeparated = (value) => {
-    if (!value) return [];
-    return value
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean);
-  };
-
   const toMultiline = (value) => {
     if (Array.isArray(value)) return value.join('\n');
     if (typeof value === 'string') return value;
@@ -210,58 +182,18 @@ function DomainSmithModal({
       .filter(Boolean);
   };
 
-  const clampNumber = (value, minimum, maximum) => {
-    const num = Number(value);
-    if (!Number.isFinite(num)) return minimum;
-    if (num < minimum) return minimum;
-    if (num > maximum) return maximum;
-    return num;
-  };
-
-  const POPULATION_MIN_LIMIT = 0;
-  const POPULATION_MAX_LIMIT = 1000000;
-  const POPULATION_STEP = 1000;
-
-  const normalizePopulationNumber = (value) => {
-    const num = Number(value);
-    if (!Number.isFinite(num)) return null;
-    return clampNumber(num, POPULATION_MIN_LIMIT, POPULATION_MAX_LIMIT);
-  };
-
-  const normalizedPopulationValue = normalizePopulationNumber(rawPopulationValue);
-
-  const normalizedPopulationRange = (() => {
-    const candidate = camelPopulationRange && typeof camelPopulationRange === 'object'
-      ? camelPopulationRange
-      : rawPopulationRange && typeof rawPopulationRange === 'object'
-        ? rawPopulationRange
-        : null;
-    if (!candidate) return null;
-    const minValue = normalizePopulationNumber(candidate.min);
-    const maxValue = normalizePopulationNumber(candidate.max);
-    if (minValue == null && maxValue == null) return null;
-    const fallback = minValue ?? maxValue;
-    if (fallback == null) return null;
-    const safeMin = minValue ?? fallback;
-    const safeMax = maxValue ?? fallback;
-    return {
-      min: Math.min(safeMin, safeMax),
-      max: Math.max(safeMin, safeMax),
-    };
+  const normalizedPopulationValue = (() => {
+    if (typeof rawPopulationValue === 'number' && Number.isFinite(rawPopulationValue)) {
+      return rawPopulationValue;
+    }
+    if (typeof rawPopulationValue === 'string') {
+      const parsed = Number(rawPopulationValue.replace(/[,\s]+/g, ''));
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
   })();
 
-  const sliderBaseMin = normalizedPopulationRange?.min ?? normalizedPopulationValue ?? POPULATION_MIN_LIMIT;
-  const sliderBaseMax = normalizedPopulationRange?.max ?? normalizedPopulationValue ?? POPULATION_MIN_LIMIT;
-  const normalizedSliderMin = normalizePopulationNumber(sliderBaseMin) ?? POPULATION_MIN_LIMIT;
-  const normalizedSliderMax = normalizePopulationNumber(sliderBaseMax) ?? POPULATION_MIN_LIMIT;
-  const sliderMinValue = Math.min(normalizedSliderMin, normalizedSliderMax);
-  const sliderMaxValue = Math.max(normalizedSliderMin, normalizedSliderMax);
-  const hasPopulationSelection = normalizedPopulationValue != null || normalizedPopulationRange != null;
-  const resolvedPopulationValue = normalizedPopulationValue != null
-    ? normalizedPopulationValue
-    : hasPopulationSelection
-      ? Math.round((sliderMinValue + sliderMaxValue) / 2)
-      : null;
+  const populationInputValue = rawPopulationValue == null ? '' : String(rawPopulationValue);
 
   const handleBackdrop = (event) => {
     if (busy) return;
@@ -278,10 +210,6 @@ function DomainSmithModal({
     onChange({ [key]: event.target.value });
   };
 
-  const createCommaListHandler = (key) => (event) => {
-    onChange({ [key]: parseCommaSeparated(event.target.value) });
-  };
-
   const createMultilineHandler = (key) => (event) => {
     onChange({ [key]: parseMultiline(event.target.value) });
   };
@@ -294,11 +222,6 @@ function DomainSmithModal({
     onChange({ [section]: { [field]: parseMultiline(event.target.value) } });
   };
 
-  const handleAliasesChange = createCommaListHandler('aliases');
-  const handleAffiliationChange = createCommaListHandler('affiliation');
-  const handleTagsChange = createCommaListHandler('tags');
-  const handleKeywordsChange = createCommaListHandler('keywords');
-  const handleAlignmentChange = createCommaListHandler('alignmentOrReputation');
   const handleOverviewSummaryChange = createTextHandler('overviewSummary');
   const handleCanonicalSummaryChange = createTextHandler('canonicalSummary');
   const handleEmbeddingSummaryChange = createTextHandler('embeddingSummary');
@@ -362,19 +285,11 @@ function DomainSmithModal({
 
   const handleCapitalChange = (event) => {
     const { value } = event.target;
-    onChange({ capital: value, seatOfPower: value });
+    onChange({ capital: value, seatOfPower: value, seat_of_power: value });
   };
 
-  const handlePopulationRangeChange = ([nextMinRaw, nextMaxRaw]) => {
-    const nextMin = clampNumber(nextMinRaw, POPULATION_MIN_LIMIT, POPULATION_MAX_LIMIT);
-    const nextMax = clampNumber(nextMaxRaw, POPULATION_MIN_LIMIT, POPULATION_MAX_LIMIT);
-    const safeMin = Math.min(nextMin, nextMax);
-    const safeMax = Math.max(nextMin, nextMax);
-    const resolvedValue = Math.round((safeMin + safeMax) / 2);
-    onChange({
-      population: clampNumber(resolvedValue, POPULATION_MIN_LIMIT, POPULATION_MAX_LIMIT),
-      populationRange: { min: safeMin, max: safeMax },
-    });
+  const handlePopulationChange = (event) => {
+    onChange({ population: event.target.value });
   };
 
   const handleRulerChange = (value) => {
@@ -570,11 +485,9 @@ function DomainSmithModal({
     ? `Recent rulers: ${sampleRulers.join(', ')}`
     : 'Link an existing NPC to anchor this domain.';
 
-  const populationHelperText = resolvedPopulationValue != null
-    ? normalizedPopulationRange && normalizedPopulationRange.min !== normalizedPopulationRange.max
-      ? `Estimated population around ${formatPopulation(resolvedPopulationValue)} citizens (${formatPopulation(sliderMinValue)} – ${formatPopulation(sliderMaxValue)}).`
-      : `Estimated population around ${formatPopulation(resolvedPopulationValue)} citizens.`
-    : 'Set the sliders to choose an estimated population (0 – 1,000,000 citizens).';
+  const populationHelperText = normalizedPopulationValue != null
+    ? `Estimated population around ${formatPopulation(normalizedPopulationValue)} citizens.`
+    : 'Enter an estimated population (0 – 1,000,000 citizens).';
 
   const canSubmit = !busy && name.trim() && regionPath.trim() && demographicsValid;
 
@@ -620,18 +533,6 @@ function DomainSmithModal({
         </label>
 
         <label className="dnd-label">
-          <span>Aliases</span>
-          <input
-            type="text"
-            value={toCommaSeparated(aliases)}
-            onChange={handleAliasesChange}
-            placeholder="comma separated"
-            disabled={busy}
-          />
-          <small className="muted">Enter alternate names separated by commas.</small>
-        </label>
-
-        <label className="dnd-label">
           <span>Domain Category (Theme or Sphere)</span>
           <select
             value={category}
@@ -654,18 +555,6 @@ function DomainSmithModal({
         </label>
 
         <label className="dnd-label">
-          <span>Affiliation</span>
-          <input
-            type="text"
-            value={toCommaSeparated(affiliation)}
-            onChange={handleAffiliationChange}
-            placeholder="comma separated"
-            disabled={busy}
-          />
-          <small className="muted">Empires, alliances, or patron organizations linked to this domain.</small>
-        </label>
-
-        <label className="dnd-label">
           <span>Capital</span>
           <input
             type="text"
@@ -677,14 +566,12 @@ function DomainSmithModal({
         </label>
 
         <label className="dnd-label">
-          <span>Population range</span>
-          <DualRangeSlider
-            className="population-range-slider"
-            min={POPULATION_MIN_LIMIT}
-            max={POPULATION_MAX_LIMIT}
-            step={POPULATION_STEP}
-            value={[sliderMinValue, sliderMaxValue]}
-            onChange={handlePopulationRangeChange}
+          <span>Population</span>
+          <input
+            type="text"
+            value={populationInputValue}
+            onChange={handlePopulationChange}
+            placeholder="e.g. 120000"
             disabled={busy}
           />
           <small className="muted">{populationHelperText}</small>
@@ -761,39 +648,6 @@ function DomainSmithModal({
               {demographicsStatusMessage}
             </span>
           </div>
-        </label>
-
-        <label className="dnd-label">
-          <span>Tags</span>
-          <input
-            type="text"
-            value={toCommaSeparated(tags)}
-            onChange={handleTagsChange}
-            placeholder="#domain, #province"
-            disabled={busy}
-          />
-        </label>
-
-        <label className="dnd-label">
-          <span>Keywords</span>
-          <input
-            type="text"
-            value={toCommaSeparated(keywords)}
-            onChange={handleKeywordsChange}
-            placeholder="comma separated"
-            disabled={busy}
-          />
-        </label>
-
-        <label className="dnd-label">
-          <span>Alignment or Reputation</span>
-          <input
-            type="text"
-            value={toCommaSeparated(alignmentOrReputation)}
-            onChange={handleAlignmentChange}
-            placeholder="comma separated"
-            disabled={busy}
-          />
         </label>
 
         <label className="dnd-label">
