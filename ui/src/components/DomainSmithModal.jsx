@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import Icon from './Icon.jsx';
 import DualRangeSlider from './DualRangeSlider.jsx';
 import EntityLinkPicker from '../components/EntityLinkPicker.jsx';
@@ -14,6 +15,14 @@ function DomainSmithModal({
   npcOptions,
   onForgeCounties,
 }) {
+  const [activeStep, setActiveStep] = useState(0);
+
+  useEffect(() => {
+    if (open) {
+      setActiveStep(0);
+    }
+  }, [open]);
+
   if (!open) return null;
 
   const stage = status?.stage || 'idle';
@@ -569,6 +578,1068 @@ function DomainSmithModal({
 
   const canSubmit = !busy && name.trim() && regionPath.trim() && demographicsValid;
 
+  const renderBasicInformationStep = () => (
+    <>
+      <div className="dnd-modal-section domain-smith-wide">
+        <h3>📁 Save Location</h3>
+        <label className="dnd-label">
+          <span>Region folder</span>
+          <select
+            value={regionPath}
+            onChange={handleRegionChange}
+            disabled={busy}
+            required
+          >
+            <option value="" disabled>
+              Select a region folder…
+            </option>
+            {options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <small className="muted">Select which regional folder this domain file will be stored in.</small>
+        </label>
+      </div>
+
+      <div className="dnd-modal-section domain-smith-primary">
+        <h3>📘 Basic Information</h3>
+        <label className="dnd-label">
+          <span>Domain name</span>
+          <input
+            type="text"
+            value={name}
+            onChange={handleNameChange}
+            placeholder="e.g. Bloodreed Hold"
+            autoFocus
+            disabled={busy}
+            required
+          />
+          <small className="muted">This becomes the headline and filename.</small>
+        </label>
+
+        <label className="dnd-label">
+          <span>Aliases</span>
+          <input
+            type="text"
+            value={toCommaSeparated(aliases)}
+            onChange={handleAliasesChange}
+            placeholder="comma separated"
+            disabled={busy}
+          />
+          <small className="muted">Enter alternate names separated by commas.</small>
+        </label>
+
+        <label className="dnd-label">
+          <span>Domain Category (Theme or Sphere)</span>
+          <select
+            value={category}
+            onChange={handleCategoryChange}
+            disabled={busy}
+          >
+            <option value="">Select a domain category</option>
+            {DOMAIN_CATEGORY_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <small className="muted">
+            Choose the domain’s nature —
+            {' '}
+            {DOMAIN_CATEGORY_OPTIONS.map((option) => option.label).join(', ')}
+            .
+          </small>
+        </label>
+
+        <label className="dnd-label">
+          <span>Affiliation</span>
+          <input
+            type="text"
+            value={toCommaSeparated(affiliation)}
+            onChange={handleAffiliationChange}
+            placeholder="comma separated"
+            disabled={busy}
+          />
+          <small className="muted">Empires, alliances, or patron organizations linked to this domain.</small>
+        </label>
+
+        <label className="dnd-label">
+          <span>Capital</span>
+          <input
+            type="text"
+            value={capital}
+            onChange={handleCapitalChange}
+            placeholder="e.g. Moonpetal Citadel"
+            disabled={busy}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Population range</span>
+          <DualRangeSlider
+            className="population-range-slider"
+            min={POPULATION_MIN_LIMIT}
+            max={POPULATION_MAX_LIMIT}
+            step={POPULATION_STEP}
+            value={[sliderMinValue, sliderMaxValue]}
+            onChange={handlePopulationRangeChange}
+            disabled={busy}
+          />
+          <small className="muted">{populationHelperText}</small>
+        </label>
+
+        <label className="dnd-label">
+          <span>Demographic composition</span>
+          <div style={{ display: 'grid', gap: '0.75rem' }}>
+            {resolvedDemographics.map((entry, index) => {
+              const isOtherRow = index === otherIndex;
+              const shareValue = clampShare(entry?.share ?? 0);
+              const sliderDisabled = busy || (isOtherRow && hasAutoOther);
+              const removeDisabled = busy || resolvedDemographics.length <= 1;
+              return (
+                <div
+                  key={`demographic-${index}`}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(0, 1.8fr) minmax(160px, 1fr) auto',
+                    gap: '0.5rem',
+                    alignItems: 'center',
+                  }}
+                >
+                  <input
+                    type="text"
+                    value={entry?.group ?? ''}
+                    onChange={(event) => handleDemographicGroupChange(index, event.target.value)}
+                    placeholder={isOtherRow ? 'Other' : 'e.g. High Elves'}
+                    disabled={busy}
+                    aria-label={`Group ${index + 1}`}
+                    style={{ padding: '0.5rem', fontSize: '0.95rem' }}
+                  />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={shareValue}
+                      onChange={(event) => handleDemographicShareChange(index, Number(event.target.value))}
+                      disabled={sliderDisabled}
+                      aria-label={`Percentage for ${entry?.group || `group ${index + 1}`}`}
+                      style={{ flex: 1 }}
+                    />
+                    <span style={{ width: '3.5rem', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                      {`${shareValue}%`}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => handleRemoveDemographic(index)}
+                    disabled={removeDisabled}
+                  >
+                    Remove
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          <div
+            style={{
+              display: 'flex',
+              gap: '0.75rem',
+              alignItems: 'center',
+              marginTop: '0.75rem',
+              flexWrap: 'wrap',
+            }}
+          >
+            <button type="button" className="secondary" onClick={handleAddDemographic} disabled={busy}>
+              Add group
+            </button>
+            <span style={{ fontSize: '0.85rem', color: demographicsStatusColor }}>
+              {demographicsStatusMessage}
+            </span>
+          </div>
+        </label>
+
+        <label className="dnd-label">
+          <span>Tags</span>
+          <input
+            type="text"
+            value={toCommaSeparated(tags)}
+            onChange={handleTagsChange}
+            placeholder="#domain, #province"
+            disabled={busy}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Keywords</span>
+          <input
+            type="text"
+            value={toCommaSeparated(keywords)}
+            onChange={handleKeywordsChange}
+            placeholder="comma separated"
+            disabled={busy}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Alignment or Reputation</span>
+          <input
+            type="text"
+            value={toCommaSeparated(alignmentOrReputation)}
+            onChange={handleAlignmentChange}
+            placeholder="comma separated"
+            disabled={busy}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Ruling NPC</span>
+          <EntityLinkPicker
+            value={rulerId || ''}
+            onChange={handleRulerChange}
+            entityTypes={['npc']}
+            placeholder="Search for an NPC by name or ID…"
+            options={npcChoices}
+            disabled={busy}
+            helperText={rulerHelperText}
+          />
+        </label>
+      </div>
+    </>
+  );
+
+  const renderGeographyStep = () => (
+    <>
+      <div className="dnd-modal-section domain-smith-lore">
+        <h3>🏞️ Geography</h3>
+        <label className="dnd-label">
+          <span>Terrain description</span>
+          <textarea
+            value={terrainDescription}
+            onChange={handleTerrainChange}
+            placeholder="Describe the terrain."
+            disabled={busy}
+            rows={2}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Climate</span>
+          <textarea
+            value={climateDescription}
+            onChange={handleClimateChange}
+            placeholder="Seasonal and weather notes."
+            disabled={busy}
+            rows={2}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Landmarks</span>
+          <textarea
+            value={toMultiline(landmarks)}
+            onChange={handleLandmarksChange}
+            placeholder="One landmark per line"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Hazards</span>
+          <textarea
+            value={toMultiline(hazards)}
+            onChange={handleHazardsChange}
+            placeholder="One hazard per line"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Resources</span>
+          <textarea
+            value={toMultiline(resources)}
+            onChange={handleResourcesChange}
+            placeholder="Notable resources, one per line"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+      </div>
+
+      <div className="dnd-modal-section domain-smith-lore">
+        <h3>🏛️ Notable Locations</h3>
+        <label className="dnd-label">
+          <span>Capital summary</span>
+          <textarea
+            value={capitalSummary}
+            onChange={handleCapitalSummaryChange}
+            placeholder="One paragraph overview"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Secondary settlements</span>
+          <textarea
+            value={toMultiline(secondarySettlements)}
+            onChange={handleSecondarySettlementsChange}
+            placeholder="Towns or villages, one per line"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Strongholds or sites</span>
+          <textarea
+            value={toMultiline(strongholdsOrSites)}
+            onChange={handleStrongholdsChange}
+            placeholder="Forts, ruins, shrines"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+      </div>
+    </>
+  );
+
+  const renderPoliticalStructureStep = () => (
+    <>
+      <div className="dnd-modal-section domain-smith-primary">
+        <h3>⚖️ Political Structure</h3>
+        <label className="dnd-label">
+          <span>System of rule</span>
+          <input
+            type="text"
+            value={systemOfRule}
+            onChange={handleSystemOfRuleChange}
+            placeholder="Monarchy, council, dominion…"
+            disabled={busy}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Ruling factions</span>
+          <textarea
+            value={toMultiline(rulingFactions)}
+            onChange={handleRulingFactionsChange}
+            placeholder="Faction names or IDs, one per line"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Laws and justice</span>
+          <textarea
+            value={toMultiline(lawsAndJustice)}
+            onChange={handleLawsChange}
+            placeholder="Key laws, punishments, courts…"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Foreign relations</span>
+          <textarea
+            value={toMultiline(foreignRelations)}
+            onChange={handleForeignRelationsChange}
+            placeholder="Allies, rivals, and diplomatic stances"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+      </div>
+
+      <div className="dnd-modal-section domain-smith-primary">
+        <h3>🧩 Administrative Divisions</h3>
+        <div className="county-list" style={{ display: 'grid', gap: '1rem' }}>
+          {normalizedCounties.length === 0 ? (
+            <p className="muted">No counties added yet.</p>
+          ) : (
+            normalizedCounties.map((county, index) => (
+              <div
+                key={`county-${index}`}
+                className="county-card"
+                style={{
+                  border: '1px solid var(--border-muted, rgba(255, 255, 255, 0.1))',
+                  borderRadius: '12px',
+                  padding: '0.75rem',
+                  display: 'grid',
+                  gap: '0.75rem',
+                }}
+              >
+                <div style={{ display: 'grid', gap: '0.5rem' }}>
+                  <label className="dnd-label">
+                    <span>County ID</span>
+                    <input
+                      type="text"
+                      value={county?.id || ''}
+                      onChange={(event) => handleCountyFieldChange(index, 'id', event.target.value)}
+                      placeholder="county_slug_hash"
+                      disabled={busy}
+                    />
+                  </label>
+                  <label className="dnd-label">
+                    <span>County name</span>
+                    <input
+                      type="text"
+                      value={county?.name || ''}
+                      onChange={(event) => handleCountyFieldChange(index, 'name', event.target.value)}
+                      placeholder="e.g. Dawnward March"
+                      disabled={busy}
+                    />
+                  </label>
+                  <label className="dnd-label">
+                    <span>Seat of power</span>
+                    <input
+                      type="text"
+                      value={county?.seatOfPower || ''}
+                      onChange={(event) => handleCountyFieldChange(index, 'seatOfPower', event.target.value)}
+                      placeholder="Chief town or fortress"
+                      disabled={busy}
+                    />
+                  </label>
+                  <label className="dnd-label">
+                    <span>Population</span>
+                    <input
+                      type="text"
+                      value={county?.population || ''}
+                      onChange={(event) => handleCountyFieldChange(index, 'population', event.target.value)}
+                      placeholder="Approximate population"
+                      disabled={busy}
+                    />
+                  </label>
+                  <label className="dnd-label">
+                    <span>Allegiance</span>
+                    <input
+                      type="text"
+                      value={county?.allegiance || ''}
+                      onChange={(event) => handleCountyFieldChange(index, 'allegiance', event.target.value)}
+                      placeholder="House, faction, or sworn lord"
+                      disabled={busy}
+                    />
+                  </label>
+                  <label className="dnd-label">
+                    <span>Notes</span>
+                    <textarea
+                      value={county?.notes || ''}
+                      onChange={(event) => handleCountyFieldChange(index, 'notes', event.target.value)}
+                      placeholder="One-line hook or key detail"
+                      disabled={busy}
+                      rows={2}
+                    />
+                  </label>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => handleRemoveCounty(index)}
+                    disabled={busy}
+                  >
+                    Remove county
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+        <button
+          type="button"
+          className="secondary"
+          onClick={handleAddCounty}
+          disabled={busy}
+          style={{ marginTop: '0.75rem' }}
+        >
+          Add county
+        </button>
+
+        <label className="dnd-label">
+          <span>Marches</span>
+          <textarea
+            value={toMultiline(marches)}
+            onChange={handleMarchesChange}
+            placeholder="List marches, one per line"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Prefectures</span>
+          <textarea
+            value={toMultiline(prefectures)}
+            onChange={handlePrefecturesChange}
+            placeholder="List prefectures, one per line"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+      </div>
+
+      <div className="dnd-modal-section domain-smith-lore">
+        <h3>🤝 Relationships</h3>
+        <label className="dnd-label">
+          <span>Allies</span>
+          <textarea
+            value={toMultiline(allies)}
+            onChange={handleAlliesChange}
+            placeholder="Trusted partners"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Rivals</span>
+          <textarea
+            value={toMultiline(rivals)}
+            onChange={handleRivalsChange}
+            placeholder="Opposing powers"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Vassals</span>
+          <textarea
+            value={toMultiline(vassals)}
+            onChange={handleVassalsChange}
+            placeholder="Sworn vassals or subjects"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Foreign ties</span>
+          <textarea
+            value={toMultiline(foreignTies)}
+            onChange={handleForeignTiesChange}
+            placeholder="Treaties or special arrangements"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Related documents</span>
+          <textarea
+            value={toMultiline(relatedDocs)}
+            onChange={handleRelatedDocsChange}
+            placeholder="Link NPC, faction, quest IDs"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+      </div>
+    </>
+  );
+
+  const renderCultureStep = () => (
+    <>
+      <div className="dnd-modal-section domain-smith-lore">
+        <h3>🎭 Culture &amp; Society</h3>
+        <label className="dnd-label">
+          <span>Appearance and dress</span>
+          <textarea
+            value={toMultiline(appearanceAndDress)}
+            onChange={handleAppearanceChange}
+            placeholder="Describe fashion cues, one per line"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Festivals and holidays</span>
+          <textarea
+            value={toMultiline(festivalsAndHolidays)}
+            onChange={handleFestivalsChange}
+            placeholder="Seasonal celebrations, one per line"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Religion and beliefs</span>
+          <textarea
+            value={toMultiline(religionAndBeliefs)}
+            onChange={handleReligionChange}
+            placeholder="Faiths, rituals, or omens"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Arts and entertainment</span>
+          <textarea
+            value={toMultiline(artsAndEntertainment)}
+            onChange={handleArtsChange}
+            placeholder="Performances, crafts, or games"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Daily life</span>
+          <textarea
+            value={toMultiline(dailyLife)}
+            onChange={handleDailyLifeChange}
+            placeholder="Customs and routines"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Values and taboos</span>
+          <textarea
+            value={toMultiline(valuesAndTaboos)}
+            onChange={handleValuesChange}
+            placeholder="Cultural pillars, one per line"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+      </div>
+
+      <div className="dnd-modal-section domain-smith-lore">
+        <h3>🕯️ Legends &amp; Lore</h3>
+        <label className="dnd-label">
+          <span>Legends</span>
+          <textarea
+            value={toMultiline(legends)}
+            onChange={handleLegendsChange}
+            placeholder="Folktales or myths"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Rumors</span>
+          <textarea
+            value={toMultiline(rumors)}
+            onChange={handleRumorsChange}
+            placeholder="Player-facing rumors"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+      </div>
+    </>
+  );
+
+  const renderEconomyStep = () => (
+    <>
+      <div className="dnd-modal-section domain-smith-primary">
+        <h3>💰 Economy</h3>
+        <label className="dnd-label">
+          <span>Exports</span>
+          <textarea
+            value={toMultiline(exports)}
+            onChange={handleExportsChange}
+            placeholder="Primary exports, one per line"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Imports</span>
+          <textarea
+            value={toMultiline(imports)}
+            onChange={handleImportsChange}
+            placeholder="Imports needed to thrive"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Currency</span>
+          <input
+            type="text"
+            value={currency}
+            onChange={handleCurrencyChange}
+            placeholder="Coinage or barter system"
+            disabled={busy}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Industries</span>
+          <textarea
+            value={toMultiline(industries)}
+            onChange={handleIndustriesChange}
+            placeholder="Dominant industries, one per line"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Trade routes</span>
+          <textarea
+            value={toMultiline(tradeRoutes)}
+            onChange={handleTradeRoutesChange}
+            placeholder="Roads, ports, caravans"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+      </div>
+
+      <div className="dnd-modal-section domain-smith-primary">
+        <h3>🛡️ Military &amp; Defense</h3>
+        <label className="dnd-label">
+          <span>Standing forces</span>
+          <textarea
+            value={standingForces}
+            onChange={handleStandingForcesChange}
+            placeholder="Army size, readiness, command"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Special units</span>
+          <textarea
+            value={toMultiline(specialUnits)}
+            onChange={handleSpecialUnitsChange}
+            placeholder="Unique regiments or monsters"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Fortifications</span>
+          <textarea
+            value={toMultiline(fortifications)}
+            onChange={handleFortificationsChange}
+            placeholder="Walls, citadels, bastions"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Tactics &amp; strategies</span>
+          <textarea
+            value={toMultiline(tacticsAndStrategies)}
+            onChange={handleTacticsChange}
+            placeholder="Battle plans, doctrines, tricks"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+      </div>
+    </>
+  );
+
+  const renderHistoryStep = () => (
+    <>
+      <div className="dnd-modal-section domain-smith-lore">
+        <h3>📜 History</h3>
+        <label className="dnd-label">
+          <span>Founding story</span>
+          <textarea
+            value={foundingStory}
+            onChange={handleFoundingChange}
+            placeholder="Origins and founding myth."
+            disabled={busy}
+            rows={2}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Rise to power</span>
+          <textarea
+            value={riseToPower}
+            onChange={handleRiseToPowerChange}
+            placeholder="How the domain gained influence."
+            disabled={busy}
+            rows={2}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Major events</span>
+          <textarea
+            value={toMultiline(majorEvents)}
+            onChange={handleMajorEventsChange}
+            placeholder="Chronicle key events, one per line"
+            disabled={busy}
+            rows={4}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Recent history</span>
+          <textarea
+            value={recentHistory}
+            onChange={handleRecentHistoryChange}
+            placeholder="What has happened lately?"
+            disabled={busy}
+            rows={2}
+          />
+        </label>
+      </div>
+
+      <div className="dnd-modal-section domain-smith-primary">
+        <h3>⚙️ Campaign State</h3>
+        <label className="dnd-label">
+          <span>Political stability</span>
+          <input
+            type="text"
+            value={politicalStability}
+            onChange={handlePoliticalStabilityChange}
+            placeholder="stable, tense, collapsing…"
+            disabled={busy}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Political prosperity</span>
+          <input
+            type="text"
+            value={politicalProsperity}
+            onChange={handlePoliticalProsperityChange}
+            placeholder="poor, balanced, rich…"
+            disabled={busy}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Unrest level</span>
+          <input
+            type="text"
+            value={politicalUnrest}
+            onChange={handlePoliticalUnrestChange}
+            placeholder="low, medium, high…"
+            disabled={busy}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Last seen in session</span>
+          <input
+            type="date"
+            value={lastSeen}
+            onChange={handleLastSeenChange}
+            disabled={busy}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Recent events</span>
+          <textarea
+            value={toMultiline(recentEvents)}
+            onChange={handleRecentEventsChange}
+            placeholder="Session highlights, one per line"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+      </div>
+    </>
+  );
+
+  const renderOverviewStep = () => (
+    <>
+      <div className="dnd-modal-section domain-smith-primary">
+        <h3>🧭 Overview</h3>
+        <label className="dnd-label">
+          <span>Overview hook</span>
+          <textarea
+            value={overviewSummary}
+            onChange={handleOverviewSummaryChange}
+            placeholder="1–2 sentences introducing the domain."
+            disabled={busy}
+            rows={2}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Canonical summary</span>
+          <textarea
+            value={canonicalSummary}
+            onChange={handleCanonicalSummaryChange}
+            placeholder="A concise canon description."
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Embedding summary</span>
+          <textarea
+            value={embeddingSummary}
+            onChange={handleEmbeddingSummaryChange}
+            placeholder="One paragraph for search embeddings."
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Player-facing notes</span>
+          <textarea
+            value={toMultiline(playerFacing)}
+            onChange={handlePlayerFacingChange}
+            placeholder="One bullet per line"
+            disabled={busy}
+            rows={4}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>GM secrets</span>
+          <textarea
+            value={toMultiline(gmSecrets)}
+            onChange={handleGmSecretsChange}
+            placeholder="One secret per line"
+            disabled={busy}
+            rows={4}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Refusal rules</span>
+          <textarea
+            value={toMultiline(refusalRules)}
+            onChange={handleRefusalRulesChange}
+            placeholder="Guardrails or safety directives, one per line"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+      </div>
+
+      <div className="dnd-modal-section domain-smith-lore">
+        <h3>🖼️ Media &amp; Ambience</h3>
+        <label className="dnd-label">
+          <span>Map asset</span>
+          <input
+            type="text"
+            value={mapAsset}
+            onChange={handleMapAssetChange}
+            placeholder="vault://images/domains/<id>.png"
+            disabled={busy}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Counties map</span>
+          <input
+            type="text"
+            value={countiesMapAsset}
+            onChange={handleCountiesMapAssetChange}
+            placeholder="vault://images/domains/<id>_counties.png"
+            disabled={busy}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Emblem</span>
+          <input
+            type="text"
+            value={emblemAsset}
+            onChange={handleEmblemAssetChange}
+            placeholder="vault://images/domains/<id>_emblem.png"
+            disabled={busy}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Music cue prompt</span>
+          <textarea
+            value={musicCuePrompt}
+            onChange={handleMusicCueChange}
+            placeholder="Prompt for generating ambience music"
+            disabled={busy}
+            rows={3}
+          />
+        </label>
+
+        <label className="dnd-label">
+          <span>Privacy</span>
+          <select value={privacy} onChange={handlePrivacyChange} disabled={busy}>
+            <option value="">Select privacy</option>
+            <option value="gm">GM only</option>
+            <option value="player">Player visible</option>
+            <option value="mixed">Mixed / custom</option>
+          </select>
+        </label>
+      </div>
+    </>
+  );
+
+  const steps = [
+    { label: 'Basic Information', render: renderBasicInformationStep },
+    { label: 'Geography', render: renderGeographyStep },
+    { label: 'Political Structure', render: renderPoliticalStructureStep },
+    { label: 'Culture & Society', render: renderCultureStep },
+    { label: 'Economy', render: renderEconomyStep },
+    { label: 'History', render: renderHistoryStep },
+    { label: 'Overview', render: renderOverviewStep },
+  ];
+
+  const totalSteps = steps.length;
+  const safeStepIndex = Math.min(Math.max(activeStep, 0), totalSteps - 1);
+  const isLastStep = safeStepIndex === totalSteps - 1;
+  const canGoBack = safeStepIndex > 0;
+
+  const goToStep = (updater) => {
+    if (busy) return;
+    setActiveStep((previous) => {
+      const nextValue = typeof updater === 'function' ? updater(previous) : updater;
+      if (!Number.isFinite(nextValue)) {
+        return previous;
+      }
+      return Math.min(Math.max(nextValue, 0), totalSteps - 1);
+    });
+  };
+
+  const handleBack = () => {
+    if (!canGoBack) return;
+    goToStep((previous) => previous - 1);
+  };
+
+  const handleNext = () => {
+    if (isLastStep) return;
+    goToStep((previous) => previous + 1);
+  };
+
+  const handleFormSubmit = (event) => {
+    if (!isLastStep) {
+      event.preventDefault();
+      handleNext();
+      return;
+    }
+    onSubmit(event);
+  };
+
+  const currentStep = steps[safeStepIndex];
+  const currentStepContent = currentStep?.render ? currentStep.render() : null;
+  const stepNumber = safeStepIndex + 1;
+
   return (
     <div className="dnd-modal-backdrop" role="presentation" onClick={handleBackdrop}>
       <div
@@ -592,992 +1663,14 @@ function DomainSmithModal({
         <p className="dnd-modal-subtitle">
           Capture the domain&apos;s identity and pick where Blossom should save the finished brief.
         </p>
-        <form onSubmit={onSubmit} className="dnd-modal-body domain-smith-body">
-          <div className="dnd-modal-section domain-smith-wide">
-            <h3>📁 Save Location</h3>
-            <label className="dnd-label">
-              <span>Region folder</span>
-              <select
-                value={regionPath}
-                onChange={handleRegionChange}
-                disabled={busy}
-                required
-              >
-                <option value="" disabled>
-                  Select a region folder…
-                </option>
-                {options.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <small className="muted">Select which regional folder this domain file will be stored in.</small>
-            </label>
-          </div>
-
-          <div className="dnd-modal-section domain-smith-primary">
-            <h3>📘 Basic Information</h3>
-            <label className="dnd-label">
-              <span>Domain name</span>
-              <input
-                type="text"
-                value={name}
-                onChange={handleNameChange}
-                placeholder="e.g. Bloodreed Hold"
-                autoFocus
-                disabled={busy}
-                required
-              />
-              <small className="muted">This becomes the headline and filename.</small>
-            </label>
-
-            <label className="dnd-label">
-              <span>Aliases</span>
-              <input
-                type="text"
-                value={toCommaSeparated(aliases)}
-                onChange={handleAliasesChange}
-                placeholder="comma separated"
-                disabled={busy}
-              />
-              <small className="muted">Enter alternate names separated by commas.</small>
-            </label>
-
-            <label className="dnd-label">
-              <span>Domain Category (Theme or Sphere)</span>
-              <select
-                value={category}
-                onChange={handleCategoryChange}
-                disabled={busy}
-              >
-                <option value="">Select a domain category</option>
-                {DOMAIN_CATEGORY_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <small className="muted">
-                Choose the domain’s nature —
-                {' '}
-                {DOMAIN_CATEGORY_OPTIONS.map((option) => option.label).join(', ')}
-                .
-              </small>
-            </label>
-
-            <label className="dnd-label">
-              <span>Affiliation</span>
-              <input
-                type="text"
-                value={toCommaSeparated(affiliation)}
-                onChange={handleAffiliationChange}
-                placeholder="comma separated"
-                disabled={busy}
-              />
-              <small className="muted">Empires, alliances, or patron organizations linked to this domain.</small>
-            </label>
-
-            <label className="dnd-label">
-              <span>Capital</span>
-              <input
-                type="text"
-                value={capital}
-                onChange={handleCapitalChange}
-                placeholder="e.g. Moonpetal Citadel"
-                disabled={busy}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Population range</span>
-              <DualRangeSlider
-                className="population-range-slider"
-                min={POPULATION_MIN_LIMIT}
-                max={POPULATION_MAX_LIMIT}
-                step={POPULATION_STEP}
-                value={[sliderMinValue, sliderMaxValue]}
-                onChange={handlePopulationRangeChange}
-                disabled={busy}
-              />
-              <small className="muted">{populationHelperText}</small>
-            </label>
-
-            <label className="dnd-label">
-              <span>Demographic composition</span>
-              <div style={{ display: 'grid', gap: '0.75rem' }}>
-                {resolvedDemographics.map((entry, index) => {
-                  const isOtherRow = index === otherIndex;
-                  const shareValue = clampShare(entry?.share ?? 0);
-                  const sliderDisabled = busy || (isOtherRow && hasAutoOther);
-                  const removeDisabled = busy || resolvedDemographics.length <= 1;
-                  return (
-                    <div
-                      key={`demographic-${index}`}
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'minmax(0, 1.8fr) minmax(160px, 1fr) auto',
-                        gap: '0.5rem',
-                        alignItems: 'center',
-                      }}
-                    >
-                      <input
-                        type="text"
-                        value={entry?.group ?? ''}
-                        onChange={(event) => handleDemographicGroupChange(index, event.target.value)}
-                        placeholder={isOtherRow ? 'Other' : 'e.g. High Elves'}
-                        disabled={busy}
-                        aria-label={`Group ${index + 1}`}
-                        style={{ padding: '0.5rem', fontSize: '0.95rem' }}
-                      />
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          step="1"
-                          value={shareValue}
-                          onChange={(event) => handleDemographicShareChange(index, Number(event.target.value))}
-                          disabled={sliderDisabled}
-                          aria-label={`Percentage for ${entry?.group || `group ${index + 1}`}`}
-                          style={{ flex: 1 }}
-                        />
-                        <span style={{ width: '3.5rem', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-                          {`${shareValue}%`}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        className="secondary"
-                        onClick={() => handleRemoveDemographic(index)}
-                        disabled={removeDisabled}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  gap: '0.75rem',
-                  alignItems: 'center',
-                  marginTop: '0.75rem',
-                  flexWrap: 'wrap',
-                }}
-              >
-                <button type="button" className="secondary" onClick={handleAddDemographic} disabled={busy}>
-                  Add group
-                </button>
-                <span style={{ fontSize: '0.85rem', color: demographicsStatusColor }}>
-                  {demographicsStatusMessage}
-                </span>
-              </div>
-            </label>
-
-            <label className="dnd-label">
-              <span>Tags</span>
-              <input
-                type="text"
-                value={toCommaSeparated(tags)}
-                onChange={handleTagsChange}
-                placeholder="#domain, #province"
-                disabled={busy}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Keywords</span>
-              <input
-                type="text"
-                value={toCommaSeparated(keywords)}
-                onChange={handleKeywordsChange}
-                placeholder="comma separated"
-                disabled={busy}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Alignment or Reputation</span>
-              <input
-                type="text"
-                value={toCommaSeparated(alignmentOrReputation)}
-                onChange={handleAlignmentChange}
-                placeholder="comma separated"
-                disabled={busy}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Ruling NPC</span>
-              <EntityLinkPicker
-                value={rulerId || ''}
-                onChange={handleRulerChange}
-                entityTypes={['npc']}
-                placeholder="Search for an NPC by name or ID…"
-                options={npcChoices}
-                disabled={busy}
-                helperText={rulerHelperText}
-              />
-            </label>
-          </div>
-
-          <div className="dnd-modal-section domain-smith-primary">
-            <h3>🧭 Overview</h3>
-            <label className="dnd-label">
-              <span>Overview hook</span>
-              <textarea
-                value={overviewSummary}
-                onChange={handleOverviewSummaryChange}
-                placeholder="1–2 sentences introducing the domain."
-                disabled={busy}
-                rows={2}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Canonical summary</span>
-              <textarea
-                value={canonicalSummary}
-                onChange={handleCanonicalSummaryChange}
-                placeholder="A concise canon description."
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Embedding summary</span>
-              <textarea
-                value={embeddingSummary}
-                onChange={handleEmbeddingSummaryChange}
-                placeholder="One paragraph for search embeddings."
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Player-facing notes</span>
-              <textarea
-                value={toMultiline(playerFacing)}
-                onChange={handlePlayerFacingChange}
-                placeholder="One bullet per line"
-                disabled={busy}
-                rows={4}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>GM secrets</span>
-              <textarea
-                value={toMultiline(gmSecrets)}
-                onChange={handleGmSecretsChange}
-                placeholder="One secret per line"
-                disabled={busy}
-                rows={4}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Refusal rules</span>
-              <textarea
-                value={toMultiline(refusalRules)}
-                onChange={handleRefusalRulesChange}
-                placeholder="Guardrails or safety directives, one per line"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-          </div>
-
-          <div className="dnd-modal-section domain-smith-lore">
-            <h3>🏞️ Geography</h3>
-            <label className="dnd-label">
-              <span>Terrain description</span>
-              <textarea
-                value={terrainDescription}
-                onChange={handleTerrainChange}
-                placeholder="Describe the terrain."
-                disabled={busy}
-                rows={2}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Climate</span>
-              <textarea
-                value={climateDescription}
-                onChange={handleClimateChange}
-                placeholder="Seasonal and weather notes."
-                disabled={busy}
-                rows={2}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Landmarks</span>
-              <textarea
-                value={toMultiline(landmarks)}
-                onChange={handleLandmarksChange}
-                placeholder="One landmark per line"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Hazards</span>
-              <textarea
-                value={toMultiline(hazards)}
-                onChange={handleHazardsChange}
-                placeholder="One hazard per line"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Resources</span>
-              <textarea
-                value={toMultiline(resources)}
-                onChange={handleResourcesChange}
-                placeholder="Notable resources, one per line"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-          </div>
-
-          <div className="dnd-modal-section domain-smith-lore">
-            <h3>📜 History</h3>
-            <label className="dnd-label">
-              <span>Founding story</span>
-              <textarea
-                value={foundingStory}
-                onChange={handleFoundingChange}
-                placeholder="Origins and founding myth."
-                disabled={busy}
-                rows={2}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Rise to power</span>
-              <textarea
-                value={riseToPower}
-                onChange={handleRiseToPowerChange}
-                placeholder="How the domain gained influence."
-                disabled={busy}
-                rows={2}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Major events</span>
-              <textarea
-                value={toMultiline(majorEvents)}
-                onChange={handleMajorEventsChange}
-                placeholder="Chronicle key events, one per line"
-                disabled={busy}
-                rows={4}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Recent history</span>
-              <textarea
-                value={recentHistory}
-                onChange={handleRecentHistoryChange}
-                placeholder="What has happened lately?"
-                disabled={busy}
-                rows={2}
-              />
-            </label>
-          </div>
-
-          <div className="dnd-modal-section domain-smith-primary">
-            <h3>⚖️ Political Structure</h3>
-            <label className="dnd-label">
-              <span>System of rule</span>
-              <input
-                type="text"
-                value={systemOfRule}
-                onChange={handleSystemOfRuleChange}
-                placeholder="Monarchy, council, dominion…"
-                disabled={busy}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Ruling factions</span>
-              <textarea
-                value={toMultiline(rulingFactions)}
-                onChange={handleRulingFactionsChange}
-                placeholder="Faction names or IDs, one per line"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Laws and justice</span>
-              <textarea
-                value={toMultiline(lawsAndJustice)}
-                onChange={handleLawsChange}
-                placeholder="Key laws, punishments, courts…"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Foreign relations</span>
-              <textarea
-                value={toMultiline(foreignRelations)}
-                onChange={handleForeignRelationsChange}
-                placeholder="Allies, rivals, and diplomatic stances"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-          </div>
-
-          <div className="dnd-modal-section domain-smith-primary">
-            <h3>🧩 Administrative Divisions</h3>
-            <div className="county-list" style={{ display: 'grid', gap: '1rem' }}>
-              {normalizedCounties.length === 0 ? (
-                <p className="muted">No counties added yet.</p>
-              ) : (
-                normalizedCounties.map((county, index) => (
-                  <div
-                    key={`county-${index}`}
-                    className="county-card"
-                    style={{
-                      border: '1px solid var(--border-muted, rgba(255, 255, 255, 0.1))',
-                      borderRadius: '12px',
-                      padding: '0.75rem',
-                      display: 'grid',
-                      gap: '0.75rem',
-                    }}
-                  >
-                    <div style={{ display: 'grid', gap: '0.5rem' }}>
-                      <label className="dnd-label">
-                        <span>County ID</span>
-                        <input
-                          type="text"
-                          value={county?.id || ''}
-                          onChange={(event) => handleCountyFieldChange(index, 'id', event.target.value)}
-                          placeholder="county_slug_hash"
-                          disabled={busy}
-                        />
-                      </label>
-                      <label className="dnd-label">
-                        <span>County name</span>
-                        <input
-                          type="text"
-                          value={county?.name || ''}
-                          onChange={(event) => handleCountyFieldChange(index, 'name', event.target.value)}
-                          placeholder="e.g. Dawnward March"
-                          disabled={busy}
-                        />
-                      </label>
-                      <label className="dnd-label">
-                        <span>Seat of power</span>
-                        <input
-                          type="text"
-                          value={county?.seatOfPower || ''}
-                          onChange={(event) => handleCountyFieldChange(index, 'seatOfPower', event.target.value)}
-                          placeholder="Chief town or fortress"
-                          disabled={busy}
-                        />
-                      </label>
-                      <label className="dnd-label">
-                        <span>Population</span>
-                        <input
-                          type="text"
-                          value={county?.population || ''}
-                          onChange={(event) => handleCountyFieldChange(index, 'population', event.target.value)}
-                          placeholder="Approximate population"
-                          disabled={busy}
-                        />
-                      </label>
-                      <label className="dnd-label">
-                        <span>Allegiance</span>
-                        <input
-                          type="text"
-                          value={county?.allegiance || ''}
-                          onChange={(event) => handleCountyFieldChange(index, 'allegiance', event.target.value)}
-                          placeholder="House, faction, or sworn lord"
-                          disabled={busy}
-                        />
-                      </label>
-                      <label className="dnd-label">
-                        <span>Notes</span>
-                        <textarea
-                          value={county?.notes || ''}
-                          onChange={(event) => handleCountyFieldChange(index, 'notes', event.target.value)}
-                          placeholder="One-line hook or key detail"
-                          disabled={busy}
-                          rows={2}
-                        />
-                      </label>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                      <button
-                        type="button"
-                        className="secondary"
-                        onClick={() => handleRemoveCounty(index)}
-                        disabled={busy}
-                      >
-                        Remove county
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-            <button
-              type="button"
-              className="secondary"
-              onClick={handleAddCounty}
-              disabled={busy}
-              style={{ marginTop: '0.75rem' }}
-            >
-              Add county
-            </button>
-
-            <label className="dnd-label">
-              <span>Marches</span>
-              <textarea
-                value={toMultiline(marches)}
-                onChange={handleMarchesChange}
-                placeholder="List marches, one per line"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Prefectures</span>
-              <textarea
-                value={toMultiline(prefectures)}
-                onChange={handlePrefecturesChange}
-                placeholder="List prefectures, one per line"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-          </div>
-
-          <div className="dnd-modal-section domain-smith-lore">
-            <h3>🎭 Culture &amp; Society</h3>
-            <label className="dnd-label">
-              <span>Appearance and dress</span>
-              <textarea
-                value={toMultiline(appearanceAndDress)}
-                onChange={handleAppearanceChange}
-                placeholder="Describe fashion cues, one per line"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Festivals and holidays</span>
-              <textarea
-                value={toMultiline(festivalsAndHolidays)}
-                onChange={handleFestivalsChange}
-                placeholder="Seasonal celebrations, one per line"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Religion and beliefs</span>
-              <textarea
-                value={toMultiline(religionAndBeliefs)}
-                onChange={handleReligionChange}
-                placeholder="Faiths, rituals, or omens"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Arts and entertainment</span>
-              <textarea
-                value={toMultiline(artsAndEntertainment)}
-                onChange={handleArtsChange}
-                placeholder="Performances, crafts, or games"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Daily life</span>
-              <textarea
-                value={toMultiline(dailyLife)}
-                onChange={handleDailyLifeChange}
-                placeholder="Customs and routines"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Values and taboos</span>
-              <textarea
-                value={toMultiline(valuesAndTaboos)}
-                onChange={handleValuesChange}
-                placeholder="Cultural pillars, one per line"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-          </div>
-
-          <div className="dnd-modal-section domain-smith-primary">
-            <h3>💰 Economy</h3>
-            <label className="dnd-label">
-              <span>Exports</span>
-              <textarea
-                value={toMultiline(exports)}
-                onChange={handleExportsChange}
-                placeholder="Primary exports, one per line"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Imports</span>
-              <textarea
-                value={toMultiline(imports)}
-                onChange={handleImportsChange}
-                placeholder="Imports needed to thrive"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Currency</span>
-              <input
-                type="text"
-                value={currency}
-                onChange={handleCurrencyChange}
-                placeholder="Coinage or barter system"
-                disabled={busy}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Industries</span>
-              <textarea
-                value={toMultiline(industries)}
-                onChange={handleIndustriesChange}
-                placeholder="Dominant industries, one per line"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Trade routes</span>
-              <textarea
-                value={toMultiline(tradeRoutes)}
-                onChange={handleTradeRoutesChange}
-                placeholder="Roads, ports, caravans"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-          </div>
-
-          <div className="dnd-modal-section domain-smith-primary">
-            <h3>🛡️ Military &amp; Defense</h3>
-            <label className="dnd-label">
-              <span>Standing forces</span>
-              <textarea
-                value={standingForces}
-                onChange={handleStandingForcesChange}
-                placeholder="Army size, readiness, command"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Special units</span>
-              <textarea
-                value={toMultiline(specialUnits)}
-                onChange={handleSpecialUnitsChange}
-                placeholder="Unique regiments or monsters"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Fortifications</span>
-              <textarea
-                value={toMultiline(fortifications)}
-                onChange={handleFortificationsChange}
-                placeholder="Walls, citadels, bastions"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Tactics &amp; strategies</span>
-              <textarea
-                value={toMultiline(tacticsAndStrategies)}
-                onChange={handleTacticsChange}
-                placeholder="Battle plans, doctrines, tricks"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-          </div>
-
-          <div className="dnd-modal-section domain-smith-lore">
-            <h3>🏛️ Notable Locations</h3>
-            <label className="dnd-label">
-              <span>Capital summary</span>
-              <textarea
-                value={capitalSummary}
-                onChange={handleCapitalSummaryChange}
-                placeholder="One paragraph overview"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Secondary settlements</span>
-              <textarea
-                value={toMultiline(secondarySettlements)}
-                onChange={handleSecondarySettlementsChange}
-                placeholder="Towns or villages, one per line"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Strongholds or sites</span>
-              <textarea
-                value={toMultiline(strongholdsOrSites)}
-                onChange={handleStrongholdsChange}
-                placeholder="Forts, ruins, shrines"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-          </div>
-
-          <div className="dnd-modal-section domain-smith-lore">
-            <h3>🕯️ Legends &amp; Lore</h3>
-            <label className="dnd-label">
-              <span>Legends</span>
-              <textarea
-                value={toMultiline(legends)}
-                onChange={handleLegendsChange}
-                placeholder="Folktales or myths"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Rumors</span>
-              <textarea
-                value={toMultiline(rumors)}
-                onChange={handleRumorsChange}
-                placeholder="Player-facing rumors"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-          </div>
-
-          <div className="dnd-modal-section domain-smith-lore">
-            <h3>🤝 Relationships</h3>
-            <label className="dnd-label">
-              <span>Allies</span>
-              <textarea
-                value={toMultiline(allies)}
-                onChange={handleAlliesChange}
-                placeholder="Trusted partners"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Rivals</span>
-              <textarea
-                value={toMultiline(rivals)}
-                onChange={handleRivalsChange}
-                placeholder="Opposing powers"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Vassals</span>
-              <textarea
-                value={toMultiline(vassals)}
-                onChange={handleVassalsChange}
-                placeholder="Sworn vassals or subjects"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Foreign ties</span>
-              <textarea
-                value={toMultiline(foreignTies)}
-                onChange={handleForeignTiesChange}
-                placeholder="Treaties or special arrangements"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Related documents</span>
-              <textarea
-                value={toMultiline(relatedDocs)}
-                onChange={handleRelatedDocsChange}
-                placeholder="Link NPC, faction, quest IDs"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-          </div>
-
-          <div className="dnd-modal-section domain-smith-lore">
-            <h3>🖼️ Media &amp; Ambience</h3>
-            <label className="dnd-label">
-              <span>Map asset</span>
-              <input
-                type="text"
-                value={mapAsset}
-                onChange={handleMapAssetChange}
-                placeholder="vault://images/domains/<id>.png"
-                disabled={busy}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Counties map</span>
-              <input
-                type="text"
-                value={countiesMapAsset}
-                onChange={handleCountiesMapAssetChange}
-                placeholder="vault://images/domains/<id>_counties.png"
-                disabled={busy}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Emblem</span>
-              <input
-                type="text"
-                value={emblemAsset}
-                onChange={handleEmblemAssetChange}
-                placeholder="vault://images/domains/<id>_emblem.png"
-                disabled={busy}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Music cue prompt</span>
-              <textarea
-                value={musicCuePrompt}
-                onChange={handleMusicCueChange}
-                placeholder="Prompt for generating ambience music"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Privacy</span>
-              <select value={privacy} onChange={handlePrivacyChange} disabled={busy}>
-                <option value="">Select privacy</option>
-                <option value="gm">GM only</option>
-                <option value="player">Player visible</option>
-                <option value="mixed">Mixed / custom</option>
-              </select>
-            </label>
-          </div>
-
-          <div className="dnd-modal-section domain-smith-primary">
-            <h3>⚙️ Campaign State</h3>
-            <label className="dnd-label">
-              <span>Political stability</span>
-              <input
-                type="text"
-                value={politicalStability}
-                onChange={handlePoliticalStabilityChange}
-                placeholder="stable, tense, collapsing…"
-                disabled={busy}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Political prosperity</span>
-              <input
-                type="text"
-                value={politicalProsperity}
-                onChange={handlePoliticalProsperityChange}
-                placeholder="poor, balanced, rich…"
-                disabled={busy}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Unrest level</span>
-              <input
-                type="text"
-                value={politicalUnrest}
-                onChange={handlePoliticalUnrestChange}
-                placeholder="low, medium, high…"
-                disabled={busy}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Last seen in session</span>
-              <input
-                type="date"
-                value={lastSeen}
-                onChange={handleLastSeenChange}
-                disabled={busy}
-              />
-            </label>
-
-            <label className="dnd-label">
-              <span>Recent events</span>
-              <textarea
-                value={toMultiline(recentEvents)}
-                onChange={handleRecentEventsChange}
-                placeholder="Session highlights, one per line"
-                disabled={busy}
-                rows={3}
-              />
-            </label>
-          </div>
-
+        <form onSubmit={handleFormSubmit} className="dnd-modal-body domain-smith-body">
+          <header className="domain-smith-step-header">
+            <span className="domain-smith-step-counter">
+              Step {stepNumber} of {totalSteps}
+            </span>
+            <h3>{currentStep?.label}</h3>
+          </header>
+          <div className="domain-smith-step-content">{currentStepContent}</div>
           {formattedError ? (
             <div className="dnd-modal-error domain-smith-wide" role="alert">
               {formattedError}
@@ -1596,12 +1689,11 @@ function DomainSmithModal({
             </div>
           ) : null}
           {message && !formattedError ? (
-            <div role="status" className="domain-smith-wide domain-smith-status">
+            <div role="status" className="domain-smith-status domain-smith-wide">
               {message}
             </div>
           ) : null}
-
-          {canForgeCounties ? (
+          {canForgeCounties && success && activeStep === totalSteps - 1 ? (
             <div className="dnd-modal-section domain-smith-wide domain-smith-highlight">
               <h3>Forge this domain&apos;s counties</h3>
               <p>
@@ -1618,20 +1710,35 @@ function DomainSmithModal({
               </button>
             </div>
           ) : null}
-
-          <footer className="dnd-modal-actions domain-smith-wide">
+          <footer className="dnd-modal-actions domain-smith-actions">
             <button type="button" className="secondary" onClick={onClose} disabled={busy}>
               {success ? 'Close' : 'Cancel'}
             </button>
-            <button type="submit" disabled={!canSubmit}>
-              {busy
-                ? stage === 'saving'
-                  ? 'Saving…'
-                  : 'Generating…'
-                : success
-                  ? 'Forge Another Domain'
-                  : 'Forge Domain'}
-            </button>
+            <div className="domain-smith-nav">
+              <button
+                type="button"
+                className="secondary"
+                onClick={handleBack}
+                disabled={!canGoBack || busy}
+              >
+                Back
+              </button>
+              {isLastStep ? (
+                <button type="submit" disabled={!canSubmit}>
+                  {busy
+                    ? stage === 'saving'
+                      ? 'Saving…'
+                      : 'Generating…'
+                    : success
+                      ? 'Forge Another Domain'
+                      : 'Forge Domain'}
+                </button>
+              ) : (
+                <button type="button" onClick={handleNext} disabled={busy}>
+                  Next
+                </button>
+              )}
+            </div>
           </footer>
         </form>
       </div>
