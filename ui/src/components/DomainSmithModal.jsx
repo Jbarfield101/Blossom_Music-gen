@@ -59,8 +59,6 @@ function DomainSmithModal({
     regionPath = '',
     aliases = [],
     affiliation = [],
-    seatOfPower = '',
-    primarySpecies = [],
     tags = [],
     keywords = [],
     alignmentOrReputation = [],
@@ -287,10 +285,8 @@ function DomainSmithModal({
     onChange({ [section]: { [field]: parseMultiline(event.target.value) } });
   };
 
-  const handleSeatOfPowerChange = createTextHandler('seatOfPower');
   const handleAliasesChange = createCommaListHandler('aliases');
   const handleAffiliationChange = createCommaListHandler('affiliation');
-  const handlePrimarySpeciesChange = createCommaListHandler('primarySpecies');
   const handleTagsChange = createCommaListHandler('tags');
   const handleKeywordsChange = createCommaListHandler('keywords');
   const handleAlignmentChange = createCommaListHandler('alignmentOrReputation');
@@ -356,7 +352,8 @@ function DomainSmithModal({
   };
 
   const handleCapitalChange = (event) => {
-    onChange({ capital: event.target.value });
+    const { value } = event.target;
+    onChange({ capital: value, seatOfPower: value });
   };
 
   const handlePopulationRangeChange = ([nextMinRaw, nextMaxRaw]) => {
@@ -380,6 +377,153 @@ function DomainSmithModal({
   };
 
   const normalizedCounties = Array.isArray(counties) ? counties : [];
+
+  const demographicsSource = Array.isArray(form?.populationDemographics)
+    ? form.populationDemographics
+    : Array.isArray(form?.population_demographics)
+      ? form.population_demographics
+      : [];
+
+  const clampShare = (value) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return 0;
+    return Math.max(0, Math.min(100, Math.round(num)));
+  };
+
+  const getOtherIndex = (list) => list.findIndex(
+    (entry) => String(entry?.group ?? '').trim().toLowerCase() === 'other',
+  );
+
+  const rebalanceDemographicList = (list) => {
+    const sanitized = list.map((entry) => ({
+      group: typeof entry?.group === 'string' ? entry.group : String(entry?.group ?? ''),
+      share: clampShare(entry?.share),
+    }));
+    const otherIdx = getOtherIndex(sanitized);
+    if (otherIdx !== -1) {
+      const totalNonOther = sanitized.reduce((sum, entry, idx) => (
+        idx === otherIdx ? sum : sum + clampShare(entry.share)
+      ), 0);
+      const remainder = clampShare(100 - totalNonOther);
+      sanitized[otherIdx] = {
+        ...sanitized[otherIdx],
+        group: sanitized[otherIdx].group || 'Other',
+        share: remainder,
+      };
+    }
+    return sanitized;
+  };
+
+  const seededDemographics = (
+    Array.isArray(demographicsSource) && demographicsSource.length
+      ? demographicsSource
+      : [{ group: 'Other', share: 100 }]
+  ).map((entry) => ({
+    group: typeof entry?.group === 'string' ? entry.group : String(entry?.group ?? ''),
+    share: clampShare(entry?.share),
+  }));
+
+  const resolvedDemographics = rebalanceDemographicList(seededDemographics);
+  const otherIndex = getOtherIndex(resolvedDemographics);
+  const hasAutoOther = otherIndex !== -1;
+  const otherShare = hasAutoOther ? resolvedDemographics[otherIndex].share : 0;
+
+  const groupsHaveNames = resolvedDemographics.every((entry) => entry.group.trim());
+  const demographicsTotal = resolvedDemographics.reduce((sum, entry) => sum + clampShare(entry.share), 0);
+  const demographicsTotalRounded = Math.round(demographicsTotal * 10) / 10;
+  const demographicsTotalValid = Math.abs(demographicsTotal - 100) <= 0.5;
+  const demographicsValid = groupsHaveNames && demographicsTotalValid;
+
+  let demographicsStatusMessage = '';
+  if (!groupsHaveNames) {
+    demographicsStatusMessage = 'Every group needs a name.';
+  } else if (!demographicsTotalValid) {
+    demographicsStatusMessage = `Current total: ${demographicsTotalRounded.toFixed(1)}%. Adjust to reach 100%.`;
+  } else if (hasAutoOther) {
+    demographicsStatusMessage = resolvedDemographics.length === 1
+      ? 'Other starts at 100%. Add a group to split the population.'
+      : `Other automatically tracks the remaining share (${otherShare}%).`;
+  } else {
+    demographicsStatusMessage = `Current total: ${demographicsTotalRounded.toFixed(1)}%.`;
+  }
+  const demographicsStatusColor = demographicsValid
+    ? 'rgba(226, 232, 240, 0.75)'
+    : 'rgba(248, 113, 113, 0.9)';
+
+  const updateDemographics = (mutator) => {
+    const draft = resolvedDemographics.map((entry) => ({ ...entry }));
+    const mutated = mutator ? mutator(draft) || draft : draft;
+    let normalized = mutated
+      .map((entry) => ({
+        group: typeof entry?.group === 'string' ? entry.group : String(entry?.group ?? ''),
+        share: Number.isFinite(entry?.share) ? entry.share : clampShare(entry?.share),
+      }));
+
+    if (!normalized.length) {
+      normalized = [{ group: 'Other', share: 100 }];
+    }
+
+    normalized = rebalanceDemographicList(normalized);
+
+    onChange({
+      populationDemographics: normalized.map((entry) => ({
+        group: entry.group,
+        share: entry.share,
+      })),
+    });
+  };
+
+  const handleDemographicGroupChange = (index, value) => {
+    updateDemographics((entries) => {
+      const next = entries.map((entry) => ({ ...entry }));
+      if (!next[index]) {
+        next[index] = { group: '', share: 0 };
+      }
+      next[index] = { ...next[index], group: value };
+      return next;
+    });
+  };
+
+  const handleDemographicShareChange = (index, rawValue) => {
+    updateDemographics((entries) => {
+      const next = entries.map((entry) => ({ ...entry }));
+      const otherIdx = getOtherIndex(next);
+      const desired = clampShare(rawValue);
+
+      if (otherIdx !== -1 && index !== otherIdx) {
+        const totalOfOthers = next.reduce((sum, entry, idx) => {
+          if (idx === index || idx === otherIdx) return sum;
+          return sum + clampShare(entry.share);
+        }, 0);
+        const maxShare = Math.max(0, 100 - totalOfOthers);
+        next[index].share = Math.min(desired, maxShare);
+      } else if (otherIdx === -1) {
+        const othersTotal = next.reduce((sum, entry, idx) => (
+          idx === index ? sum : sum + clampShare(entry.share)
+        ), 0);
+        const maxShare = Math.max(0, 100 - othersTotal);
+        next[index].share = Math.min(desired, maxShare);
+      } else {
+        next[index].share = desired;
+      }
+
+      return next;
+    });
+  };
+
+  const handleAddDemographic = () => {
+    updateDemographics((entries) => [...entries, { group: '', share: 0 }]);
+  };
+
+  const handleRemoveDemographic = (index) => {
+    updateDemographics((entries) => {
+      const next = entries.filter((_, idx) => idx !== index);
+      if (!next.length) {
+        return [{ group: 'Other', share: 100 }];
+      }
+      return next;
+    });
+  };
 
   const handleCountyFieldChange = (index, field, value) => {
     const next = normalizedCounties.map((county, idx) => {
@@ -423,7 +567,7 @@ function DomainSmithModal({
       : `Estimated population around ${formatPopulation(resolvedPopulationValue)} citizens.`
     : 'Set the sliders to choose an estimated population (0 – 1,000,000 citizens).';
 
-  const canSubmit = !busy && name.trim() && regionPath.trim();
+  const canSubmit = !busy && name.trim() && regionPath.trim() && demographicsValid;
 
   return (
     <div className="dnd-modal-backdrop" role="presentation" onClick={handleBackdrop}>
@@ -535,17 +679,6 @@ function DomainSmithModal({
             </label>
 
             <label className="dnd-label">
-              <span>Seat of Power</span>
-              <input
-                type="text"
-                value={seatOfPower}
-                onChange={handleSeatOfPowerChange}
-                placeholder="e.g. Moonpetal Citadel"
-                disabled={busy}
-              />
-            </label>
-
-            <label className="dnd-label">
               <span>Capital</span>
               <input
                 type="text"
@@ -571,14 +704,76 @@ function DomainSmithModal({
             </label>
 
             <label className="dnd-label">
-              <span>Primary Species</span>
-              <input
-                type="text"
-                value={toCommaSeparated(primarySpecies)}
-                onChange={handlePrimarySpeciesChange}
-                placeholder="comma separated"
-                disabled={busy}
-              />
+              <span>Demographic composition</span>
+              <div style={{ display: 'grid', gap: '0.75rem' }}>
+                {resolvedDemographics.map((entry, index) => {
+                  const isOtherRow = index === otherIndex;
+                  const shareValue = clampShare(entry?.share ?? 0);
+                  const sliderDisabled = busy || (isOtherRow && hasAutoOther);
+                  const removeDisabled = busy || resolvedDemographics.length <= 1;
+                  return (
+                    <div
+                      key={`demographic-${index}`}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'minmax(0, 1.8fr) minmax(160px, 1fr) auto',
+                        gap: '0.5rem',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <input
+                        type="text"
+                        value={entry?.group ?? ''}
+                        onChange={(event) => handleDemographicGroupChange(index, event.target.value)}
+                        placeholder={isOtherRow ? 'Other' : 'e.g. High Elves'}
+                        disabled={busy}
+                        aria-label={`Group ${index + 1}`}
+                        style={{ padding: '0.5rem', fontSize: '0.95rem' }}
+                      />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          step="1"
+                          value={shareValue}
+                          onChange={(event) => handleDemographicShareChange(index, Number(event.target.value))}
+                          disabled={sliderDisabled}
+                          aria-label={`Percentage for ${entry?.group || `group ${index + 1}`}`}
+                          style={{ flex: 1 }}
+                        />
+                        <span style={{ width: '3.5rem', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                          {`${shareValue}%`}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => handleRemoveDemographic(index)}
+                        disabled={removeDisabled}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '0.75rem',
+                  alignItems: 'center',
+                  marginTop: '0.75rem',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <button type="button" className="secondary" onClick={handleAddDemographic} disabled={busy}>
+                  Add group
+                </button>
+                <span style={{ fontSize: '0.85rem', color: demographicsStatusColor }}>
+                  {demographicsStatusMessage}
+                </span>
+              </div>
             </label>
 
             <label className="dnd-label">

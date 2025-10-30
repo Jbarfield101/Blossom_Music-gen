@@ -10,7 +10,9 @@ affiliation: []                        # empire, confederacy, alliance
 seat_of_power: 
 capital: 
 population: 0
-primary_species: []                    # races / lineages
+population_demographics:               # percentages must total 100
+  - group: ""
+    share: 0
 ruler_id: null                         # npc_*, faction_*, or council identifier
 tags: []                                # #domain #province #swamp
 keywords: []                            # search/embedding terms

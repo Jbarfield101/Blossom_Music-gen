@@ -1,19 +1,19 @@
-# Settings · About Panel Metrics
+# Settings > About Panel Metrics
 
-The desktop app's **Settings → About** section now surfaces usage counters for
+The desktop app's **Settings > About** section surfaces usage counters for
 cloud services that Blossom can invoke on your behalf.
 
-## Counters and Sources
+## Counters and sources
 
-- **OpenAI Tokens** – incremented whenever a Python backend call to
+- **OpenAI tokens** - incremented whenever a Python backend call to
   `brain.ollama_client.generate` uses the OpenAI Chat Completions API. Both
   prompt and completion tokens from the OpenAI response are tallied. If the
   API only reports a total token count, it is recorded against the prompt side.
-- **ElevenLabs Characters** – incremented when voice synthesis runs through a
+- **ElevenLabs characters** - incremented when voice synthesis runs through a
   voice profile tagged as ElevenLabs. The character count is derived from the
   text that was sent for synthesis.
 
-## Reset Behaviour
+## Reset behaviour
 
 Daily counters reset automatically at midnight UTC. The all-time totals
 continue accumulating until the `cache/usage_metrics.json` file is removed.

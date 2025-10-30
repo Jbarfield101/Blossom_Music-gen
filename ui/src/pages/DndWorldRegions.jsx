@@ -399,6 +399,53 @@ function createEmptyCountySummary() {
   return { ...EMPTY_COUNTY_SUMMARY };
 }
 
+const EMPTY_DEMOGRAPHIC_ENTRY = Object.freeze({
+  group: '',
+  share: '',
+});
+
+const DEMOGRAPHIC_TOTAL_TOLERANCE = 0.5;
+
+function createEmptyDemographicEntry() {
+  return { ...EMPTY_DEMOGRAPHIC_ENTRY };
+}
+
+function normalizeDemographicEntry(value) {
+  if (!value || typeof value !== 'object') {
+    return createEmptyDemographicEntry();
+  }
+  const group = value.group != null ? String(value.group).trim() : '';
+  const share = value.share != null ? String(value.share).trim() : '';
+  return { group, share };
+}
+
+function normalizeDemographicsCollection(input, previous = []) {
+  const fallback = Array.isArray(previous) && previous.length > 0
+    ? previous.map((entry) => normalizeDemographicEntry(entry))
+    : [{ group: 'Other', share: '100' }];
+  if (Array.isArray(input)) {
+    const normalized = input.map((entry) => normalizeDemographicEntry(entry));
+    return normalized.length > 0 ? normalized : fallback;
+  }
+  return fallback;
+}
+
+function coerceDemographicsForFrontMatter(entries) {
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .map((entry) => {
+      const group = String(entry?.group ?? '').trim();
+      const shareRaw = String(entry?.share ?? '').trim();
+      const share = Number.parseFloat(shareRaw);
+      if (!group || Number.isNaN(share)) return null;
+      return {
+        group,
+        share: Math.round(share * 100) / 100,
+      };
+    })
+    .filter(Boolean);
+}
+
 function normalizeInputListValue(value) {
   if (Array.isArray(value)) {
     return value
@@ -537,7 +584,7 @@ function createDomainForm(overrides = {}) {
     capital: '',
     population: null,
     population_range: null,
-    primary_species: [],
+    population_demographics: [{ group: 'Other', share: 100 }],
     rulerId: null,
     tags: [],
     keywords: [],
@@ -672,7 +719,22 @@ function createDomainForm(overrides = {}) {
   if (overrides.aliases) next.aliases = normalizeInputListValue(overrides.aliases);
   if (overrides.category) next.category = normalizeInputListValue(overrides.category);
   if (overrides.affiliation) next.affiliation = normalizeInputListValue(overrides.affiliation);
-  if (overrides.primary_species) next.primary_species = normalizeInputListValue(overrides.primary_species);
+  if (overrides.population_demographics) {
+    next.population_demographics = normalizeDemographicsCollection(
+      overrides.population_demographics,
+      base.population_demographics,
+    );
+  } else if (overrides.populationDemographics) {
+    next.population_demographics = normalizeDemographicsCollection(
+      overrides.populationDemographics,
+      base.population_demographics,
+    );
+  } else if (overrides.primary_species) {
+    const speciesList = normalizeInputListValue(overrides.primary_species);
+    next.population_demographics = speciesList.length
+      ? speciesList.map((label) => ({ group: label, share: '' }))
+      : base.population_demographics;
+  }
   if (overrides.tags) next.tags = normalizeInputListValue(overrides.tags);
   if (overrides.keywords) next.keywords = normalizeInputListValue(overrides.keywords);
   if (overrides.alignment_or_reputation) {
@@ -1270,7 +1332,10 @@ export default function DndWorldRegions() {
             case 'seatOfPower':
               return 'seat_of_power';
             case 'primarySpecies':
-              return 'primary_species';
+            case 'populationDemographics':
+              return 'population_demographics';
+            case 'primary_species':
+              return 'population_demographics';
             case 'alignmentOrReputation':
               return 'alignment_or_reputation';
             case 'canonicalSummary':
@@ -1325,8 +1390,11 @@ export default function DndWorldRegions() {
           case 'population_range':
             next.population_range = normalizePopulationRange(rawValue);
             break;
-          case 'primary_species':
-            next.primary_species = normalizeInputListValue(rawValue);
+          case 'population_demographics':
+            next.population_demographics = normalizeDemographicsCollection(
+              rawValue,
+              prev.population_demographics,
+            );
             break;
           case 'rulerId':
           case 'ruler_id': {
@@ -1471,15 +1539,54 @@ export default function DndWorldRegions() {
       const optionLookup = new Map(regionOptions.map((opt) => [opt.value, opt.label]));
       const regionDescriptor = optionLookup.get(targetFolder) || targetFolder;
 
+      const normalizedDemographicsRaw = normalizeDemographicsCollection(domainForm.population_demographics);
+      const demographicEntries = coerceDemographicsForFrontMatter(normalizedDemographicsRaw);
+      if (!demographicEntries.length) {
+        setDomainStatus(
+          createDomainStatus({
+            stage: 'error',
+            error: 'Add at least one demographic group with a percentage.',
+            errorCode: 'domain.missing_demographics',
+          }),
+        );
+        return;
+      }
+      const invalidDemographicShare = demographicEntries.some(
+        (entry) => entry.share < 0 || entry.share > 100 || Number.isNaN(entry.share),
+      );
+      if (invalidDemographicShare) {
+        setDomainStatus(
+          createDomainStatus({
+            stage: 'error',
+            error: 'Each demographic percentage must be between 0 and 100.',
+            errorCode: 'domain.invalid_demographics',
+          }),
+        );
+        return;
+      }
+      const demographicsTotal = demographicEntries.reduce((sum, entry) => sum + entry.share, 0);
+      const demographicsTotalRounded = Math.round(demographicsTotal * 100) / 100;
+      if (Math.abs(demographicsTotal - 100) > DEMOGRAPHIC_TOTAL_TOLERANCE) {
+        setDomainStatus(
+          createDomainStatus({
+            stage: 'error',
+            error: `Demographic shares currently total ${demographicsTotalRounded.toFixed(1)}%. Adjust entries so they add up to 100%.`,
+            errorCode: 'domain.invalid_demographics_total',
+          }),
+        );
+        return;
+      }
+
       const normalizedAliases = Array.isArray(domainForm.aliases) ? domainForm.aliases.filter(Boolean) : [];
       const normalizedCategory = Array.isArray(domainForm.category) ? domainForm.category.filter(Boolean) : [];
       const normalizedAffiliation = Array.isArray(domainForm.affiliation) ? domainForm.affiliation.filter(Boolean) : [];
-      const seatOfPowerRaw = typeof domainForm.seat_of_power === 'string' ? domainForm.seat_of_power : '';
-      const trimmedSeatOfPower = seatOfPowerRaw.trim();
       const capitalRaw = typeof domainForm.capital === 'string' ? domainForm.capital : '';
       const trimmedCapital = capitalRaw.trim();
+      const seatInputRaw = typeof domainForm.seat_of_power === 'string' ? domainForm.seat_of_power : '';
+      const trimmedSeatInput = seatInputRaw.trim();
+      const seatOfPowerRaw = trimmedSeatInput || trimmedCapital;
+      const trimmedSeatOfPower = seatOfPowerRaw;
       const normalizedPopulation = normalizePopulationValue(domainForm.population);
-      const normalizedPrimarySpecies = Array.isArray(domainForm.primary_species) ? domainForm.primary_species.filter(Boolean) : [];
       const normalizedTags = Array.isArray(domainForm.tags) ? domainForm.tags.filter(Boolean) : [];
       const normalizedKeywords = Array.isArray(domainForm.keywords) ? domainForm.keywords.filter(Boolean) : [];
       const normalizedAlignment = Array.isArray(domainForm.alignment_or_reputation)
@@ -1491,6 +1598,10 @@ export default function DndWorldRegions() {
       const normalizedLegends = Array.isArray(domainForm.legends) ? domainForm.legends.filter(Boolean) : [];
       const normalizedRumors = Array.isArray(domainForm.rumors) ? domainForm.rumors.filter(Boolean) : [];
       const normalizedRelatedDocs = Array.isArray(domainForm.related_docs) ? domainForm.related_docs.filter(Boolean) : [];
+      const demographicsSummaryText = demographicEntries
+        .map((entry) => `${entry.group} ${entry.share}%`)
+        .join(', ');
+      const demographicsInstruction = `Population demographics input: ${demographicsSummaryText}. Ensure the population_demographics array mirrors these shares and totals 100%.`;
 
       const normalizedGeography = domainForm.geography && typeof domainForm.geography === 'object'
         ? deepCopy(domainForm.geography)
@@ -1550,7 +1661,7 @@ export default function DndWorldRegions() {
         seat_of_power: seatOfPowerRaw,
         capital: capitalRaw,
         population: normalizedPopulation,
-        primary_species: normalizedPrimarySpecies,
+        population_demographics: demographicEntries,
         ruler_id: trimmedRulerId || null,
         tags: normalizedTags,
         keywords: normalizedKeywords,
@@ -1601,11 +1712,9 @@ export default function DndWorldRegions() {
         ? `Capital input: ${trimmedCapital}. Use this value for the front matter capital field.`
         : '';
       const seatInstruction = trimmedSeatOfPower ? `Seat of power input: ${trimmedSeatOfPower}.` : '';
-      const primarySpeciesInstruction = normalizedPrimarySpecies.length
-        ? `Primary species input: ${normalizedPrimarySpecies.join(', ')}. Populate the front matter primary_species array accordingly.`
-        : '';
 
       const highlightLines = [];
+      if (demographicEntries.length) highlightLines.push(`Demographics: ${demographicsSummaryText}`);
       if (normalizedTags.length) highlightLines.push(`Tags: ${normalizedTags.join(', ')}`);
       if (normalizedKeywords.length) highlightLines.push(`Keywords: ${normalizedKeywords.join(', ')}`);
       if (normalizedAlignment.length) highlightLines.push(`Reputation cues: ${normalizedAlignment.join(', ')}`);
@@ -1648,7 +1757,7 @@ export default function DndWorldRegions() {
         categoryPrompt,
         capitalInstruction,
         seatInstruction,
-        primarySpeciesInstruction,
+        demographicsInstruction,
         populationInstruction,
         rulerSentence,
         frontMatterInstruction,
@@ -1782,7 +1891,9 @@ export default function DndWorldRegions() {
           aliases: Array.isArray(finalEntity.aliases) ? [...finalEntity.aliases] : normalizedAliases,
           affiliation: Array.isArray(finalEntity.affiliation) ? [...finalEntity.affiliation] : normalizedAffiliation,
           population: finalEntity.population ?? normalizedPopulation ?? null,
-          primary_species: Array.isArray(finalEntity.primary_species) ? [...finalEntity.primary_species] : normalizedPrimarySpecies,
+          population_demographics: Array.isArray(finalEntity.population_demographics)
+            ? deepCopy(finalEntity.population_demographics)
+            : deepCopy(demographicEntries),
           tags: Array.isArray(finalEntity.tags) ? [...finalEntity.tags] : normalizedTags,
           keywords: Array.isArray(finalEntity.keywords) ? [...finalEntity.keywords] : normalizedKeywords,
           alignment_or_reputation: Array.isArray(finalEntity.alignment_or_reputation)

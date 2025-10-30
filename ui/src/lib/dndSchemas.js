@@ -57,6 +57,14 @@ const countySummarySchema = z
   .partial()
   .strict();
 
+const demographicEntrySchema = z
+  .object({
+    group: z.string().optional(),
+    share: z.number().min(0).max(100).optional(),
+  })
+  .partial()
+  .strict();
+
 const npcSchema = baseEntitySchema
   .extend({
     type: z.literal('npc').optional(),
@@ -203,6 +211,7 @@ const domainSchema = baseEntitySchema
     seat_of_power: z.string().optional(),
     capital: z.string().optional(),
     population: stringOrNumber.optional(),
+    population_demographics: z.array(demographicEntrySchema).optional(),
     primary_species: stringArray.optional(),
     ruler_id: z.string().optional(),
     tags: stringArray.optional(),
