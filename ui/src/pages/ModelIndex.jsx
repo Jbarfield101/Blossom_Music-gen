@@ -198,17 +198,6 @@ async function resolveIndexTarget() {
     try {
       const ensured = await ensureDirectoryForCandidate(INDEX_CANDIDATES[i], i);
       if (ensured) {
-        try {
-          await ensureIndexFileInitialized(ensured);
-        } catch (initializationError) {
-          console.warn(
-            'ModelIndex: unable to initialize index at candidate',
-            describeCandidate(ensured),
-            initializationError,
-          );
-          markCandidateBlocked(ensured.index);
-          continue; // eslint-disable-line no-continue
-        }
         console.log('✅ Using index path:', ensured);
         indexTargetCache.current = ensured;
         return ensured;
