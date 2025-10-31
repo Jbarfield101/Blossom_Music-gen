@@ -127,11 +127,15 @@ async function ensureDirectoryForCandidate(candidate, index) {
     if (isExistsError(error)) {
       return { ...candidate, index };
     }
-    if (isForbiddenError(error)) {
+    if (typeof index === 'number') {
+      console.warn(
+        'ModelIndex: storage location unavailable, skipping candidate',
+        describeCandidate(candidate),
+        error,
+      );
       markCandidateBlocked(index);
-      return null;
     }
-    throw error;
+    return null;
   }
 }
 
