@@ -22,12 +22,6 @@ export default function Tools() {
         <Card to="/chat" icon="MessagesSquare" title="General Chat">
           Converse with Blossom
         </Card>
-        <Card to="/loopmaker" icon="Repeat" title="Loop Maker">
-          Video Loop Creator
-        </Card>
-        <Card to="/beatmaker" icon="AudioWaveform" title="Beat Maker">
-          Audio Loop Builder
-        </Card>
         <Card to="/tools/video-to-image" icon="Clapperboard" title="Video to Image">
           Extract frames from video
         </Card>
