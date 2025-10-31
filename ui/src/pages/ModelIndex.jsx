@@ -151,10 +151,16 @@ async function resolveIndexTarget() {
     if (blockedCandidateIndices.has(i)) {
       continue; // eslint-disable-line no-continue
     }
-    const ensured = await ensureDirectoryForCandidate(INDEX_CANDIDATES[i], i);
-    if (ensured) {
-      indexTargetCache.current = ensured;
-      return ensured;
+    try {
+      const ensured = await ensureDirectoryForCandidate(INDEX_CANDIDATES[i], i);
+      if (ensured) {
+        console.log('✅ Using index path:', ensured);
+        indexTargetCache.current = ensured;
+        return ensured;
+      }
+    } catch (err) {
+      console.warn('Skipping candidate due to error:', INDEX_CANDIDATES[i].label, err);
+      continue; // eslint-disable-line no-continue
     }
   }
 
