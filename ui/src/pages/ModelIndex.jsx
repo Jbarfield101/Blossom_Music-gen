@@ -7,23 +7,39 @@ const INITIAL_BASE_MODELS = ['SDXL 1.0', 'Flux .1 D', 'WAN Video', 'Qwen', 'Othe
 const INITIAL_TOP_TAGS = ['Flux', 'DND', 'Fantasy', 'LoFi', 'Portrait', 'Character', 'Sci-Fi', 'Nature', 'Cinematic', 'Abstract'];
 const MAX_TOP_TAGS = 10;
 
+const DEFAULT_INDEX_DIR = 'blossom_demo_index';
+
 const INDEX_CANDIDATES = [
   {
-    type: 'absolute',
-    path: 'D:/Blossom/Blossom_Music/assets/indexed_models_img',
-    label: 'D:/Blossom/Blossom_Music/assets/indexed_models_img/model_index',
+    type: 'relative',
+    dir: BaseDirectory.AppData,
+    path: DEFAULT_INDEX_DIR,
+    label: `AppData/${DEFAULT_INDEX_DIR}/model_index`,
   },
   {
     type: 'relative',
     dir: BaseDirectory.App,
-    path: 'assets/indexed_models_img',
-    label: 'App/assets/indexed_models_img/model_index',
+    path: DEFAULT_INDEX_DIR,
+    label: `App/${DEFAULT_INDEX_DIR}/model_index`,
+  },
+];
+
+const DEMO_INDEX_ENTRIES = [
+  {
+    id: 'demo-texture-garden',
+    name: 'Demo Texture Garden',
+    baseModel: 'SDXL 1.0',
+    tags: ['demo', 'texture', 'garden'],
+    triggerWords: ['texture garden'],
+    createdAt: '2024-01-01T00:00:00.000Z',
   },
   {
-    type: 'relative',
-    dir: BaseDirectory.AppData,
-    path: 'assets/indexed_models_img',
-    label: 'AppData/assets/indexed_models_img/model_index',
+    id: 'demo-night-skyline',
+    name: 'Demo Night Skyline',
+    baseModel: 'Flux .1 D',
+    tags: ['demo', 'night', 'city'],
+    triggerWords: ['neon skyline'],
+    createdAt: '2024-02-01T00:00:00.000Z',
   },
 ];
 
@@ -139,6 +155,34 @@ async function ensureDirectoryForCandidate(candidate, index) {
   }
 }
 
+async function writeIndexFile(target, payload) {
+  if (!target) return null;
+  if (target.type === 'absolute') {
+    await writeTextFile(`${target.path}/model_index`, payload);
+  } else {
+    await writeTextFile(`${target.path}/model_index`, payload, { dir: target.dir });
+  }
+  return target;
+}
+
+async function ensureIndexFileInitialized(target) {
+  if (!target) return;
+  try {
+    if (target.type === 'absolute') {
+      await readTextFile(`${target.path}/model_index`);
+    } else {
+      await readTextFile(`${target.path}/model_index`, { dir: target.dir });
+    }
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      const payload = JSON.stringify(DEMO_INDEX_ENTRIES.map(normalizeModelEntry), null, 2);
+      await writeIndexFile(target, payload);
+      return;
+    }
+    throw error;
+  }
+}
+
 async function resolveIndexTarget() {
   if (
     indexTargetCache.current &&
@@ -151,10 +195,27 @@ async function resolveIndexTarget() {
     if (blockedCandidateIndices.has(i)) {
       continue; // eslint-disable-line no-continue
     }
-    const ensured = await ensureDirectoryForCandidate(INDEX_CANDIDATES[i], i);
-    if (ensured) {
-      indexTargetCache.current = ensured;
-      return ensured;
+    try {
+      const ensured = await ensureDirectoryForCandidate(INDEX_CANDIDATES[i], i);
+      if (ensured) {
+        try {
+          await ensureIndexFileInitialized(ensured);
+        } catch (initializationError) {
+          console.warn(
+            'ModelIndex: unable to initialize index at candidate',
+            describeCandidate(ensured),
+            initializationError,
+          );
+          markCandidateBlocked(ensured.index);
+          continue; // eslint-disable-line no-continue
+        }
+        console.log('✅ Using index path:', ensured);
+        indexTargetCache.current = ensured;
+        return ensured;
+      }
+    } catch (err) {
+      console.warn('Skipping candidate due to error:', INDEX_CANDIDATES[i].label, err);
+      continue; // eslint-disable-line no-continue
     }
   }
 
@@ -206,11 +267,7 @@ async function writeModelIndex(entries) {
     attempts += 1;
     const target = await resolveIndexTarget();
     try {
-      if (target.type === 'absolute') {
-        await writeTextFile(`${target.path}/model_index`, payload);
-      } else {
-        await writeTextFile(`${target.path}/model_index`, payload, { dir: target.dir });
-      }
+      await writeIndexFile(target, payload);
       return target;
     } catch (error) {
       if (isForbiddenError(error)) {
