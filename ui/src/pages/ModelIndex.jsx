@@ -1,28 +1,161 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import BackButton from '../components/BackButton.jsx';
 import PrimaryButton from '../components/PrimaryButton.jsx';
-import { BaseDirectory, mkdir, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import { mkdir, readTextFile, writeTextFile } from '@tauri-apps/plugin-fs';
+import { appDir, appDataDir, join, resourceDir, normalize } from '@tauri-apps/api/path';
 
 const INITIAL_BASE_MODELS = ['SDXL 1.0', 'Flux .1 D', 'WAN Video', 'Qwen', 'Other'];
 const INITIAL_TOP_TAGS = ['Flux', 'DND', 'Fantasy', 'LoFi', 'Portrait', 'Character', 'Sci-Fi', 'Nature', 'Cinematic', 'Abstract'];
 const MAX_TOP_TAGS = 10;
 
 const DEFAULT_INDEX_DIR = 'blossom_demo_index';
+const MODEL_INDEX_FILENAME = 'model_index.json';
 
-const INDEX_CANDIDATES = [
-  {
-    type: 'relative',
-    dir: BaseDirectory.AppData,
-    path: DEFAULT_INDEX_DIR,
-    label: `AppData/${DEFAULT_INDEX_DIR}/model_index`,
-  },
-  {
-    type: 'relative',
-    dir: BaseDirectory.App,
-    path: DEFAULT_INDEX_DIR,
-    label: `App/${DEFAULT_INDEX_DIR}/model_index`,
-  },
-];
+const indexCandidatesCache = {
+  list: null,
+  promise: null,
+};
+
+function joinDisplayPath(base, extra) {
+  const normalizedBase = typeof base === 'string' ? base.replace(/[\\\/]+$/, '') : '';
+  const normalizedExtra = typeof extra === 'string' ? extra.replace(/^[\\\/]+/, '') : '';
+  if (!normalizedBase && !normalizedExtra) {
+    return '';
+  }
+  if (!normalizedBase) {
+    return normalizedExtra;
+  }
+  if (!normalizedExtra) {
+    return normalizedBase;
+  }
+  const useBackslash = /\\/.test(normalizedBase) && !/\//.test(normalizedBase);
+  const separator = useBackslash ? '\\' : '/';
+  return `${normalizedBase}${separator}${normalizedExtra}`;
+}
+
+async function buildIndexCandidates() {
+  const results = [];
+  const seenLabels = new Set();
+
+  const register = async (factory) => {
+    try {
+      const candidate = await factory();
+      if (!candidate || !candidate.path) {
+        return;
+      }
+      const fallbackLabel = joinDisplayPath(candidate.path, MODEL_INDEX_FILENAME);
+      const label = candidate.label || candidate.filePath || fallbackLabel;
+      const filePath = candidate.filePath || fallbackLabel;
+      if (!label || seenLabels.has(label)) {
+        return;
+      }
+      const normalizedCandidate = {
+        type: 'absolute',
+        readOnly: Boolean(candidate.readOnly),
+        ...candidate,
+        filePath,
+        label,
+      };
+      const candidateIndex = results.length;
+      normalizedCandidate.candidateIndex = candidateIndex;
+      results.push(normalizedCandidate);
+      seenLabels.add(label);
+    } catch (err) {
+      console.warn('ModelIndex: candidate resolution failed', err);
+    }
+  };
+
+  await register(async () => {
+    const resourceRoot = await resourceDir().catch(() => null);
+    if (!resourceRoot) return null;
+    const assetsDirRaw = await join(resourceRoot, 'assets', 'indexed_models_img').catch(() => null);
+    if (!assetsDirRaw) return null;
+    const assetsDir = await normalize(assetsDirRaw).catch(() => assetsDirRaw);
+    const filePathRaw = await join(assetsDir, MODEL_INDEX_FILENAME).catch(() => null);
+    if (!filePathRaw) return null;
+    const filePath = await normalize(filePathRaw).catch(() => filePathRaw);
+    return {
+      path: assetsDir,
+      filePath,
+      label: filePath,
+      readOnly: true,
+    };
+  });
+
+  await register(async () => {
+    const base = await appDir().catch(() => null);
+    if (!base) return null;
+    const assetsDirRaw = await join(base, '..', 'assets', 'indexed_models_img').catch(() => null);
+    if (!assetsDirRaw) return null;
+    const assetsDir = await normalize(assetsDirRaw).catch(() => assetsDirRaw);
+    const filePathRaw = await join(assetsDir, MODEL_INDEX_FILENAME).catch(() => null);
+    if (!filePathRaw) return null;
+    const filePath = await normalize(filePathRaw).catch(() => filePathRaw);
+    return {
+      path: assetsDir,
+      filePath,
+      label: filePath,
+      readOnly: true,
+    };
+  });
+
+  await register(async () => {
+    const dataRoot = await appDataDir().catch(() => null);
+    if (!dataRoot) return null;
+    const dirPathRaw = await join(dataRoot, DEFAULT_INDEX_DIR).catch(() => null);
+    if (!dirPathRaw) return null;
+    const dirPath = await normalize(dirPathRaw).catch(() => dirPathRaw);
+    const filePathRaw = await join(dirPath, MODEL_INDEX_FILENAME).catch(() => null);
+    if (!filePathRaw) return null;
+    const filePath = await normalize(filePathRaw).catch(() => filePathRaw);
+    return {
+      path: dirPath,
+      filePath,
+      label: filePath,
+      readOnly: false,
+    };
+  });
+
+  await register(async () => {
+    const base = await appDir().catch(() => null);
+    if (!base) return null;
+    const dirPathRaw = await join(base, DEFAULT_INDEX_DIR).catch(() => null);
+    if (!dirPathRaw) return null;
+    const dirPath = await normalize(dirPathRaw).catch(() => dirPathRaw);
+    const filePathRaw = await join(dirPath, MODEL_INDEX_FILENAME).catch(() => null);
+    if (!filePathRaw) return null;
+    const filePath = await normalize(filePathRaw).catch(() => filePathRaw);
+    return {
+      path: dirPath,
+      filePath,
+      label: filePath,
+      readOnly: false,
+    };
+  });
+
+  return results;
+}
+
+async function getIndexCandidates() {
+  if (Array.isArray(indexCandidatesCache.list) && indexCandidatesCache.list.length) {
+    return indexCandidatesCache.list;
+  }
+  if (!indexCandidatesCache.promise) {
+    indexCandidatesCache.promise = buildIndexCandidates()
+      .then((list) => (Array.isArray(list) ? list.filter(Boolean) : []))
+      .then((list) => {
+        indexCandidatesCache.list = list;
+        indexCandidatesCache.promise = null;
+        return list;
+      })
+      .catch((error) => {
+        indexCandidatesCache.promise = null;
+        console.warn('ModelIndex: candidate discovery failed', error);
+        return [];
+      });
+  }
+  return indexCandidatesCache.promise;
+}
 
 const DEMO_INDEX_ENTRIES = [
   {
@@ -43,7 +176,7 @@ const DEMO_INDEX_ENTRIES = [
   },
 ];
 
-const indexTargetCache = { current: null };
+const indexTargetCache = { read: null, write: null };
 const blockedCandidateIndices = new Set();
 
 function makeModelId() {
@@ -79,10 +212,22 @@ function describeCandidate(candidate) {
   return candidate.label;
 }
 
-function markCandidateBlocked(index) {
+function markCandidateBlocked(candidate) {
+  const index =
+    typeof candidate === 'number'
+      ? candidate
+      : typeof candidate?.candidateIndex === 'number'
+        ? candidate.candidateIndex
+        : null;
+  if (index == null) {
+    return;
+  }
   blockedCandidateIndices.add(index);
-  if (indexTargetCache.current?.index === index) {
-    indexTargetCache.current = null;
+  if (indexTargetCache.read?.candidateIndex === index) {
+    indexTargetCache.read = null;
+  }
+  if (indexTargetCache.write?.candidateIndex === index) {
+    indexTargetCache.write = null;
   }
 }
 
@@ -130,37 +275,49 @@ function normalizeModelEntry(raw) {
   };
 }
 
-async function ensureDirectoryForCandidate(candidate, index) {
+async function ensureDirectoryForCandidate(candidate) {
   if (!candidate) return null;
   try {
-    if (candidate.type === 'absolute') {
+    if (!candidate.readOnly) {
       await mkdir(candidate.path, { recursive: true });
-    } else {
-      await mkdir(candidate.path, { dir: candidate.dir, recursive: true });
     }
-    return { ...candidate, index };
+    return { ...candidate };
   } catch (error) {
     if (isExistsError(error)) {
-      return { ...candidate, index };
+      return { ...candidate };
     }
-    if (typeof index === 'number') {
-      console.warn(
-        'ModelIndex: storage location unavailable, skipping candidate',
-        describeCandidate(candidate),
-        error,
-      );
-      markCandidateBlocked(index);
-    }
+    console.warn(
+      'ModelIndex: storage location unavailable, skipping candidate',
+      describeCandidate(candidate),
+      error,
+    );
+    markCandidateBlocked(candidate);
     return null;
   }
 }
 
+function getIndexFileDescriptor(target) {
+  if (!target || typeof target !== 'object') {
+    return { path: '', options: null };
+  }
+  const fallback = joinDisplayPath(target.path, MODEL_INDEX_FILENAME);
+  const path = typeof target.filePath === 'string' && target.filePath ? target.filePath : fallback;
+  return { path, options: null };
+}
+
 async function writeIndexFile(target, payload) {
   if (!target) return null;
-  if (target.type === 'absolute') {
-    await writeTextFile(`${target.path}/model_index`, payload);
+  const descriptor = getIndexFileDescriptor(target);
+  if (!descriptor.path) {
+    throw new Error('Invalid storage target for indexed models.');
+  }
+  if (target.readOnly) {
+    throw new Error(`Storage location is read-only (${describeCandidate(target)}).`);
+  }
+  if (descriptor.options) {
+    await writeTextFile(descriptor.path, payload, descriptor.options);
   } else {
-    await writeTextFile(`${target.path}/model_index`, payload, { dir: target.dir });
+    await writeTextFile(descriptor.path, payload);
   }
   return target;
 }
@@ -168,52 +325,109 @@ async function writeIndexFile(target, payload) {
 async function ensureIndexFileInitialized(target) {
   if (!target) return;
   try {
-    if (target.type === 'absolute') {
-      await readTextFile(`${target.path}/model_index`);
+    const descriptor = getIndexFileDescriptor(target);
+    if (!descriptor.path) {
+      throw new Error('Invalid storage target for indexed models.');
+    }
+    if (descriptor.options) {
+      await readTextFile(descriptor.path, descriptor.options);
     } else {
-      await readTextFile(`${target.path}/model_index`, { dir: target.dir });
+      await readTextFile(descriptor.path);
     }
   } catch (error) {
     if (isNotFoundError(error)) {
-      const payload = JSON.stringify(DEMO_INDEX_ENTRIES.map(normalizeModelEntry), null, 2);
-      await writeIndexFile(target, payload);
+      if (!target.readOnly) {
+        const payload = JSON.stringify(DEMO_INDEX_ENTRIES.map(normalizeModelEntry), null, 2);
+        await writeIndexFile(target, payload);
+      }
       return;
     }
     throw error;
   }
 }
 
-async function resolveIndexTarget() {
-  if (
-    indexTargetCache.current &&
-    !blockedCandidateIndices.has(indexTargetCache.current.index)
-  ) {
-    return indexTargetCache.current;
+async function resolveIndexTarget(options = {}) {
+  const { writable = false } = options;
+  const candidates = await getIndexCandidates();
+  if (!Array.isArray(candidates) || !candidates.length) {
+    throw new Error(
+      writable
+        ? 'Unable to locate a writable directory for indexed models.'
+        : 'Unable to locate a readable directory for indexed models.',
+    );
   }
 
-  for (let i = 0; i < INDEX_CANDIDATES.length; i += 1) {
-    if (blockedCandidateIndices.has(i)) {
-      continue; // eslint-disable-line no-continue
-    }
+  const cacheKey = writable ? 'write' : 'read';
+  const isBlocked = (candidate) => {
+    if (!candidate) return false;
+    return blockedCandidateIndices.has(candidate.candidateIndex);
+  };
+
+  const cached = indexTargetCache[cacheKey];
+  if (cached && !isBlocked(cached) && (!writable || !cached.readOnly)) {
+    return cached;
+  }
+
+  const available = candidates.filter((candidate) => {
+    if (!candidate) return false;
+    if (isBlocked(candidate)) return false;
+    if (writable && candidate.readOnly) return false;
+    return true;
+  });
+
+  if (!available.length) {
+    throw new Error(
+      writable
+        ? 'Unable to locate a writable directory for indexed models.'
+        : 'Unable to locate a readable directory for indexed models.',
+    );
+  }
+
+  for (const candidate of available) {
     try {
-      const ensured = await ensureDirectoryForCandidate(INDEX_CANDIDATES[i], i);
-      if (ensured) {
-        console.log('✅ Using index path:', ensured);
-        indexTargetCache.current = ensured;
-        return ensured;
+      const ensured = await ensureDirectoryForCandidate(candidate);
+      if (!ensured) {
+        markCandidateBlocked(candidate);
+        continue;
       }
+      try {
+        await ensureIndexFileInitialized(ensured);
+      } catch (initializationError) {
+        if (isForbiddenError(initializationError)) {
+          console.warn(
+            'ModelIndex: initialization forbidden, skipping candidate',
+            describeCandidate(ensured),
+            initializationError,
+          );
+          markCandidateBlocked(ensured);
+          continue;
+        }
+        throw initializationError;
+      }
+      console.log('✅ Using index path:', describeCandidate(ensured));
+      indexTargetCache[cacheKey] = ensured;
+      return ensured;
     } catch (err) {
-      console.warn('Skipping candidate due to error:', INDEX_CANDIDATES[i].label, err);
-      continue; // eslint-disable-line no-continue
+      console.warn('Skipping candidate due to error:', describeCandidate(candidate), err);
+      markCandidateBlocked(candidate);
     }
   }
 
-  throw new Error('Unable to locate a writable directory for indexed models.');
+  throw new Error(
+    writable
+      ? 'Unable to locate a writable directory for indexed models.'
+      : 'Unable to locate a readable directory for indexed models.',
+  );
 }
 
 async function readModelIndex() {
+  const candidates = await getIndexCandidates();
+  if (!Array.isArray(candidates) || !candidates.length) {
+    throw new Error('Unable to locate a readable directory for indexed models.');
+  }
+  const maxAttempts = candidates.length;
   let attempts = 0;
-  while (attempts < INDEX_CANDIDATES.length) {
+  while (attempts < maxAttempts) {
     attempts += 1;
     let target;
     try {
@@ -222,9 +436,8 @@ async function readModelIndex() {
       throw error;
     }
     try {
-      const raw = target.type === 'absolute'
-        ? await readTextFile(`${target.path}/model_index`)
-        : await readTextFile(`${target.path}/model_index`, { dir: target.dir });
+      const descriptor = getIndexFileDescriptor(target);
+      const raw = await readTextFile(descriptor.path);
       if (!raw) {
         return { entries: [], target };
       }
@@ -235,13 +448,15 @@ async function readModelIndex() {
       return { entries: parsed.map(normalizeModelEntry), target };
     } catch (error) {
       if (isNotFoundError(error)) {
+        if (target.readOnly) {
+          markCandidateBlocked(target);
+          continue;
+        }
         return { entries: [], target };
       }
       if (isForbiddenError(error)) {
-        if (typeof target.index === 'number') {
-          markCandidateBlocked(target.index);
-          continue;
-        }
+        markCandidateBlocked(target);
+        continue;
       }
       throw error;
     }
@@ -250,24 +465,39 @@ async function readModelIndex() {
 }
 
 async function writeModelIndex(entries) {
+  const candidates = await getIndexCandidates();
+  const writableCandidates = Array.isArray(candidates)
+    ? candidates.filter((candidate) => candidate && !candidate.readOnly)
+    : [];
+  if (!writableCandidates.length) {
+    throw new Error('Unable to locate a writable directory for indexed models.');
+  }
+  const maxAttempts = writableCandidates.length;
   let attempts = 0;
   const payload = JSON.stringify(entries, null, 2);
-  while (attempts < INDEX_CANDIDATES.length) {
+  let lastError = null;
+  while (attempts < maxAttempts) {
     attempts += 1;
-    const target = await resolveIndexTarget();
+    let target;
+    try {
+      target = await resolveIndexTarget({ writable: true });
+    } catch (error) {
+      throw error;
+    }
     try {
       await writeIndexFile(target, payload);
       return target;
     } catch (error) {
-      if (isForbiddenError(error)) {
-        if (typeof target.index === 'number') {
-          markCandidateBlocked(target.index);
-          continue;
-        }
-        throw new Error(`Storage location is not writable (${describeCandidate(target)}).`);
+      if (isForbiddenError(error) || /read-only/i.test(String(error?.message || error))) {
+        markCandidateBlocked(target);
+        lastError = error;
+        continue;
       }
       throw error;
     }
+  }
+  if (lastError) {
+    throw lastError;
   }
   throw new Error('Unable to locate a writable directory for indexed models.');
 }
@@ -853,7 +1083,7 @@ export default function ModelIndex() {
           </dl>
           <footer style={{ display: 'grid', gap: '0.25rem' }}>
             <span className="card-caption">
-              Stored in {indexLocationLabel || 'AppData/model_index'}
+              Stored in {indexLocationLabel || 'AppData/model_index.json'}
             </span>
             <span className="card-caption">
               Entry ID: {selectedModel.id}
