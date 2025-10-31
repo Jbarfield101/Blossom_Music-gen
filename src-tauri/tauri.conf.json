@@ -53,6 +53,12 @@
                   "path": "$RESOURCE/assets/voice_models/**"
                 },
                 {
+                  "path": "$APP/../assets/indexed_models_img/**"
+                },
+                {
+                  "path": "D:/Blossom/Blossom_Music/assets/indexed_models_img/**"
+                },
+                {
                   "path": "$RESOURCE/assets/workflows/**"
                 }
               ]

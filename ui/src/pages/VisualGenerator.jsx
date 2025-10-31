@@ -23,6 +23,9 @@ export default function VisualGenerator() {
         <Card to="/visual-generator/dnd-portrait" icon="UserCircle2" title="DND Portrait">
           Generate character portraits tailored to your campaign.
         </Card>
+        <Card to="/visual-generator/model-index" icon="Library" title="Model Index">
+          Browse installed visual models and launch configurations.
+        </Card>
       </section>
     </>
   );

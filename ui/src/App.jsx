@@ -55,6 +55,7 @@ import Gallery from './pages/Gallery.jsx';
 import LofiSceneMaker from './pages/LofiSceneMaker.jsx';
 import VideoMaker from './pages/VideoMaker.jsx';
 import DndPortraitMaker from './pages/DndPortraitMaker.jsx';
+import ModelIndex from './pages/ModelIndex.jsx';
 import Queue from './pages/Queue.jsx';
 import Tools from './pages/Tools.jsx';
 import Fusion from './pages/Fusion.jsx';
@@ -534,6 +535,7 @@ export default function App() {
               <Route path="lofi-scene-maker" element={<LofiSceneMaker />} />
               <Route path="video-maker" element={<VideoMaker />} />
               <Route path="dnd-portrait" element={<DndPortraitMaker />} />
+              <Route path="model-index" element={<ModelIndex />} />
             </Route>
             <Route path="/gallery" element={<Gallery />} />
             <Route path="/ace" element={<Ace />} />
