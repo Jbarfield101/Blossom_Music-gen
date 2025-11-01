@@ -53,10 +53,25 @@
                   "path": "$RESOURCE/assets/voice_models/**"
                 },
                 {
-                  "path": "$APP/../assets/indexed_models_img/**"
+                  "path": "$RESOURCE/models/**"
                 },
                 {
-                  "path": "D:/Blossom/Blossom_Music/assets/indexed_models_img/**"
+                  "path": "$APP/models/**"
+                },
+                {
+                  "path": "D:/Blossom/Blossom_Music/models/**"
+                },
+                {
+                  "path": "D:/Blossom/Blossom_Music/src-tauri/models/**"
+                },
+                {
+                  "path": "D:/Documents/DreadHaven/**"
+                },
+                {
+                  "path": "D:\\\\Documents\\\\DreadHaven\\\\**"
+                },
+                {
+                  "path": "d:/documents/dreadhaven/**"
                 },
                 {
                   "path": "$RESOURCE/assets/workflows/**"
@@ -65,7 +80,9 @@
             },
             "fs:allow-mkdir",
             "fs:allow-write-file",
+            "fs:allow-write-text-file",
             "fs:allow-read-file",
+            "fs:allow-read-text-file",
             "fs:allow-read-dir"
           ]
         },

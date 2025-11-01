@@ -36,6 +36,7 @@ mod commands;
 mod config;
 mod dnd_watcher;
 mod musiclang;
+mod model_index;
 mod util;
 use crate::commands::{album_concat, generate_musicgen, musicgen_env, riffusion_generate};
 use crate::util::list_from_dir;
@@ -11762,6 +11763,8 @@ fn main() {
             list_bundled_voices,
             commands::read_file_bytes,
             commands::canonicalize_path,
+            model_index::model_index_read,
+            model_index::model_index_write,
             commands::get_stable_audio_prompts,
             commands::update_stable_audio_prompts,
             commands::get_lofi_scene_prompts,
