@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
+import { exists, mkdir, writeFile as writeBinaryFile } from '@tauri-apps/plugin-fs';
 import BackButton from '../components/BackButton.jsx';
 import PrimaryButton from '../components/PrimaryButton.jsx';
-import { invoke } from '@tauri-apps/api/core';
+import Icon from '../components/Icon.jsx';
+import { fileSrc } from '../lib/paths.js';
 
 const INITIAL_BASE_MODELS = ['SDXL 1.0', 'Flux .1 D', 'WAN Video', 'Qwen', 'Other'];
 const INITIAL_TOP_TAGS = ['Flux', 'DND', 'Fantasy', 'LoFi', 'Portrait', 'Character', 'Sci-Fi', 'Nature', 'Cinematic', 'Abstract'];
 const MAX_TOP_TAGS = 10;
 
 const MODEL_INDEX_PATH = 'D:/Documents/DreadHaven/model_index.json';
+const MODEL_TEST_IMAGE_ROOT = 'D:/Blossom/Blossom_Music/assets/images/lora_examples';
 
 const DEMO_INDEX_ENTRIES = [
   {
@@ -69,6 +73,24 @@ function normalizeModelEntry(raw) {
   const tags = normalizeStringArray(entry.tags);
   const triggerWords = normalizeStringArray(entry.triggerWords);
   const createdAt = normalizeString(entry.createdAt);
+  const thumbnailPath = normalizeString(entry.thumbnailPath);
+  const testBatchCountRaw = Number(entry.testBatchCount);
+  const testBatchCount = Number.isFinite(testBatchCountRaw) && testBatchCountRaw > 0 ? testBatchCountRaw : 0;
+  const lastTest =
+    typeof entry.lastTest === 'object' && entry.lastTest !== null
+      ? {
+          positivePrompt: normalizeString(entry.lastTest.positivePrompt),
+          negativePrompt: normalizeString(entry.lastTest.negativePrompt),
+          ranAt: normalizeString(entry.lastTest.ranAt),
+          seed: normalizeString(entry.lastTest.seed),
+          steps: Number.isFinite(Number(entry.lastTest.steps)) ? Number(entry.lastTest.steps) : null,
+          cfg: Number.isFinite(Number(entry.lastTest.cfg)) ? Number(entry.lastTest.cfg) : null,
+          denoise: Number.isFinite(Number(entry.lastTest.denoise)) ? Number(entry.lastTest.denoise) : null,
+          images: Array.isArray(entry.lastTest.images)
+            ? entry.lastTest.images.map((imagePath) => normalizeString(imagePath)).filter(Boolean)
+            : [],
+        }
+      : null;
   return {
     id,
     name,
@@ -76,7 +98,44 @@ function normalizeModelEntry(raw) {
     tags,
     triggerWords,
     createdAt,
+    thumbnailPath,
+    testBatchCount,
+    lastTest,
   };
+}
+
+function sanitizeFileStem(source, fallback = 'lora_image') {
+  const base = String(source || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\.[^.]+$/, '')
+    .replace(/[^A-Za-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 80);
+  return base || fallback;
+}
+
+function buildPath(base, ...segments) {
+  const baseStr = String(base || '').trim();
+  const useBackslash = /\\/.test(baseStr) && !/\//.test(baseStr);
+  const separator = useBackslash ? '\\' : '/';
+  const cleanedBase = baseStr.replace(/[\\/]+$/, '');
+  const cleanedSegments = segments
+    .map((segment) => String(segment || '').trim())
+    .filter(Boolean)
+    .map((segment) => segment.replace(/[\\/]+/g, separator).replace(new RegExp(`^${separator}+`), ''));
+  return [cleanedBase, ...cleanedSegments].filter(Boolean).join(separator);
+}
+
+async function ensureDirectory(path) {
+  if (!path) {
+    return;
+  }
+  const alreadyExists = await exists(path).catch(() => false);
+  if (alreadyExists) {
+    return;
+  }
+  await mkdir(path, { recursive: true }).catch(() => {});
 }
 
 function describeLocation(path) {
@@ -188,8 +247,34 @@ export default function ModelIndex() {
   const [selectedModelId, setSelectedModelId] = useState('');
   const [topTagSuggestions, setTopTagSuggestions] = useState(INITIAL_TOP_TAGS);
   const [indexLocationLabel, setIndexLocationLabel] = useState('');
+  const [isEditingModel, setIsEditingModel] = useState(false);
+  const [editDraft, setEditDraft] = useState(null);
+  const [editError, setEditError] = useState('');
+  const [isTestDialogOpen, setIsTestDialogOpen] = useState(false);
+  const [testPositivePrompt, setTestPositivePrompt] = useState('');
+  const [testNegativePrompt, setTestNegativePrompt] = useState('');
+  const [testImages, setTestImages] = useState([]);
+  const [testError, setTestError] = useState('');
+  const [isRunningTest, setIsRunningTest] = useState(false);
+  const [testSuccessMessage, setTestSuccessMessage] = useState('');
+  const [testSeed, setTestSeed] = useState('');
+  const [testSteps, setTestSteps] = useState('');
+  const [testCfg, setTestCfg] = useState('');
+  const [testDenoise, setTestDenoise] = useState('');
 
   const modelCount = indexedModels.length;
+  const secondaryButtonStyle = useMemo(
+    () => ({
+      border: '1px solid rgba(15, 23, 42, 0.2)',
+      background: 'transparent',
+      color: 'var(--text)',
+      padding: '0.55rem 1rem',
+      borderRadius: '10px',
+      fontWeight: 600,
+      cursor: 'pointer',
+    }),
+    [],
+  );
 
   const openLoRaWizard = () => {
     setIsLoRaWizardOpen(true);
@@ -255,10 +340,54 @@ export default function ModelIndex() {
     }
   }, [indexedModels, selectedModelId]);
 
+  useEffect(() => {
+    setIsEditingModel(false);
+    setEditDraft(null);
+    setEditError('');
+    setIsTestDialogOpen(false);
+    setTestPositivePrompt('');
+    setTestNegativePrompt('');
+    setTestImages([]);
+    setTestError('');
+    setTestSuccessMessage('');
+    setTestSeed('');
+    setTestSteps('');
+    setTestCfg('');
+    setTestDenoise('');
+  }, [selectedModelId]);
+
   const selectedModel = useMemo(
     () => indexedModels.find((model) => model.id === selectedModelId) || null,
     [indexedModels, selectedModelId],
   );
+
+  const testOutputDirectory = useMemo(() => {
+    if (!selectedModel) {
+      return MODEL_TEST_IMAGE_ROOT;
+    }
+    return buildPath(MODEL_TEST_IMAGE_ROOT, sanitizeFileStem(selectedModel.name || selectedModel.id, selectedModel.id));
+  }, [selectedModel]);
+
+  const beginEditingModel = useCallback(() => {
+    if (!selectedModel) {
+      return;
+    }
+    setEditError('');
+    setTestSuccessMessage('');
+    setIsEditingModel(true);
+    setEditDraft({
+      name: selectedModel.name,
+      baseModel: selectedModel.baseModel,
+      tags: selectedModel.tags.join(', '),
+      triggerWords: selectedModel.triggerWords.join(', '),
+    });
+  }, [selectedModel]);
+
+  const cancelEditingModel = useCallback(() => {
+    setIsEditingModel(false);
+    setEditDraft(null);
+    setEditError('');
+  }, []);
 
   const formatTimestamp = useCallback((value) => {
     if (!value) {
@@ -270,6 +399,60 @@ export default function ModelIndex() {
     }
     return date.toLocaleString();
   }, []);
+
+  const updateEditDraftField = useCallback((field, value) => {
+    setEditDraft((prev) => {
+      if (!prev) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [field]: value,
+      };
+    });
+  }, []);
+
+  const handleEditSave = useCallback(async () => {
+    if (!selectedModel || !editDraft) {
+      return;
+    }
+    const name = String(editDraft.name || '').trim();
+    if (!name) {
+      setEditError('Model name is required.');
+      return;
+    }
+    const baseModel = String(editDraft.baseModel || '').trim();
+    const tagsList = normalizeCommaList(editDraft.tags);
+    const triggerWordsList = normalizeCommaList(editDraft.triggerWords);
+
+    const updatedModel = {
+      ...selectedModel,
+      name,
+      baseModel,
+      tags: tagsList,
+      triggerWords: triggerWordsList,
+    };
+
+    try {
+      const updatedEntries = indexedModels.map((model) =>
+        model.id === selectedModel.id ? updatedModel : model,
+      );
+      const writeTarget = await writeModelIndex(updatedEntries);
+      setIndexedModels(updatedEntries);
+      const aggregatedTags = updatedEntries.flatMap((model) => (Array.isArray(model.tags) ? model.tags : []));
+      setTopTagSuggestions(combineTopTags(aggregatedTags));
+      if (writeTarget) {
+        setIndexLocationLabel(writeTarget.label || describeLocation(writeTarget.path));
+      }
+      setEditError('');
+      setIsEditingModel(false);
+      setEditDraft(null);
+      setSelectedModelId(updatedModel.id);
+    } catch (error) {
+      console.error('ModelIndex: failed to update model metadata', error);
+      setEditError(error?.message || 'Failed to update model metadata.');
+    }
+  }, [editDraft, indexedModels, selectedModel]);
 
   const handleTagButtonClick = (tag) => {
     setLoRaTagsInput((prev) => {
@@ -324,6 +507,9 @@ export default function ModelIndex() {
       tags: tagsList,
       triggerWords: triggerWordsList,
       createdAt,
+      thumbnailPath: '',
+      testBatchCount: 0,
+      lastTest: null,
     };
 
     setIsSaving(true);
@@ -346,6 +532,208 @@ export default function ModelIndex() {
       setIsSaving(false);
     }
   };
+
+  const openTestDialog = useCallback(() => {
+    if (!selectedModel) {
+      return;
+    }
+    setIsTestDialogOpen(true);
+    setTestSuccessMessage('');
+    setTestPositivePrompt(selectedModel.lastTest?.positivePrompt || '');
+    setTestNegativePrompt(selectedModel.lastTest?.negativePrompt || '');
+    setTestImages([]);
+    setTestError('');
+    setTestSeed(selectedModel.lastTest?.seed || '');
+    setTestSteps(
+      selectedModel.lastTest?.steps !== null && selectedModel.lastTest?.steps !== undefined
+        ? String(selectedModel.lastTest.steps)
+        : '',
+    );
+    setTestCfg(
+      selectedModel.lastTest?.cfg !== null && selectedModel.lastTest?.cfg !== undefined
+        ? String(selectedModel.lastTest.cfg)
+        : '',
+    );
+    setTestDenoise(
+      selectedModel.lastTest?.denoise !== null && selectedModel.lastTest?.denoise !== undefined
+        ? String(selectedModel.lastTest.denoise)
+        : '',
+    );
+  }, [selectedModel]);
+
+  const closeTestDialog = useCallback(() => {
+    setIsTestDialogOpen(false);
+    setIsRunningTest(false);
+    setTestImages([]);
+    setTestError('');
+    setTestSuccessMessage('');
+    setTestPositivePrompt('');
+    setTestNegativePrompt('');
+    setTestSeed('');
+    setTestSteps('');
+    setTestCfg('');
+    setTestDenoise('');
+  }, []);
+
+  const handleTestImageChange = useCallback((event) => {
+    const files = Array.from(event?.target?.files || []);
+    setTestImages(files);
+    if (event?.target) {
+      event.target.value = '';
+    }
+  }, []);
+
+  const handleTestSubmit = useCallback(
+    async (event) => {
+      event.preventDefault();
+      if (!selectedModel) {
+        return;
+      }
+      if (!testImages.length) {
+        setTestError('Add at least one reference image to run a test.');
+        return;
+      }
+
+      const trimmedSeed = String(testSeed || '').trim();
+      const trimmedSteps = String(testSteps || '').trim();
+      const trimmedCfg = String(testCfg || '').trim();
+      const trimmedDenoise = String(testDenoise || '').trim();
+
+      const parsedSteps =
+        trimmedSteps === '' ? null : Number(trimmedSteps);
+      if (trimmedSteps && !Number.isFinite(parsedSteps)) {
+        setTestError('Steps must be a number.');
+        return;
+      }
+      const parsedCfg =
+        trimmedCfg === '' ? null : Number(trimmedCfg);
+      if (trimmedCfg && !Number.isFinite(parsedCfg)) {
+        setTestError('CFG must be a number.');
+        return;
+      }
+      const parsedDenoise =
+        trimmedDenoise === '' ? null : Number(trimmedDenoise);
+      if (trimmedDenoise && !Number.isFinite(parsedDenoise)) {
+        setTestError('Denoise must be a number between 0 and 1.');
+        return;
+      }
+      if (parsedDenoise !== null && (parsedDenoise < 0 || parsedDenoise > 1)) {
+        setTestError('Denoise must be between 0 and 1.');
+        return;
+      }
+
+      setIsRunningTest(true);
+      setTestError('');
+      try {
+        await ensureDirectory(MODEL_TEST_IMAGE_ROOT);
+        const sanitizedStem = sanitizeFileStem(selectedModel.name || selectedModel.id, selectedModel.id);
+        const modelDir = buildPath(MODEL_TEST_IMAGE_ROOT, sanitizedStem);
+        await ensureDirectory(modelDir);
+        const nextBatch = (Number(selectedModel.testBatchCount) || 0) + 1;
+        const batchLabel = String(nextBatch).padStart(2, '0');
+        const savedImages = [];
+        for (let index = 0; index < testImages.length; index += 1) {
+          const file = testImages[index];
+          const extensionMatch = typeof file?.name === 'string' ? file.name.match(/\.[^.]+$/) : null;
+          const extension = extensionMatch ? extensionMatch[0].toLowerCase() : '.png';
+          const imageLabel = String(index + 1).padStart(2, '0');
+          const targetName = `${sanitizedStem}_batch${batchLabel}_${imageLabel}${extension}`;
+          const targetPath = buildPath(modelDir, targetName);
+          const buffer = await file.arrayBuffer();
+          await writeBinaryFile(targetPath, new Uint8Array(buffer));
+          savedImages.push(targetPath);
+        }
+
+        const updatedModel = {
+          ...selectedModel,
+          testBatchCount: nextBatch,
+          lastTest: {
+            positivePrompt: String(testPositivePrompt || '').trim(),
+            negativePrompt: String(testNegativePrompt || '').trim(),
+            ranAt: new Date().toISOString(),
+            seed: trimmedSeed,
+            steps: parsedSteps,
+            cfg: parsedCfg,
+            denoise: parsedDenoise,
+            images: savedImages,
+          },
+          thumbnailPath: savedImages[0] || selectedModel.thumbnailPath || '',
+        };
+
+        const updatedEntries = indexedModels.map((model) =>
+          model.id === selectedModel.id ? updatedModel : model,
+        );
+        const writeTarget = await writeModelIndex(updatedEntries);
+        setIndexedModels(updatedEntries);
+        const aggregatedTags = updatedEntries.flatMap((model) => (Array.isArray(model.tags) ? model.tags : []));
+        setTopTagSuggestions(combineTopTags(aggregatedTags));
+        if (writeTarget) {
+          setIndexLocationLabel(writeTarget.label || describeLocation(writeTarget.path));
+        }
+        setSelectedModelId(updatedModel.id);
+        setTestSuccessMessage(
+          `Saved ${savedImages.length} image${savedImages.length === 1 ? '' : 's'} to ${modelDir}.`,
+        );
+        setTestSeed('');
+        setTestSteps('');
+        setTestCfg('');
+        setTestDenoise('');
+        setIsTestDialogOpen(false);
+        setTestImages([]);
+        setTestPositivePrompt('');
+        setTestNegativePrompt('');
+      } catch (error) {
+        console.error('ModelIndex: failed to store test run assets', error);
+        setTestError(error?.message || 'Failed to store test assets. Make sure the destination is writable.');
+      } finally {
+        setIsRunningTest(false);
+      }
+    },
+    [indexedModels, selectedModel, testImages, testNegativePrompt, testPositivePrompt, testSeed, testSteps, testCfg, testDenoise],
+  );
+
+  const handleDeleteModel = useCallback(
+    async (modelId) => {
+      if (!modelId) {
+        return;
+      }
+      setLoadError('');
+      setIsEditingModel(false);
+      setEditDraft(null);
+      setEditError('');
+      setIsTestDialogOpen(false);
+      setIsRunningTest(false);
+      setTestImages([]);
+      setTestError('');
+      setTestSuccessMessage('');
+      setTestPositivePrompt('');
+      setTestNegativePrompt('');
+      setTestSeed('');
+      setTestSteps('');
+      setTestCfg('');
+      setTestDenoise('');
+      const remaining = indexedModels.filter((model) => model.id !== modelId);
+      if (remaining.length === indexedModels.length) {
+        return;
+      }
+      try {
+        const writeTarget = await writeModelIndex(remaining);
+        setIndexedModels(remaining);
+        const aggregatedTags = remaining.flatMap((model) => (Array.isArray(model.tags) ? model.tags : []));
+        setTopTagSuggestions(combineTopTags(aggregatedTags));
+        if (selectedModelId === modelId) {
+          setSelectedModelId(remaining[0]?.id || '');
+        }
+        if (writeTarget) {
+          setIndexLocationLabel(writeTarget.label || describeLocation(writeTarget.path));
+        }
+      } catch (error) {
+        console.error('ModelIndex: failed to delete model from index', error);
+        setLoadError(error?.message || 'Failed to delete model from index.');
+      }
+    },
+    [indexedModels, selectedModelId],
+  );
 
   return (
     <>
@@ -626,53 +1014,116 @@ export default function ModelIndex() {
               gap: '1rem',
             }}
           >
-            {indexedModels.map((model) => (
-              <button
-                key={model.id}
-                type="button"
-                onClick={() => setSelectedModelId(model.id)}
-                className="card"
-                style={{
-                  display: 'grid',
-                  gap: '0.5rem',
-                  textAlign: 'left',
-                  border: selectedModelId === model.id ? '2px solid var(--accent)' : undefined,
-                }}
-              >
+            {indexedModels.map((model) => {
+              const isSelected = selectedModelId === model.id;
+              return (
                 <div
+                  key={model.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={isSelected}
+                  aria-label={`Select ${model.name}`}
+                  onClick={() => setSelectedModelId(model.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setSelectedModelId(model.id);
+                    }
+                  }}
+                  className="card"
                   style={{
-                    width: '64px',
-                    height: '64px',
-                    borderRadius: '12px',
-                    background: 'rgba(15, 23, 42, 0.08)',
+                    position: 'relative',
                     display: 'grid',
-                    placeItems: 'center',
-                    fontSize: '2rem',
-                    fontWeight: 700,
-                    color: 'var(--text)',
+                    gap: '0.5rem',
+                    textAlign: 'left',
+                    border: isSelected ? '2px solid var(--accent)' : undefined,
+                    cursor: 'pointer',
                   }}
                 >
-                  ?
-                </div>
-                <div style={{ display: 'grid', gap: '0.25rem' }}>
-                  <strong style={{ fontSize: '1.1rem' }}>{model.name}</strong>
-                  <span className="card-caption">
-                    {model.baseModel || 'Base model TBD'}
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Remove ${model.name} from index`}
+                    title={`Remove ${model.name} from index`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleDeleteModel(model.id);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        handleDeleteModel(model.id);
+                      }
+                    }}
+                    style={{
+                      position: 'absolute',
+                      top: '0.5rem',
+                      right: '0.5rem',
+                      padding: '0.25rem',
+                      borderRadius: '6px',
+                      display: 'grid',
+                      placeItems: 'center',
+                      color: 'var(--icon)',
+                      background: 'rgba(15, 23, 42, 0.06)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <Icon name="Trash2" size={16} />
                   </span>
-                  {model.tags.length > 0 && (
+                  <div
+                    style={{
+                      width: '64px',
+                      height: '64px',
+                      borderRadius: '12px',
+                      background: 'rgba(15, 23, 42, 0.08)',
+                      display: 'grid',
+                      placeItems: 'center',
+                      overflow: 'hidden',
+                    }}
+                  >
+                    {model.thumbnailPath ? (
+                      <img
+                        src={fileSrc(model.thumbnailPath)}
+                        alt={`${model.name} preview`}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                        }}
+                      />
+                    ) : (
+                      <span
+                        style={{
+                          fontSize: '2rem',
+                          fontWeight: 700,
+                          color: 'var(--text)',
+                        }}
+                      >
+                        ?
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'grid', gap: '0.25rem' }}>
+                    <strong style={{ fontSize: '1.1rem' }}>{model.name}</strong>
                     <span className="card-caption">
-                      Tags: {model.tags.slice(0, 3).join(', ')}
-                      {model.tags.length > 3 ? '…' : ''}
+                      {model.baseModel || 'Base model TBD'}
                     </span>
-                  )}
-                  {model.createdAt && (
-                    <span className="card-caption">
-                      Saved {formatTimestamp(model.createdAt)}
-                    </span>
-                  )}
+                    {model.tags.length > 0 && (
+                      <span className="card-caption">
+                        Tags: {model.tags.slice(0, 3).join(', ')}
+                        {model.tags.length > 3 ? '.' : ''}
+                      </span>
+                    )}
+                    {model.createdAt && (
+                      <span className="card-caption">
+                        Saved {formatTimestamp(model.createdAt)}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </button>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>
@@ -683,42 +1134,271 @@ export default function ModelIndex() {
           style={{
             marginTop: '1rem',
             display: 'grid',
-            gap: '0.5rem',
+            gap: '0.75rem',
           }}
         >
-          <header style={{ display: 'grid', gap: '0.25rem' }}>
-            <h2 style={{ margin: 0 }}>{selectedModel.name}</h2>
-            <span className="card-caption">
-              Saved {formatTimestamp(selectedModel.createdAt)}
-            </span>
-          </header>
-          <dl
+          <header
             style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-              gap: '0.75rem',
-              margin: 0,
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              gap: '1rem',
+              flexWrap: 'wrap',
             }}
           >
-            <div style={{ display: 'grid', gap: '0.25rem' }}>
-              <dt style={{ fontWeight: 600 }}>Base Model</dt>
-              <dd style={{ margin: 0 }}>{selectedModel.baseModel || 'Not set'}</dd>
+            <div style={{ display: 'grid', gap: '0.35rem' }}>
+              <h2 style={{ margin: 0 }}>{selectedModel.name}</h2>
+              <span className="card-caption">
+                Saved {formatTimestamp(selectedModel.createdAt)}
+              </span>
+              {selectedModel.lastTest?.ranAt && (
+                <span className="card-caption">
+                  Last tested {formatTimestamp(selectedModel.lastTest.ranAt)}
+                </span>
+              )}
             </div>
-            <div style={{ display: 'grid', gap: '0.25rem' }}>
-              <dt style={{ fontWeight: 600 }}>Tags</dt>
-              <dd style={{ margin: 0 }}>
-                {selectedModel.tags.length ? selectedModel.tags.join(', ') : 'None'}
-              </dd>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              {isEditingModel ? (
+                <span className="card-caption" style={{ fontWeight: 600 }}>
+                  Editing metadata
+                </span>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={beginEditingModel}
+                    style={secondaryButtonStyle}
+                  >
+                    Edit
+                  </button>
+                  <PrimaryButton type="button" onClick={openTestDialog}>
+                    Test Model
+                  </PrimaryButton>
+                </>
+              )}
             </div>
-            <div style={{ display: 'grid', gap: '0.25rem' }}>
-              <dt style={{ fontWeight: 600 }}>Trigger Words</dt>
-              <dd style={{ margin: 0 }}>
-                {selectedModel.triggerWords.length
-                  ? selectedModel.triggerWords.join(', ')
-                  : 'None'}
-              </dd>
-            </div>
-          </dl>
+          </header>
+          {testSuccessMessage && (
+            <span className="card-caption" style={{ color: 'var(--success, #16a34a)' }}>
+              {testSuccessMessage}
+            </span>
+          )}
+          {editError && (
+            <span className="card-caption" style={{ color: 'var(--accent)' }}>
+              {editError}
+            </span>
+          )}
+          {isEditingModel && editDraft ? (
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                handleEditSave();
+              }}
+              style={{
+                display: 'grid',
+                gap: '0.75rem',
+              }}
+            >
+              <label style={{ display: 'grid', gap: '0.35rem' }}>
+                <span style={{ fontWeight: 600 }}>Model Name</span>
+                <input
+                  type="text"
+                  value={editDraft.name}
+                  onChange={(event) => updateEditDraftField('name', event.target.value)}
+                  placeholder="My LoRa Model"
+                  style={{
+                    padding: '0.65rem',
+                    borderRadius: '10px',
+                    border: '1px solid rgba(15, 23, 42, 0.2)',
+                    background: 'var(--card-bg)',
+                    color: 'var(--text)',
+                    fontSize: '1rem',
+                  }}
+                />
+              </label>
+              <label style={{ display: 'grid', gap: '0.35rem' }}>
+                <span style={{ fontWeight: 600 }}>Base Model</span>
+                <input
+                  type="text"
+                  value={editDraft.baseModel}
+                  onChange={(event) => updateEditDraftField('baseModel', event.target.value)}
+                  placeholder="SDXL 1.0"
+                  style={{
+                    padding: '0.65rem',
+                    borderRadius: '10px',
+                    border: '1px solid rgba(15, 23, 42, 0.2)',
+                    background: 'var(--card-bg)',
+                    color: 'var(--text)',
+                    fontSize: '1rem',
+                  }}
+                />
+              </label>
+              <label style={{ display: 'grid', gap: '0.35rem' }}>
+                <span style={{ fontWeight: 600 }}>Tags</span>
+                <textarea
+                  value={editDraft.tags}
+                  onChange={(event) => updateEditDraftField('tags', event.target.value)}
+                  rows={2}
+                  placeholder="Flux, DND, etc."
+                  style={{
+                    padding: '0.65rem',
+                    borderRadius: '10px',
+                    border: '1px solid rgba(15, 23, 42, 0.2)',
+                    background: 'var(--card-bg)',
+                    color: 'var(--text)',
+                    fontSize: '1rem',
+                    resize: 'vertical',
+                  }}
+                />
+                <span className="card-caption">Separate tags with commas.</span>
+              </label>
+              <label style={{ display: 'grid', gap: '0.35rem' }}>
+                <span style={{ fontWeight: 600 }}>Trigger Words</span>
+                <textarea
+                  value={editDraft.triggerWords}
+                  onChange={(event) => updateEditDraftField('triggerWords', event.target.value)}
+                  rows={2}
+                  placeholder="Cinematic lighting, high detail"
+                  style={{
+                    padding: '0.65rem',
+                    borderRadius: '10px',
+                    border: '1px solid rgba(15, 23, 42, 0.2)',
+                    background: 'var(--card-bg)',
+                    color: 'var(--text)',
+                    fontSize: '1rem',
+                    resize: 'vertical',
+                  }}
+                />
+                <span className="card-caption">Separate trigger words with commas.</span>
+              </label>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <PrimaryButton type="submit">Save Changes</PrimaryButton>
+                <button
+                  type="button"
+                  onClick={cancelEditingModel}
+                  style={secondaryButtonStyle}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : (
+            <>
+              <dl
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                  gap: '0.75rem',
+                  margin: 0,
+                }}
+              >
+                <div style={{ display: 'grid', gap: '0.25rem' }}>
+                  <dt style={{ fontWeight: 600 }}>Base Model</dt>
+                  <dd style={{ margin: 0 }}>{selectedModel.baseModel || 'Not set'}</dd>
+                </div>
+                <div style={{ display: 'grid', gap: '0.25rem' }}>
+                  <dt style={{ fontWeight: 600 }}>Tags</dt>
+                  <dd style={{ margin: 0 }}>
+                    {selectedModel.tags.length ? selectedModel.tags.join(', ') : 'None'}
+                  </dd>
+                </div>
+                <div style={{ display: 'grid', gap: '0.25rem' }}>
+                  <dt style={{ fontWeight: 600 }}>Trigger Words</dt>
+                  <dd style={{ margin: 0 }}>
+                    {selectedModel.triggerWords.length
+                      ? selectedModel.triggerWords.join(', ')
+                      : 'None'}
+                  </dd>
+                </div>
+              </dl>
+              {selectedModel.lastTest && (
+                <div style={{ display: 'grid', gap: '0.35rem' }}>
+                  <h3 style={{ margin: 0 }}>Last Test</h3>
+                  <span className="card-caption">
+                    Ran {formatTimestamp(selectedModel.lastTest.ranAt)} ·{' '}
+                    {selectedModel.lastTest.images?.length || 0} image
+                    {selectedModel.lastTest.images?.length === 1 ? '' : 's'}
+                  </span>
+                  {(selectedModel.lastTest.seed ||
+                    selectedModel.lastTest.steps !== null ||
+                    selectedModel.lastTest.cfg !== null ||
+                    selectedModel.lastTest.denoise !== null) && (
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                        gap: '0.5rem',
+                      }}
+                    >
+                      {selectedModel.lastTest.seed && (
+                        <div style={{ display: 'grid', gap: '0.15rem' }}>
+                          <span className="card-caption" style={{ fontWeight: 600 }}>
+                            Seed
+                          </span>
+                          <span>{selectedModel.lastTest.seed}</span>
+                        </div>
+                      )}
+                      {selectedModel.lastTest.steps !== null && (
+                        <div style={{ display: 'grid', gap: '0.15rem' }}>
+                          <span className="card-caption" style={{ fontWeight: 600 }}>
+                            Steps
+                          </span>
+                          <span>{selectedModel.lastTest.steps}</span>
+                        </div>
+                      )}
+                      {selectedModel.lastTest.cfg !== null && (
+                        <div style={{ display: 'grid', gap: '0.15rem' }}>
+                          <span className="card-caption" style={{ fontWeight: 600 }}>
+                            CFG
+                          </span>
+                          <span>{selectedModel.lastTest.cfg}</span>
+                        </div>
+                      )}
+                      {selectedModel.lastTest.denoise !== null && (
+                        <div style={{ display: 'grid', gap: '0.15rem' }}>
+                          <span className="card-caption" style={{ fontWeight: 600 }}>
+                            Denoise
+                          </span>
+                          <span>{selectedModel.lastTest.denoise}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {selectedModel.lastTest.positivePrompt && (
+                    <div style={{ display: 'grid', gap: '0.15rem' }}>
+                      <span style={{ fontWeight: 600 }}>Positive Prompt</span>
+                      <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+                        {selectedModel.lastTest.positivePrompt}
+                      </p>
+                    </div>
+                  )}
+                  {selectedModel.lastTest.negativePrompt && (
+                    <div style={{ display: 'grid', gap: '0.15rem' }}>
+                      <span style={{ fontWeight: 600 }}>Negative Prompt</span>
+                      <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+                        {selectedModel.lastTest.negativePrompt}
+                      </p>
+                    </div>
+                  )}
+                  {selectedModel.thumbnailPath && (
+                    <div style={{ display: 'grid', gap: '0.25rem' }}>
+                      <span style={{ fontWeight: 600 }}>Preview</span>
+                      <img
+                        src={fileSrc(selectedModel.thumbnailPath)}
+                        alt={`${selectedModel.name} preview`}
+                        style={{
+                          width: '100%',
+                          maxWidth: '280px',
+                          borderRadius: '12px',
+                          objectFit: 'cover',
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
           <footer style={{ display: 'grid', gap: '0.25rem' }}>
             <span className="card-caption">
               Stored in {indexLocationLabel || MODEL_INDEX_PATH}
@@ -729,6 +1409,200 @@ export default function ModelIndex() {
           </footer>
         </section>
       )}
+
+      {isTestDialogOpen && selectedModel && (
+        <section
+          className="card"
+          style={{
+            marginTop: '1rem',
+            display: 'grid',
+            gap: '0.75rem',
+          }}
+        >
+          <header style={{ display: 'grid', gap: '0.25rem' }}>
+            <h2 style={{ margin: 0 }}>Test {selectedModel.name}</h2>
+            <span className="card-caption">
+              Test assets will be stored in {testOutputDirectory}
+            </span>
+          </header>
+          <form
+            onSubmit={handleTestSubmit}
+            style={{
+              display: 'grid',
+              gap: '0.75rem',
+            }}
+          >
+            <label style={{ display: 'grid', gap: '0.35rem' }}>
+              <span style={{ fontWeight: 600 }}>Positive Prompt</span>
+              <textarea
+                value={testPositivePrompt}
+                onChange={(event) => setTestPositivePrompt(event.target.value)}
+                rows={3}
+                placeholder="Describe what the model should produce..."
+                style={{
+                  padding: '0.65rem',
+                  borderRadius: '10px',
+                  border: '1px solid rgba(15, 23, 42, 0.2)',
+                  background: 'var(--card-bg)',
+                  color: 'var(--text)',
+                  fontSize: '1rem',
+                  resize: 'vertical',
+                }}
+              />
+            </label>
+            <label style={{ display: 'grid', gap: '0.35rem' }}>
+              <span style={{ fontWeight: 600 }}>Negative Prompt</span>
+              <textarea
+                value={testNegativePrompt}
+                onChange={(event) => setTestNegativePrompt(event.target.value)}
+                rows={3}
+                placeholder="List attributes to avoid..."
+                style={{
+                  padding: '0.65rem',
+                  borderRadius: '10px',
+                  border: '1px solid rgba(15, 23, 42, 0.2)',
+                  background: 'var(--card-bg)',
+                  color: 'var(--text)',
+                  fontSize: '1rem',
+                  resize: 'vertical',
+                }}
+              />
+            </label>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                gap: '0.75rem',
+              }}
+            >
+              <label style={{ display: 'grid', gap: '0.35rem' }}>
+                <span style={{ fontWeight: 600 }}>Seed</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={testSeed}
+                  onChange={(event) => setTestSeed(event.target.value)}
+                  placeholder="Optional seed"
+                  style={{
+                    padding: '0.65rem',
+                    borderRadius: '10px',
+                    border: '1px solid rgba(15, 23, 42, 0.2)',
+                    background: 'var(--card-bg)',
+                    color: 'var(--text)',
+                    fontSize: '1rem',
+                  }}
+                />
+              </label>
+              <label style={{ display: 'grid', gap: '0.35rem' }}>
+                <span style={{ fontWeight: 600 }}>Steps</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={testSteps}
+                  onChange={(event) => setTestSteps(event.target.value)}
+                  placeholder="e.g. 30"
+                  style={{
+                    padding: '0.65rem',
+                    borderRadius: '10px',
+                    border: '1px solid rgba(15, 23, 42, 0.2)',
+                    background: 'var(--card-bg)',
+                    color: 'var(--text)',
+                    fontSize: '1rem',
+                  }}
+                />
+              </label>
+              <label style={{ display: 'grid', gap: '0.35rem' }}>
+                <span style={{ fontWeight: 600 }}>CFG</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  value={testCfg}
+                  onChange={(event) => setTestCfg(event.target.value)}
+                  placeholder="e.g. 7.5"
+                  style={{
+                    padding: '0.65rem',
+                    borderRadius: '10px',
+                    border: '1px solid rgba(15, 23, 42, 0.2)',
+                    background: 'var(--card-bg)',
+                    color: 'var(--text)',
+                    fontSize: '1rem',
+                  }}
+                />
+              </label>
+              <label style={{ display: 'grid', gap: '0.35rem' }}>
+                <span style={{ fontWeight: 600 }}>Denoise</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={testDenoise}
+                  onChange={(event) => setTestDenoise(event.target.value)}
+                  placeholder="e.g. 0.7"
+                  style={{
+                    padding: '0.65rem',
+                    borderRadius: '10px',
+                    border: '1px solid rgba(15, 23, 42, 0.2)',
+                    background: 'var(--card-bg)',
+                    color: 'var(--text)',
+                    fontSize: '1rem',
+                  }}
+                />
+              </label>
+            </div>
+            <label style={{ display: 'grid', gap: '0.35rem' }}>
+              <span style={{ fontWeight: 600 }}>Reference Images</span>
+              <input type="file" accept="image/*" multiple onChange={handleTestImageChange} />
+              <span className="card-caption">Select one or more generated outputs to archive.</span>
+            </label>
+            {testImages.length > 0 && (
+              <ul
+                style={{
+                  margin: 0,
+                  paddingLeft: '1.25rem',
+                  display: 'grid',
+                  gap: '0.25rem',
+                  fontSize: '0.9rem',
+                }}
+              >
+                {testImages.map((file, index) => (
+                  <li key={`${file.name}-${index}`} className="card-caption">
+                    {file.name}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {testError && (
+              <span className="card-caption" style={{ color: 'var(--accent)' }}>
+                {testError}
+              </span>
+            )}
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <PrimaryButton
+                type="submit"
+                loading={isRunningTest}
+                loadingText="Saving..."
+                disabled={isRunningTest}
+              >
+                Save Test Run
+              </PrimaryButton>
+              <button
+                type="button"
+                onClick={closeTestDialog}
+                style={secondaryButtonStyle}
+                disabled={isRunningTest}
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
+
     </>
   );
 }
+

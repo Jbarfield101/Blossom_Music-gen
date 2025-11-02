@@ -62,6 +62,15 @@
                   "path": "D:/Blossom/Blossom_Music/models/**"
                 },
                 {
+                  "path": "D:/Blossom/Blossom_Music/assets/images/**"
+                },
+                {
+                  "path": "D:\\\\Blossom\\\\Blossom_Music\\\\assets\\\\images\\\\**"
+                },
+                {
+                  "path": "d:/blossom/blossom_music/assets/images/**"
+                },
+                {
                   "path": "D:/Blossom/Blossom_Music/src-tauri/models/**"
                 },
                 {

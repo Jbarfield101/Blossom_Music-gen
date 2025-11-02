@@ -1,5 +1,10 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const dirname = path.dirname(fileURLToPath(import.meta.url));
+const assetsDir = path.resolve(dirname, '..', 'assets');
 
 // Vite aliases to smooth over Tauri v1 -> v2 API changes
 // and avoid resolution errors from legacy imports.
@@ -23,7 +28,7 @@ export default defineConfig({
     // Restrict file-system access to the UI folder
     fs: {
       strict: true,
-      allow: ['.'],
+      allow: [path.resolve(dirname), assetsDir],
     },
   },
   resolve: {
