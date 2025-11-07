@@ -3,16 +3,13 @@ import html2canvas from 'html2canvas';
 import BackButton from '../components/BackButton.jsx';
 import CanvasBoard from '../components/CanvasBoard.jsx';
 import './Canvas.css';
-
 const STORAGE_KEY = 'blossom.canvas.boards';
-
 function generateId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
   }
   return `board_${Date.now()}_${Math.round(Math.random() * 10_000)}`;
 }
-
 function loadBoards() {
   if (typeof window === 'undefined') {
     return [];
@@ -31,7 +28,6 @@ function loadBoards() {
   }
   return [];
 }
-
 function saveBoards(boards) {
   if (typeof window === 'undefined') {
     return;
@@ -42,12 +38,20 @@ function saveBoards(boards) {
     console.warn('Failed to persist boards', error);
   }
 }
-
 const DEFAULT_NODE_COLORS = {
   noteNode: '#2563eb',
   npcNode: '#7c3aed',
+  shapeRectangle: '#38bdf8',
+  shapeCircle: '#34d399',
+  shapeDiamond: '#fb7185',
 };
-
+const NODE_PRESETS = {
+  noteNode: { label: 'New Note', type: 'note', notes: 'Add context or reminders here.' },
+  npcNode: { label: 'New NPC', type: 'npc', notes: 'Describe this character...' },
+  shapeRectangle: { label: 'Rectangle', type: 'shape', variant: 'rectangle', notes: '' },
+  shapeCircle: { label: 'Circle', type: 'shape', variant: 'circle', notes: '' },
+  shapeDiamond: { label: 'Decision', type: 'shape', variant: 'diamond', notes: '' },
+};
 export default function Canvas() {
   const [boards, setBoards] = useState(() => {
     const existing = loadBoards();
@@ -70,16 +74,13 @@ export default function Canvas() {
   const [edges, setEdges] = useState(() => (boards[0] ? boards[0].edges : []));
   const [reactFlowInstance, setReactFlowInstance] = useState(null);
   const wrapperRef = useRef(null);
-
   useEffect(() => {
     saveBoards(boards);
   }, [boards]);
-
   const currentBoard = useMemo(
     () => boards.find((board) => board.id === currentBoardId) || null,
     [boards, currentBoardId],
   );
-
   const isDirty = useMemo(() => {
     if (!currentBoard) return false;
     try {
@@ -92,7 +93,6 @@ export default function Canvas() {
       return true;
     }
   }, [currentBoard, nodes, edges]);
-
   const selectBoard = useCallback(
     (boardId) => {
       if (boardId === currentBoardId) return;
@@ -110,7 +110,6 @@ export default function Canvas() {
     },
     [boards, currentBoardId, isDirty],
   );
-
   const handleCreateBoard = useCallback(() => {
     const name = window.prompt('Name for the new board', `Board ${boards.length + 1}`);
     if (name === null) {
@@ -130,7 +129,6 @@ export default function Canvas() {
     setNodes([]);
     setEdges([]);
   }, [boards.length]);
-
   const handleRenameBoard = useCallback(() => {
     if (!currentBoard) return;
     const name = window.prompt('Rename board', currentBoard.name);
@@ -141,7 +139,6 @@ export default function Canvas() {
       prev.map((board) => (board.id === currentBoard.id ? { ...board, name: trimmed } : board)),
     );
   }, [currentBoard]);
-
   const handleDeleteBoard = useCallback(
     (boardId) => {
       const board = boards.find((item) => item.id === boardId);
@@ -161,7 +158,6 @@ export default function Canvas() {
     },
     [boards, currentBoardId],
   );
-
   const handleSaveBoard = useCallback(() => {
     if (!currentBoardId) return;
     setBoards((prev) =>
@@ -177,21 +173,17 @@ export default function Canvas() {
       ),
     );
   }, [currentBoardId, nodes, edges]);
-
   const handleLoadBoard = useCallback(() => {
     if (!currentBoard) return;
     setNodes(currentBoard.nodes ?? []);
     setEdges(currentBoard.edges ?? []);
   }, [currentBoard]);
-
   const handleAddNode = useCallback(
     (type) => {
       const id = `node_${Date.now()}_${Math.round(Math.random() * 10_000)}`;
       const color = DEFAULT_NODE_COLORS[type] || '#2563eb';
-      const baseData = type === 'npcNode'
-        ? { label: 'New NPC', type: 'npc', color, notes: 'Describe this character...' }
-        : { label: 'New Note', type: 'note', color, notes: 'Add context or reminders here.' };
-
+      const preset = NODE_PRESETS[type] || NODE_PRESETS.noteNode;
+      const baseData = { ...preset, color };
       let position = { x: 0, y: 0 };
       if (reactFlowInstance && wrapperRef.current) {
         const bounds = wrapperRef.current.getBoundingClientRect();
@@ -202,24 +194,22 @@ export default function Canvas() {
       } else {
         position = { x: Math.random() * 200, y: Math.random() * 200 };
       }
-
       const newNode = {
         id,
         type,
         position,
         data: baseData,
+        deletable: false,
       };
       setNodes((prev) => [...prev, newNode]);
     },
     [reactFlowInstance],
   );
-
   const handleFitView = useCallback(() => {
     if (reactFlowInstance) {
       reactFlowInstance.fitView({ padding: 0.2, duration: 400 });
     }
   }, [reactFlowInstance]);
-
   const handleExport = useCallback(async () => {
     if (!wrapperRef.current) return;
     try {
@@ -237,9 +227,7 @@ export default function Canvas() {
       console.error('Failed to export canvas', error);
     }
   }, [currentBoard]);
-
   const toolbarLabel = currentBoard ? `${currentBoard.name}${isDirty ? ' *' : ''}` : 'Canvas';
-
   return (
     <div className="canvas-page">
       <BackButton />
@@ -292,12 +280,27 @@ export default function Canvas() {
           <div className="canvas-sidebar__section">
             <h2>Nodes</h2>
             <div className="canvas-node-buttons">
-              <button type="button" onClick={() => handleAddNode('noteNode')}>
-                ➕ Note
-              </button>
-              <button type="button" onClick={() => handleAddNode('npcNode')}>
-                🧙 NPC
-              </button>
+              <div className="canvas-node-buttons__group">
+                <div className="canvas-node-buttons__title">Story</div>
+                <button type="button" onClick={() => handleAddNode('noteNode')}>
+                  ? Note
+                </button>
+                <button type="button" onClick={() => handleAddNode('npcNode')}>
+                  ?? NPC
+                </button>
+              </div>
+              <div className="canvas-node-buttons__group">
+                <div className="canvas-node-buttons__title">Shapes</div>
+                <button type="button" onClick={() => handleAddNode('shapeRectangle')}>
+                  [ ] Rectangle
+                </button>
+                <button type="button" onClick={() => handleAddNode('shapeCircle')}>
+                  ( ) Circle
+                </button>
+                <button type="button" onClick={() => handleAddNode('shapeDiamond')}>
+                  &lt;&gt; Diamond
+                </button>
+              </div>
             </div>
           </div>
         </aside>

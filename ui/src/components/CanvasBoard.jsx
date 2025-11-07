@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import ReactFlow, {
   Background,
   Controls,
+  MarkerType,
   MiniMap,
   addEdge,
   applyEdgeChanges,
@@ -10,6 +11,27 @@ import ReactFlow, {
   useNodesState,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
+
+function hexToRgba(hex, alpha) {
+  if (typeof hex !== 'string') {
+    return `rgba(148, 163, 184, ${alpha})`;
+  }
+  const normalized = hex.replace('#', '');
+  const chunked = normalized.length === 3
+    ? normalized
+        .split('')
+        .map((char) => char + char)
+        .join('')
+    : normalized.padEnd(6, '0');
+  const parsed = Number.parseInt(chunked, 16);
+  if (Number.isNaN(parsed)) {
+    return `rgba(148, 163, 184, ${alpha})`;
+  }
+  const r = (parsed >> 16) & 255;
+  const g = (parsed >> 8) & 255;
+  const b = parsed & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 
 function NoteNode({ data }) {
   const { label, color, notes } = data || {};
@@ -46,9 +68,49 @@ function NpcNode({ data }) {
   );
 }
 
+function ShapeNode({ data, variant }) {
+  const { label, color, notes } = data || {};
+  const tone = color || '#38bdf8';
+  const baseLabel =
+    label ||
+    (variant === 'circle' ? 'Circle' : variant === 'diamond' ? 'Decision' : 'Rectangle');
+  const background = hexToRgba(tone, 0.18);
+
+  if (variant === 'diamond') {
+    return (
+      <div className="canvas-node canvas-node--shape canvas-node--shape-diamond">
+        <div
+          className="canvas-node__shape-diamond"
+          style={{ borderColor: tone, backgroundColor: background }}
+        >
+          <div className="canvas-node__shape-content">
+            <div className="canvas-node__label">{baseLabel}</div>
+            {notes ? <div className="canvas-node__notes">{notes}</div> : null}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const shapeClass =
+    variant === 'circle' ? 'canvas-node--shape-circle' : 'canvas-node--shape-rectangle';
+  return (
+    <div
+      className={`canvas-node canvas-node--shape ${shapeClass}`}
+      style={{ borderColor: tone, backgroundColor: background }}
+    >
+      <div className="canvas-node__label">{baseLabel}</div>
+      {notes ? <div className="canvas-node__notes">{notes}</div> : null}
+    </div>
+  );
+}
+
 const NODE_TYPES = {
   noteNode: NoteNode,
   npcNode: NpcNode,
+  shapeRectangle: (props) => <ShapeNode {...props} variant="rectangle" />,
+  shapeCircle: (props) => <ShapeNode {...props} variant="circle" />,
+  shapeDiamond: (props) => <ShapeNode {...props} variant="diamond" />,
 };
 
 function assignRef(setLocalRef, forwardedRef) {
@@ -80,38 +142,80 @@ export default function CanvasBoard({
   const [editingNode, setEditingNode] = useState(null);
   const [editingNodeDraft, setEditingNodeDraft] = useState({ label: '', color: '#2563eb', notes: '' });
 
-  useEffect(() => {
-    setNodes(externalNodes);
-  }, [externalNodes, setNodes]);
+  const normalizeNodes = useCallback(
+    (incoming) =>
+      incoming.map((node) => ({
+        ...node,
+        deletable: false,
+      })),
+    [],
+  );
+
+  const normalizeEdges = useCallback(
+    (incoming) =>
+      incoming.map((edge) => {
+        const stroke = edge.style?.stroke || '#94a3b8';
+        return {
+          ...edge,
+          type: edge.type || 'default',
+          style: { strokeWidth: 2, stroke, ...(edge.style ?? {}) },
+          labelStyle: { fill: '#e2e8f0', fontWeight: 600, ...(edge.labelStyle ?? {}) },
+          labelBgPadding: edge.labelBgPadding ?? [8, 4],
+          labelBgBorderRadius: edge.labelBgBorderRadius ?? 6,
+          labelBgStyle: { fill: 'rgba(15, 23, 42, 0.85)', stroke: 'rgba(15, 23, 42, 0.85)', ...(edge.labelBgStyle ?? {}) },
+          markerEnd: edge.markerEnd
+            ? {
+                width: 18,
+                height: 18,
+                type: MarkerType.ArrowClosed,
+                color: edge.markerEnd.color || stroke,
+                ...edge.markerEnd,
+              }
+            : { width: 18, height: 18, type: MarkerType.ArrowClosed, color: stroke },
+        };
+      }),
+    [],
+  );
 
   useEffect(() => {
-    setEdges(externalEdges);
-  }, [externalEdges, setEdges]);
+    setNodes(normalizeNodes(externalNodes));
+  }, [externalNodes, normalizeNodes, setNodes]);
+
+  useEffect(() => {
+    setEdges(normalizeEdges(externalEdges));
+  }, [externalEdges, normalizeEdges, setEdges]);
 
   const handleNodesChange = useCallback(
     (changes) => {
+      const filteredChanges = changes.filter((change) => change.type !== 'remove');
       setNodes((nds) => {
-        const updated = applyNodeChanges(changes, nds);
+        if (filteredChanges.length === 0) {
+          if (notifyNodes) {
+            notifyNodes(nds);
+          }
+          return nds;
+        }
+        const updated = normalizeNodes(applyNodeChanges(filteredChanges, nds));
         if (notifyNodes) {
           notifyNodes(updated);
         }
         return updated;
       });
     },
-    [notifyNodes, setNodes],
+    [normalizeNodes, notifyNodes, setNodes],
   );
 
   const handleEdgesChange = useCallback(
     (changes) => {
       setEdges((eds) => {
-        const updated = applyEdgeChanges(changes, eds);
+        const updated = normalizeEdges(applyEdgeChanges(changes, eds));
         if (notifyEdges) {
           notifyEdges(updated);
         }
         return updated;
       });
     },
-    [notifyEdges, setEdges],
+    [normalizeEdges, notifyEdges, setEdges],
   );
 
   const handleConnect = useCallback(
@@ -124,14 +228,14 @@ export default function CanvasBoard({
           data: { relationship: relationship || '' },
           label: relationship || 'Relation',
         };
-        const updated = addEdge(nextEdge, eds);
+        const updated = normalizeEdges(addEdge(nextEdge, eds));
         if (notifyEdges) {
           notifyEdges(updated);
         }
         return updated;
       });
     },
-    [notifyEdges, setEdges],
+    [normalizeEdges, notifyEdges, setEdges],
   );
 
   const handleNodeDoubleClick = useCallback((_, node) => {
@@ -149,21 +253,23 @@ export default function CanvasBoard({
       return;
     }
     setEdges((eds) => {
-      const updated = eds.map((existing) =>
-        existing.id === edge.id
-          ? {
-              ...existing,
-              data: { ...existing.data, relationship: relationship || '' },
-              label: relationship || existing.label,
-            }
-          : existing,
+      const updated = normalizeEdges(
+        eds.map((existing) =>
+          existing.id === edge.id
+            ? {
+                ...existing,
+                data: { ...existing.data, relationship: relationship || '' },
+                label: relationship || existing.label,
+              }
+            : existing,
+        ),
       );
       if (notifyEdges) {
         notifyEdges(updated);
       }
       return updated;
     });
-  }, [notifyEdges]);
+  }, [normalizeEdges, notifyEdges]);
 
   const closeEditor = useCallback(() => {
     setEditingNode(null);
@@ -206,8 +312,9 @@ export default function CanvasBoard({
         nodes={nodes}
         edges={edges}
         onNodesChange={(changes) => {
-          onNodesChangeInternal(changes);
-          handleNodesChange(changes);
+          const filteredChanges = changes.filter((change) => change.type !== 'remove');
+          onNodesChangeInternal(filteredChanges);
+          handleNodesChange(filteredChanges);
         }}
         onEdgesChange={(changes) => {
           onEdgesChangeInternal(changes);
@@ -219,6 +326,7 @@ export default function CanvasBoard({
         onSelectionChange={onSelectionChange}
         onInit={onInit}
         nodeTypes={nodeTypes}
+        deleteKeyCode={null}
         fitView
         selectionOnDrag
         selectionKeyCode="Shift"

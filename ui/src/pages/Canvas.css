@@ -158,10 +158,37 @@
   gap: 0.5rem;
   background: rgba(79, 70, 229, 0.15);
   border: 1px solid rgba(129, 140, 248, 0.4);
-  border-radius: 0.5rem;
-  padding: 0.45rem 0.6rem;
-  font-weight: 500;
+  border-radius: 0.55rem;
+  padding: 0.45rem 0.75rem;
+  font-weight: 600;
   color: inherit;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.canvas-node-buttons button:hover {
+  background: rgba(129, 140, 248, 0.25);
+  border-color: rgba(129, 140, 248, 0.6);
+}
+
+.canvas-node-buttons__group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.35rem 0;
+  border-top: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.canvas-node-buttons__group:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.canvas-node-buttons__title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(226, 232, 240, 0.6);
 }
 
 .canvas-stage {
@@ -197,6 +224,62 @@
   gap: 0.6rem;
   align-items: center;
   border-color: rgba(124, 58, 237, 0.7);
+}
+
+.canvas-node--shape {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  text-align: center;
+  padding: 1rem;
+  min-width: 150px;
+  min-height: 110px;
+}
+
+.canvas-node--shape-rectangle {
+  border-radius: 0.85rem;
+}
+
+.canvas-node--shape-circle {
+  border-radius: 999px;
+  width: 150px;
+  height: 150px;
+  min-width: 150px;
+  min-height: 150px;
+  padding: 1rem;
+}
+
+.canvas-node--shape-circle .canvas-node__notes {
+  margin-top: 0.25rem;
+}
+
+.canvas-node--shape-diamond {
+  background: transparent;
+  border: none;
+  padding: 0;
+  min-width: 0;
+  min-height: 0;
+}
+
+.canvas-node__shape-diamond {
+  width: 160px;
+  height: 160px;
+  border: 2px solid rgba(148, 163, 184, 0.6);
+  border-radius: 1.25rem;
+  transform: rotate(45deg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.92);
+  box-shadow: 0 16px 30px rgba(15, 23, 42, 0.45);
+}
+
+.canvas-node__shape-content {
+  transform: rotate(-45deg);
+  width: 100%;
+  padding: 1rem;
 }
 
 .canvas-node__label {
