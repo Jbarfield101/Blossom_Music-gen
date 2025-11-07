@@ -1,0 +1,140 @@
+.card.model-index-panel {
+  align-items: stretch;
+}
+
+.model-index-grid {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  width: 100%;
+  align-self: stretch;
+}
+
+@media (min-width: 1400px) {
+  .model-index-grid {
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .model-index-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.card.model-index-card {
+  position: relative;
+  display: grid;
+  gap: 0.75rem;
+  text-align: left;
+  align-items: stretch;
+  justify-content: stretch;
+  cursor: pointer;
+  border: 2px solid transparent;
+  min-height: 220px;
+  width: 100%;
+}
+
+.card.model-index-card.is-selected {
+  border-color: var(--accent);
+  box-shadow: var(--card-shadow);
+}
+
+.model-index-card__header {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.model-index-card__thumb {
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.08);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.model-index-card__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.model-index-card__thumb-placeholder {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.model-index-card__title {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.model-index-card__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.model-index-card__chip {
+  border-radius: 999px;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.8rem;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(15, 23, 42, 0.05);
+  color: var(--text);
+}
+
+.model-index-card__chip--muted {
+  color: var(--text-muted, var(--text));
+  background: transparent;
+}
+
+.model-index-card__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.model-index-card__stats div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.model-index-card__stats dt {
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted, var(--text));
+}
+
+.model-index-card__stats dd {
+  margin: 0;
+  font-weight: 600;
+  font-size: 1.1rem;
+  color: var(--text);
+}
+
+.model-index-card__delete {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  padding: 0.25rem;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  color: var(--icon);
+  background: rgba(15, 23, 42, 0.06);
+  cursor: pointer;
+}
+
+.model-index-card__delete:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

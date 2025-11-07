@@ -5,6 +5,7 @@ import BackButton from '../components/BackButton.jsx';
 import PrimaryButton from '../components/PrimaryButton.jsx';
 import Icon from '../components/Icon.jsx';
 import { fileSrc } from '../lib/paths.js';
+import './ModelIndex.css';
 
 const INITIAL_BASE_MODELS = ['SDXL 1.0', 'Flux .1 D', 'WAN Video', 'Qwen', 'Other'];
 const INITIAL_TOP_TAGS = ['Flux', 'DND', 'Fantasy', 'LoFi', 'Portrait', 'Character', 'Sci-Fi', 'Nature', 'Cinematic', 'Abstract'];
@@ -981,7 +982,7 @@ export default function ModelIndex() {
       )}
 
       <section
-        className="card"
+        className="card model-index-panel"
         style={{
           marginTop: '1rem',
           display: 'grid',
@@ -1007,15 +1008,17 @@ export default function ModelIndex() {
             No LoRa models indexed yet. Save one to populate this list.
           </p>
         ) : (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-              gap: '1rem',
-            }}
-          >
+          <div className="model-index-grid">
             {indexedModels.map((model) => {
               const isSelected = selectedModelId === model.id;
+              const visibleTags = model.tags.slice(0, 4);
+              const hiddenTagCount = Math.max(0, model.tags.length - visibleTags.length);
+              const visibleTriggers = model.triggerWords.slice(0, 2);
+              const hiddenTriggerCount = Math.max(0, model.triggerWords.length - visibleTriggers.length);
+              const lastTestImageCount = model.lastTest?.images?.length ?? 0;
+              const testRuns = Number.isFinite(model.testBatchCount) ? model.testBatchCount : 0;
+              const modelInitial = ((model.name || '?').trim().charAt(0) || '?').toUpperCase();
+
               return (
                 <div
                   key={model.id}
@@ -1030,15 +1033,7 @@ export default function ModelIndex() {
                       setSelectedModelId(model.id);
                     }
                   }}
-                  className="card"
-                  style={{
-                    position: 'relative',
-                    display: 'grid',
-                    gap: '0.5rem',
-                    textAlign: 'left',
-                    border: isSelected ? '2px solid var(--accent)' : undefined,
-                    cursor: 'pointer',
-                  }}
+                  className={`card model-index-card${isSelected ? ' is-selected' : ''}`}
                 >
                   <span
                     role="button"
@@ -1056,71 +1051,67 @@ export default function ModelIndex() {
                         handleDeleteModel(model.id);
                       }
                     }}
-                    style={{
-                      position: 'absolute',
-                      top: '0.5rem',
-                      right: '0.5rem',
-                      padding: '0.25rem',
-                      borderRadius: '6px',
-                      display: 'grid',
-                      placeItems: 'center',
-                      color: 'var(--icon)',
-                      background: 'rgba(15, 23, 42, 0.06)',
-                      cursor: 'pointer',
-                    }}
+                    className="model-index-card__delete"
                   >
                     <Icon name="Trash2" size={16} />
                   </span>
-                  <div
-                    style={{
-                      width: '64px',
-                      height: '64px',
-                      borderRadius: '12px',
-                      background: 'rgba(15, 23, 42, 0.08)',
-                      display: 'grid',
-                      placeItems: 'center',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    {model.thumbnailPath ? (
-                      <img
-                        src={fileSrc(model.thumbnailPath)}
-                        alt={`${model.name} preview`}
-                        style={{
-                          width: '100%',
-                          height: '100%',
-                          objectFit: 'cover',
-                        }}
-                      />
-                    ) : (
-                      <span
-                        style={{
-                          fontSize: '2rem',
-                          fontWeight: 700,
-                          color: 'var(--text)',
-                        }}
-                      >
-                        ?
+                  <div className="model-index-card__header">
+                    <div className="model-index-card__thumb">
+                      {model.thumbnailPath ? (
+                        <img
+                          src={fileSrc(model.thumbnailPath)}
+                          alt={`${model.name} preview`}
+                        />
+                      ) : (
+                        <span className="model-index-card__thumb-placeholder">
+                          {modelInitial}
+                        </span>
+                      )}
+                    </div>
+                    <div className="model-index-card__title">
+                      <strong>{model.name}</strong>
+                      <span className="card-caption">
+                        {model.baseModel || 'Base model TBD'}
                       </span>
-                    )}
+                      {model.createdAt && (
+                        <span className="card-caption">
+                          Saved {formatTimestamp(model.createdAt)}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <div style={{ display: 'grid', gap: '0.25rem' }}>
-                    <strong style={{ fontSize: '1.1rem' }}>{model.name}</strong>
+                  {model.tags.length > 0 ? (
+                    <div className="model-index-card__chips">
+                      {visibleTags.map((tag, index) => (
+                        <span key={`${model.id}-tag-${tag}-${index}`} className="model-index-card__chip">
+                          {tag}
+                        </span>
+                      ))}
+                      {hiddenTagCount > 0 && (
+                        <span className="model-index-card__chip model-index-card__chip--muted">
+                          +{hiddenTagCount}
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="card-caption">No tags captured yet.</span>
+                  )}
+                  {model.triggerWords.length > 0 && (
                     <span className="card-caption">
-                      {model.baseModel || 'Base model TBD'}
+                      Triggers: {visibleTriggers.join(', ')}
+                      {hiddenTriggerCount > 0 ? ` +${hiddenTriggerCount}` : ''}
                     </span>
-                    {model.tags.length > 0 && (
-                      <span className="card-caption">
-                        Tags: {model.tags.slice(0, 3).join(', ')}
-                        {model.tags.length > 3 ? '.' : ''}
-                      </span>
-                    )}
-                    {model.createdAt && (
-                      <span className="card-caption">
-                        Saved {formatTimestamp(model.createdAt)}
-                      </span>
-                    )}
-                  </div>
+                  )}
+                  <dl className="model-index-card__stats">
+                    <div>
+                      <dt>Test Runs</dt>
+                      <dd>{testRuns}</dd>
+                    </div>
+                    <div>
+                      <dt>Images</dt>
+                      <dd>{lastTestImageCount}</dd>
+                    </div>
+                  </dl>
                 </div>
               );
             })}
