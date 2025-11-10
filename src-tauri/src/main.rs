@@ -22,10 +22,11 @@ use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 use tauri::path::BaseDirectory;
 use tauri::Emitter;
 use tauri::Manager;
-use tauri::{api::notification::Notification, async_runtime, AppHandle, Runtime, State};
+use tauri::{async_runtime, AppHandle, Runtime, State};
 use tauri::{PhysicalPosition, PhysicalSize, Position, Size};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::init as fs_init;
+use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 use tauri_plugin_shell::init as shell_init;
 use tauri_plugin_store::{Builder, Store, StoreBuilder};
@@ -1433,6 +1434,7 @@ fn write_discord_token(token: String) -> Result<(), String> {
 }
 
 const BLOSSOM_BUNDLE_IDENTIFIER: &str = "com.blossom.musicgen";
+const REMINDER_NOTIFICATION_ID: i32 = 42;
 const CALENDAR_CREATE_SCRIPT_KEY: &str = "BLOSSOM_CALENDAR_SCRIPT_CREATE";
 const CALENDAR_LIST_SCRIPT_KEY: &str = "BLOSSOM_CALENDAR_SCRIPT_LIST";
 const CALENDAR_UPDATE_SCRIPT_KEY: &str = "BLOSSOM_CALENDAR_SCRIPT_UPDATE";
@@ -1675,9 +1677,13 @@ fn send_reminder_notifications<R: Runtime>(app: &AppHandle<R>, events: &[Value])
         } else {
             lines.join("\n")
         };
-        if let Err(err) = Notification::new(BLOSSOM_BUNDLE_IDENTIFIER)
+        if let Err(err) = app
+            .notification()
+            .builder()
+            .id(REMINDER_NOTIFICATION_ID)
+            .group(BLOSSOM_BUNDLE_IDENTIFIER)
             .title(title)
-            .body(body)
+            .body(body.clone())
             .show()
         {
             eprintln!("failed to show reminder notification: {}", err);
@@ -10063,6 +10069,7 @@ async fn run_video_maker_job(
     let comfy_settings = commands::get_comfyui_settings(app_handle.clone()).ok();
     let mut final_success = false;
     let mut final_message: Option<String> = None;
+    debug_assert!(final_message.is_none());
 
     match commands::comfyui_submit_video_maker(app_handle.clone()).await {
         Ok(response) => {
@@ -11257,7 +11264,7 @@ fn queue_ace_audio_job(app: AppHandle, registry: State<JobRegistry>) -> Result<u
     let label = ace_job_label(&prompts.style_prompt);
 
     let mut args = Vec::new();
-    args.push(format!("bpm={:.3}", prompts.bpm));
+    args.push(format!("seconds={:.2}", prompts.seconds));
     args.push(format!("guidance={:.3}", prompts.guidance));
 
     let context = JobContext {
@@ -11295,18 +11302,18 @@ fn queue_ace_audio_job(app: AppHandle, registry: State<JobRegistry>) -> Result<u
             registry.append_job_stdout(job_id, &format!("  {}", trimmed));
         }
     }
-    registry.append_job_stdout(job_id, &format!("Tempo: {:.2} BPM", prompts.bpm));
+    registry.append_job_stdout(job_id, &format!("Clip length: {:.1} seconds", prompts.seconds));
     registry.append_job_stdout(job_id, &format!("Guidance: {:.3}", prompts.guidance));
     registry.append_job_stdout(job_id, "Submitting ACE Step workflow to ComfyUI...");
 
     let app_handle = app.clone();
     let style_prompt = prompts.style_prompt;
     let song_form = prompts.song_form;
-    let bpm = prompts.bpm;
+    let seconds = prompts.seconds;
     let guidance = prompts.guidance;
 
     async_runtime::spawn(async move {
-        run_ace_audio_job(app_handle, job_id, style_prompt, song_form, bpm, guidance).await;
+        run_ace_audio_job(app_handle, job_id, style_prompt, song_form, seconds, guidance).await;
     });
 
     Ok(job_id)
@@ -11317,7 +11324,7 @@ async fn run_ace_audio_job(
     job_id: u64,
     style_prompt: String,
     song_form: String,
-    bpm: f64,
+    seconds: f64,
     guidance: f64,
 ) {
     let comfy_settings = commands::get_comfyui_settings(app_handle.clone()).ok();
@@ -11461,7 +11468,7 @@ async fn run_ace_audio_job(
                                     let summary = json!({
                                         "stylePrompt": style_prompt,
                                         "songForm": song_form,
-                                        "bpm": bpm,
+                                        "seconds": seconds,
                                         "guidance": guidance,
                                         "outputs": artifacts.iter().map(|a| a.path.clone()).collect::<Vec<_>>(),
                                     });
@@ -12048,6 +12055,7 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         .plugin(shell_init())
         .plugin(fs_init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(Builder::new().build())
         .setup(|app| -> Result<(), Box<dyn std::error::Error>> {
             if let Ok(dir) = app.path().app_data_dir() {

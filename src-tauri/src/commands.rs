@@ -20,7 +20,8 @@ use uuid::Uuid;
 const DEFAULT_FILE_PREFIX: &str = "audio/ComfyUI";
 const DEFAULT_SECONDS: f64 = 120.0;
 const ACE_DEFAULT_GUIDANCE: f64 = 0.99;
-const ACE_DEFAULT_BPM: f64 = 120.0;
+const ACE_DEFAULT_SECONDS: f64 = 120.0;
+const ACE_MAX_SECONDS: f64 = 600.0;
 const ACE_WORKFLOW_FILENAME: &str = "audio_ace_step_1_t2a_instrumentals.json";
 const LOFI_WORKFLOW_FILENAME: &str = "Lofi_Scene_Maker.json";
 const VIDEO_MAKER_WORKFLOW_FILENAME: &str = "img_2_Vid.json";
@@ -152,7 +153,7 @@ pub struct StableAudioPromptUpdate {
 pub struct AceWorkflowPrompts {
     pub style_prompt: String,
     pub song_form: String,
-    pub bpm: f64,
+    pub seconds: f64,
     pub guidance: f64,
 }
 
@@ -162,7 +163,7 @@ pub struct AceWorkflowPromptUpdate {
     pub style_prompt: String,
     pub song_form: String,
     #[serde(default)]
-    pub bpm: Option<f64>,
+    pub seconds: Option<f64>,
     #[serde(default)]
     pub guidance: Option<f64>,
 }
@@ -1636,7 +1637,7 @@ fn extract_ace_prompts(data: &Value) -> Result<AceWorkflowPrompts, String> {
         .and_then(Value::as_f64)
         .unwrap_or(ACE_DEFAULT_GUIDANCE);
 
-    let bpm = data
+    let seconds = data
         .get("nodes")
         .and_then(Value::as_array)
         .and_then(|nodes| {
@@ -1656,12 +1657,12 @@ fn extract_ace_prompts(data: &Value) -> Result<AceWorkflowPrompts, String> {
                 }
             })
         })
-        .unwrap_or(ACE_DEFAULT_BPM);
+        .unwrap_or(ACE_DEFAULT_SECONDS);
 
     Ok(AceWorkflowPrompts {
         style_prompt,
         song_form,
-        bpm,
+        seconds,
         guidance,
     })
 }
@@ -1693,7 +1694,7 @@ fn set_ace_text_fields(
     Ok(())
 }
 
-fn set_ace_bpm(data: &mut Value, bpm: f64) -> Result<(), String> {
+fn set_ace_seconds(data: &mut Value, seconds: f64) -> Result<(), String> {
     let node = locate_ace_latent_node_mut(data)?;
     let obj = node
         .as_object_mut()
@@ -1705,10 +1706,10 @@ fn set_ace_bpm(data: &mut Value, bpm: f64) -> Result<(), String> {
     if arr.is_empty() {
         arr.push(Value::Null);
     }
-    let bpm_value = Number::from_f64(bpm)
-        .or_else(|| Number::from_f64(ACE_DEFAULT_BPM))
-        .ok_or_else(|| "Failed to encode BPM value".to_string())?;
-    arr[0] = Value::Number(bpm_value);
+    let seconds_value = Number::from_f64(seconds)
+        .or_else(|| Number::from_f64(ACE_DEFAULT_SECONDS))
+        .ok_or_else(|| "Failed to encode duration value".to_string())?;
+    arr[0] = Value::Number(seconds_value);
     obj.insert("widgets_values".to_string(), Value::Array(arr));
     Ok(())
 }
@@ -2103,11 +2104,11 @@ pub fn update_ace_workflow_prompts(
         return Err("Song form cannot be empty.".into());
     }
 
-    let mut bpm = update.bpm.unwrap_or(ACE_DEFAULT_BPM);
-    if !bpm.is_finite() || bpm <= 0.0 {
-        bpm = ACE_DEFAULT_BPM;
-    } else if bpm > 400.0 {
-        bpm = 400.0;
+    let mut seconds = update.seconds.unwrap_or(ACE_DEFAULT_SECONDS);
+    if !seconds.is_finite() || seconds <= 0.0 {
+        seconds = ACE_DEFAULT_SECONDS;
+    } else if seconds > ACE_MAX_SECONDS {
+        seconds = ACE_MAX_SECONDS;
     }
 
     let mut guidance = update.guidance.unwrap_or(ACE_DEFAULT_GUIDANCE);
@@ -2121,13 +2122,13 @@ pub fn update_ace_workflow_prompts(
     }
 
     set_ace_text_fields(&mut data, style_prompt, &cleaned_form, guidance)?;
-    set_ace_bpm(&mut data, bpm)?;
+    set_ace_seconds(&mut data, seconds)?;
     persist_ace_workflow(&data)?;
 
     Ok(AceWorkflowPrompts {
         style_prompt: style_prompt.to_string(),
         song_form: cleaned_form,
-        bpm,
+        seconds,
         guidance,
     })
 }

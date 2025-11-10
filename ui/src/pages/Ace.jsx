@@ -16,6 +16,7 @@ const ACE_SONGFORM = {
   stylePrompt:
     "kawaii pop instrumental, cute j-pop hooks, bouncy drums, percussive piano, plucky synth arps, glitter fx, upbeat, cheerful, lighthearted",
   bpm: 120,
+  clipSeconds: 120,
   guidance: 0.99,
   sections: [
     {
@@ -154,7 +155,10 @@ const ACE_SONGFORM_LINES = ACE_SONGFORM.sections.map((section) => section.tag).j
 const ACE_SONGFORM_TOTAL_BARS = ACE_SONGFORM.sections.reduce((sum, section) => sum + section.bars, 0);
 
 const ACE_DEFAULT_GUIDANCE = ACE_SONGFORM.guidance;
-const ACE_DEFAULT_BPM = ACE_SONGFORM.bpm;
+const ACE_DEFAULT_SECONDS =
+  typeof ACE_SONGFORM.clipSeconds === "number" && Number.isFinite(ACE_SONGFORM.clipSeconds)
+    ? ACE_SONGFORM.clipSeconds
+    : 120;
 const ACE_SONGFORM_DURATION_SECONDS = Math.round((ACE_SONGFORM_TOTAL_BARS * 240) / ACE_SONGFORM.bpm);
 
 function formatEta(value) {
@@ -167,6 +171,20 @@ function formatEta(value) {
     return `${String(hours).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
   }
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatInvokeError(err, fallback = "Unexpected error") {
+  if (!err) return fallback;
+  if (typeof err === "string") return err;
+  const message =
+    (typeof err === "object" && (err.message || err.error || err.reason)) || err.toString() || fallback;
+  const code =
+    (typeof err === "object" &&
+      (err.code ?? err.statusCode ?? err.status ?? err?.response?.status ?? err?.payload?.code)) ||
+    null;
+  const detailedMessage =
+    typeof err === "object" && err?.payload?.message ? `${message}: ${err.payload.message}` : message;
+  return code ? `${detailedMessage} (code ${code})` : detailedMessage;
 }
 
 function createAudioEntry(path, nameHint) {
@@ -191,7 +209,7 @@ function createAudioEntry(path, nameHint) {
 export default function Ace() {
   const [stylePrompt, setStylePrompt] = useState(ACE_SONGFORM.stylePrompt);
   const [songForm, setSongForm] = useState(ACE_SONGFORM_LINES);
-  const [bpm, setBpm] = useState(ACE_DEFAULT_BPM);
+  const [seconds, setSeconds] = useState(ACE_DEFAULT_SECONDS);
   const [guidance, setGuidance] = useState(ACE_DEFAULT_GUIDANCE);
   const [statusMessage, setStatusMessage] = useState("");
   const [error, setError] = useState("");
@@ -236,8 +254,8 @@ export default function Ace() {
         });
         setStatusError("");
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setStatusError(message);
+        console.error("Failed to fetch ComfyUI status", err);
+        setStatusError(formatInvokeError(err, "ComfyUI status unavailable."));
         setComfyStatus((prev) => ({ ...prev, running: false }));
       }
     },
@@ -256,7 +274,8 @@ export default function Ace() {
           .filter(Boolean);
         setAudioOutputs(mapped);
       } catch (err) {
-        console.warn("Failed to load ACE outputs", err);
+        console.error("Failed to load ACE outputs", err);
+        setStatusMessage(formatInvokeError(err, "Failed to load ACE outputs."));
       } finally {
         setOutputsLoading(false);
       }
@@ -318,8 +337,8 @@ export default function Ace() {
           await loadRecentOutputs();
         }
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setStatusMessage(message);
+        console.error("Failed to poll ACE job status", err);
+        setStatusMessage(formatInvokeError(err, "Failed to poll ACE job status."));
         clearPollTimeout();
         setRendering(false);
         setCurrentJobId(null);
@@ -363,8 +382,8 @@ export default function Ace() {
           if (typeof result.songForm === "string") {
             setSongForm(result.songForm);
           }
-          if (typeof result.bpm === "number" && Number.isFinite(result.bpm)) {
-            setBpm(result.bpm);
+          if (typeof result.seconds === "number" && Number.isFinite(result.seconds)) {
+            setSeconds(result.seconds);
           }
           if (typeof result.guidance === "number" && Number.isFinite(result.guidance)) {
             setGuidance(result.guidance);
@@ -376,8 +395,8 @@ export default function Ace() {
         await loadRecentOutputs();
       } catch (err) {
         if (!cancelled) {
-          const message = err instanceof Error ? err.message : String(err);
-          setError(message || "Failed to load ACE workflow prompts.");
+          console.error("Failed to initialize ACE workflow view", err);
+          setError(formatInvokeError(err, "Failed to load ACE workflow prompts."));
         }
       } finally {
         if (!cancelled) {
@@ -416,9 +435,9 @@ export default function Ace() {
       setError("Provide at least one section in the song form (e.g., [count-in sparkle], [chorus lift]).");
       return null;
     }
-    const bpmValue = Number.parseFloat(String(bpm));
-    if (!Number.isFinite(bpmValue) || bpmValue <= 0) {
-      setError("Tempo must be a positive number.");
+    const secondsValue = Number.parseFloat(String(seconds));
+    if (!Number.isFinite(secondsValue) || secondsValue <= 0) {
+      setError("Duration must be a positive number of seconds.");
       return null;
     }
     const guidanceValue = Number.parseFloat(String(guidance));
@@ -428,15 +447,15 @@ export default function Ace() {
     return {
       stylePrompt: trimmedStyle,
       songForm: cleanedForm,
-      bpm: bpmValue,
+      seconds: secondsValue,
       guidance: clampedGuidance,
     };
-  }, [stylePrompt, songForm, bpm, guidance]);
+  }, [stylePrompt, songForm, seconds, guidance]);
 
   const handleApplySongForm = useCallback(() => {
     setStylePrompt(ACE_SONGFORM.stylePrompt);
     setSongForm(ACE_SONGFORM_LINES);
-    setBpm(ACE_SONGFORM.bpm);
+    setSeconds(ACE_DEFAULT_SECONDS);
     setGuidance(ACE_SONGFORM.guidance);
     setStatusMessage("Reset to ACE SongForm blueprint.");
     setError("");
@@ -465,8 +484,8 @@ export default function Ace() {
           if (typeof result.songForm === "string") {
             setSongForm(result.songForm);
           }
-          if (typeof result.bpm === "number" && Number.isFinite(result.bpm)) {
-            setBpm(result.bpm);
+          if (typeof result.seconds === "number" && Number.isFinite(result.seconds)) {
+            setSeconds(result.seconds);
           }
           if (typeof result.guidance === "number" && Number.isFinite(result.guidance)) {
             setGuidance(result.guidance);
@@ -474,8 +493,8 @@ export default function Ace() {
         }
         setStatusMessage("ACE workflow settings saved.");
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setError(message || "Failed to update ACE workflow prompts.");
+        console.error("Failed to update ACE workflow prompts", err);
+        setError(formatInvokeError(err, "Failed to update ACE workflow prompts."));
       } finally {
         setSaving(false);
       }
@@ -488,7 +507,12 @@ export default function Ace() {
       event?.preventDefault();
       setStatusMessage("");
       setError("");
-      if (!isTauriEnv || rendering) return;
+      if (!isTauriEnv || rendering) {
+        if (!isTauriEnv) {
+          setError("Rendering requires the desktop shell (Tauri).");
+        }
+        return;
+      }
       const payload = prepareSubmission();
       if (!payload) return;
       try {
@@ -497,21 +521,37 @@ export default function Ace() {
         setJobStage("preparing");
         setCurrentJobId(null);
         setAudioOutputs([]);
+
+        console.info("[ACE] Updating workflow prompts", payload);
+        setStatusMessage("Syncing ACE workflow prompts…");
         await invoke("update_ace_workflow_prompts", { update: payload });
+
+        console.info("[ACE] Ensuring ComfyUI is running");
+        setJobStage("launching");
+        setStatusMessage("Ensuring ComfyUI is running…");
         await refreshComfyStatus(true);
+
+        console.info("[ACE] Queueing ACE workflow job");
+        setJobStage("queueing");
+        setStatusMessage("Queueing ACE render job…");
         const id = await invoke("queue_ace_audio_job");
         if (typeof id !== "number" && typeof id !== "string") {
           throw new Error("Unexpected response when queuing ACE workflow.");
         }
         const numericId = typeof id === "number" ? id : Number.parseInt(id, 10);
         const resolvedId = Number.isNaN(numericId) ? id : numericId;
+
+        console.info("[ACE] Queue accepted", resolvedId);
         setCurrentJobId(resolvedId);
-        setStatusMessage("ACE workflow queued. Tracking progress...");
+        setJobStage("queued");
+        setStatusMessage(`ACE workflow queued. Tracking job ${resolvedId}…`);
         refreshQueue();
         startPolling(resolvedId);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        setError(message || "Failed to queue ACE workflow.");
+        console.error("Failed to queue ACE workflow", err);
+        setError(formatInvokeError(err, "Failed to queue ACE workflow."));
+        setStatusMessage("");
+        setJobStage("");
         setRendering(false);
         setCurrentJobId(null);
       }
@@ -606,15 +646,15 @@ export default function Ace() {
 
             <div className="ace-field-row">
               <div className="ace-field">
-                <label htmlFor="ace-bpm">Tempo (BPM)</label>
+                <label htmlFor="ace-seconds">Clip Duration (seconds)</label>
                 <input
-                  id="ace-bpm"
+                  id="ace-seconds"
                   type="number"
-                  min="40"
-                  max="400"
+                  min="10"
+                  max="600"
                   step="1"
-                  value={bpm}
-                  onChange={(event) => setBpm(event.target.value)}
+                  value={seconds}
+                  onChange={(event) => setSeconds(event.target.value)}
                   disabled={loading || saving || rendering}
                 />
               </div>
@@ -670,10 +710,10 @@ export default function Ace() {
           </div>
 
           <div className="ace-songform-meta">
-            <span>{ACE_SONGFORM.bpm} BPM</span>
+            <span>{ACE_DEFAULT_SECONDS}s clip target</span>
             <span>Guidance {ACE_SONGFORM.guidance.toFixed(2)}</span>
             <span>
-              {ACE_SONGFORM_TOTAL_BARS} bars · ~{aceSongFormDurationLabel}
+              {ACE_SONGFORM_TOTAL_BARS} bars · ~{aceSongFormDurationLabel} @ {ACE_SONGFORM.bpm} BPM
             </span>
           </div>
 
