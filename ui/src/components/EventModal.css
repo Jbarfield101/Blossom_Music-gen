@@ -1,0 +1,185 @@
+.event-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(12, 12, 14, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-lg);
+  z-index: 1500;
+}
+
+.event-modal {
+  width: min(520px, 100%);
+  max-height: calc(100vh - 2 * var(--space-lg));
+  overflow-y: auto;
+  background: var(--card-bg);
+  border-radius: 20px;
+  box-shadow: 0 32px 68px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  outline: none;
+}
+
+.event-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.event-modal-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+
+.event-modal-subtitle {
+  margin: 0.4rem 0 0 0;
+  font-size: 0.95rem;
+  color: color-mix(in srgb, var(--text), transparent 20%);
+}
+
+.event-modal-close {
+  border: none;
+  background: color-mix(in srgb, var(--card-hover-bg), transparent 30%);
+  color: var(--text);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.event-modal-close:hover,
+.event-modal-close:focus-visible {
+  background: color-mix(in srgb, var(--accent), transparent 65%);
+  transform: translateY(-1px);
+}
+
+.event-modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.event-modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.event-modal-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: color-mix(in srgb, var(--text), transparent 45%);
+}
+
+.event-modal-field input,
+.event-modal-field select,
+.event-modal-field textarea {
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--card-hover-bg), var(--text) 18%);
+  background: color-mix(in srgb, var(--card-bg), transparent 8%);
+  color: var(--text);
+  padding: 0.6rem 0.75rem;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.event-modal-field textarea {
+  resize: vertical;
+}
+
+.event-modal-field input:focus-visible,
+.event-modal-field select:focus-visible,
+.event-modal-field textarea:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent), transparent 55%);
+  outline-offset: 2px;
+}
+
+.event-modal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-md);
+}
+
+.event-modal-error {
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: 12px;
+  background: color-mix(in srgb, #ff6b6b, transparent 78%);
+  color: color-mix(in srgb, var(--text), transparent 0%);
+  font-weight: 600;
+}
+
+.event-modal-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.event-modal-actions-end {
+  display: inline-flex;
+  gap: var(--space-sm);
+}
+
+.event-modal-button {
+  border: none;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--card-hover-bg), transparent 25%);
+  color: var(--text);
+  font-weight: 700;
+  padding: 0.55rem 1.1rem;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.event-modal-button:hover,
+.event-modal-button:focus-visible {
+  background: color-mix(in srgb, var(--accent), transparent 65%);
+  transform: translateY(-1px);
+}
+
+.event-modal-button--primary {
+  background: var(--accent);
+  color: #ffffff;
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.35);
+}
+
+.event-modal-button--primary:hover,
+.event-modal-button--primary:focus-visible {
+  background: color-mix(in srgb, var(--accent), #ffffff 18%);
+}
+
+.event-modal-button--danger {
+  background: color-mix(in srgb, #ff6b6b, transparent 70%);
+  color: #ff6b6b;
+}
+
+.event-modal-button--danger:hover,
+.event-modal-button--danger:focus-visible {
+  background: color-mix(in srgb, #ff6b6b, transparent 50%);
+}
+
+@media (max-width: 720px) {
+  .event-modal-overlay {
+    padding: var(--space-md);
+  }
+
+  .event-modal {
+    max-height: calc(100vh - 2 * var(--space-md));
+    padding: var(--space-md);
+  }
+
+  .event-modal-grid {
+    grid-template-columns: 1fr;
+  }
+}

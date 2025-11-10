@@ -1,6 +1,8 @@
-import { useMemo, useState, useCallback, useEffect, useReducer, useRef } from 'react';
+import { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import { isTauri, invoke } from '@tauri-apps/api/core';
 import BackButton from '../components/BackButton.jsx';
 import Icon from '../components/Icon.jsx';
+import EventModal from '../components/EventModal.jsx';
 import './Calendar.css';
 
 const WEEK_START_OPTIONS = [
@@ -8,18 +10,8 @@ const WEEK_START_OPTIONS = [
   { value: 1, label: 'Monday' },
 ];
 
-const WEEKDAY_OPTIONS = [
-  { value: 0, label: 'Sunday', short: 'Sun' },
-  { value: 1, label: 'Monday', short: 'Mon' },
-  { value: 2, label: 'Tuesday', short: 'Tue' },
-  { value: 3, label: 'Wednesday', short: 'Wed' },
-  { value: 4, label: 'Thursday', short: 'Thu' },
-  { value: 5, label: 'Friday', short: 'Fri' },
-  { value: 6, label: 'Saturday', short: 'Sat' },
-];
-
 const MS_IN_DAY = 24 * 60 * 60 * 1000;
-const LOCAL_STORAGE_KEY = 'calendar.events';
+const REMINDER_POLL_INTERVAL = 60_000;
 
 const EVENT_CATEGORIES = [
   {
@@ -84,290 +76,17 @@ const EVENT_CATEGORIES = [
   },
 ];
 
-const DEFAULT_RECURRENCE_RULE = {
-  isRecurring: false,
-  frequency: 'daily',
-  interval: 1,
-  weeklyDays: [],
-  ends: {
-    mode: 'never',
-    date: '',
-    count: 1,
-  },
-};
-
-function createDefaultRecurrenceRule() {
-  return {
-    ...DEFAULT_RECURRENCE_RULE,
-    weeklyDays: [...DEFAULT_RECURRENCE_RULE.weeklyDays],
-    ends: { ...DEFAULT_RECURRENCE_RULE.ends },
-  };
-}
-
-function applyRecurrenceFormUpdate(prevRule, path, target) {
-  const nextRule = {
-    ...prevRule,
-    weeklyDays: Array.isArray(prevRule.weeklyDays)
-      ? [...prevRule.weeklyDays]
-      : [...DEFAULT_RECURRENCE_RULE.weeklyDays],
-    ends:
-      prevRule && typeof prevRule.ends === 'object'
-        ? { ...prevRule.ends }
-        : { ...DEFAULT_RECURRENCE_RULE.ends },
-  };
-
-  const { type, value, checked, multiple, options } = target ?? {};
-
-  switch (path) {
-    case 'isRecurring':
-      nextRule.isRecurring = type === 'checkbox' ? Boolean(checked) : value === 'true';
-      break;
-    case 'frequency':
-      nextRule.frequency = value;
-      break;
-    case 'interval':
-      nextRule.interval = Number.parseInt(value, 10);
-      break;
-    case 'weeklyDays': {
-      if (type === 'checkbox') {
-        const day = Number.parseInt(value, 10);
-        if (!Number.isNaN(day)) {
-          if (checked) {
-            if (!nextRule.weeklyDays.includes(day)) {
-              nextRule.weeklyDays.push(day);
-            }
-          } else {
-            nextRule.weeklyDays = nextRule.weeklyDays.filter((item) => item !== day);
-          }
-        }
-      } else if (multiple && options) {
-        nextRule.weeklyDays = Array.from(options)
-          .filter((opt) => opt.selected)
-          .map((opt) => Number.parseInt(opt.value, 10))
-          .filter((day) => !Number.isNaN(day));
-      } else if (typeof value === 'string' && value.length > 0) {
-        nextRule.weeklyDays = value
-          .split(',')
-          .map((item) => Number.parseInt(item.trim(), 10))
-          .filter((day) => !Number.isNaN(day));
-      } else {
-        nextRule.weeklyDays = [];
-      }
-      break;
-    }
-    case 'ends.mode':
-      nextRule.ends.mode = value;
-      break;
-    case 'ends.date':
-      nextRule.ends.date = value;
-      break;
-    case 'ends.count':
-      nextRule.ends.count = Number.parseInt(value, 10);
-      break;
-    default:
-      break;
+function sanitizeCategory(value) {
+  if (typeof value !== 'string') {
+    return 'custom';
   }
-
-  return sanitizeRecurrenceRule(nextRule);
-}
-
-function cloneRecurrenceRule(rule) {
-  if (!rule || typeof rule !== 'object') {
-    return null;
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return 'custom';
   }
-  return {
-    ...rule,
-    weeklyDays: Array.isArray(rule.weeklyDays)
-      ? [...rule.weeklyDays]
-      : [...DEFAULT_RECURRENCE_RULE.weeklyDays],
-    ends:
-      rule && typeof rule.ends === 'object'
-        ? { ...rule.ends }
-        : { ...DEFAULT_RECURRENCE_RULE.ends },
-  };
-}
-
-/**
- * @typedef {Object} RecurrenceEndRule
- * @property {'never' | 'onDate' | 'afterOccurrences'} mode
- * @property {string} date
- * @property {number} count
- */
-
-/**
- * @typedef {Object} RecurrenceRule
- * @property {boolean} isRecurring
- * @property {'daily' | 'weekly' | 'monthly'} frequency
- * @property {number} interval
- * @property {number[]} weeklyDays
- * @property {RecurrenceEndRule} ends
- */
-
-/**
- * @typedef {Object} CalendarEvent
- * @property {string} id
- * @property {string} title
- * @property {string} category
- * @property {string} startTime
- * @property {string} endTime
- * @property {number} startMinutes
- * @property {number} endMinutes
- * @property {string | null} seriesId
- * @property {RecurrenceRule | null} sourceRule
- */
-
-function sanitizeRecurrenceRule(rule) {
-  if (!rule || typeof rule !== 'object') {
-    return { ...DEFAULT_RECURRENCE_RULE };
-  }
-
-  const sanitizedEnds = rule.ends && typeof rule.ends === 'object'
-    ? {
-        mode:
-          rule.ends.mode === 'onDate' ||
-          rule.ends.mode === 'afterOccurrences' ||
-          rule.ends.mode === 'never'
-            ? rule.ends.mode
-            : 'never',
-        date: typeof rule.ends.date === 'string' ? rule.ends.date : '',
-        count: Number.isFinite(Number(rule.ends.count))
-          ? Math.max(1, Number.parseInt(rule.ends.count, 10))
-          : 1,
-      }
-    : { ...DEFAULT_RECURRENCE_RULE.ends };
-
-  const weeklyDays = Array.isArray(rule.weeklyDays)
-    ? Array.from(
-        new Set(
-          rule.weeklyDays
-            .map((day) => Number.parseInt(day, 10))
-            .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)
-        )
-      ).sort((a, b) => a - b)
-    : [];
-
-  const frequency = ['daily', 'weekly', 'monthly'].includes(rule.frequency)
-    ? rule.frequency
-    : 'daily';
-
-  const interval = Number.isFinite(Number(rule.interval))
-    ? Math.max(1, Number.parseInt(rule.interval, 10))
-    : 1;
-
-  return {
-    isRecurring: Boolean(rule.isRecurring),
-    frequency,
-    interval,
-    weeklyDays,
-    ends: sanitizedEnds,
-  };
-}
-
-function sanitizeStoredEvents(raw) {
-  if (!raw || typeof raw !== 'object') {
-    return {};
-  }
-
-  return Object.entries(raw).reduce((acc, [dateKey, events]) => {
-    if (!Array.isArray(events)) {
-      return acc;
-    }
-
-    const sanitized = events
-      .map((event) => {
-        if (!event) return null;
-        const startMinutes = Number(event.startMinutes ?? parseTimeToMinutes(event.startTime));
-        const endMinutes = Number(event.endMinutes ?? parseTimeToMinutes(event.endTime));
-        if (Number.isNaN(startMinutes) || Number.isNaN(endMinutes)) {
-          return null;
-        }
-        const hasRawRule = event && typeof event === 'object' && event.sourceRule;
-        const sanitizedRule = hasRawRule
-          ? sanitizeRecurrenceRule(event.sourceRule)
-          : null;
-        return {
-          id: event.id ?? `${dateKey}-${startMinutes}-${endMinutes}`,
-          title: event.title ?? 'Untitled event',
-          category: EVENT_CATEGORIES.some((cat) => cat.id === event.category)
-            ? event.category
-            : 'custom',
-          startTime: event.startTime ?? minutesToTimeString(startMinutes),
-          endTime: event.endTime ?? minutesToTimeString(endMinutes),
-          startMinutes,
-          endMinutes,
-          seriesId:
-            typeof event.seriesId === 'string'
-              ? event.seriesId
-              : `${dateKey}-${startMinutes}-${endMinutes}`,
-          sourceRule:
-            sanitizedRule && sanitizedRule.isRecurring ? sanitizedRule : null,
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => a.startMinutes - b.startMinutes);
-
-    if (sanitized.length > 0) {
-      acc[dateKey] = sanitized;
-    }
-    return acc;
-  }, {});
-}
-
-function loadStoredEvents() {
-  if (typeof window === 'undefined') {
-    return {};
-  }
-  try {
-    const stored = window.localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (!stored) {
-      return {};
-    }
-    const parsed = JSON.parse(stored);
-    return sanitizeStoredEvents(parsed);
-  } catch (error) {
-    console.warn('Failed to load stored calendar events', error);
-    return {};
-  }
-}
-
-function calendarEventsReducer(state, action) {
-  switch (action.type) {
-    case 'add': {
-      const { dateKey, event } = action.payload;
-      const existing = state[dateKey] ?? [];
-      const nextEvents = [...existing, event].sort((a, b) => a.startMinutes - b.startMinutes);
-      return { ...state, [dateKey]: nextEvents };
-    }
-    case 'addMany': {
-      const map = action.payload?.eventsByDate;
-      if (!map || typeof map !== 'object') {
-        return state;
-      }
-      const nextState = { ...state };
-      Object.entries(map).forEach(([dateKey, events]) => {
-        if (!Array.isArray(events) || events.length === 0) {
-          return;
-        }
-        const existing = nextState[dateKey] ?? [];
-        const merged = [...existing, ...events].sort((a, b) => {
-          if (a.startMinutes !== b.startMinutes) {
-            return a.startMinutes - b.startMinutes;
-          }
-          if (a.endMinutes !== b.endMinutes) {
-            return a.endMinutes - b.endMinutes;
-          }
-          return a.id.localeCompare(b.id);
-        });
-        nextState[dateKey] = merged;
-      });
-      return nextState;
-    }
-    case 'set': {
-      return sanitizeStoredEvents(action.payload ?? {});
-    }
-    default:
-      return state;
-  }
+  return EVENT_CATEGORIES.some((category) => category.id === trimmed)
+    ? trimmed
+    : 'custom';
 }
 
 function parseTimeToMinutes(value) {
@@ -387,111 +106,8 @@ function minutesToTimeString(minutes) {
   return `${hrs}:${mins}`;
 }
 
-function validateTimeRange(startValue, endValue) {
-  const startMinutes = parseTimeToMinutes(startValue);
-  const endMinutes = parseTimeToMinutes(endValue);
-  if (Number.isNaN(startMinutes) || Number.isNaN(endMinutes)) {
-    return { isValid: false, message: 'Please provide valid start and end times.' };
-  }
-  if (startMinutes >= endMinutes) {
-    return {
-      isValid: false,
-      message: 'The start time must be earlier than the end time.',
-    };
-  }
-  return { isValid: true, startMinutes, endMinutes };
-}
-
-function hasTimeCollision(events, startMinutes, endMinutes) {
-  return events.some((event) => {
-    const startsBeforeEnd = event.startMinutes < endMinutes;
-    const endsAfterStart = event.endMinutes > startMinutes;
-    return startsBeforeEnd && endsAfterStart;
-  });
-}
-
-function buildOccurrenceDates(baseDate, recurrence) {
-  const occurrences = [startOfDay(baseDate)];
-  if (!recurrence || !recurrence.isRecurring) {
-    return occurrences;
-  }
-
-  const { frequency, interval } = recurrence;
-  const ends = recurrence.ends ?? DEFAULT_RECURRENCE_RULE.ends;
-  const maxOccurrencesByCount =
-    ends.mode === 'afterOccurrences'
-      ? Math.max(1, Number.parseInt(ends.count, 10) || 1)
-      : 500;
-  const hardLimit = Math.min(500, maxOccurrencesByCount);
-  const cutoffDate =
-    ends.mode === 'onDate' && typeof ends.date === 'string'
-      ? parseDateKey(ends.date)
-      : null;
-  const normalizedCutoff = cutoffDate ? startOfDay(cutoffDate) : null;
-
-  let generated = 1;
-
-  if (frequency === 'weekly') {
-    const weekStartDay = 0;
-    const baseWeekStart = getStartOfWeek(baseDate, weekStartDay);
-    const weeklyDays =
-      Array.isArray(recurrence.weeklyDays) && recurrence.weeklyDays.length > 0
-        ? [...new Set(recurrence.weeklyDays)].sort((a, b) => a - b)
-        : [baseDate.getDay()];
-    let weekIndex = 0;
-    while (generated < hardLimit && weekIndex < hardLimit * interval + 520) {
-      const currentWeekStart = new Date(baseWeekStart);
-      currentWeekStart.setDate(
-        baseWeekStart.getDate() + weekIndex * interval * 7
-      );
-      for (const day of weeklyDays) {
-        const occurrence = new Date(currentWeekStart);
-        occurrence.setDate(currentWeekStart.getDate() + day);
-        const normalized = startOfDay(occurrence);
-        if (normalized.getTime() <= baseDate.getTime()) {
-          continue;
-        }
-        if (normalizedCutoff && normalized.getTime() > normalizedCutoff.getTime()) {
-          return occurrences;
-        }
-        occurrences.push(normalized);
-        generated += 1;
-        if (generated >= hardLimit) {
-          return occurrences;
-        }
-      }
-      weekIndex += 1;
-    }
-    return occurrences;
-  }
-
-  let cursor = startOfDay(baseDate);
-  while (generated < hardLimit) {
-    if (frequency === 'monthly') {
-      const targetDay = cursor.getDate();
-      const nextMonth = new Date(cursor);
-      nextMonth.setDate(1);
-      nextMonth.setMonth(nextMonth.getMonth() + interval);
-      const maxDay = new Date(
-        nextMonth.getFullYear(),
-        nextMonth.getMonth() + 1,
-        0
-      ).getDate();
-      nextMonth.setDate(Math.min(targetDay, maxDay));
-      cursor = startOfDay(nextMonth);
-    } else {
-      const nextDate = new Date(cursor);
-      nextDate.setDate(nextDate.getDate() + interval);
-      cursor = startOfDay(nextDate);
-    }
-    if (normalizedCutoff && cursor.getTime() > normalizedCutoff.getTime()) {
-      break;
-    }
-    occurrences.push(cursor);
-    generated += 1;
-  }
-
-  return occurrences;
+function formatMinutesRange(startMinutes, endMinutes) {
+  return `${minutesToTimeString(startMinutes)} – ${minutesToTimeString(endMinutes)}`;
 }
 
 function generateHourLabels() {
@@ -499,27 +115,6 @@ function generateHourLabels() {
     const label = `${hour.toString().padStart(2, '0')}:00`;
     return { hour, label };
   });
-}
-
-function formatMinutesRange(startMinutes, endMinutes) {
-  return `${minutesToTimeString(startMinutes)} – ${minutesToTimeString(endMinutes)}`;
-}
-
-function createDefaultFormState(category = 'Blossom_Task', dateKey = '') {
-  const isKnownCategory = EVENT_CATEGORIES.some((item) => item.id === category);
-  const resolvedCategory = isKnownCategory ? category : 'custom';
-  const meta = EVENT_CATEGORIES.find((item) => item.id === resolvedCategory);
-  return {
-    category: resolvedCategory,
-    title:
-      resolvedCategory === 'custom'
-        ? ''
-        : meta?.defaultTitle ?? '',
-    startTime: '09:00',
-    endTime: '10:00',
-    date: dateKey,
-    recurrence: createDefaultRecurrenceRule(),
-  };
 }
 
 function startOfDay(date) {
@@ -606,41 +201,308 @@ function getStartOfWeek(date, weekStart) {
   return result;
 }
 
+function combineDateAndTime(dateKey, timeValue) {
+  if (!dateKey || !timeValue) return null;
+  const date = parseDateKey(dateKey);
+  if (!date) return null;
+  const [hoursStr, minutesStr] = timeValue.split(':');
+  const hours = Number.parseInt(hoursStr, 10);
+  const minutes = Number.parseInt(minutesStr, 10);
+  if (Number.isNaN(hours) || Number.isNaN(minutes)) {
+    return null;
+  }
+  const combined = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hours, minutes, 0);
+  return combined.toISOString();
+}
+
+function normalizeEventRecord(record) {
+  if (!record || typeof record !== 'object') {
+    return null;
+  }
+  const remoteId = Number.parseInt(record.id ?? record.remoteId, 10);
+  if (!Number.isFinite(remoteId)) {
+    return null;
+  }
+  const startRaw = record.start_time ?? record.startTime;
+  if (typeof startRaw !== 'string' || !startRaw.trim()) {
+    return null;
+  }
+  const startDate = new Date(startRaw);
+  if (Number.isNaN(startDate.getTime())) {
+    return null;
+  }
+  const endRaw = record.end_time ?? record.endTime;
+  const endDate = endRaw ? new Date(endRaw) : null;
+  const fallbackEnd = new Date(startDate.getTime() + 60 * 60 * 1000);
+  const normalizedEnd = endDate && !Number.isNaN(endDate.getTime()) ? endDate : fallbackEnd;
+  const startMinutes = startDate.getHours() * 60 + startDate.getMinutes();
+  const endMinutes = normalizedEnd.getHours() * 60 + normalizedEnd.getMinutes();
+  const dateKey = formatDateKey(startDate);
+  const reminderSeconds = Number.parseInt(record.reminder_offset ?? record.reminderOffset, 10);
+  const reminderOffsetMinutes = Number.isFinite(reminderSeconds)
+    ? Math.max(0, Math.floor(reminderSeconds / 60))
+    : 0;
+  const recurrenceValue =
+    typeof record.recurrence === 'string' && record.recurrence.trim()
+      ? record.recurrence.trim()
+      : 'none';
+
+  return {
+    id: `event-${remoteId}-${dateKey}-${startMinutes}-${endMinutes}`,
+    remoteId,
+    title: record.title && typeof record.title === 'string' ? record.title.trim() || 'Untitled event' : 'Untitled event',
+    description:
+      record.description && typeof record.description === 'string'
+        ? record.description
+        : '',
+    category: sanitizeCategory(record.status),
+    dateKey,
+    startTime: minutesToTimeString(startMinutes),
+    endTime: minutesToTimeString(endMinutes),
+    startMinutes,
+    endMinutes,
+    recurrence: recurrenceValue,
+    reminderOffsetMinutes,
+  };
+}
+
+function normalizeEventsByDate(records) {
+  if (!Array.isArray(records)) {
+    return {};
+  }
+  const byDate = {};
+  records.forEach((record) => {
+    const normalized = normalizeEventRecord(record);
+    if (!normalized) return;
+    if (!byDate[normalized.dateKey]) {
+      byDate[normalized.dateKey] = [];
+    }
+    byDate[normalized.dateKey].push(normalized);
+  });
+
+  Object.keys(byDate).forEach((dateKey) => {
+    byDate[dateKey].sort((a, b) => {
+      if (a.startMinutes !== b.startMinutes) {
+        return a.startMinutes - b.startMinutes;
+      }
+      if (a.endMinutes !== b.endMinutes) {
+        return a.endMinutes - b.endMinutes;
+      }
+      return a.id.localeCompare(b.id);
+    });
+  });
+
+  return byDate;
+}
+
+function createDefaultEventDraft(dateKey, category = 'Blossom_Task') {
+  const sanitizedCategory = sanitizeCategory(category);
+  const meta = EVENT_CATEGORIES.find((item) => item.id === sanitizedCategory);
+  return {
+    title: sanitizedCategory === 'custom' ? '' : meta?.defaultTitle ?? 'Untitled event',
+    description: '',
+    category: sanitizedCategory,
+    date: dateKey,
+    startTime: '09:00',
+    endTime: '10:00',
+    recurrence: 'none',
+    reminderOffsetMinutes: 0,
+    remoteId: null,
+  };
+}
+
+function getErrorMessage(error) {
+  if (!error) return 'An unexpected error occurred.';
+  if (typeof error === 'string') return error;
+  if (typeof error.message === 'string') return error.message;
+  return 'An unexpected error occurred.';
+}
+
+function serializeDraftToPayload(draft) {
+  const titleText = draft.title?.trim() ?? '';
+  const descriptionText = draft.description?.trim() ?? '';
+  const reminderMinutes = Number.parseInt(draft.reminderOffsetMinutes, 10);
+  const payload = {
+    title: titleText || 'Untitled event',
+    description: descriptionText || null,
+    start_time: combineDateAndTime(draft.date, draft.startTime),
+    end_time: combineDateAndTime(draft.date, draft.endTime),
+    recurrence: draft.recurrence && draft.recurrence !== 'none' ? draft.recurrence : null,
+    reminder_offset: Number.isFinite(reminderMinutes) ? Math.max(0, reminderMinutes) * 60 : 0,
+    status: draft.category,
+  };
+  return payload;
+}
+
 export default function Calendar() {
   const today = useMemo(() => startOfDay(new Date()), []);
   const [visibleMonth, setVisibleMonth] = useState(() => startOfMonth(today));
   const [selectedDate, setSelectedDate] = useState(() => today);
   const [weekStart, setWeekStart] = useState(WEEK_START_OPTIONS[0].value);
-  const [eventsByDate, dispatchEvents] = useReducer(
-    calendarEventsReducer,
-    {},
-    loadStoredEvents
-  );
+  const [eventsByDate, setEventsByDate] = useState({});
+  const [eventsLoading, setEventsLoading] = useState(true);
+  const [eventsError, setEventsError] = useState('');
   const [isDayViewOpen, setDayViewOpen] = useState(false);
-  const [formState, setFormState] = useState(() =>
-    createDefaultFormState('Blossom_Task', formatDateKey(today))
-  );
-  const [formError, setFormError] = useState('');
+  const [isTauriEnv, setIsTauriEnv] = useState(false);
+  const [modalState, setModalState] = useState({ open: false, mode: 'create', draft: null });
+  const [mutationState, setMutationState] = useState({ submitting: false, deleting: false, error: '' });
+  const [toasts, setToasts] = useState([]);
   const dayViewRef = useRef(null);
-
-  const categoryMap = useMemo(
-    () =>
-      EVENT_CATEGORIES.reduce((acc, category) => {
-        acc[category.id] = category;
-        return acc;
-      }, {}),
-    []
-  );
-  const hourSlots = useMemo(() => generateHourLabels(), []);
+  const toastTimersRef = useRef(new Map());
+  const reminderPollRef = useRef(null);
+  const isMountedRef = useRef(false);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(eventsByDate));
-  }, [eventsByDate]);
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      toastTimersRef.current.forEach((timeoutId) => {
+        if (typeof window !== 'undefined') {
+          window.clearTimeout(timeoutId);
+        }
+      });
+      toastTimersRef.current.clear();
+      if (reminderPollRef.current && typeof window !== 'undefined') {
+        window.clearTimeout(reminderPollRef.current);
+      }
+      reminderPollRef.current = null;
+    };
+  }, []);
+
+  const dismissToast = useCallback((id) => {
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
+    const timeoutId = toastTimersRef.current.get(id);
+    if (timeoutId && typeof window !== 'undefined') {
+      window.clearTimeout(timeoutId);
+    }
+    toastTimersRef.current.delete(id);
+  }, []);
+
+  const pushToast = useCallback(
+    (message, tone = 'info') => {
+      if (!message) return;
+      const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      setToasts((prev) => [...prev, { id, message, tone }]);
+      if (typeof window !== 'undefined') {
+        const timeoutId = window.setTimeout(() => dismissToast(id), 6000);
+        toastTimersRef.current.set(id, timeoutId);
+      }
+    },
+    [dismissToast]
+  );
+
+  const fetchEvents = useCallback(async () => {
+    if (!isTauriEnv) {
+      setEventsLoading(false);
+      return;
+    }
+    setEventsLoading(true);
+    setEventsError('');
+    try {
+      const records = await invoke('list_events');
+      if (!isMountedRef.current) return;
+      setEventsByDate(normalizeEventsByDate(records));
+    } catch (error) {
+      if (!isMountedRef.current) return;
+      setEventsError(getErrorMessage(error));
+    } finally {
+      if (isMountedRef.current) {
+        setEventsLoading(false);
+      }
+    }
+  }, [isTauriEnv]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function detectEnvironment() {
+      try {
+        const available = await isTauri();
+        if (cancelled || !isMountedRef.current) return;
+        setIsTauriEnv(available);
+        if (!available) {
+          setEventsLoading(false);
+          setEventsError('Calendar tools are available in the desktop app.');
+        }
+      } catch (error) {
+        if (cancelled || !isMountedRef.current) return;
+        setIsTauriEnv(false);
+        setEventsLoading(false);
+        setEventsError(getErrorMessage(error));
+      }
+    }
+    detectEnvironment();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isTauriEnv) {
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      await fetchEvents();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isTauriEnv, fetchEvents]);
+
+  useEffect(() => {
+    if (!isTauriEnv) {
+      return undefined;
+    }
+    let cancelled = false;
+    async function pollReminders() {
+      if (cancelled || !isMountedRef.current) {
+        return;
+      }
+      try {
+        const due = await invoke('check_reminders');
+        if (!isMountedRef.current || cancelled) return;
+        if (Array.isArray(due)) {
+          due.forEach((event) => {
+            const normalized = normalizeEventRecord(event);
+            if (normalized) {
+              pushToast(
+                `Reminder: ${normalized.title} · ${formatMinutesRange(
+                  normalized.startMinutes,
+                  normalized.endMinutes
+                )}`,
+                'info'
+              );
+            } else if (event && typeof event.title === 'string') {
+              pushToast(`Reminder: ${event.title}`, 'info');
+            }
+          });
+        }
+      } catch (error) {
+        // Swallow polling errors to avoid spamming the UI.
+      } finally {
+        if (cancelled || !isMountedRef.current) return;
+        if (typeof window !== 'undefined') {
+          const timeoutId = window.setTimeout(pollReminders, REMINDER_POLL_INTERVAL);
+          reminderPollRef.current = timeoutId;
+        }
+      }
+    }
+
+    pollReminders();
+
+    return () => {
+      cancelled = true;
+      if (reminderPollRef.current && typeof window !== 'undefined') {
+        window.clearTimeout(reminderPollRef.current);
+      }
+      reminderPollRef.current = null;
+    };
+  }, [isTauriEnv, pushToast]);
 
   const handleCloseDayView = useCallback(() => {
     setDayViewOpen(false);
-    setFormError('');
+    setModalState({ open: false, mode: 'create', draft: null });
+    setMutationState({ submitting: false, deleting: false, error: '' });
   }, []);
 
   const updateSelectionToDate = useCallback(
@@ -660,6 +522,67 @@ export default function Calendar() {
     },
     [setSelectedDate, setVisibleMonth]
   );
+
+  const openCreateModal = useCallback(
+    (dateKey) => {
+      setModalState({ open: true, mode: 'create', draft: createDefaultEventDraft(dateKey) });
+      setMutationState({ submitting: false, deleting: false, error: '' });
+    },
+    []
+  );
+
+  const openEditModal = useCallback((event) => {
+    if (!event) return;
+    setModalState({
+      open: true,
+      mode: 'edit',
+      draft: {
+        title: event.title,
+        description: event.description ?? '',
+        category: event.category,
+        date: event.dateKey,
+        startTime: event.startTime,
+        endTime: event.endTime,
+        recurrence: event.recurrence ?? 'none',
+        reminderOffsetMinutes: event.reminderOffsetMinutes ?? 0,
+        remoteId: event.remoteId,
+      },
+    });
+    setMutationState({ submitting: false, deleting: false, error: '' });
+  }, []);
+
+  const handleMonthChange = useCallback(
+    (direction) => {
+      setVisibleMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + direction, 1));
+    },
+    []
+  );
+
+  const handleToday = useCallback(() => {
+    const normalizedToday = updateSelectionToDate(today);
+    setDayViewOpen(true);
+    openCreateModal(formatDateKey(normalizedToday));
+  }, [openCreateModal, today, updateSelectionToDate]);
+
+  const handleSelectDate = useCallback(
+    (date) => {
+      const normalized = updateSelectionToDate(date);
+      setDayViewOpen(true);
+      setModalState((prev) =>
+        prev.open && prev.mode === 'create'
+          ? prev
+          : { open: false, mode: 'create', draft: createDefaultEventDraft(formatDateKey(normalized)) }
+      );
+    },
+    [updateSelectionToDate]
+  );
+
+  const handleAddEventClick = useCallback(() => {
+    const baseDate = selectedDate ?? today;
+    const normalized = updateSelectionToDate(baseDate);
+    setDayViewOpen(true);
+    openCreateModal(formatDateKey(normalized));
+  }, [openCreateModal, selectedDate, today, updateSelectionToDate]);
 
   const weeks = useMemo(
     () => buildCalendarWeeks(visibleMonth, weekStart),
@@ -698,8 +621,6 @@ export default function Calendar() {
 
   const weekdayLabels = useMemo(() => {
     return Array.from({ length: 7 }, (_, index) => {
-      // Use a midday UTC timestamp so locale conversions never shift the date
-      // into the previous day for negative time zones.
       const date = new Date(Date.UTC(2021, 7, 1 + weekStart + index, 12));
       return {
         short: shortWeekdayFormatter.format(date),
@@ -712,13 +633,10 @@ export default function Calendar() {
     () => monthFormatter.format(visibleMonth),
     [monthFormatter, visibleMonth]
   );
+
   const selectedLabel = useMemo(
     () => (selectedDate ? fullDateFormatter.format(selectedDate) : ''),
     [selectedDate, fullDateFormatter]
-  );
-  const daysInVisibleMonth = useMemo(
-    () => new Date(visibleMonth.getFullYear(), visibleMonth.getMonth() + 1, 0).getDate(),
-    [visibleMonth]
   );
 
   const weekRange = useMemo(() => {
@@ -731,8 +649,7 @@ export default function Calendar() {
 
   const weekRangeLabel = useMemo(() => {
     if (!weekRange) return '—';
-    const sameYear =
-      weekRange.start.getFullYear() === weekRange.end.getFullYear();
+    const sameYear = weekRange.start.getFullYear() === weekRange.end.getFullYear();
     if (sameYear) {
       const startLabel = rangeFormatter.format(weekRange.start);
       const endLabel = rangeFormatter.format(weekRange.end);
@@ -764,6 +681,18 @@ export default function Calendar() {
     () => (selectedDate ? formatDateKey(selectedDate) : null),
     [selectedDate]
   );
+
+  const categoryMap = useMemo(
+    () =>
+      EVENT_CATEGORIES.reduce((acc, category) => {
+        acc[category.id] = category;
+        return acc;
+      }, {}),
+    []
+  );
+
+  const hourSlots = useMemo(() => generateHourLabels(), []);
+
   const dayEvents = selectedDateKey ? eventsByDate[selectedDateKey] ?? [] : [];
 
   const handleOverlayClick = useCallback(
@@ -838,329 +767,114 @@ export default function Calendar() {
     };
   }, [handleCloseDayView, isDayViewOpen]);
 
-  const handleMonthChange = useCallback(
-    (direction) => {
-      setVisibleMonth((prev) => {
-        const next = new Date(prev.getFullYear(), prev.getMonth() + direction, 1);
-        return next;
-      });
+  const handleSaveDraft = useCallback(
+    async (draft) => {
+      if (!isTauriEnv) {
+        setMutationState((prev) => ({ ...prev, error: 'Desktop environment required.' }));
+        return;
+      }
+      setMutationState((prev) => ({ ...prev, submitting: true, error: '' }));
+      try {
+        const payload = serializeDraftToPayload(draft);
+        if (modalState.mode === 'edit' && draft.remoteId != null) {
+          await invoke('update_event', { eventId: draft.remoteId, changes: payload });
+          pushToast('Event updated.', 'success');
+        } else {
+          await invoke('create_event', { event: payload });
+          pushToast('Event scheduled.', 'success');
+        }
+        await fetchEvents();
+        setModalState({ open: false, mode: 'create', draft: null });
+        setDayViewOpen(true);
+      } catch (error) {
+        setMutationState((prev) => ({ ...prev, error: getErrorMessage(error) }));
+        return;
+      } finally {
+        setMutationState((prev) => ({ ...prev, submitting: false }));
+      }
     },
-    [setVisibleMonth]
+    [fetchEvents, isTauriEnv, modalState.mode, pushToast]
   );
 
-  const handleToday = useCallback(() => {
-    updateSelectionToDate(today);
-  }, [today, updateSelectionToDate]);
-
-  const handleSelectDate = useCallback(
-    (date) => {
-      const normalized = updateSelectionToDate(date);
-      setFormError('');
-      const nextDateKey = formatDateKey(normalized);
-      setFormState((prev) =>
-        prev.date === nextDateKey ? prev : { ...prev, date: nextDateKey }
-      );
-      setDayViewOpen(true);
+  const handleDeleteDraft = useCallback(
+    async (draft) => {
+      if (!isTauriEnv || !draft?.remoteId) {
+        setMutationState((prev) => ({ ...prev, error: 'Unable to delete this event.' }));
+        return;
+      }
+      const confirmDelete =
+        typeof window !== 'undefined'
+          ? window.confirm('Delete this event? This cannot be undone.')
+          : true;
+      if (!confirmDelete) {
+        return;
+      }
+      setMutationState((prev) => ({ ...prev, deleting: true, error: '' }));
+      try {
+        await invoke('delete_event', { eventId: draft.remoteId });
+        pushToast('Event deleted.', 'success');
+        await fetchEvents();
+        setModalState({ open: false, mode: 'create', draft: null });
+      } catch (error) {
+        setMutationState((prev) => ({ ...prev, error: getErrorMessage(error) }));
+        return;
+      } finally {
+        setMutationState((prev) => ({ ...prev, deleting: false }));
+      }
     },
-    [updateSelectionToDate]
+    [fetchEvents, isTauriEnv, pushToast]
   );
-
-  const handleAddEventClick = useCallback(() => {
-    setFormError('');
-    if (selectedDate) {
-      const nextDateKey = formatDateKey(selectedDate);
-      setFormState((prev) =>
-        prev.date === nextDateKey ? prev : { ...prev, date: nextDateKey }
-      );
-      setDayViewOpen(true);
-      return;
-    }
-    const normalizedToday = updateSelectionToDate(today);
-    setFormState((prev) =>
-      prev.date === formatDateKey(normalizedToday)
-        ? prev
-        : { ...prev, date: formatDateKey(normalizedToday) }
-    );
-    setDayViewOpen(true);
-  }, [selectedDate, today, updateSelectionToDate]);
-
-  const handleFormChange = useCallback(
-    (event) => {
-      const { name, value } = event.target;
-      setFormError('');
-      if (name?.startsWith('recurrence.')) {
-        const path = name.slice('recurrence.'.length);
-        setFormState((prev) => ({
-          ...prev,
-          recurrence: applyRecurrenceFormUpdate(
-            prev.recurrence ?? createDefaultRecurrenceRule(),
-            path,
-            event.target
-          ),
-        }));
-        return;
-      }
-      if (name === 'category') {
-        setFormState((prev) => {
-          const nextCategory = value;
-          const nextMeta = categoryMap[nextCategory];
-          const nextTitle =
-            nextCategory === 'custom'
-              ? prev.category === 'custom'
-                ? prev.title
-                : ''
-              : nextMeta?.defaultTitle ?? prev.title ?? '';
-          return {
-            ...prev,
-            category: nextCategory,
-            title: nextTitle,
-          };
-        });
-        return;
-      }
-      if (name === 'date') {
-        setFormState((prev) => ({ ...prev, date: value }));
-        return;
-      }
-      setFormState((prev) => ({ ...prev, [name]: value }));
-    },
-    [categoryMap]
-  );
-
-  useEffect(() => {
-    if (selectedDate) {
-      const nextDateKey = formatDateKey(selectedDate);
-      setFormState((prev) =>
-        prev.date === nextDateKey ? prev : { ...prev, date: nextDateKey }
-      );
-      return;
-    }
-    setFormState((prev) => (prev.date ? { ...prev, date: '' } : prev));
-  }, [selectedDate]);
-
-  const handleSubmitEvent = useCallback(
-    (event) => {
-      event.preventDefault();
-      const { category, title, startTime, endTime, date: dateKeyInput } = formState;
-      const trimmedTitle = title.trim();
-      const categoryMeta = categoryMap[category];
-      if (category === 'custom' && trimmedTitle.length === 0) {
-        setFormError('Please provide a title when using the custom category.');
-        return;
-      }
-
-      const resolvedDateKey = dateKeyInput?.trim() || selectedDateKey;
-      if (!resolvedDateKey) {
-        setFormError('Please choose a date for this event.');
-        return;
-      }
-
-      const normalizedDate = parseDateKey(resolvedDateKey);
-      if (!normalizedDate) {
-        setFormError('Please choose a valid date for this event.');
-        return;
-      }
-
-      const normalizedDateKey = formatDateKey(normalizedDate);
-
-      const { isValid, startMinutes, endMinutes, message } = validateTimeRange(
-        startTime,
-        endTime
-      );
-
-      if (!isValid) {
-        setFormError(message ?? 'Please provide a valid time range.');
-        return;
-      }
-
-      const resolvedTitle =
-        trimmedTitle.length > 0
-          ? trimmedTitle
-          : categoryMeta?.defaultTitle || 'Untitled event';
-
-      const normalizedStart = minutesToTimeString(startMinutes);
-      const normalizedEnd = minutesToTimeString(endMinutes);
-
-      const recurrenceForm = formState.recurrence ?? DEFAULT_RECURRENCE_RULE;
-
-      if (recurrenceForm.isRecurring) {
-        const intervalValue = Number.parseInt(recurrenceForm.interval, 10);
-        if (!Number.isFinite(intervalValue) || intervalValue < 1) {
-          setFormError('Recurrence interval must be at least 1.');
-          return;
-        }
-
-        if (recurrenceForm.frequency === 'weekly') {
-          const selectedDays = Array.isArray(recurrenceForm.weeklyDays)
-            ? recurrenceForm.weeklyDays.filter((day) =>
-                Number.isInteger(Number.parseInt(day, 10))
-              )
-            : [];
-          if (selectedDays.length === 0) {
-            setFormError('Please select at least one weekday for a weekly recurrence.');
-            return;
-          }
-        }
-
-        if (recurrenceForm.ends?.mode === 'onDate') {
-          const endDateValue = recurrenceForm.ends.date?.trim?.() ?? '';
-          if (!endDateValue) {
-            setFormError('Please choose an end date for this recurrence.');
-            return;
-          }
-          const parsedEndDate = parseDateKey(endDateValue);
-          if (!parsedEndDate) {
-            setFormError('Please choose a valid end date for this recurrence.');
-            return;
-          }
-        }
-
-        if (recurrenceForm.ends?.mode === 'afterOccurrences') {
-          const occurrenceCount = Number.parseInt(
-            recurrenceForm.ends.count,
-            10
-          );
-          if (!Number.isFinite(occurrenceCount) || occurrenceCount < 1) {
-            setFormError('Recurrence count must be at least 1.');
-            return;
-          }
-        }
-      }
-
-      const recurrenceRule = sanitizeRecurrenceRule(recurrenceForm);
-      const occurrenceDates = buildOccurrenceDates(normalizedDate, recurrenceRule);
-      const storedRule = recurrenceRule.isRecurring
-        ? cloneRecurrenceRule(recurrenceRule)
-        : null;
-      const timestampSeed = Date.now();
-      const randomSuffix = Math.random().toString(36).slice(2, 10);
-      const seriesId = recurrenceRule.isRecurring
-        ? `series-${timestampSeed}-${randomSuffix}`
-        : null;
-
-      const pendingByDate = {};
-
-      for (let index = 0; index < occurrenceDates.length; index += 1) {
-        const occurrenceDate = occurrenceDates[index];
-        const occurrenceDateKey = formatDateKey(occurrenceDate);
-        const existingForDay = eventsByDate[occurrenceDateKey] ?? [];
-        const pendingForDay = pendingByDate[occurrenceDateKey] ?? [];
-        if (
-          hasTimeCollision(existingForDay, startMinutes, endMinutes) ||
-          hasTimeCollision(pendingForDay, startMinutes, endMinutes)
-        ) {
-          setFormError('This time overlaps with an existing event.');
-          return;
-        }
-
-        const eventId = `${occurrenceDateKey}-${timestampSeed}-${randomSuffix}-${index}`;
-        const eventRecord = {
-          id: eventId,
-          title: resolvedTitle,
-          category,
-          startTime: normalizedStart,
-          endTime: normalizedEnd,
-          startMinutes,
-          endMinutes,
-          seriesId: seriesId ?? eventId,
-          sourceRule: storedRule,
-        };
-
-        if (!pendingByDate[occurrenceDateKey]) {
-          pendingByDate[occurrenceDateKey] = [];
-        }
-        pendingByDate[occurrenceDateKey].push(eventRecord);
-      }
-
-      dispatchEvents({
-        type: 'addMany',
-        payload: { eventsByDate: pendingByDate },
-      });
-      setFormError('');
-      updateSelectionToDate(normalizedDate);
-      setFormState((prev) => {
-        const base = {
-          ...prev,
-          startTime: normalizedStart,
-          endTime: normalizedEnd,
-          date: normalizedDateKey,
-        };
-        if (category === 'custom') {
-          return { ...base, title: '' };
-        }
-        return { ...base, title: categoryMeta?.defaultTitle ?? base.title };
-      });
-    },
-    [
-      categoryMap,
-      dispatchEvents,
-      eventsByDate,
-      formState,
-      selectedDateKey,
-      updateSelectionToDate,
-    ]
-  );
-
-  const handleWeekStartChange = useCallback((event) => {
-    setWeekStart(Number(event.target.value));
-  }, []);
-
-  const recurrenceState = formState.recurrence ?? DEFAULT_RECURRENCE_RULE;
-  const recurrenceEnds = recurrenceState.ends ?? DEFAULT_RECURRENCE_RULE.ends;
-  const isRecurring = Boolean(recurrenceState.isRecurring);
 
   return (
     <>
-      <BackButton />
-      <h1>Calendar</h1>
-      <section className="calendar-page">
-        <section className="calendar-main">
-          <header className="calendar-toolbar">
+      <div className="calendar-page">
+        <header className="calendar-header">
+          <BackButton to="/tools" label="Back to tools" />
+          <div className="calendar-header-text">
+            <h1 className="calendar-title">Calendar</h1>
+            <p className="calendar-subtitle">
+              Plan upcoming sessions, stay on top of rehearsals, and capture reminders.
+            </p>
+          </div>
+        </header>
+        <section className="calendar-main" aria-labelledby="calendar-heading">
+          <div className="calendar-toolbar">
             <div className="calendar-nav">
               <button
                 type="button"
                 className="calendar-icon-button"
-                aria-label="Go to previous month"
+                aria-label="Previous month"
                 onClick={() => handleMonthChange(-1)}
               >
                 <Icon name="ChevronLeft" size={20} />
               </button>
-              <div className="calendar-current-month" aria-live="polite">
-                <span className="calendar-month-label">{monthLabel}</span>
+              <div className="calendar-current-month">
+                <span className="calendar-month-label" id="calendar-heading">
+                  {monthLabel}
+                </span>
                 <span className="calendar-month-summary">
-                  {daysInVisibleMonth} days
+                  {eventsLoading ? 'Loading events…' : `${Object.keys(eventsByDate).length} days with plans`}
                 </span>
               </div>
               <button
                 type="button"
                 className="calendar-icon-button"
-                aria-label="Go to next month"
+                aria-label="Next month"
                 onClick={() => handleMonthChange(1)}
               >
                 <Icon name="ChevronRight" size={20} />
               </button>
             </div>
             <div className="calendar-toolbar-actions">
-              <button
-                type="button"
-                className="calendar-action-button"
-                onClick={handleToday}
-              >
+              <button type="button" className="calendar-action-button" onClick={handleToday}>
                 Today
-              </button>
-              <button
-                type="button"
-                className="calendar-action-button calendar-action-button--primary"
-                onClick={handleAddEventClick}
-              >
-                Add event
               </button>
               <label className="calendar-week-start">
                 Week starts on
                 <select
                   className="calendar-select"
                   value={weekStart}
-                  onChange={handleWeekStartChange}
+                  onChange={(event) => setWeekStart(Number.parseInt(event.target.value, 10))}
                 >
                   {WEEK_START_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -1169,107 +883,118 @@ export default function Calendar() {
                   ))}
                 </select>
               </label>
+              <button
+                type="button"
+                className="calendar-action-button calendar-action-button--primary"
+                onClick={handleAddEventClick}
+                disabled={eventsLoading || !isTauriEnv}
+              >
+                <Icon name="Plus" size={18} />
+                Add event
+              </button>
             </div>
-          </header>
-          <div
-            className="calendar-grid"
-            role="grid"
-            aria-label={`Calendar for ${monthLabel}`}
-          >
-            <div className="calendar-grid-header" role="row">
-              {weekdayLabels.map((weekday) => (
-                <div
-                  key={weekday.long}
-                  className="calendar-weekday"
-                  role="columnheader"
-                  aria-label={weekday.long}
-                >
-                  {weekday.short}
+          </div>
+          {eventsError && (
+            <div className="calendar-error" role="alert">
+              {eventsError}
+            </div>
+          )}
+          <section className="calendar-grid-section" aria-label="Month view">
+            <div className="calendar-grid" role="grid" aria-label={`Calendar for ${monthLabel}`}>
+              <div className="calendar-grid-header" role="row">
+                {weekdayLabels.map((weekday) => (
+                  <div
+                    key={weekday.long}
+                    className="calendar-weekday"
+                    role="columnheader"
+                    aria-label={weekday.long}
+                  >
+                    {weekday.short}
+                  </div>
+                ))}
+              </div>
+              {weeks.map((week, weekIndex) => (
+                <div key={weekIndex} className="calendar-week" role="row">
+                  {week.map((date) => {
+                    const key = formatDateKey(date);
+                    const eventsForDay = eventsByDate[key] ?? [];
+                    const eventCount = eventsForDay.length;
+                    const eventCountLabel =
+                      eventCount > 0
+                        ? `, ${eventCount} ${eventCount === 1 ? 'event' : 'events'} scheduled`
+                        : '';
+                    const inCurrentMonth =
+                      date.getMonth() === visibleMonth.getMonth() &&
+                      date.getFullYear() === visibleMonth.getFullYear();
+                    const isToday = isSameDay(date, today);
+                    const isSelected = selectedDate != null && isSameDay(date, selectedDate);
+
+                    const cellClassNames = [
+                      'calendar-cell',
+                      !inCurrentMonth && 'calendar-cell--outside',
+                      isToday && 'calendar-cell--today',
+                      isSelected && 'calendar-cell--selected',
+                    ]
+                      .filter(Boolean)
+                      .join(' ');
+
+                    const label = `${fullDateFormatter.format(
+                      date
+                    )}${isToday ? ' (Today)' : ''}${eventCountLabel}`;
+
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        className={cellClassNames}
+                        aria-pressed={isSelected}
+                        aria-current={isToday ? 'date' : undefined}
+                        aria-label={label}
+                        onClick={() => handleSelectDate(date)}
+                        data-date={key}
+                      >
+                        <span className="calendar-cell-day">{date.getDate()}</span>
+                        {isToday && <span className="calendar-cell-badge">Today</span>}
+                        {eventCount > 0 && (
+                          <div className="calendar-cell-event-chips" aria-hidden="true">
+                            {eventsForDay.slice(0, 3).map((eventItem) => {
+                              const meta = categoryMap[eventItem.category];
+                              const color = meta?.accent || '#9ca3af';
+                              return (
+                                <span
+                                  key={eventItem.id}
+                                  className="calendar-cell-event-chip"
+                                  style={{ '--event-chip-color': color }}
+                                  title={`${eventItem.title} • ${formatMinutesRange(
+                                    eventItem.startMinutes,
+                                    eventItem.endMinutes
+                                  )}`}
+                                >
+                                  {eventItem.title}
+                                </span>
+                              );
+                            })}
+                            {eventCount > 3 && (
+                              <span className="calendar-cell-event-chip calendar-cell-event-chip--count">
+                                +{eventCount - 3}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        <span className="visually-hidden">
+                          {eventCount > 0
+                            ? `${eventCount} ${eventCount === 1 ? 'event' : 'events'} scheduled`
+                            : 'No events scheduled'}
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               ))}
             </div>
-            {weeks.map((week, weekIndex) => (
-              <div key={weekIndex} className="calendar-week" role="row">
-                {week.map((date) => {
-                  const key = formatDateKey(date);
-                  const eventsForDay = eventsByDate[key] ?? [];
-                  const eventCount = eventsForDay.length;
-                  const eventCountLabel =
-                    eventCount > 0
-                      ? `, ${eventCount} ${eventCount === 1 ? 'event' : 'events'} scheduled`
-                      : '';
-                  const inCurrentMonth =
-                    date.getMonth() === visibleMonth.getMonth() &&
-                    date.getFullYear() === visibleMonth.getFullYear();
-                  const isToday = isSameDay(date, today);
-                  const isSelected =
-                    selectedDate != null && isSameDay(date, selectedDate);
-
-                  const cellClassNames = [
-                    'calendar-cell',
-                    !inCurrentMonth && 'calendar-cell--outside',
-                    isToday && 'calendar-cell--today',
-                    isSelected && 'calendar-cell--selected',
-                  ]
-                    .filter(Boolean)
-                    .join(' ');
-
-                  const label = `${fullDateFormatter.format(
-                    date
-                  )}${isToday ? ' (Today)' : ''}${eventCountLabel}`;
-
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      className={cellClassNames}
-                      aria-pressed={isSelected}
-                      aria-current={isToday ? 'date' : undefined}
-                      aria-label={label}
-                      onClick={() => handleSelectDate(date)}
-                      data-date={key}
-                    >
-                      <span className="calendar-cell-day">{date.getDate()}</span>
-                      {isToday && <span className="calendar-cell-badge">Today</span>}
-                      {eventCount > 0 && (
-                        <div className="calendar-cell-event-chips" aria-hidden="true">
-                          {eventsForDay.slice(0, 3).map((eventItem) => {
-                            const meta = categoryMap[eventItem.category];
-                            const color = meta?.accent || '#9ca3af';
-                            return (
-                              <span
-                                key={eventItem.id}
-                                className="calendar-cell-event-chip"
-                                style={{ '--event-chip-color': color }}
-                                title={`${eventItem.title} • ${formatMinutesRange(
-                                  eventItem.startMinutes,
-                                  eventItem.endMinutes
-                                )}`}
-                              >
-                                {meta?.label ?? 'Custom'}
-                              </span>
-                            );
-                          })}
-                          {eventCount > 3 && (
-                            <span className="calendar-cell-event-chip calendar-cell-event-chip--count">
-                              +{eventCount - 3}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                      <span className="visually-hidden">
-                        {eventCount > 0
-                          ? `${eventCount} ${eventCount === 1 ? 'event' : 'events'} scheduled`
-                          : 'No events scheduled'}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
+          </section>
         </section>
-      </section>
+      </div>
       {isDayViewOpen && (
         <div
           className="calendar-day-view-overlay"
@@ -1296,23 +1021,34 @@ export default function Calendar() {
                   </p>
                 )}
               </div>
-              <button
-                type="button"
-                className="calendar-day-view-close"
-                onClick={handleCloseDayView}
-                aria-label="Close day planner"
-              >
-                <Icon name="X" size={20} />
-              </button>
+              <div className="calendar-day-view-header-actions">
+                <button
+                  type="button"
+                  className="calendar-action-button"
+                  onClick={handleAddEventClick}
+                  disabled={!selectedDateKey || !isTauriEnv}
+                >
+                  <Icon name="Plus" size={16} />
+                  New event
+                </button>
+                <button
+                  type="button"
+                  className="calendar-day-view-close"
+                  aria-label="Close day planner"
+                  onClick={handleCloseDayView}
+                >
+                  <Icon name="X" size={20} />
+                </button>
+              </div>
             </header>
             <div className="calendar-day-view-body">
               <section className="calendar-day-view-schedule" aria-label="Hourly schedule">
                 <h3 className="calendar-day-view-section-title">Schedule</h3>
                 <p className="calendar-day-view-summary">
-                  {dayEvents.length > 0
-                    ? `${dayEvents.length} ${
-                        dayEvents.length === 1 ? 'event' : 'events'
-                      } scheduled`
+                  {eventsLoading
+                    ? 'Loading events…'
+                    : dayEvents.length > 0
+                    ? `${dayEvents.length} ${dayEvents.length === 1 ? 'event' : 'events'} scheduled`
                     : 'No events scheduled yet.'}
                 </p>
                 <div className="calendar-day-grid" role="list">
@@ -1345,9 +1081,35 @@ export default function Calendar() {
                                       )}
                                     </span>
                                   </header>
-                                  <span className="calendar-event-chip-category">
-                                    {meta?.label ?? 'Custom'}
-                                  </span>
+                                  {eventItem.description && (
+                                    <p className="calendar-event-chip-description">
+                                      {eventItem.description}
+                                    </p>
+                                  )}
+                                  <footer className="calendar-event-chip-footer">
+                                    <span className="calendar-event-chip-category">
+                                      {meta?.label ?? 'Custom'}
+                                    </span>
+                                    <div className="calendar-event-chip-actions">
+                                      <button
+                                        type="button"
+                                        className="calendar-event-chip-button"
+                                        onClick={() => openEditModal(eventItem)}
+                                        aria-label={`Edit ${eventItem.title}`}
+                                      >
+                                        <Icon name="PenLine" size={16} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="calendar-event-chip-button calendar-event-chip-button--danger"
+                                        onClick={() => handleDeleteDraft({ ...eventItem })}
+                                        aria-label={`Delete ${eventItem.title}`}
+                                        disabled={mutationState.deleting}
+                                      >
+                                        <Icon name="Trash2" size={16} />
+                                      </button>
+                                    </div>
+                                  </footer>
                                 </article>
                               );
                             })
@@ -1358,248 +1120,37 @@ export default function Calendar() {
                   })}
                 </div>
               </section>
-              <section className="calendar-day-view-form-section" aria-label="Add new event">
-                <h3 className="calendar-day-view-section-title">Add event</h3>
-                <form className="calendar-day-view-form" onSubmit={handleSubmitEvent}>
-                  <div className="calendar-form-grid">
-                    <label className="calendar-form-field">
-                      <span className="calendar-form-label">Date</span>
-                      <input
-                        type="date"
-                        name="date"
-                        className="calendar-input"
-                        value={formState.date ?? ''}
-                        onChange={handleFormChange}
-                        aria-describedby={formError ? 'calendar-form-error' : undefined}
-                        aria-invalid={formError ? true : undefined}
-                      />
-                    </label>
-                    <label className="calendar-form-field">
-                      <span className="calendar-form-label">Category</span>
-                      <select
-                        name="category"
-                        className="calendar-select"
-                        value={formState.category}
-                        onChange={handleFormChange}
-                      >
-                        {EVENT_CATEGORIES.map((category) => (
-                          <option key={category.id} value={category.id}>
-                            {category.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="calendar-form-field">
-                      <span className="calendar-form-label">Title</span>
-                      <input
-                        type="text"
-                        name="title"
-                        className="calendar-input"
-                        value={formState.title}
-                        onChange={handleFormChange}
-                        placeholder={
-                          formState.category === 'custom'
-                            ? 'Describe your event'
-                            : categoryMap[formState.category]?.defaultTitle || 'Event title'
-                        }
-                        required={formState.category === 'custom'}
-                        aria-describedby={formError ? 'calendar-form-error' : undefined}
-                        aria-invalid={formError ? true : undefined}
-                      />
-                    </label>
-                    <label className="calendar-form-field">
-                      <span className="calendar-form-label">Starts</span>
-                      <input
-                        type="time"
-                        name="startTime"
-                        className="calendar-input"
-                        value={formState.startTime}
-                        onChange={handleFormChange}
-                        step="300"
-                        aria-describedby={formError ? 'calendar-form-error' : undefined}
-                        aria-invalid={formError ? true : undefined}
-                      />
-                    </label>
-                    <label className="calendar-form-field">
-                      <span className="calendar-form-label">Ends</span>
-                      <input
-                        type="time"
-                        name="endTime"
-                        className="calendar-input"
-                        value={formState.endTime}
-                        onChange={handleFormChange}
-                        step="300"
-                        aria-describedby={formError ? 'calendar-form-error' : undefined}
-                        aria-invalid={formError ? true : undefined}
-                      />
-                    </label>
-                    <div className="calendar-form-row calendar-form-row--full">
-                      <fieldset className="calendar-recurrence">
-                        <legend className="calendar-form-label">Recurrence</legend>
-                        <label className="calendar-recurrence-toggle">
-                          <input
-                            type="checkbox"
-                            name="recurrence.isRecurring"
-                            checked={isRecurring}
-                            onChange={handleFormChange}
-                          />
-                          Repeat this event
-                        </label>
-                        {isRecurring && (
-                          <div className="calendar-recurrence-content">
-                            <div className="calendar-recurrence-grid">
-                              <label className="calendar-form-field">
-                                <span className="calendar-form-label">Frequency</span>
-                                <select
-                                  name="recurrence.frequency"
-                                  className="calendar-select"
-                                  value={recurrenceState.frequency}
-                                  onChange={handleFormChange}
-                                >
-                                  <option value="daily">Daily</option>
-                                  <option value="weekly">Weekly</option>
-                                  <option value="monthly">Monthly</option>
-                                </select>
-                              </label>
-                              <label className="calendar-form-field calendar-form-field--inline">
-                                <span className="calendar-form-label">Interval</span>
-                                <input
-                                  type="number"
-                                  min="1"
-                                  step="1"
-                                  name="recurrence.interval"
-                                  className="calendar-input"
-                                  value={recurrenceState.interval ?? 1}
-                                  onChange={handleFormChange}
-                                />
-                              </label>
-                            </div>
-                            {recurrenceState.frequency === 'weekly' && (
-                              <div className="calendar-recurrence-weekdays">
-                                <span className="calendar-form-label">Repeats on</span>
-                                <div className="calendar-weekday-options">
-                                  {WEEKDAY_OPTIONS.map((day) => {
-                                    const isSelected = Array.isArray(
-                                      recurrenceState.weeklyDays
-                                    )
-                                      ? recurrenceState.weeklyDays.includes(day.value)
-                                      : false;
-                                    return (
-                                      <label
-                                        key={day.value}
-                                        className="calendar-weekday-option"
-                                      >
-                                        <input
-                                          type="checkbox"
-                                          name="recurrence.weeklyDays"
-                                          value={String(day.value)}
-                                          checked={isSelected}
-                                          onChange={handleFormChange}
-                                        />
-                                        {day.short}
-                                      </label>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            )}
-                            <fieldset className="calendar-recurrence-ends">
-                              <legend className="calendar-form-label">Ends</legend>
-                              <div className="calendar-recurrence-ends-options">
-                                <label className="calendar-radio-option">
-                                  <input
-                                    type="radio"
-                                    name="recurrence.ends.mode"
-                                    value="never"
-                                    checked={recurrenceEnds.mode === 'never'}
-                                    onChange={handleFormChange}
-                                  />
-                                  Never
-                                </label>
-                                <label className="calendar-radio-option">
-                                  <input
-                                    type="radio"
-                                    name="recurrence.ends.mode"
-                                    value="onDate"
-                                    checked={recurrenceEnds.mode === 'onDate'}
-                                    onChange={handleFormChange}
-                                  />
-                                  On date
-                                </label>
-                                <label className="calendar-radio-option">
-                                  <input
-                                    type="radio"
-                                    name="recurrence.ends.mode"
-                                    value="afterOccurrences"
-                                    checked={recurrenceEnds.mode === 'afterOccurrences'}
-                                    onChange={handleFormChange}
-                                  />
-                                  After occurrences
-                                </label>
-                              </div>
-                              {recurrenceEnds.mode === 'onDate' && (
-                                <label className="calendar-form-field calendar-form-field--inline">
-                                  <span className="calendar-form-sublabel">End date</span>
-                                  <input
-                                    type="date"
-                                    name="recurrence.ends.date"
-                                    className="calendar-input"
-                                    value={recurrenceEnds.date ?? ''}
-                                    onChange={handleFormChange}
-                                  />
-                                </label>
-                              )}
-                              {recurrenceEnds.mode === 'afterOccurrences' && (
-                                <label className="calendar-form-field calendar-form-field--inline">
-                                  <span className="calendar-form-sublabel">Occurrences</span>
-                                  <input
-                                    type="number"
-                                    min="1"
-                                    step="1"
-                                    name="recurrence.ends.count"
-                                    className="calendar-input"
-                                    value={recurrenceEnds.count ?? 1}
-                                    onChange={handleFormChange}
-                                  />
-                                </label>
-                              )}
-                            </fieldset>
-                          </div>
-                        )}
-                      </fieldset>
-                    </div>
-                  </div>
-                  {formError && (
-                    <p className="calendar-form-error" role="alert" id="calendar-form-error">
-                      {formError}
-                    </p>
-                  )}
-                  <div className="calendar-form-actions">
-                    <button type="submit" className="calendar-action-button calendar-action-button--primary">
-                      Save event
-                    </button>
-                    <button
-                      type="button"
-                      className="calendar-action-button"
-                      onClick={() => {
-                        setFormError('');
-                        const fallbackDateKey =
-                          formState.date || selectedDateKey || formatDateKey(today);
-                        setFormState(
-                          createDefaultFormState(
-                            formState.category,
-                            fallbackDateKey
-                          )
-                        );
-                      }}
-                    >
-                      Reset
-                    </button>
-                  </div>
-                </form>
-              </section>
             </div>
           </div>
+        </div>
+      )}
+      <EventModal
+        open={modalState.open}
+        mode={modalState.mode}
+        draft={modalState.draft}
+        categories={EVENT_CATEGORIES}
+        onClose={() => setModalState({ open: false, mode: 'create', draft: null })}
+        onSubmit={handleSaveDraft}
+        onDelete={handleDeleteDraft}
+        submitting={mutationState.submitting}
+        deleting={mutationState.deleting}
+        error={mutationState.error}
+      />
+      {toasts.length > 0 && (
+        <div className="calendar-toast-region" role="status" aria-live="polite" aria-atomic="true">
+          {toasts.map((toast) => (
+            <div key={toast.id} className={`calendar-toast calendar-toast--${toast.tone}`}>
+              <span>{toast.message}</span>
+              <button
+                type="button"
+                className="calendar-toast-dismiss"
+                onClick={() => dismissToast(toast.id)}
+                aria-label="Dismiss notification"
+              >
+                <Icon name="X" size={14} />
+              </button>
+            </div>
+          ))}
         </div>
       )}
     </>
