@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::{
+    borrow::Cow,
     collections::{HashMap, HashSet, VecDeque},
     env, fs,
     io::{BufRead, BufReader, ErrorKind, Write},
@@ -21,7 +22,7 @@ use serde_yaml::{Mapping as YamlMapping, Value as YamlValue};
 use tauri::path::BaseDirectory;
 use tauri::Emitter;
 use tauri::Manager;
-use tauri::{async_runtime, AppHandle, Runtime, State};
+use tauri::{api::notification::Notification, async_runtime, AppHandle, Runtime, State};
 use tauri::{PhysicalPosition, PhysicalSize, Position, Size};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::init as fs_init;
@@ -35,8 +36,8 @@ use walkdir::WalkDir;
 mod commands;
 mod config;
 mod dnd_watcher;
-mod musiclang;
 mod model_index;
+mod musiclang;
 mod util;
 use crate::commands::{album_concat, generate_musicgen, musicgen_env, riffusion_generate};
 use crate::util::list_from_dir;
@@ -1429,6 +1430,451 @@ fn write_discord_token(token: String) -> Result<(), String> {
         let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o444));
     }
     Ok(())
+}
+
+const BLOSSOM_BUNDLE_IDENTIFIER: &str = "com.blossom.musicgen";
+const CALENDAR_CREATE_SCRIPT_KEY: &str = "BLOSSOM_CALENDAR_SCRIPT_CREATE";
+const CALENDAR_LIST_SCRIPT_KEY: &str = "BLOSSOM_CALENDAR_SCRIPT_LIST";
+const CALENDAR_UPDATE_SCRIPT_KEY: &str = "BLOSSOM_CALENDAR_SCRIPT_UPDATE";
+const CALENDAR_DELETE_SCRIPT_KEY: &str = "BLOSSOM_CALENDAR_SCRIPT_DELETE";
+const CALENDAR_CHECK_SCRIPT_KEY: &str = "BLOSSOM_CALENDAR_SCRIPT_CHECK";
+const CALENDAR_CHECK_WAIT_SECONDS: f64 = 0.25;
+
+const CALENDAR_CREATE_SCRIPT: &str = r#"
+import json
+import sys
+from blossom.calendar import service
+
+payload = json.load(sys.stdin)
+result = service.create_event(payload)
+json.dump(result, sys.stdout)
+"#;
+
+const CALENDAR_LIST_SCRIPT: &str = r#"
+import json
+import sys
+from blossom.calendar import service
+
+json.dump(service.get_events(), sys.stdout)
+"#;
+
+const CALENDAR_UPDATE_SCRIPT: &str = r#"
+import json
+import sys
+from blossom.calendar import service
+
+event_id = int(sys.argv[1])
+changes = json.load(sys.stdin)
+result = service.update_event(event_id, changes)
+json.dump(result, sys.stdout)
+"#;
+
+const CALENDAR_DELETE_SCRIPT: &str = r#"
+import json
+import sys
+from blossom.calendar import service
+
+event_id = int(sys.argv[1])
+result = service.delete_event(event_id)
+json.dump(result, sys.stdout)
+"#;
+
+const CALENDAR_CHECK_SCRIPT: &str = r#"
+import json
+import sys
+import time
+from blossom.calendar import reminders
+
+_triggered = []
+
+
+def _capture(event):
+    _triggered.append(event)
+
+
+scheduler = reminders.init_scheduler(callback=_capture)
+scheduler.refresh_all()
+
+try:
+    wait = float(sys.argv[1]) if len(sys.argv) > 1 else 0.25
+except Exception:
+    wait = 0.25
+
+if wait < 0:
+    wait = 0.0
+
+try:
+    time.sleep(wait)
+finally:
+    reminders.shutdown_scheduler()
+
+json.dump(_triggered, sys.stdout)
+"#;
+
+fn calendar_script(key: &str, default: &'static str) -> Cow<'static, str> {
+    env::var(key)
+        .map(Cow::Owned)
+        .unwrap_or_else(|_| Cow::Borrowed(default))
+}
+
+fn run_calendar_python<R: Runtime>(
+    app: &AppHandle<R>,
+    script_key: &str,
+    default_script: &'static str,
+    args: &[String],
+    input: Option<&Value>,
+) -> Result<Value, String> {
+    let mut cmd = python_command();
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    if let Err(err) = fs::create_dir_all(&app_dir) {
+        if err.kind() != ErrorKind::AlreadyExists {
+            return Err(err.to_string());
+        }
+    }
+    let app_dir_str = app_dir.to_string_lossy().to_string();
+    cmd.env("BLOSSOM_APP_DATA_DIR", &app_dir_str);
+    cmd.env("BLOSSOM_CALENDAR_DATA_DIR", &app_dir_str);
+
+    let script = calendar_script(script_key, default_script);
+    cmd.arg("-c").arg(script.as_ref());
+    for arg in args {
+        cmd.arg(arg);
+    }
+
+    if input.is_some() {
+        cmd.stdin(Stdio::piped());
+    }
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    if let Some(payload) = input {
+        if let Some(mut stdin) = child.stdin.take() {
+            let data = serde_json::to_vec(payload).map_err(|e| e.to_string())?;
+            stdin.write_all(&data).map_err(|e| e.to_string())?;
+            stdin.flush().map_err(|e| e.to_string())?;
+        } else {
+            return Err("failed to open python stdin".to_string());
+        }
+    }
+
+    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let message = stderr.trim();
+        return Err(if message.is_empty() {
+            "python command failed".to_string()
+        } else {
+            message.to_string()
+        });
+    }
+
+    if output.stdout.is_empty() {
+        Ok(Value::Null)
+    } else {
+        serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())
+    }
+}
+
+fn create_event_impl<R: Runtime>(app: &AppHandle<R>, event: Value) -> Result<Value, String> {
+    let result = run_calendar_python(
+        app,
+        CALENDAR_CREATE_SCRIPT_KEY,
+        CALENDAR_CREATE_SCRIPT,
+        &[],
+        Some(&event),
+    )?;
+    if matches!(result, Value::Object(_)) {
+        Ok(result)
+    } else {
+        Err("calendar create_event returned unexpected payload".to_string())
+    }
+}
+
+fn list_events_impl<R: Runtime>(app: &AppHandle<R>) -> Result<Vec<Value>, String> {
+    match run_calendar_python(
+        app,
+        CALENDAR_LIST_SCRIPT_KEY,
+        CALENDAR_LIST_SCRIPT,
+        &[],
+        None,
+    )? {
+        Value::Array(events) => Ok(events),
+        Value::Null => Ok(Vec::new()),
+        other => Err(format!(
+            "calendar list_events returned unexpected payload: {}",
+            other
+        )),
+    }
+}
+
+fn update_event_impl<R: Runtime>(
+    app: &AppHandle<R>,
+    event_id: i64,
+    changes: Value,
+) -> Result<Option<Value>, String> {
+    let args = vec![event_id.to_string()];
+    let result = run_calendar_python(
+        app,
+        CALENDAR_UPDATE_SCRIPT_KEY,
+        CALENDAR_UPDATE_SCRIPT,
+        &args,
+        Some(&changes),
+    )?;
+    match result {
+        Value::Null => Ok(None),
+        Value::Object(_) => Ok(Some(result)),
+        other => Err(format!(
+            "calendar update_event returned unexpected payload: {}",
+            other
+        )),
+    }
+}
+
+fn delete_event_impl<R: Runtime>(app: &AppHandle<R>, event_id: i64) -> Result<bool, String> {
+    let args = vec![event_id.to_string()];
+    let result = run_calendar_python(
+        app,
+        CALENDAR_DELETE_SCRIPT_KEY,
+        CALENDAR_DELETE_SCRIPT,
+        &args,
+        None,
+    )?;
+    result.as_bool().ok_or_else(|| {
+        format!(
+            "calendar delete_event returned unexpected payload: {}",
+            result
+        )
+    })
+}
+
+fn send_reminder_notifications<R: Runtime>(app: &AppHandle<R>, events: &[Value]) {
+    for event in events {
+        let title = event
+            .get("title")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or("Reminder");
+        let mut lines: Vec<String> = Vec::new();
+        if let Some(start) = event
+            .get("start_time")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+        {
+            lines.push(format!("Starts at {}", start));
+        }
+        if let Some(description) = event
+            .get("description")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+        {
+            lines.push(description.to_string());
+        }
+        let body = if lines.is_empty() {
+            "A calendar reminder is due.".to_string()
+        } else {
+            lines.join("\n")
+        };
+        if let Err(err) = Notification::new(BLOSSOM_BUNDLE_IDENTIFIER)
+            .title(title)
+            .body(body)
+            .show()
+        {
+            eprintln!("failed to show reminder notification: {}", err);
+        }
+    }
+}
+
+fn check_reminders_impl<R: Runtime>(app: &AppHandle<R>) -> Result<Vec<Value>, String> {
+    let wait_arg = format!("{:.3}", CALENDAR_CHECK_WAIT_SECONDS);
+    let events = run_calendar_python(
+        app,
+        CALENDAR_CHECK_SCRIPT_KEY,
+        CALENDAR_CHECK_SCRIPT,
+        &[wait_arg],
+        None,
+    )?;
+    let events = match events {
+        Value::Array(events) => events,
+        Value::Null => Vec::new(),
+        other => {
+            return Err(format!(
+                "calendar check_reminders returned unexpected payload: {}",
+                other
+            ))
+        }
+    };
+    send_reminder_notifications(app, &events);
+    Ok(events)
+}
+
+#[tauri::command]
+fn create_event(app: AppHandle, event: Value) -> Result<Value, String> {
+    create_event_impl(&app, event)
+}
+
+#[tauri::command]
+fn list_events(app: AppHandle) -> Result<Vec<Value>, String> {
+    list_events_impl(&app)
+}
+
+#[tauri::command]
+fn update_event(app: AppHandle, event_id: i64, changes: Value) -> Result<Option<Value>, String> {
+    update_event_impl(&app, event_id, changes)
+}
+
+#[tauri::command]
+fn delete_event(app: AppHandle, event_id: i64) -> Result<bool, String> {
+    delete_event_impl(&app, event_id)
+}
+
+#[tauri::command]
+fn check_reminders(app: AppHandle) -> Result<Vec<Value>, String> {
+    check_reminders_impl(&app)
+}
+
+#[cfg(test)]
+mod calendar_command_tests {
+    use super::*;
+    use serde_json::json;
+    use tauri::test::mock_app;
+
+    struct ScriptOverride {
+        key: &'static str,
+    }
+
+    impl ScriptOverride {
+        fn new(key: &'static str, script: &str) -> Self {
+            std::env::set_var(key, script);
+            Self { key }
+        }
+    }
+
+    impl Drop for ScriptOverride {
+        fn drop(&mut self) {
+            std::env::remove_var(self.key);
+        }
+    }
+
+    fn lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
+
+    #[test]
+    fn create_event_uses_overrides_and_sets_env() {
+        let _guard = lock();
+        let _override = ScriptOverride::new(
+            CALENDAR_CREATE_SCRIPT_KEY,
+            r#"import json, os, sys
+payload = json.load(sys.stdin)
+payload["app_dir"] = os.environ.get("BLOSSOM_APP_DATA_DIR")
+payload["calendar_dir"] = os.environ.get("BLOSSOM_CALENDAR_DATA_DIR")
+json.dump(payload, sys.stdout)
+"#,
+        );
+        let app = mock_app();
+        let handle = app.handle();
+        let payload = json!({
+            "title": "Test",
+            "start_time": "2024-01-01T00:00:00Z"
+        });
+        let result = create_event_impl(&handle, payload.clone()).unwrap();
+        assert_eq!(result.get("title"), payload.get("title"));
+        let app_dir = handle
+            .path()
+            .app_data_dir()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        assert_eq!(
+            result
+                .get("app_dir")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default(),
+            app_dir
+        );
+        assert_eq!(
+            result
+                .get("calendar_dir")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default(),
+            app_dir
+        );
+    }
+
+    #[test]
+    fn list_events_uses_override_script() {
+        let _guard = lock();
+        let _override = ScriptOverride::new(
+            CALENDAR_LIST_SCRIPT_KEY,
+            r#"import json, sys
+json.dump([{"id": 1, "title": "Session"}], sys.stdout)
+"#,
+        );
+        let app = mock_app();
+        let handle = app.handle();
+        let events = list_events_impl(&handle).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].get("id").and_then(|v| v.as_i64()), Some(1));
+    }
+
+    #[test]
+    fn update_event_passes_identifier_and_changes() {
+        let _guard = lock();
+        let _override = ScriptOverride::new(
+            CALENDAR_UPDATE_SCRIPT_KEY,
+            r#"import json, sys
+event_id = int(sys.argv[1])
+changes = json.load(sys.stdin)
+json.dump({"event": event_id, "changes": changes}, sys.stdout)
+"#,
+        );
+        let app = mock_app();
+        let handle = app.handle();
+        let changes = json!({"title": "Updated"});
+        let result = update_event_impl(&handle, 42, changes.clone()).unwrap();
+        let payload = result.expect("expected Some value");
+        assert_eq!(payload.get("event").and_then(|v| v.as_i64()), Some(42));
+        assert_eq!(payload.get("changes"), Some(&changes));
+    }
+
+    #[test]
+    fn delete_event_returns_bool() {
+        let _guard = lock();
+        let _override = ScriptOverride::new(
+            CALENDAR_DELETE_SCRIPT_KEY,
+            r#"import json, sys
+json.dump(sys.argv[1] == "7", sys.stdout)
+"#,
+        );
+        let app = mock_app();
+        let handle = app.handle();
+        assert!(delete_event_impl(&handle, 7).unwrap());
+        assert!(!delete_event_impl(&handle, 9).unwrap());
+    }
+
+    #[test]
+    fn check_reminders_returns_events() {
+        let _guard = lock();
+        let _override = ScriptOverride::new(
+            CALENDAR_CHECK_SCRIPT_KEY,
+            r#"import json, sys
+json.dump([{"title": "Reminder", "description": "Details"}], sys.stdout)
+"#,
+        );
+        let app = mock_app();
+        let handle = app.handle();
+        let events = check_reminders_impl(&handle).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0]
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or(""),
+            "Reminder"
+        );
+    }
 }
 
 pub(crate) fn python_command() -> Command {
@@ -3068,14 +3514,10 @@ print(json.dumps({{"summary": result, "logs": logs}}))
     .await
     .map_err(|e| e.to_string())?;
 
-
     match join_result {
         Ok(value) => {
             if !dry_run_flag {
-                let _ = app.emit(
-                    "dnd::vault-changed",
-                    json!({"paths": ["__all"]}),
-                );
+                let _ = app.emit("dnd::vault-changed", json!({"paths": ["__all"]}));
             }
             Ok(value)
         }
@@ -11814,6 +12256,11 @@ fn main() {
             hotword_set,
             app_version,
             usage_metrics,
+            create_event,
+            list_events,
+            update_event,
+            delete_event,
+            check_reminders,
             start_job,
             train_model,
             cancel_render,
