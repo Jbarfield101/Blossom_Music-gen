@@ -8,6 +8,8 @@ piper-tts>=1.2
 resampy
 webrtcvad
 faster-whisper
+SQLAlchemy>=1.4
+APScheduler>=3.10
 pytest
 requests
 
