@@ -1,4 +1,10 @@
 .card.model-index-panel {
+  display: grid;
+  gap: 0.75rem;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  justify-items: stretch;
   align-items: stretch;
 }
 
