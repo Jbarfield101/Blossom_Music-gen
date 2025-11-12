@@ -981,14 +981,7 @@ export default function ModelIndex() {
         </section>
       )}
 
-      <section
-        className="card model-index-panel"
-        style={{
-          marginTop: '1rem',
-          display: 'grid',
-          gap: '0.75rem',
-        }}
-      >
+      <section className="card model-index-panel" style={{ marginTop: '1rem' }}>
         <div
           style={{
             display: 'flex',
