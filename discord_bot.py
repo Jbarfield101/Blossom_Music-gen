@@ -158,7 +158,7 @@ COMMAND_SUMMARIES = [
     ("/act", "Open UI to choose NPC + voice"),
 ]
 
-DEFAULT_GREETING_PATH = os.path.join("assets", "scripted_sounds", "Discord_Recorded _Greeting.wav")
+DEFAULT_GREETING_PATH = os.path.join("assets", "scripted_sounds", "greeting_Jarrod.mp3")
 GREETING_MIN_INTERVAL = 5.0  # seconds
 
 

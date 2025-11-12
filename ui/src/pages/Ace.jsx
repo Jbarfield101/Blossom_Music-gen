@@ -159,8 +159,8 @@ const ACE_DEFAULT_SECONDS =
   typeof ACE_SONGFORM.clipSeconds === "number" && Number.isFinite(ACE_SONGFORM.clipSeconds)
     ? ACE_SONGFORM.clipSeconds
     : 120;
-const ACE_SONGFORM_DURATION_SECONDS = Math.round((ACE_SONGFORM_TOTAL_BARS * 240) / ACE_SONGFORM.bpm);
-
+const ACE_DEFAULT_BATCH_SIZE = 1;
+const ACE_MAX_BATCH_SIZE = 4;
 function formatEta(value) {
   if (typeof value !== "number" || Number.isNaN(value)) return "";
   const total = Math.max(0, Math.round(value));
@@ -210,6 +210,7 @@ export default function Ace() {
   const [stylePrompt, setStylePrompt] = useState(ACE_SONGFORM.stylePrompt);
   const [songForm, setSongForm] = useState(ACE_SONGFORM_LINES);
   const [seconds, setSeconds] = useState(ACE_DEFAULT_SECONDS);
+  const [batchSize, setBatchSize] = useState(ACE_DEFAULT_BATCH_SIZE);
   const [guidance, setGuidance] = useState(ACE_DEFAULT_GUIDANCE);
   const [statusMessage, setStatusMessage] = useState("");
   const [error, setError] = useState("");
@@ -226,8 +227,6 @@ export default function Ace() {
   const [comfyStatus, setComfyStatus] = useState({ running: false, pending: 0, runningCount: 0 });
   const [statusError, setStatusError] = useState("");
   const [outputsLoading, setOutputsLoading] = useState(false);
-
-  const aceSongFormDurationLabel = useMemo(() => formatEta(ACE_SONGFORM_DURATION_SECONDS), []);
 
   const pollTimeoutRef = useRef(null);
   const jobIdRef = useRef(null);
@@ -385,6 +384,9 @@ export default function Ace() {
           if (typeof result.seconds === "number" && Number.isFinite(result.seconds)) {
             setSeconds(result.seconds);
           }
+          if (typeof result.batchSize === "number" && Number.isFinite(result.batchSize)) {
+            setBatchSize(result.batchSize);
+          }
           if (typeof result.guidance === "number" && Number.isFinite(result.guidance)) {
             setGuidance(result.guidance);
           }
@@ -440,6 +442,12 @@ export default function Ace() {
       setError("Duration must be a positive number of seconds.");
       return null;
     }
+    const batchValue = Number.parseInt(String(batchSize), 10);
+    if (!Number.isFinite(batchValue) || batchValue <= 0) {
+      setError("Batch size must be a positive integer.");
+      return null;
+    }
+    const normalizedBatch = Math.max(1, Math.min(ACE_MAX_BATCH_SIZE, batchValue));
     const guidanceValue = Number.parseFloat(String(guidance));
     const clampedGuidance = Number.isFinite(guidanceValue)
       ? Math.min(Math.max(guidanceValue, 0.05), 2)
@@ -448,14 +456,16 @@ export default function Ace() {
       stylePrompt: trimmedStyle,
       songForm: cleanedForm,
       seconds: secondsValue,
+      batchSize: normalizedBatch,
       guidance: clampedGuidance,
     };
-  }, [stylePrompt, songForm, seconds, guidance]);
+  }, [stylePrompt, songForm, seconds, batchSize, guidance]);
 
   const handleApplySongForm = useCallback(() => {
     setStylePrompt(ACE_SONGFORM.stylePrompt);
     setSongForm(ACE_SONGFORM_LINES);
     setSeconds(ACE_DEFAULT_SECONDS);
+    setBatchSize(ACE_DEFAULT_BATCH_SIZE);
     setGuidance(ACE_SONGFORM.guidance);
     setStatusMessage("Reset to ACE SongForm blueprint.");
     setError("");
@@ -486,6 +496,9 @@ export default function Ace() {
           }
           if (typeof result.seconds === "number" && Number.isFinite(result.seconds)) {
             setSeconds(result.seconds);
+          }
+          if (typeof result.batchSize === "number" && Number.isFinite(result.batchSize)) {
+            setBatchSize(result.batchSize);
           }
           if (typeof result.guidance === "number" && Number.isFinite(result.guidance)) {
             setGuidance(result.guidance);
@@ -588,10 +601,6 @@ export default function Ace() {
       <BackButton />
       <header className="ace-header">
         <h1>ACE Instrumental Studio</h1>
-        <p className="ace-subtitle">
-          Build from the ACE SongForm derived from the ACE-Step workflow, queue renders through ComfyUI, and audition the latest
-          outputs without leaving Blossom.
-        </p>
       </header>
 
       <section className="ace-status">
@@ -659,6 +668,20 @@ export default function Ace() {
                 />
               </div>
               <div className="ace-field">
+                <label htmlFor="ace-batch-size">Batch Size</label>
+                <input
+                  id="ace-batch-size"
+                  type="number"
+                  min="1"
+                  max={ACE_MAX_BATCH_SIZE}
+                  step="1"
+                  value={batchSize}
+                  onChange={(event) => setBatchSize(event.target.value)}
+                  disabled={loading || saving || rendering}
+                />
+                <p className="ace-hint">Renders per job (max {ACE_MAX_BATCH_SIZE}).</p>
+              </div>
+              <div className="ace-field">
                 <label htmlFor="ace-guidance">Guidance</label>
                 <input
                   id="ace-guidance"
@@ -686,81 +709,17 @@ export default function Ace() {
               >
                 Render via ComfyUI
               </PrimaryButton>
+              <PrimaryButton
+                type="button"
+                className="ace-button-sm"
+                disabled={loading || saving || rendering}
+                onClick={handleApplySongForm}
+              >
+                Reset to SongForm
+              </PrimaryButton>
             </div>
           </form>
         </section>
-
-        <aside className="card ace-card ace-songform-card">
-          <div className="ace-songform-header">
-            <div>
-              <h2>ACE SongForm</h2>
-              <p className="ace-hint">{ACE_SONGFORM.logline}</p>
-              <p className="ace-hint">
-                Workflow · <code className="ace-code">{ACE_SONGFORM.workflow}</code>
-              </p>
-            </div>
-            <PrimaryButton
-              type="button"
-              className="ace-button-sm"
-              onClick={handleApplySongForm}
-              disabled={loading || saving || rendering}
-            >
-              Apply to Blueprint
-            </PrimaryButton>
-          </div>
-
-          <div className="ace-songform-meta">
-            <span>{ACE_DEFAULT_SECONDS}s clip target</span>
-            <span>Guidance {ACE_SONGFORM.guidance.toFixed(2)}</span>
-            <span>
-              {ACE_SONGFORM_TOTAL_BARS} bars · ~{aceSongFormDurationLabel} @ {ACE_SONGFORM.bpm} BPM
-            </span>
-          </div>
-
-          <div className="ace-songform-grid">
-            {ACE_SONGFORM.sections.map((section, index) => (
-              <article key={section.id} className="ace-songform-section">
-                <header className="ace-songform-section-header">
-                  <span className="ace-songform-order">{String(index + 1).padStart(2, "0")}</span>
-                  <div className="ace-songform-section-meta">
-                    <span className="ace-songform-tag">{section.tag}</span>
-                    <h3>{section.label}</h3>
-                    <div className="ace-songform-stats">
-                      <span>{section.bars} bars</span>
-                      <span>Energy {section.energy}</span>
-                    </div>
-                  </div>
-                </header>
-                <ul className="ace-songform-focus">
-                  {section.focus.map((item, focusIndex) => (
-                    <li key={`${section.id}-focus-${focusIndex}`}>{item}</li>
-                  ))}
-                </ul>
-              </article>
-            ))}
-          </div>
-
-          <div className="ace-songform-details">
-            <div>
-              <strong>Transitions</strong>
-              <ul>
-                {ACE_SONGFORM.transitions.map((transition, idx) => (
-                  <li key={`transition-${idx}`}>
-                    <span className="ace-songform-tag">{transition.cue}</span> · {transition.note}
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <strong>Highlights</strong>
-              <ul>
-                {ACE_SONGFORM.highlights.map((highlight, idx) => (
-                  <li key={`highlight-${idx}`}>{highlight}</li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </aside>
       </div>
 
       {(statusMessage || jobStage || currentJobId || queuePosition !== null) && (

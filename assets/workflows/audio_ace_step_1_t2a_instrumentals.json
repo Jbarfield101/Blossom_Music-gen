@@ -830,9 +830,9 @@
       ],
       "type": "TextEncodeAceStepAudio",
       "widgets_values": [
-        "anime, kawaii pop, j-pop, childish, piano, guitar, synthesizer, fast, happy, cheerful, lighthearted",
-        "[instrumental]\n[break down]\n[drum fill]\n[chopped samples]",
-        0.9900000000000002
+        "{\n  \"mainConcept\": \"A fusion of Galactic Ice Bloom, Solar Eclipse Waterfalls, Dreamt Glass Atlantis, and Galaxy Whispering Willows\",\n  \"genreStyle\": \"Lo-fi chill instrumental\",\n  \"instruments\": \"Synths, pads, electric guitar, soft percussion\",\n  \"moodEmotion\": \"Melancholic, dreamy, ethereal\",\n  \"eraInfluence\": \"2010s ambient electronica, with a touch of cosmic disco\",\n  \"structureProgression\": \"\n    [Intro] - Slow build-up with synths and pads, gradually introducing percussion.\n    [Verse 1] - Introduce electric guitar melody, continue slow progression.\n    [Chorus] - Swell in sound with added reverb, layers of synths and expanded percussion.\n    [Bridge] - Subtle shift to a more atmospheric soundscape featuring pads and ambient textures.\n    [Outro] - Gradual decay of all elements, concluding with gentle synth melodies.\",\n  \"soundDesignMix\": \"Add vinyl crackle, airy reverb, and slight tape distortion for authentic lo-fi feel.\",\n  \"tempo\": \"70 BPM\",\n  \"songForm\": \"\n    A melancholic, dreamy instrumental journey through cosmic landscapes. Start with a slow build-up and layered progression, leading to a swelling chorus, an atmospheric bridge, and a gentle outro.\",\n  \"seconds\": \"120\",\n  \"guidance\": \"1.1\",\n  \"batchSize\": \"1\"\n}",
+        "[intro] translate Galactic Ice Bloom into softer lo-fi textures\n[verse a] translate Solar Eclipse Waterfalls into uplifted chorus energy\n[hook] translate Dreamt Glass Atlantis into softer lo-fi textures\n[bridge] translate Galaxy Whispering Willows into uplifted chorus energy",
+        0.99
       ]
     }
   ],

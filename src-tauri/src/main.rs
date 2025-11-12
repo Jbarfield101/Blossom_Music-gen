@@ -56,7 +56,7 @@ fn default_greeting_path() -> String {
     project_root()
         .join("assets")
         .join("scripted_sounds")
-        .join("Discord_Recorded _Greeting.wav")
+        .join("greeting_Jarrod.mp3")
         .to_string_lossy()
         .to_string()
 }
@@ -11266,6 +11266,14 @@ fn queue_ace_audio_job(app: AppHandle, registry: State<JobRegistry>) -> Result<u
     let mut args = Vec::new();
     args.push(format!("seconds={:.2}", prompts.seconds));
     args.push(format!("guidance={:.3}", prompts.guidance));
+    args.push(format!("batch={}", prompts.batch_size));
+
+    println!(
+        "[ACE] queue request style_len={} chars, seconds={:.2}, guidance={:.3}",
+        prompts.style_prompt.len(),
+        prompts.seconds,
+        prompts.guidance
+    );
 
     let context = JobContext {
         kind: Some("ace_audio_render".into()),
@@ -11304,16 +11312,23 @@ fn queue_ace_audio_job(app: AppHandle, registry: State<JobRegistry>) -> Result<u
     }
     registry.append_job_stdout(job_id, &format!("Clip length: {:.1} seconds", prompts.seconds));
     registry.append_job_stdout(job_id, &format!("Guidance: {:.3}", prompts.guidance));
+    registry.append_job_stdout(job_id, &format!("Batch size: {}", prompts.batch_size));
     registry.append_job_stdout(job_id, "Submitting ACE Step workflow to ComfyUI...");
 
     let app_handle = app.clone();
     let style_prompt = prompts.style_prompt;
     let song_form = prompts.song_form;
     let seconds = prompts.seconds;
+    let batch_size = prompts.batch_size;
     let guidance = prompts.guidance;
 
     async_runtime::spawn(async move {
-        run_ace_audio_job(app_handle, job_id, style_prompt, song_form, seconds, guidance).await;
+        println!(
+            "[ACE] spawning render job {} (seconds={:.2}, guidance={:.3}, batch={})",
+            job_id, seconds, guidance, batch_size
+        );
+        run_ace_audio_job(app_handle, job_id, style_prompt, song_form, seconds, batch_size, guidance)
+            .await;
     });
 
     Ok(job_id)
@@ -11325,6 +11340,7 @@ async fn run_ace_audio_job(
     style_prompt: String,
     song_form: String,
     seconds: f64,
+    batch_size: i64,
     guidance: f64,
 ) {
     let comfy_settings = commands::get_comfyui_settings(app_handle.clone()).ok();
@@ -11334,6 +11350,10 @@ async fn run_ace_audio_job(
 
     match commands::comfyui_submit_ace_audio(app_handle.clone()).await {
         Ok(response) => {
+            println!(
+                "[ACE] job {} submitted to ComfyUI (prompt_id={}, batch={})",
+                job_id, response.prompt_id, batch_size
+            );
             {
                 let registry = app_handle.state::<JobRegistry>();
                 registry.append_job_stdout(
@@ -11469,6 +11489,7 @@ async fn run_ace_audio_job(
                                         "stylePrompt": style_prompt,
                                         "songForm": song_form,
                                         "seconds": seconds,
+                                        "batchSize": batch_size,
                                         "guidance": guidance,
                                         "outputs": artifacts.iter().map(|a| a.path.clone()).collect::<Vec<_>>(),
                                     });
@@ -11548,6 +11569,10 @@ async fn run_ace_audio_job(
             }
         }
         Err(err) => {
+            eprintln!(
+                "[ACE] job {} failed to submit to ComfyUI: {}",
+                job_id, err
+            );
             final_message = Some(format!("Failed to submit workflow to ComfyUI: {}", err));
         }
     }

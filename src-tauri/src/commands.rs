@@ -22,6 +22,8 @@ const DEFAULT_SECONDS: f64 = 120.0;
 const ACE_DEFAULT_GUIDANCE: f64 = 0.99;
 const ACE_DEFAULT_SECONDS: f64 = 120.0;
 const ACE_MAX_SECONDS: f64 = 600.0;
+const ACE_DEFAULT_BATCH_SIZE: i64 = 1;
+const ACE_MAX_BATCH_SIZE: i64 = 4;
 const ACE_WORKFLOW_FILENAME: &str = "audio_ace_step_1_t2a_instrumentals.json";
 const LOFI_WORKFLOW_FILENAME: &str = "Lofi_Scene_Maker.json";
 const VIDEO_MAKER_WORKFLOW_FILENAME: &str = "img_2_Vid.json";
@@ -154,6 +156,7 @@ pub struct AceWorkflowPrompts {
     pub style_prompt: String,
     pub song_form: String,
     pub seconds: f64,
+    pub batch_size: i64,
     pub guidance: f64,
 }
 
@@ -164,6 +167,8 @@ pub struct AceWorkflowPromptUpdate {
     pub song_form: String,
     #[serde(default)]
     pub seconds: Option<f64>,
+    #[serde(default)]
+    pub batch_size: Option<i64>,
     #[serde(default)]
     pub guidance: Option<f64>,
 }
@@ -693,6 +698,7 @@ fn widget_input_names(node_type: &str) -> Option<&'static [&'static str]> {
         "CLIPTextEncode" => Some(&["text"]),
         "CheckpointLoaderSimple" => Some(&["ckpt_name"]),
         "EmptyLatentAudio" => Some(&["seconds", "batch_size"]),
+        "EmptyAceStepLatentAudio" => Some(&["seconds", "batch_size"]),
         "EmptySD3LatentImage" => Some(&["width", "height", "batch_size"]),
         "KSampler" => Some(&[
             "seed",
@@ -705,7 +711,12 @@ fn widget_input_names(node_type: &str) -> Option<&'static [&'static str]> {
         ]),
         "LoraLoaderModelOnly" => Some(&["lora_name", "strength_model"]),
         "ModelSamplingAuraFlow" => Some(&["shift"]),
+        "ModelSamplingSD3" => Some(&["shift"]),
         "SaveAudio" => Some(&["filename_prefix"]),
+        "SaveAudioMP3" => Some(&["filename_prefix", "quality"]),
+        "SaveAudioOpus" => Some(&["filename_prefix", "quality"]),
+        "LatentOperationTonemapReinhard" => Some(&["multiplier"]),
+        "TextEncodeAceStepAudio" => Some(&["tags", "lyrics", "lyrics_strength"]),
         "SaveImage" => Some(&["filename_prefix"]),
         "UNETLoader" => Some(&["unet_name", "weight_dtype"]),
         "VAELoader" => Some(&["vae_name", "vae_type"]),
@@ -1637,7 +1648,7 @@ fn extract_ace_prompts(data: &Value) -> Result<AceWorkflowPrompts, String> {
         .and_then(Value::as_f64)
         .unwrap_or(ACE_DEFAULT_GUIDANCE);
 
-    let seconds = data
+    let (seconds, batch_size) = data
         .get("nodes")
         .and_then(Value::as_array)
         .and_then(|nodes| {
@@ -1648,21 +1659,31 @@ fn extract_ace_prompts(data: &Value) -> Result<AceWorkflowPrompts, String> {
                     .map(|value| value == "EmptyAceStepLatentAudio")
                     .unwrap_or(false)
                 {
-                    node.get("widgets_values")
+                    let (seconds, batch) = node
+                        .get("widgets_values")
                         .and_then(Value::as_array)
-                        .and_then(|arr| arr.get(0))
-                        .and_then(Value::as_f64)
+                        .map(|arr| {
+                            let seconds = arr.get(0).and_then(Value::as_f64).unwrap_or(ACE_DEFAULT_SECONDS);
+                            let batch_size = arr
+                                .get(1)
+                                .and_then(|value| value.as_i64().or_else(|| value.as_f64().map(|v| v as i64)))
+                                .unwrap_or(ACE_DEFAULT_BATCH_SIZE);
+                            (seconds, batch_size)
+                        })
+                        .unwrap_or((ACE_DEFAULT_SECONDS, ACE_DEFAULT_BATCH_SIZE));
+                    Some((seconds, batch))
                 } else {
                     None
                 }
             })
         })
-        .unwrap_or(ACE_DEFAULT_SECONDS);
+        .unwrap_or((ACE_DEFAULT_SECONDS, ACE_DEFAULT_BATCH_SIZE));
 
     Ok(AceWorkflowPrompts {
         style_prompt,
         song_form,
         seconds,
+        batch_size,
         guidance,
     })
 }
@@ -1703,13 +1724,37 @@ fn set_ace_seconds(data: &mut Value, seconds: f64) -> Result<(), String> {
         Some(Value::Array(values)) => values.clone(),
         _ => Vec::new(),
     };
-    if arr.is_empty() {
-        arr.push(Value::Null);
+    if arr.len() < 2 {
+        arr.resize(2, Value::Null);
     }
     let seconds_value = Number::from_f64(seconds)
         .or_else(|| Number::from_f64(ACE_DEFAULT_SECONDS))
         .ok_or_else(|| "Failed to encode duration value".to_string())?;
     arr[0] = Value::Number(seconds_value);
+    obj.insert("widgets_values".to_string(), Value::Array(arr));
+    Ok(())
+}
+
+fn set_ace_batch_size(data: &mut Value, batch_size: i64) -> Result<(), String> {
+    let node = locate_ace_latent_node_mut(data)?;
+    let obj = node
+        .as_object_mut()
+        .ok_or_else(|| "Latent node is not an object".to_string())?;
+    let mut arr = match obj.get_mut("widgets_values") {
+        Some(Value::Array(values)) => values.clone(),
+        _ => Vec::new(),
+    };
+    if arr.len() < 2 {
+        arr.resize(2, Value::Null);
+    }
+    let clamped = if batch_size <= 0 {
+        ACE_DEFAULT_BATCH_SIZE
+    } else if batch_size > ACE_MAX_BATCH_SIZE {
+        ACE_MAX_BATCH_SIZE
+    } else {
+        batch_size
+    };
+    arr[1] = Value::Number(Number::from(clamped));
     obj.insert("widgets_values".to_string(), Value::Array(arr));
     Ok(())
 }
@@ -2121,14 +2166,23 @@ pub fn update_ace_workflow_prompts(
         guidance = 2.0;
     }
 
+    let mut batch_size = update.batch_size.unwrap_or(ACE_DEFAULT_BATCH_SIZE);
+    if batch_size <= 0 {
+        batch_size = ACE_DEFAULT_BATCH_SIZE;
+    } else if batch_size > ACE_MAX_BATCH_SIZE {
+        batch_size = ACE_MAX_BATCH_SIZE;
+    }
+
     set_ace_text_fields(&mut data, style_prompt, &cleaned_form, guidance)?;
     set_ace_seconds(&mut data, seconds)?;
+    set_ace_batch_size(&mut data, batch_size)?;
     persist_ace_workflow(&data)?;
 
     Ok(AceWorkflowPrompts {
         style_prompt: style_prompt.to_string(),
         song_form: cleaned_form,
         seconds,
+        batch_size,
         guidance,
     })
 }

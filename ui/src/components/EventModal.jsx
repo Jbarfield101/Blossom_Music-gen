@@ -49,14 +49,14 @@ function createInitialValues(draft, categories) {
 export default function EventModal({
   open,
   mode,
-  draft,
+  draft = null,
   categories,
   onClose,
   onSubmit,
-  onDelete,
-  submitting,
-  deleting,
-  error,
+  onDelete = null,
+  submitting = false,
+  deleting = false,
+  error = '',
 }) {
   const [values, setValues] = useState(() => createInitialValues(draft, categories));
   const [localError, setLocalError] = useState('');
@@ -365,12 +365,4 @@ EventModal.propTypes = {
   submitting: PropTypes.bool,
   deleting: PropTypes.bool,
   error: PropTypes.string,
-};
-
-EventModal.defaultProps = {
-  draft: null,
-  onDelete: null,
-  submitting: false,
-  deleting: false,
-  error: '',
 };

@@ -55,9 +55,19 @@
 
 .fusion-controls {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  align-items: center;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  align-items: stretch;
   gap: var(--space-md);
+}
+
+.fusion-concept-group {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-sm);
+}
+
+.fusion-concept-group .fusion-input {
+  flex: 1;
 }
 
 .fusion-input {
@@ -92,6 +102,12 @@
   justify-content: center;
   transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
   min-width: 7rem;
+}
+
+.fusion-fuse-button {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: unset;
 }
 
 .fusion-button:hover,

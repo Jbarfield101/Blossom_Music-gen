@@ -2,6 +2,9 @@ import { useState, useCallback, useEffect } from 'react';
 import { isTauri, invoke } from '@tauri-apps/api/core';
 import BackButton from '../components/BackButton.jsx';
 import './Fusion.css';
+import qwenAgentGuide from '../../../assets/agents/qwen_agent.md?raw';
+import aceAgentGuide from '../../../assets/agents/ace_agent.md?raw';
+import wanAgentGuide from '../../../assets/agents/wan_agent.md?raw';
 
 function extractPromptField(result, key) {
   if (!result || typeof result !== 'object') {
@@ -37,6 +40,22 @@ function sanitizeJsonBlock(raw) {
   return trimmed;
 }
 
+function parseJsonResponse(raw) {
+  const cleaned = sanitizeJsonBlock(typeof raw === 'string' ? raw : String(raw ?? ''));
+  if (!cleaned) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (parsed && typeof parsed === 'object') {
+      return parsed;
+    }
+  } catch (err) {
+    console.warn('Failed to parse JSON payload', err);
+  }
+  return null;
+}
+
 const AUDIO_PROMPT_TEMPLATE =
   'A {mainConcept} in {genreStyle} featuring {instruments}, evoking a {moodEmotion} vibe inspired by {eraInfluence}. {structureProgression}. {soundDesignMix}. {tempo}.';
 
@@ -52,20 +71,70 @@ const AUDIO_TEMPLATE_KEYS = [
 ];
 
 function parseAudioPromptPayload(raw) {
-  const cleaned = sanitizeJsonBlock(typeof raw === 'string' ? raw : String(raw ?? ''));
-  if (!cleaned) {
+  const parsed = parseJsonResponse(raw);
+  if (!parsed) {
+    console.warn('Failed to parse audio prompt payload as JSON');
+  }
+  return parsed;
+}
+
+const QWEN_AGENT_GUIDE = typeof qwenAgentGuide === 'string' ? qwenAgentGuide.trim() : '';
+const ACE_AGENT_GUIDE = typeof aceAgentGuide === 'string' ? aceAgentGuide.trim() : '';
+const WAN_AGENT_GUIDE = typeof wanAgentGuide === 'string' ? wanAgentGuide.trim() : '';
+const ACE_WORKFLOW_PATH = 'assets/workflows/audio_ace_step_1_t2a_instrumentals.json';
+const ACE_DEFAULT_SECONDS = 120;
+const ACE_DEFAULT_GUIDANCE = 0.99;
+const ACE_DEFAULT_BATCH_SIZE = 1;
+
+const normalizeAudioPlan = (plan) => {
+  if (!plan || typeof plan !== 'object') {
     return null;
   }
-  try {
-    const parsed = JSON.parse(cleaned);
-    if (parsed && typeof parsed === 'object') {
-      return parsed;
-    }
-  } catch (err) {
-    console.warn('Failed to parse audio prompt payload as JSON', err);
+  const stylePrompt = typeof plan.stylePrompt === 'string' ? plan.stylePrompt.trim() : '';
+  const songForm = typeof plan.songForm === 'string' ? plan.songForm.trim() : '';
+  const secondsValue = Number(plan.seconds);
+  const guidanceValue = Number(plan.guidance);
+  const batchValueRaw = Number.parseInt(plan.batchSize, 10);
+  const seconds = Number.isFinite(secondsValue) && secondsValue > 0 ? secondsValue : ACE_DEFAULT_SECONDS;
+  const guidance =
+    Number.isFinite(guidanceValue) && guidanceValue > 0.05 && guidanceValue <= 2 ? guidanceValue : ACE_DEFAULT_GUIDANCE;
+  const batchSize = Number.isFinite(batchValueRaw) && batchValueRaw > 0 ? batchValueRaw : ACE_DEFAULT_BATCH_SIZE;
+  if (!stylePrompt || !songForm) {
+    return null;
   }
-  return null;
-}
+  return {
+    stylePrompt,
+    songForm,
+    seconds,
+    guidance,
+    batchSize,
+  };
+};
+
+const buildSongFormFromConcepts = (concepts = [], mode = 'lofi') => {
+  const labels = ['[intro]', '[verse a]', '[hook]', '[bridge]', '[verse b]', '[solo]', '[outro]'];
+  const sanitized = concepts
+    .map((value) => (typeof value === 'string' ? value.trim() : ''))
+    .filter(Boolean)
+    .slice(0, labels.length);
+  if (sanitized.length === 0) {
+    return `[intro] establish the theme with gentle pads
+[hook] weave a memorable motif that matches the fusion
+[outro] fade with sparkling tape echoes`;
+  }
+  return sanitized
+    .map((concept, idx) => {
+      const label = labels[idx] || `[section ${idx + 1}]`;
+      const energy =
+        mode === 'tiktok'
+          ? 'high-energy visuals'
+          : idx % 2 === 0
+            ? 'softer lo-fi textures'
+            : 'uplifted chorus energy';
+      return `${label} translate ${concept} into ${energy}`;
+    })
+    .join('\n');
+};
 
 function buildAudioPromptString(payload) {
   if (!payload || typeof payload !== 'object') {
@@ -169,16 +238,23 @@ function buildAudioPromptString(payload) {
 export default function Fusion() {
   const [conceptA, setConceptA] = useState('');
   const [conceptB, setConceptB] = useState('');
+  const [conceptC, setConceptC] = useState('');
+  const [conceptD, setConceptD] = useState('');
   const [mode, setMode] = useState('lofi');
   const [fusionResult, setFusionResult] = useState('');
   const [loadingA, setLoadingA] = useState(false);
   const [loadingB, setLoadingB] = useState(false);
+  const [loadingC, setLoadingC] = useState(false);
+  const [loadingD, setLoadingD] = useState(false);
   const [loadingFuse, setLoadingFuse] = useState(false);
   const [error, setError] = useState('');
   const [includeNegative, setIncludeNegative] = useState(true);
   const [negativeResult, setNegativeResult] = useState('');
   const [generateAudioPrompt, setGenerateAudioPrompt] = useState(false);
   const [audioPromptResult, setAudioPromptResult] = useState('');
+  const [generateWanPrompt, setGenerateWanPrompt] = useState(false);
+  const [wanPromptResult, setWanPromptResult] = useState('');
+  const [audioWorkflowPlan, setAudioWorkflowPlan] = useState(null);
   const [history, setHistory] = useState([]); // [{a,b,prompt,negative,audioPrompt,candidates?,ts}]
   const [promptCandidates, setPromptCandidates] = useState([]);
   const [selectedCandidateIndex, setSelectedCandidateIndex] = useState(0);
@@ -190,6 +266,8 @@ export default function Fusion() {
   const [stepsInput, setStepsInput] = useState('');
   const [batchSizeInput, setBatchSizeInput] = useState('');
   const [sceneMeta, setSceneMeta] = useState(null);
+  const [useQwen, setUseQwen] = useState(false);
+  const [useEchozen, setUseEchozen] = useState(false);
 
   const HISTORY_KEY = 'blossom.fusion.history';
 
@@ -219,12 +297,26 @@ export default function Fusion() {
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
-          const normalized = parsed.map((entry) => ({
-            ...entry,
-            mode: entry?.mode === 'tiktok' ? 'tiktok' : 'lofi',
-            audioPrompt:
-              typeof entry?.audioPrompt === 'string' ? entry.audioPrompt.trim() : '',
-          }));
+          const normalized = parsed.map((entry) => {
+            const rawConcepts = Array.isArray(entry?.concepts)
+              ? entry.concepts
+              : [entry?.a, entry?.b, entry?.c, entry?.d];
+            const concepts = rawConcepts
+              .map((value) => (typeof value === 'string' ? value.trim() : ''))
+              .filter(Boolean)
+              .slice(0, 4);
+            const audioPlan = normalizeAudioPlan(entry?.audioPlan);
+            return {
+              ...entry,
+              mode: entry?.mode === 'tiktok' ? 'tiktok' : 'lofi',
+              audioPrompt: typeof entry?.audioPrompt === 'string' ? entry.audioPrompt.trim() : '',
+              concepts,
+              useQwen: Boolean(entry?.useQwen),
+              useEchozen: Boolean(entry?.useEchozen),
+              audioPlan,
+              wanPrompt: typeof entry?.wanPrompt === 'string' ? entry.wanPrompt.trim() : '',
+            };
+          });
           setHistory(normalized);
         }
       }
@@ -357,33 +449,97 @@ export default function Fusion() {
     setDialogError('');
     try {
       await invoke('update_lofi_scene_prompts', { payload });
+      let imageQueued = false;
+      let imageStatusNode = null;
       try {
         await invoke('queue_lofi_scene_job');
-        setStatusInfo({
-          type: 'success',
-          content: (
-            <span>
-              Image render queued!{' '}
-              <a
-                href="#/visual-generator/lofi-scene-maker"
-                style={{ color: 'inherit', textDecoration: 'underline' }}
-              >
-                Open job queue
-              </a>
-            </span>
-          ),
-        });
+        imageQueued = true;
+        imageStatusNode = (
+          <span>
+            Image render queued!{' '}
+            <a
+              href="#/visual-generator/lofi-scene-maker"
+              style={{ color: 'inherit', textDecoration: 'underline' }}
+            >
+              Open job queue
+            </a>
+          </span>
+        );
       } catch (queueError) {
         const queueMessage = queueError instanceof Error ? queueError.message : String(queueError);
-        setStatusInfo({
-          type: 'error',
-          content: (
+        imageStatusNode = (
+          <span>
+            Prompts saved but failed to queue the image render: {queueMessage}
+          </span>
+        );
+      }
+
+      let audioQueued = false;
+      let audioStatusNode = null;
+      if (generateAudioPrompt) {
+        if (!audioWorkflowPlan || !audioWorkflowPlan.stylePrompt || !audioWorkflowPlan.songForm) {
+          audioStatusNode = (
             <span>
-              Prompts saved but failed to queue the render: {queueMessage}
+              Audio render skipped: generate a new fusion with the audio option enabled to prepare an ACE plan.
             </span>
-          ),
+          );
+        } else {
+          try {
+            await invoke('update_ace_workflow_prompts', {
+              update: {
+                stylePrompt: audioWorkflowPlan.stylePrompt,
+                songForm: audioWorkflowPlan.songForm,
+                seconds: audioWorkflowPlan.seconds,
+                batchSize: audioWorkflowPlan.batchSize,
+                guidance: audioWorkflowPlan.guidance,
+              },
+            });
+            await invoke('queue_ace_audio_job');
+            audioQueued = true;
+            audioStatusNode = (
+              <span>
+                ACE audio render queued via {ACE_WORKFLOW_PATH}.
+              </span>
+            );
+          } catch (audioError) {
+            const audioMessage = audioError instanceof Error ? audioError.message : String(audioError);
+            audioStatusNode = (
+              <span>
+                Audio job failed: {audioMessage}
+              </span>
+            );
+          }
+        }
+      }
+
+      const messageNodes = [imageStatusNode, audioStatusNode].filter(Boolean);
+      const combinedContent =
+        messageNodes.length <= 1 ? (
+          messageNodes[0] || null
+        ) : (
+          <span>
+            {messageNodes.map((node, idx) => (
+              <span
+                key={`status-chunk-${idx}`}
+                style={{ display: 'block', marginBottom: idx < messageNodes.length - 1 ? '0.35rem' : 0 }}
+              >
+                {node}
+              </span>
+            ))}
+          </span>
+        );
+      const statusType = (() => {
+        if (!imageQueued) return 'error';
+        if (generateAudioPrompt && !audioQueued) return 'warning';
+        return 'success';
+      })();
+      if (combinedContent) {
+        setStatusInfo({
+          type: statusType,
+          content: combinedContent,
         });
       }
+
       closeDialog();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -391,7 +547,19 @@ export default function Fusion() {
     } finally {
       setDialogLoading(false);
     }
-  }, [batchSizeInput, closeDialog, fusionResult, includeNegative, isTauriEnv, negativeResult, sceneMeta, stepsInput]);
+  }, [
+    audioWorkflowPlan,
+    batchSizeInput,
+    closeDialog,
+    fusionResult,
+    generateAudioPrompt,
+    generateWanPrompt,
+    includeNegative,
+    isTauriEnv,
+    negativeResult,
+    sceneMeta,
+    stepsInput,
+  ]);
 
   const copyText = async (text) => {
     const str = String(text || '');
@@ -410,8 +578,17 @@ export default function Fusion() {
   };
 
   const randomConcept = useCallback(async (slot) => {
-    const setLoading = slot === 'A' ? setLoadingA : setLoadingB;
-    const setConcept = slot === 'A' ? setConceptA : setConceptB;
+    const slotMap = {
+      A: { setLoading: setLoadingA, setConcept: setConceptA },
+      B: { setLoading: setLoadingB, setConcept: setConceptB },
+      C: { setLoading: setLoadingC, setConcept: setConceptC },
+      D: { setLoading: setLoadingD, setConcept: setConceptD },
+    };
+    const target = slotMap[slot];
+    if (!target) {
+      return;
+    }
+    const { setLoading, setConcept } = target;
     setLoading(true);
     setError('');
     try {
@@ -439,31 +616,69 @@ export default function Fusion() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    const a = conceptA.trim();
-    const b = conceptB.trim();
+    const trimmedConcepts = [conceptA, conceptB, conceptC, conceptD].map((value) => value.trim());
+    const conceptEntries = trimmedConcepts.map((value, idx) => ({
+      id: String.fromCharCode(65 + idx),
+      value,
+    }));
+    const activeConcepts = conceptEntries.filter((entry) => entry.value);
     setError('');
     setStatusInfo(null);
     setNegativeResult('');
     setPromptCandidates([]);
     setSelectedCandidateIndex(0);
     setAudioPromptResult('');
-    if (!a && !b) {
+    setAudioWorkflowPlan(null);
+    setWanPromptResult('');
+    if (activeConcepts.length === 0) {
       setFusionResult('Enter concepts to explore their fusion.');
       return;
     }
-    if (!a || !b) {
-      setFusionResult('Add a second concept to complete the fusion.');
+    if (activeConcepts.length === 1) {
+      setFusionResult('Add at least two concepts to complete the fusion.');
       return;
     }
     setLoadingFuse(true);
     try {
       const isTikTok = mode === 'tiktok';
-      const system = isTikTok
-        ? 'You are Blossom, an excitable creative assistant. Devise ONE high-energy, absurd text prompt that sells an AI-generated short-form video idea blending the two concepts. Make it punchy, vertical-video ready, and full of motion, hooks, and spectacle. Keep it to one paragraph (45-80 words). Avoid artist names, trademarks, numbered lists, or quotation marks.'
-        : 'You are Blossom, a helpful creative assistant. Compose a single vivid text-to-image prompt that fuses two given concepts. Constraints: one paragraph (~50-90 words); describe subject, style, mood, lighting, composition, materials, color palette; avoid artist names and trademarks; do not mention the words "fusion" or "concept"; no lists; no quotes.';
-      const prompt = isTikTok
-        ? `Concept A: ${a}\nConcept B: ${b}\nInvent one outrageous AI video idea ready for a viral short.`
-        : `Concept A: ${a}\nConcept B: ${b}\nWrite one coherent prompt.`;
+      const conceptLines = activeConcepts.map((entry) => `Concept ${entry.id}: ${entry.value}`).join('\n');
+      const conceptHistoryPayload = activeConcepts.map((entry) => entry.value).slice(0, 4);
+      const [a, b] = conceptHistoryPayload;
+      const qwenSystemPrefix = useQwen && QWEN_AGENT_GUIDE ? `${QWEN_AGENT_GUIDE}\n\n` : '';
+      const qwenPositiveHint = useQwen
+        ? 'Follow the Qwen prompt engineering guidance above: use natural sentences, cover subject, setting, style, lighting, and quote any exact text.'
+        : '';
+      const echozenPositiveHint = useEchozen
+        ? 'Ensure the prompt clearly states that the word "Echozen" appears visibly on signage, clothing, instruments, or props within the scene.'
+        : '';
+      const system = `${qwenSystemPrefix}${
+        isTikTok
+          ? 'You are Blossom, an excitable creative assistant. Devise ONE high-energy, absurd text prompt that sells an AI-generated short-form video idea blending the provided concepts. Make it punchy, vertical-video ready, and full of motion, hooks, and spectacle. Keep it to one paragraph (45-80 words). Avoid artist names, trademarks, numbered lists, or quotation marks.'
+          : 'You are Blossom, a helpful creative assistant. Compose a single vivid text-to-image prompt that fuses the provided concepts. Constraints: one paragraph (~50-90 words); describe subject, style, mood, lighting, composition, materials, color palette; avoid artist names and trademarks; do not mention the words "fusion" or "concept"; no lists; no quotes.'
+      }`;
+      const promptSections = [
+        conceptLines,
+        isTikTok
+          ? 'Invent one outrageous AI video idea ready for a viral short.'
+          : 'Write one coherent prompt.',
+        qwenPositiveHint,
+        echozenPositiveHint,
+      ].filter(Boolean);
+      const prompt = promptSections.join('\n');
+      const enforceEchozen = (raw) => {
+        const trimmed = String(raw || '').trim();
+        if (!trimmed) {
+          return '';
+        }
+        if (!useEchozen) {
+          return trimmed;
+        }
+        if (/echozen/i.test(trimmed)) {
+          return trimmed;
+        }
+        const suffix = trimmed.endsWith('.') ? '' : '.';
+        return `${trimmed}${suffix} Include the word "Echozen" prominently on signage, clothing, or props.`;
+      };
       const candidateConfigs = Array.from({ length: 3 }, () => ({
         temperature: randomTemperature(0.65, 0.95),
         seed: randomSeed(),
@@ -478,8 +693,9 @@ export default function Fusion() {
             seed: config.seed,
           });
           const cleaned = String(response || '').trim();
+          const withEchozen = enforceEchozen(cleaned);
           if (cleaned) {
-            candidateResults.push({ ...config, text: cleaned });
+            candidateResults.push({ ...config, text: withEchozen });
           }
         } catch (candidateError) {
           console.error('fusion candidate failed', candidateError);
@@ -503,12 +719,24 @@ export default function Fusion() {
 
       let negative = '';
       if (includeNegative) {
-        const negSystem = isTikTok
-          ? 'You are Blossom, an exacting creative assistant. Produce a compact negative prompt for AI-generated video frames matching the given fusion concepts. Output a single line of comma-separated visual issues to avoid (e.g., "muddy motion, frame tearing, awkward limbs, text overlays, compression artifacts"). Do not include quotes or explanations.'
-          : 'You are Blossom, a helpful creative assistant. Produce a compact negative prompt for text-to-image diffusion matching the given fusion concepts. Output a single line of comma-separated terms describing artifacts and traits to avoid (e.g., "blurry, extra limbs, low contrast, text, watermark, jpeg artifacts"). Do not include quotes or explanations.';
-        const negPrompt = isTikTok
-          ? `Concept A: ${a}\nConcept B: ${b}\nNegative prompt only, single line tuned for clean, cinematic AI video frames.`
-          : `Concept A: ${a}\nConcept B: ${b}\nNegative prompt only, single line.`;
+        const negSystem = `${qwenSystemPrefix}${
+          isTikTok
+            ? 'You are Blossom, an exacting creative assistant. Produce a compact negative prompt for AI-generated video frames matching the given fusion concepts. Output a single line of comma-separated visual issues to avoid (e.g., "muddy motion, frame tearing, awkward limbs, text overlays, compression artifacts"). Do not include quotes or explanations.'
+            : 'You are Blossom, a helpful creative assistant. Produce a compact negative prompt for text-to-image diffusion matching the given fusion concepts. Output a single line of comma-separated terms describing artifacts and traits to avoid (e.g., "blurry, extra limbs, low contrast, text, watermark, jpeg artifacts"). Do not include quotes or explanations.'
+        }`;
+        const negPromptSections = [
+          conceptLines,
+          isTikTok
+            ? 'Negative prompt only, single line tuned for clean, cinematic AI video frames.'
+            : 'Negative prompt only, single line.',
+          useQwen
+            ? 'Apply the Qwen negative prompt tips above: focus on concrete issues, avoid bloated generic lists.'
+            : '',
+          useEchozen
+            ? 'Do not remove or blur signage containing the word "Echozen"; keep that text intact while avoiding other visual issues.'
+            : '',
+        ].filter(Boolean);
+        const negPrompt = negPromptSections.join('\n');
         const neg = await invoke('generate_llm', {
           prompt: negPrompt,
           system: negSystem,
@@ -520,13 +748,13 @@ export default function Fusion() {
       }
 
       let audioPrompt = '';
+      let audioPlanPayload = null;
       if (generateAudioPrompt) {
-        const audioSystem = isTikTok
-          ? 'You are Blossom, an enthusiastic music director for short-form content. Respond ONLY with JSON containing the keys mainConcept, genreStyle, instruments, moodEmotion, eraInfluence, structureProgression, soundDesignMix, and tempo. Provide concise descriptive phrases for every field. No narration or extra text.'
-          : 'You are Blossom, a chill music director for lo-fi. Respond ONLY with JSON containing the keys mainConcept, genreStyle, instruments, moodEmotion, eraInfluence, structureProgression, soundDesignMix, and tempo. Provide concise descriptive phrases for every field. No narration or extra text.';
-        const audioPromptInput = isTikTok
-          ? `Concept A: ${a}\nConcept B: ${b}\nReturn a JSON object like {"mainConcept":"","genreStyle":"","instruments":"","moodEmotion":"","eraInfluence":"","structureProgression":"","soundDesignMix":"","tempo":""} capturing a high-energy, short-form ready soundtrack that blends these ideas. Ensure "tempo" includes BPM (and optional duration) and keep every field concise. Do not include commentary.`
-          : `Concept A: ${a}\nConcept B: ${b}\nReturn a JSON object like {"mainConcept":"","genreStyle":"","instruments":"","moodEmotion":"","eraInfluence":"","structureProgression":"","soundDesignMix":"","tempo":""} capturing a mellow lo-fi beat that blends these ideas. Ensure "tempo" includes BPM (and optional duration) and keep every field concise. Do not include commentary.`;
+        const aceGuidePrefix = ACE_AGENT_GUIDE ? `${ACE_AGENT_GUIDE}\n\n` : '';
+        const audioSystem = `${aceGuidePrefix}You are Blossom's ACE-Step music director. Reference the workflow file ${ACE_WORKFLOW_PATH}. Respond ONLY with JSON containing the keys mainConcept, genreStyle, instruments, moodEmotion, eraInfluence, structureProgression, soundDesignMix, tempo, songForm, seconds, guidance, and batchSize. Use natural language phrases (no arrays) for descriptive fields. "songForm" must be a multi-line blueprint using bracketed section tags (e.g., "[intro]", "[hook lift]"). Keep seconds between 20 and 180. Keep guidance between 0.6 and 1.2 for chill mode and up to 1.4 for TikTok mode. Batch size should be 1 or 2. No explanations outside the JSON.`;
+        const audioPromptInput = `${conceptLines}
+Mode: ${isTikTok ? 'TikTok high-energy instrumental promoting motion-friendly hooks.' : 'Lo-fi chill instrumental focused on vibe and atmosphere.'}
+Task: Compose an ACE-Step instrumental plan that fuses every concept above. The JSON must fill every descriptive field, include BPM inside "tempo", and provide a vivid "songForm" blueprint with bracketed sections plus one-sentence instructions per section.`;
         try {
           const audioResponse = await invoke('generate_llm', {
             prompt: audioPromptInput,
@@ -541,24 +769,85 @@ export default function Fusion() {
             const finalAudio = (synthesized || cleanedAudio).trim();
             audioPrompt = finalAudio;
             setAudioPromptResult(finalAudio);
+            const rawSongForm =
+              extractPromptField(parsedAudio, 'songForm') ||
+              buildSongFormFromConcepts(conceptHistoryPayload, mode);
+            const planCandidate = normalizeAudioPlan({
+              stylePrompt: finalAudio,
+              songForm: rawSongForm,
+              seconds: extractPromptField(parsedAudio, 'seconds'),
+              guidance: extractPromptField(parsedAudio, 'guidance'),
+              batchSize: extractPromptField(parsedAudio, 'batchSize'),
+            });
+            const fallbackPlan =
+              planCandidate ||
+              normalizeAudioPlan({
+                stylePrompt: finalAudio,
+                songForm: rawSongForm || buildSongFormFromConcepts(conceptHistoryPayload, mode),
+                seconds: ACE_DEFAULT_SECONDS,
+                guidance: ACE_DEFAULT_GUIDANCE,
+                batchSize: ACE_DEFAULT_BATCH_SIZE,
+              });
+            setAudioWorkflowPlan(fallbackPlan);
+            audioPlanPayload = fallbackPlan;
+          } else {
+            setAudioWorkflowPlan(null);
           }
         } catch (audioError) {
           console.error('fusion audio prompt failed', audioError);
+          setAudioWorkflowPlan(null);
+        }
+      }
+
+      let wanPrompt = '';
+      if (generateWanPrompt) {
+        const wanGuidePrefix = WAN_AGENT_GUIDE ? `${WAN_AGENT_GUIDE}\n\n` : '';
+        const wanSystem = `${wanGuidePrefix}You are Blossom's Wan video director. Craft structured Wan text-to-video prompts using the Subject + Scene + Motion + Camera + Atmosphere + Style frameworks described above. Respond ONLY with JSON containing two string fields: "prompt" (80-120 words, natural language) and "negative" (comma-separated issues to avoid, no numbering).`;
+        const wanPromptInput = `${conceptLines}
+Mode: ${isTikTok ? 'High-energy vertical Wan clip with fast motion and kinetic camera.' : 'Cinematic lo-fi Wan clip with relaxed pacing and atmospheric lighting.'}
+Requirements: Mention shot sizes, camera moves, motion verbs, lighting, atmosphere, style, duration (4-6 seconds), fps (18-24), and any dialogue or ambient cues if relevant. Close with payoff imagery.`;
+        try {
+          const wanResponse = await invoke('generate_llm', {
+            prompt: wanPromptInput,
+            system: wanSystem,
+            temperature: randomTemperature(0.55, 0.85),
+            seed: randomSeed(),
+          });
+          const parsedWan = parseJsonResponse(wanResponse);
+          const wanPositive = extractPromptField(parsedWan, 'prompt') || String(wanResponse || '').trim();
+          const wanNegative =
+            extractPromptField(parsedWan, 'negative') ||
+            extractPromptField(parsedWan, 'negativePrompt') ||
+            '';
+          const composedWan = [wanPositive.trim(), wanNegative ? `NEGATIVE: ${wanNegative.trim()}` : '']
+            .filter(Boolean)
+            .join('\n\n');
+          wanPrompt = composedWan.trim();
+          setWanPromptResult(wanPrompt);
+        } catch (wanError) {
+          console.error('fusion WAN prompt failed', wanError);
         }
       }
 
       const entry = {
-        a,
-        b,
+        concepts: conceptHistoryPayload,
+        a: a || '',
+        b: b || '',
+        c: conceptHistoryPayload[2] || '',
+        d: conceptHistoryPayload[3] || '',
         prompt: main,
         negative,
         audioPrompt,
+        audioPlan: audioPlanPayload || null,
+        wanPrompt,
         candidates: uniqueCandidates.map((c) => ({
           text: c.text,
           temperature: c.temperature,
           seed: c.seed,
         })),
         mode,
+        useQwen,
+        useEchozen,
         ts: Date.now(),
       };
       const next = [entry, ...history].slice(0, 20);
@@ -571,9 +860,18 @@ export default function Fusion() {
     }
   };
 
+  const conceptInputConfig = [
+    { id: 'A', label: 'First concept', value: conceptA, setValue: setConceptA, loading: loadingA },
+    { id: 'B', label: 'Second concept', value: conceptB, setValue: setConceptB, loading: loadingB },
+    { id: 'C', label: 'Third concept (optional)', value: conceptC, setValue: setConceptC, loading: loadingC },
+    { id: 'D', label: 'Fourth concept (optional)', value: conceptD, setValue: setConceptD, loading: loadingD },
+  ];
+
   const trimmedFusionPrompt = fusionResult.trim();
   const trimmedAudioPrompt = audioPromptResult.trim();
+  const trimmedWanPrompt = wanPromptResult.trim();
   const isGenerateDisabled = loadingFuse || !trimmedFusionPrompt || dialogLoading || isDialogOpen;
+  const generateButtonLabel = generateAudioPrompt ? 'Generate Image & Audio' : 'Generate Image';
 
   const statusPalette = {
     success: { border: 'rgba(34, 197, 94, 0.45)', background: 'rgba(34, 197, 94, 0.12)' },
@@ -609,44 +907,39 @@ export default function Fusion() {
       </div>
       <form className="fusion-form" onSubmit={handleSubmit}>
         <div className="fusion-controls">
-          <input
-            className="fusion-input"
-            type="text"
-            placeholder="First concept"
-            value={conceptA}
-            onChange={(event) => setConceptA(event.target.value)}
-          />
-          <button
-            className="fusion-button"
-            type="button"
-            onClick={() => randomConcept('A')}
-            disabled={loadingA || loadingFuse}
-            title="Generate a random concept"
-          >
-            {loadingA ? '…' : 'Random'}
-          </button>
-          <button className="fusion-button" type="submit">
+          {conceptInputConfig.map((concept) => (
+            <div key={concept.id} className="fusion-concept-group">
+              <input
+                className="fusion-input"
+                type="text"
+                placeholder={concept.label}
+                aria-label={concept.label}
+                value={concept.value}
+                onChange={(event) => concept.setValue(event.target.value)}
+              />
+              <button
+                className="fusion-button"
+                type="button"
+                onClick={() => randomConcept(concept.id)}
+                disabled={concept.loading || loadingFuse}
+                title={`Generate a random idea for ${concept.label.toLowerCase()}`}
+              >
+                {concept.loading ? '…' : 'Random'}
+              </button>
+            </div>
+          ))}
+          <button className="fusion-button fusion-fuse-button" type="submit" disabled={loadingFuse}>
             {loadingFuse ? 'Fusing…' : 'FUSE'}
-          </button>
-          <input
-            className="fusion-input"
-            type="text"
-            placeholder="Second concept"
-            value={conceptB}
-            onChange={(event) => setConceptB(event.target.value)}
-          />
-          <button
-            className="fusion-button"
-            type="button"
-            onClick={() => randomConcept('B')}
-            disabled={loadingB || loadingFuse}
-            title="Generate a random concept"
-          >
-            {loadingB ? '…' : 'Random'}
           </button>
         </div>
       </form>
-      <div className="fusion-options" style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+      <div
+        className="fusion-options"
+        role="group"
+        aria-label="Fusion tools"
+        style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}
+      >
+        <span style={{ fontWeight: 600, marginRight: '0.25rem' }}>Tools</span>
         <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
           <input
             type="checkbox"
@@ -665,11 +958,45 @@ export default function Fusion() {
               setGenerateAudioPrompt(checked);
               if (!checked) {
                 setAudioPromptResult('');
+                setAudioWorkflowPlan(null);
               }
             }}
             disabled={loadingFuse}
           />
           Generate audio prompt
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <input
+            type="checkbox"
+            checked={generateWanPrompt}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              setGenerateWanPrompt(checked);
+              if (!checked) {
+                setWanPromptResult('');
+              }
+            }}
+            disabled={loadingFuse}
+          />
+          Generate WAN prompt
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <input
+            type="checkbox"
+            checked={useQwen}
+            onChange={(e) => setUseQwen(e.target.checked)}
+            disabled={loadingFuse}
+          />
+          Use Qwen guide
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+          <input
+            type="checkbox"
+            checked={useEchozen}
+            onChange={(e) => setUseEchozen(e.target.checked)}
+            disabled={loadingFuse}
+          />
+          Use Echozen
         </label>
       </div>
       <div
@@ -763,6 +1090,40 @@ export default function Fusion() {
                     Copy
                   </button>
                 </div>
+                {audioWorkflowPlan?.songForm && (
+                  <div style={{ marginTop: '0.65rem' }}>
+                    <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>ACE Song Form Plan</div>
+                    <textarea
+                      readOnly
+                      value={audioWorkflowPlan.songForm}
+                      rows={4}
+                      style={{ width: '100%', resize: 'vertical' }}
+                    />
+                  </div>
+                )}
+                {audioWorkflowPlan && (
+                  <div style={{ marginTop: '0.4rem', display: 'flex', gap: '1rem', flexWrap: 'wrap', fontSize: '0.85rem' }}>
+                    <span>Seconds: {audioWorkflowPlan.seconds}</span>
+                    <span>Guidance: {audioWorkflowPlan.guidance}</span>
+                    <span>Batch size: {audioWorkflowPlan.batchSize}</span>
+                  </div>
+                )}
+              </div>
+            )}
+            {trimmedWanPrompt && (
+              <div>
+                <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>WAN Prompt</div>
+                <textarea readOnly value={wanPromptResult} rows={4} style={{ width: '100%', resize: 'vertical' }} />
+                <div style={{ marginTop: '0.25rem' }}>
+                  <button
+                    type="button"
+                    className="p-sm"
+                    onClick={() => copyText(wanPromptResult)}
+                    disabled={!trimmedWanPrompt}
+                  >
+                    Copy
+                  </button>
+                </div>
               </div>
             )}
             <div style={{ gridColumn: '1 / -1', marginTop: '0.25rem' }}>
@@ -783,7 +1144,7 @@ export default function Fusion() {
                   cursor: isGenerateDisabled ? 'not-allowed' : 'pointer',
                 }}
               >
-                Generate Image
+                {generateButtonLabel}
               </button>
             </div>
           </div>
@@ -948,11 +1309,24 @@ export default function Fusion() {
         <div className="fusion-history" style={{ marginTop: '1rem' }}>
           <h2 style={{ marginBottom: '0.5rem' }}>Recent fusions</h2>
           <div style={{ display: 'grid', gap: '0.5rem' }}>
-            {history.map((h, idx) => (
-              <div key={h.ts + ':' + idx} style={{ border: '1px solid var(--border)', borderRadius: 6, padding: '0.5rem' }}>
-                <div style={{ fontSize: '0.95rem', marginBottom: '0.25rem' }}>
-                  <strong>{h.a}</strong> + <strong>{h.b}</strong>
-                </div>
+            {history.map((h, idx) => {
+              const historyConcepts = (Array.isArray(h.concepts) && h.concepts.length > 0
+                ? h.concepts
+                : [h.a, h.b, h.c, h.d]
+              )
+                .map((value) => (typeof value === 'string' ? value.trim() : ''))
+                .filter(Boolean);
+              const displayConcepts = historyConcepts.length > 0 ? historyConcepts : ['(missing concepts)'];
+              return (
+                <div key={h.ts + ':' + idx} style={{ border: '1px solid var(--border)', borderRadius: 6, padding: '0.5rem' }}>
+                  <div style={{ fontSize: '0.95rem', marginBottom: '0.25rem' }}>
+                    {displayConcepts.map((concept, conceptIdx) => (
+                      <span key={`${concept}:${conceptIdx}`}>
+                        <strong>{concept}</strong>
+                        {conceptIdx < displayConcepts.length - 1 ? ' + ' : ''}
+                      </span>
+                    ))}
+                  </div>
                 <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                   <button
                     type="button"
@@ -960,8 +1334,18 @@ export default function Fusion() {
                     onClick={() => {
                       const entryMode = h.mode === 'tiktok' ? 'tiktok' : 'lofi';
                       setMode(entryMode);
-                      setConceptA(h.a);
-                      setConceptB(h.b);
+                      const fallbackConcepts = Array.isArray(h.concepts) && h.concepts.length > 0
+                        ? h.concepts
+                        : [h.a, h.b, h.c, h.d];
+                      const normalizedConcepts = fallbackConcepts
+                        .map((value) => (typeof value === 'string' ? value.trim() : ''))
+                        .slice(0, 4);
+                      setConceptA(normalizedConcepts[0] || '');
+                      setConceptB(normalizedConcepts[1] || '');
+                      setConceptC(normalizedConcepts[2] || '');
+                      setConceptD(normalizedConcepts[3] || '');
+                      setUseQwen(Boolean(h.useQwen));
+                      setUseEchozen(Boolean(h.useEchozen));
                       const candidates = Array.isArray(h.candidates) && h.candidates.length > 0
                         ? h.candidates.map((c) =>
                             typeof c === 'string'
@@ -978,8 +1362,14 @@ export default function Fusion() {
                       setFusionResult((candidates[0] && candidates[0].text) || h.prompt || '');
                       setNegativeResult(h.negative || '');
                       const restoredAudio = typeof h.audioPrompt === 'string' ? h.audioPrompt.trim() : '';
-                      setGenerateAudioPrompt(Boolean(restoredAudio));
-                      setAudioPromptResult(restoredAudio);
+                      const restoredAudioPlan = normalizeAudioPlan(h.audioPlan);
+                      const resolvedAudioText = restoredAudioPlan?.stylePrompt || restoredAudio;
+                      setGenerateAudioPrompt(Boolean(restoredAudioPlan || resolvedAudioText));
+                      setAudioPromptResult(resolvedAudioText);
+                      setAudioWorkflowPlan(restoredAudioPlan);
+                      const restoredWan = typeof h.wanPrompt === 'string' ? h.wanPrompt.trim() : '';
+                      setGenerateWanPrompt(Boolean(restoredWan));
+                      setWanPromptResult(restoredWan);
                     }}
                   >
                     Load
@@ -993,7 +1383,8 @@ export default function Fusion() {
                   )}
                 </div>
               </div>
-            ))}
+            );
+          })}
           </div>
         </div>
       )}
