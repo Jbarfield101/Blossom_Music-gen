@@ -58,7 +58,11 @@ class WhisperService:
     ) -> None:
         model_path = model_path or os.getenv("WHISPER_MODEL", "small")
         self._model = WhisperModel(model_path, device=device, compute_type=compute_type)
-        self._min_audio_sec = float(os.getenv("WHISPER_MIN_AUDIO_SEC", "1.2"))
+        # Live chat utterances are often short (< 1 s). Default to a lower
+        # minimum window so we do not have to pad large stretches of silence,
+        # which previously caused the decoder to classify clips as
+        # "no speech".
+        self._min_audio_sec = float(os.getenv("WHISPER_MIN_AUDIO_SEC", "0.6"))
         self._decoder_options = {
             "beam_size": int(os.getenv("WHISPER_BEAM_SIZE", "5")),
             "patience": float(os.getenv("WHISPER_PATIENCE", "0.0")),
@@ -70,7 +74,13 @@ class WhisperService:
             or (0.0, 0.2, 0.4),
             "compression_ratio_threshold": float(os.getenv("WHISPER_COMPRESSION_RATIO", "2.4")),
             "log_prob_threshold": float(os.getenv("WHISPER_LOG_PROB_THRESHOLD", "-1.0")),
-            "no_speech_threshold": float(os.getenv("WHISPER_NO_SPEECH_THRESHOLD", "0.4")),
+            # We already gate incoming buffers through a custom VAD. Raising the
+            # `no_speech_threshold` avoids Whisper dropping short clips that
+            # contain speech but still include some trailing silence from the
+            # recording window.
+            "no_speech_threshold": float(
+                os.getenv("WHISPER_NO_SPEECH_THRESHOLD", "1.0")
+            ),
             "vad_filter": False,
             "condition_on_previous_text": False,
         }
