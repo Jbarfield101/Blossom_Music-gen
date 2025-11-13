@@ -30,9 +30,13 @@ export default function GeneralChat() {
 
   const listRef = useRef(null);
   const audioPlayerRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
   const mediaStreamRef = useRef(null);
-  const decodeAudioCtxRef = useRef(null);
+  const liveAudioCtxRef = useRef(null);
+  const liveAudioSourceRef = useRef(null);
+  const liveAudioWorkletRef = useRef(null);
+  const liveAudioScriptRef = useRef(null);
+  const liveAudioSilenceRef = useRef(null);
+  const resampleStateRef = useRef({ leftover: new Float32Array(0) });
   const chunkPromiseRef = useRef(Promise.resolve());
   const voiceQueueRef = useRef([]);
   const liveEnabledRef = useRef(liveEnabled);
@@ -70,6 +74,7 @@ export default function GeneralChat() {
     };
     speechBufferRef.current = { parts: [], totalSamples: 0 };
     lastStatusAtRef.current = Date.now();
+    resampleStateRef.current = { leftover: new Float32Array(0) };
   }, []);
 
   const scrollToBottom = useCallback(() => {
@@ -382,96 +387,11 @@ export default function GeneralChat() {
     [flushVoiceQueue, pending]
   );
 
-  const ensureDecodeContext = useCallback(async () => {
-    let ctx = decodeAudioCtxRef.current;
-    if (!ctx || ctx.state === "closed") {
-      const AudioContextImpl =
-        globalThis.AudioContext || globalThis.webkitAudioContext;
-      if (!AudioContextImpl) {
-        throw new Error("AudioContext not supported");
-      }
-      ctx = new AudioContextImpl();
-      decodeAudioCtxRef.current = ctx;
-    }
-    if (ctx.state === "suspended") {
-      try {
-        await ctx.resume();
-      } catch {}
-    }
-    return ctx;
-  }, []);
-
-  const convertBlobToPCM = useCallback(
-    async (blob) => {
-      if (!blob || !blob.size) return null;
-      const ctx = await ensureDecodeContext();
-      const arrayBuffer = await blob.arrayBuffer();
-      let decoded;
-      try {
-        decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
-      } catch (err) {
-        console.warn("Failed to decode audio", err);
-        return null;
-      }
-      const OfflineContext =
-        globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
-      if (!OfflineContext) {
-        throw new Error("OfflineAudioContext not supported");
-      }
-      const length = Math.max(1, Math.ceil(decoded.duration * TARGET_SAMPLE_RATE));
-      const offline = new OfflineContext(1, length, TARGET_SAMPLE_RATE);
-      const source = offline.createBufferSource();
-      let monoBuffer;
-      if (decoded.numberOfChannels === 1) {
-        monoBuffer = offline.createBuffer(1, decoded.length, decoded.sampleRate);
-        monoBuffer.copyToChannel(decoded.getChannelData(0), 0);
-      } else {
-        const mix = new Float32Array(decoded.length);
-        for (let channel = 0; channel < decoded.numberOfChannels; channel += 1) {
-          const data = decoded.getChannelData(channel);
-          for (let i = 0; i < data.length; i += 1) {
-            mix[i] += data[i];
-          }
-        }
-        for (let i = 0; i < mix.length; i += 1) {
-          mix[i] /= decoded.numberOfChannels;
-        }
-        monoBuffer = offline.createBuffer(1, mix.length, decoded.sampleRate);
-        monoBuffer.copyToChannel(mix, 0);
-      }
-      source.buffer = monoBuffer;
-      source.connect(offline.destination);
-      source.start(0);
-      const rendered = await offline.startRendering();
-      const samples = rendered.getChannelData(0);
-      const pcm = new Int16Array(samples.length);
-      let sumSquares = 0;
-      let peak = 0;
-      for (let i = 0; i < samples.length; i += 1) {
-        let sample = samples[i];
-        if (sample > 1) sample = 1;
-        if (sample < -1) sample = -1;
-        peak = Math.max(peak, Math.abs(sample));
-        sumSquares += sample * sample;
-        pcm[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
-      }
-      const rms = samples.length ? Math.sqrt(sumSquares / samples.length) : 0;
-      const durationSec = samples.length / TARGET_SAMPLE_RATE;
-      return { pcm, peak, rms, durationSec };
-    },
-    [ensureDecodeContext]
-  );
-
-  const processAudioChunk = useCallback(
-    async (blob) => {
+  const processPcmChunk = useCallback(
+    async ({ pcm, peak, rms, durationSec }) => {
       if (!liveEnabledRef.current) return;
+      if (!pcm?.length) return;
       try {
-        const result = await convertBlobToPCM(blob);
-        if (!result) return;
-        const { pcm, peak, rms, durationSec } = result;
-        if (!pcm?.length) {
-          return;
-        }
         const state = vadStateRef.current;
         const logChunk = (stage, extra = {}) => {
           lastStatusAtRef.current = Date.now();
@@ -602,18 +522,80 @@ export default function GeneralChat() {
         lastStatusAtRef.current = Date.now();
       }
     },
-    [appendLiveDebug, convertBlobToPCM, handleTranscript]
+    [appendLiveDebug, handleTranscript]
   );
 
-  const queueAudioChunk = useCallback(
-    (blob) => {
-      if (!blob || !blob.size) return;
+  const queuePcmChunk = useCallback(
+    (chunk) => {
+      if (!chunk) return;
       if (!liveEnabledRef.current) return;
       chunkPromiseRef.current = chunkPromiseRef.current
         .catch(() => {})
-        .then(() => processAudioChunk(blob));
+        .then(() => processPcmChunk(chunk));
     },
-    [processAudioChunk]
+    [processPcmChunk]
+  );
+
+  const handleFloatFrame = useCallback(
+    ({ samples, sampleRate }) => {
+      if (!samples || samples.length === 0) {
+        return;
+      }
+      const rate = sampleRate || liveAudioCtxRef.current?.sampleRate;
+      if (!rate || !Number.isFinite(rate) || rate <= 0) {
+        return;
+      }
+      const ratio = rate / TARGET_SAMPLE_RATE;
+      if (!Number.isFinite(ratio) || ratio <= 0) {
+        return;
+      }
+      const state = resampleStateRef.current || { leftover: new Float32Array(0) };
+      let combined;
+      if (state.leftover?.length) {
+        combined = new Float32Array(state.leftover.length + samples.length);
+        combined.set(state.leftover, 0);
+        combined.set(samples, state.leftover.length);
+      } else {
+        combined = samples;
+      }
+      const available = Math.floor((combined.length - 1) / ratio);
+      if (!Number.isFinite(available) || available <= 0) {
+        state.leftover = combined;
+        resampleStateRef.current = state;
+        return;
+      }
+      const pcm = new Int16Array(available);
+      let sumSquares = 0;
+      let peak = 0;
+      for (let i = 0; i < available; i += 1) {
+        const position = i * ratio;
+        const index = Math.floor(position);
+        const frac = position - index;
+        const nextIndex = Math.min(index + 1, combined.length - 1);
+        const sample =
+          combined[index] + (combined[nextIndex] - combined[index]) * frac;
+        let clamped = sample;
+        if (clamped > 1) clamped = 1;
+        if (clamped < -1) clamped = -1;
+        const abs = Math.abs(clamped);
+        if (abs > peak) {
+          peak = abs;
+        }
+        sumSquares += clamped * clamped;
+        pcm[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+      }
+      const offset = Math.floor(available * ratio);
+      if (offset < combined.length) {
+        state.leftover = combined.slice(offset);
+      } else {
+        state.leftover = new Float32Array(0);
+      }
+      resampleStateRef.current = state;
+      const durationSec = pcm.length / TARGET_SAMPLE_RATE;
+      const rms = pcm.length ? Math.sqrt(sumSquares / pcm.length) : 0;
+      queuePcmChunk({ pcm, peak, rms, durationSec });
+    },
+    [queuePcmChunk]
   );
 
   const liveDebugString = useMemo(() => {
@@ -664,13 +646,37 @@ export default function GeneralChat() {
   }, [hasLiveDebug, liveDebugString]);
 
   const stopLiveResources = useCallback(() => {
-    if (mediaRecorderRef.current) {
+    if (liveAudioWorkletRef.current) {
       try {
-        if (mediaRecorderRef.current.state !== "inactive") {
-          mediaRecorderRef.current.stop();
-        }
+        liveAudioWorkletRef.current.port.onmessage = null;
+        liveAudioWorkletRef.current.disconnect?.();
       } catch {}
-      mediaRecorderRef.current = null;
+      liveAudioWorkletRef.current = null;
+    }
+    if (liveAudioScriptRef.current) {
+      try {
+        liveAudioScriptRef.current.disconnect();
+      } catch {}
+      liveAudioScriptRef.current.onaudioprocess = null;
+      liveAudioScriptRef.current = null;
+    }
+    if (liveAudioSilenceRef.current) {
+      try {
+        liveAudioSilenceRef.current.disconnect();
+      } catch {}
+      liveAudioSilenceRef.current = null;
+    }
+    if (liveAudioSourceRef.current) {
+      try {
+        liveAudioSourceRef.current.disconnect();
+      } catch {}
+      liveAudioSourceRef.current = null;
+    }
+    if (liveAudioCtxRef.current) {
+      try {
+        liveAudioCtxRef.current.close();
+      } catch {}
+      liveAudioCtxRef.current = null;
     }
     if (mediaStreamRef.current) {
       mediaStreamRef.current.getTracks().forEach((track) => {
@@ -680,12 +686,7 @@ export default function GeneralChat() {
       });
       mediaStreamRef.current = null;
     }
-    if (decodeAudioCtxRef.current) {
-      try {
-        decodeAudioCtxRef.current.close();
-      } catch {}
-      decodeAudioCtxRef.current = null;
-    }
+    resampleStateRef.current = { leftover: new Float32Array(0) };
     chunkPromiseRef.current = Promise.resolve();
     resetVadState();
   }, [resetVadState]);
@@ -733,6 +734,14 @@ export default function GeneralChat() {
         appendLiveDebug({ type: "error", message: "Microphone not available" });
         return;
       }
+      const AudioContextImpl =
+        globalThis.AudioContext || globalThis.webkitAudioContext;
+      if (!AudioContextImpl) {
+        setLiveStatus("AudioContext not supported");
+        setLiveEnabled(false);
+        appendLiveDebug({ type: "error", message: "AudioContext not supported" });
+        return;
+      }
       try {
         setLiveStatus("Requesting microphone…");
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -743,37 +752,108 @@ export default function GeneralChat() {
           return;
         }
         mediaStreamRef.current = stream;
-        const options = {};
-        const preferred = "audio/webm;codecs=opus";
-        if (
-          typeof MediaRecorder !== "undefined" &&
-          MediaRecorder.isTypeSupported &&
-          MediaRecorder.isTypeSupported(preferred)
-        ) {
-          options.mimeType = preferred;
+        const audioCtx = new AudioContextImpl();
+        liveAudioCtxRef.current = audioCtx;
+        resampleStateRef.current = { leftover: new Float32Array(0) };
+        try {
+          if (audioCtx.state === "suspended") {
+            await audioCtx.resume();
+          }
+        } catch {}
+        if (cancelled || !liveEnabledRef.current) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
         }
-        const recorder =
-          Object.keys(options).length > 0
-            ? new MediaRecorder(stream, options)
-            : new MediaRecorder(stream);
-        mediaRecorderRef.current = recorder;
-        recorder.addEventListener("dataavailable", (event) => {
-          if (event.data && event.data.size) {
-            queueAudioChunk(event.data);
+        const source = audioCtx.createMediaStreamSource(stream);
+        liveAudioSourceRef.current = source;
+        const forwardFrame = (data) => {
+          if (!data || cancelled || !liveEnabledRef.current) return;
+          let samples = data.samples || data.buffer;
+          const sampleRate = data.sampleRate;
+          if (!samples) return;
+          if (samples instanceof Float32Array) {
+            handleFloatFrame({ samples, sampleRate });
+            return;
           }
-        });
-        recorder.addEventListener("error", (event) => {
-          const message = event?.error?.message || "Recording error";
-          setLiveStatus(`Recording error: ${message}`);
-          appendLiveDebug({ type: "error", message });
-        });
-        recorder.addEventListener("stop", () => {
-          if (liveEnabledRef.current) {
-            setLiveStatus("Listening…");
+          if (samples instanceof ArrayBuffer) {
+            handleFloatFrame({
+              samples: new Float32Array(samples),
+              sampleRate,
+            });
+            return;
           }
-        });
-        recorder.start(3500);
-        setLiveStatus("Listening…");
+          if (ArrayBuffer.isView(samples) && samples.buffer) {
+            const view = samples;
+            const copied = view.buffer.slice(
+              view.byteOffset,
+              view.byteOffset + view.byteLength
+            );
+            handleFloatFrame({
+              samples: new Float32Array(copied),
+              sampleRate,
+            });
+          }
+        };
+        let workletAttached = false;
+        if (audioCtx.audioWorklet) {
+          const processorCode = `class BlossomCaptureProcessor extends AudioWorkletProcessor {\n  process(inputs) {\n    const input = inputs[0];\n    if (!input || input.length === 0) {\n      return true;\n    }\n    const channelData = input[0];\n    if (!channelData || channelData.length === 0) {\n      return true;\n    }\n    this.port.postMessage({ samples: channelData.slice(), sampleRate: sampleRate });\n    return true;\n  }\n}\nregisterProcessor('blossom-capture', BlossomCaptureProcessor);`;
+          const blob = new Blob([processorCode], {
+            type: "application/javascript",
+          });
+          const url = URL.createObjectURL(blob);
+          try {
+            await audioCtx.audioWorklet.addModule(url);
+            if (!cancelled && liveEnabledRef.current) {
+              const node = new AudioWorkletNode(audioCtx, "blossom-capture", {
+                numberOfInputs: 1,
+                numberOfOutputs: 0,
+                channelCount: 1,
+              });
+              node.port.onmessage = (event) => {
+                forwardFrame(event.data);
+              };
+              liveAudioWorkletRef.current = node;
+              source.connect(node);
+              workletAttached = true;
+            }
+          } catch (err) {
+            console.warn("Failed to initialize audio worklet", err);
+            appendLiveDebug({
+              type: "error",
+              message: `AudioWorklet failed: ${err?.message || err}`,
+            });
+          } finally {
+            URL.revokeObjectURL(url);
+          }
+        }
+        if (!workletAttached) {
+          const bufferSize = 4096;
+          const scriptNode = audioCtx.createScriptProcessor(
+            bufferSize,
+            1,
+            1
+          );
+          const gain = audioCtx.createGain();
+          gain.gain.value = 0;
+          liveAudioScriptRef.current = scriptNode;
+          liveAudioSilenceRef.current = gain;
+          scriptNode.onaudioprocess = (event) => {
+            if (cancelled || !liveEnabledRef.current) {
+              return;
+            }
+            const channelData = event.inputBuffer.getChannelData(0);
+            handleFloatFrame({
+              samples: channelData.slice(),
+              sampleRate: audioCtx.sampleRate,
+            });
+          };
+          source.connect(scriptNode);
+          scriptNode.connect(gain);
+          gain.connect(audioCtx.destination);
+        }
+        if (!cancelled && liveEnabledRef.current) {
+          setLiveStatus("Listening…");
+        }
       } catch (err) {
         console.error("Failed to access microphone", err);
         const message = err instanceof Error ? err.message : String(err);
@@ -787,7 +867,7 @@ export default function GeneralChat() {
       cancelled = true;
       stopLiveResources();
     };
-  }, [appendLiveDebug, liveEnabled, queueAudioChunk, stopLiveResources]);
+  }, [appendLiveDebug, handleFloatFrame, liveEnabled, stopLiveResources]);
 
   useEffect(() => {
     scrollToBottom();
