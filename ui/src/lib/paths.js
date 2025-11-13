@@ -10,7 +10,7 @@ export function fileSrc(path) {
         typeof window !== 'undefined' &&
         typeof window.location === 'object' &&
         typeof window.location.protocol === 'string' &&
-        window.location.protocol.startsWith('http')
+        window.location.protocol === 'http:'
       ) {
         return new URL(`/@fs/${encodeURI(norm)}`, window.location.origin).href;
       }
@@ -22,7 +22,7 @@ export function fileSrc(path) {
       typeof window !== 'undefined' &&
       typeof window.location === 'object' &&
       typeof window.location.protocol === 'string' &&
-      window.location.protocol.startsWith('http')
+      window.location.protocol === 'http:'
     ) {
       return new URL(`/@fs/${encodeURI(norm)}`, window.location.origin).href;
     }
