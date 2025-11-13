@@ -476,7 +476,7 @@ export default function VideoMaker() {
 
       setSaving(true);
       try {
-        const result = await invoke('update_video_maker_prompts', { payload });
+        const result = await invoke('update_video_maker_prompts', { update: payload });
         const savedPrompt = extractPromptField(result, 'prompt') || cleanedPrompt;
         const savedNegative = extractPromptField(result, 'negativePrompt') || cleanedNegative;
         const savedPrefix = extractPromptField(result, 'fileNamePrefix') || cleanedFilePrefix;
