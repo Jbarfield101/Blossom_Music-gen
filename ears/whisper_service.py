@@ -58,9 +58,25 @@ class WhisperService:
     ) -> None:
         model_path = model_path or os.getenv("WHISPER_MODEL", "small")
         self._model = WhisperModel(model_path, device=device, compute_type=compute_type)
+        self._min_audio_sec = float(os.getenv("WHISPER_MIN_AUDIO_SEC", "1.2"))
+        self._decoder_options = {
+            "beam_size": int(os.getenv("WHISPER_BEAM_SIZE", "5")),
+            "patience": float(os.getenv("WHISPER_PATIENCE", "0.0")),
+            "temperature": tuple(
+                float(t.strip())
+                for t in os.getenv("WHISPER_TEMPERATURE", "0.0,0.2,0.4").split(",")
+                if t.strip()
+            )
+            or (0.0, 0.2, 0.4),
+            "compression_ratio_threshold": float(os.getenv("WHISPER_COMPRESSION_RATIO", "2.4")),
+            "log_prob_threshold": float(os.getenv("WHISPER_LOG_PROB_THRESHOLD", "-1.0")),
+            "no_speech_threshold": float(os.getenv("WHISPER_NO_SPEECH_THRESHOLD", "0.4")),
+            "vad_filter": False,
+            "condition_on_previous_text": False,
+        }
 
     async def transcribe(self, pcm: bytes) -> AsyncIterator[TranscriptionSegment]:
-        """Transcribe a buffer of 16‑bit mono PCM audio.
+        """Transcribe a buffer of 16-bit mono PCM audio.
 
         The method streams partial results during the transcription process and
         yields finalised :class:`TranscriptionSegment` instances as soon as they
@@ -68,12 +84,25 @@ class WhisperService:
         """
 
         audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
+        min_samples = int(self._min_audio_sec * 16000)
+        if audio.size < min_samples:
+            padding = np.zeros(min_samples - audio.size, dtype=np.float32)
+            audio = np.concatenate([audio, padding])
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue[tuple[Optional[object], Optional[object], bool]] = asyncio.Queue()
         finished = threading.Event()
 
+        def _decode(chunk: np.ndarray, **extra):
+            options = dict(self._decoder_options)
+            options.update(extra)
+            return self._model.transcribe(
+                chunk,
+                word_timestamps=True,
+                **options,
+            )
+
         def _worker_final() -> None:
-            segments, info = self._model.transcribe(audio, word_timestamps=True)
+            segments, info = _decode(audio)
             for seg in segments:
                 loop.call_soon_threadsafe(queue.put_nowait, (seg, info, True))
             finished.set()
@@ -89,11 +118,9 @@ class WhisperService:
                 next_pos = min(len(audio), pos + step)
                 part = audio[pos:next_pos]
                 try:
-                    segments, _ = self._model.transcribe(
+                    segments, _ = _decode(
                         part,
-                        word_timestamps=True,
                         initial_prompt=prompt,
-                        vad_filter=True,
                     )
                     for seg in segments:
                         # offset timestamps with position in the full audio buffer

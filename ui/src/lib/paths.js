@@ -14,48 +14,29 @@ function resolveHttpFsUrl(norm) {
 export function fileSrc(path) {
   if (!path || typeof path !== 'string') return '';
   const norm = path.replaceAll('\\', '/');
-
-  try {
-    const url = convertFileSrc(path);
-    if (typeof url === 'string' && url) {
-<<<<<<< HEAD
-=======
-      if (
-        typeof window !== 'undefined' &&
-        typeof window.location === 'object' &&
-        typeof window.location.protocol === 'string' &&
-        window.location.protocol === 'http:'
-      ) {
-        return new URL(`/@fs/${encodeURI(norm)}`, window.location.origin).href;
-      }
->>>>>>> 2b68167ac3e1523b226da87eaabf5909ccd79cf8
-      return url;
-    }
-  } catch {
-<<<<<<< HEAD
-    // Fall through to non-Tauri handling below.
-=======
+  const resolveDevServerUrl = () => {
     if (
       typeof window !== 'undefined' &&
       typeof window.location === 'object' &&
       typeof window.location.protocol === 'string' &&
       window.location.protocol === 'http:'
     ) {
-      return new URL(`/@fs/${encodeURI(norm)}`, window.location.origin).href;
+      return resolveHttpFsUrl(norm);
     }
-    if (
-      typeof window !== 'undefined' &&
-      typeof window.location === 'object' &&
-      typeof window.location.protocol === 'string' &&
-      window.location.protocol.startsWith('tauri')
-    ) {
-      return `tauri://localhost/${encodeURI(norm)}`;
+    return '';
+  };
+
+  try {
+    const url = convertFileSrc(path);
+    if (typeof url === 'string' && url) {
+      const devUrl = resolveDevServerUrl();
+      return devUrl || url;
     }
-    if (/^[A-Za-z]:/.test(path)) {
-      return `file:///${norm}`;
+  } catch {
+    const devUrl = resolveDevServerUrl();
+    if (devUrl) {
+      return devUrl;
     }
-    return 'asset://localhost/' + encodeURI(norm);
->>>>>>> 2b68167ac3e1523b226da87eaabf5909ccd79cf8
   }
 
   if (

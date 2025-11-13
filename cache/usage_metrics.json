@@ -12,17 +12,17 @@
   },
   "openai": {
     "daily": {
-      "completion_tokens": 11,
+      "completion_tokens": 82,
       "date": "2025-11-13",
-      "prompt_tokens": 59,
-      "tokens": 70
+      "prompt_tokens": 357,
+      "tokens": 439
     },
     "total": {
-      "completion_tokens": 5004,
-      "prompt_tokens": 5510,
+      "completion_tokens": 5075,
+      "prompt_tokens": 5808,
       "since": "2025-10-21",
-      "tokens": 10514
+      "tokens": 10883
     },
-    "updated_at": "2025-11-13T18:09:33.257292Z"
+    "updated_at": "2025-11-13T21:18:31.187850Z"
   }
 }
