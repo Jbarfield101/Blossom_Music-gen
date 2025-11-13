@@ -11,6 +11,7 @@ use reqwest::blocking::Client;
 use reqwest::header::CONTENT_TYPE;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Number, Value};
+use sysinfo::{CpuExt, GpuExt, System, SystemExt};
 use tauri::{async_runtime, AppHandle, Manager};
 use tauri_plugin_store::Store;
 use tokio::time::sleep;
@@ -55,7 +56,10 @@ fn sanitize_base_name(value: Option<String>, fallback: &str) -> String {
         .chars()
         .map(|ch| {
             let allowed = ch.is_ascii_alphanumeric()
-                || matches!(ch, ' ' | '-' | '_' | '.' | '(' | ')' | '[' | ']' | '{' | '}' );
+                || matches!(
+                    ch,
+                    ' ' | '-' | '_' | '.' | '(' | ')' | '[' | ']' | '{' | '}'
+                );
             if allowed {
                 ch
             } else {
@@ -69,7 +73,11 @@ fn sanitize_base_name(value: Option<String>, fallback: &str) -> String {
     } else {
         trimmed
     };
-    let cleaned: String = candidate.chars().filter(|c| !c.is_control()).take(120).collect();
+    let cleaned: String = candidate
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(120)
+        .collect();
     if cleaned.is_empty() {
         fallback.to_string()
     } else {
@@ -94,6 +102,141 @@ fn normalize_canonical_output(path: String) -> String {
 #[cfg(not(windows))]
 fn normalize_canonical_output(path: String) -> String {
     path
+}
+
+fn humanize_bytes(kib: u64) -> Option<String> {
+    if kib == 0 {
+        return None;
+    }
+    let bytes = (kib as f64) * 1024.0;
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = KIB * 1024.0;
+    const GIB: f64 = MIB * 1024.0;
+    const TIB: f64 = GIB * 1024.0;
+
+    let (value, unit) = if bytes >= TIB {
+        (bytes / TIB, "TB")
+    } else if bytes >= GIB {
+        (bytes / GIB, "GB")
+    } else if bytes >= MIB {
+        (bytes / MIB, "MB")
+    } else if bytes >= KIB {
+        (bytes / KIB, "KB")
+    } else {
+        (bytes, "B")
+    };
+
+    let formatted = if value >= 100.0 {
+        format!("{:.0} {}", value.round(), unit)
+    } else if value >= 10.0 {
+        format!("{:.1} {}", value)
+    } else {
+        format!("{:.2} {}", value)
+    };
+
+    Some(formatted)
+}
+
+fn format_cpu_info(system: &System) -> String {
+    let model = system
+        .cpus()
+        .first()
+        .map(|cpu| cpu.brand().trim().to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "Unknown CPU".to_string());
+
+    let physical = system.physical_core_count().unwrap_or(0);
+    let logical = system.cpus().len();
+
+    if physical > 0 && logical > 0 && logical != physical {
+        format!("{model} ({physical} cores / {logical} threads)")
+    } else if physical > 0 {
+        format!("{model} ({physical} cores)")
+    } else if logical > 0 {
+        format!("{model} ({logical} threads)")
+    } else {
+        model
+    }
+}
+
+fn format_gpu_info(system: &System) -> String {
+    let gpus = system.gpus();
+    if gpus.is_empty() {
+        return "Unknown GPU".to_string();
+    }
+
+    let descriptions: Vec<String> = gpus
+        .iter()
+        .map(|gpu| {
+            let name = gpu.name().trim();
+            let vendor = gpu.vendor().trim();
+
+            let mut parts: Vec<String> = Vec::new();
+            if !name.is_empty() {
+                parts.push(name.to_string());
+            }
+            if !vendor.is_empty() && vendor.to_lowercase() != name.to_lowercase() {
+                parts.push(vendor.to_string());
+            }
+
+            if parts.is_empty() {
+                "GPU".to_string()
+            } else {
+                parts.join(" · ")
+            }
+        })
+        .collect();
+
+    descriptions.join(", ")
+}
+
+fn format_ram_info(system: &System) -> String {
+    humanize_bytes(system.total_memory())
+        .map(|value| format!("{value} RAM"))
+        .unwrap_or_else(|| "Unknown RAM".to_string())
+}
+
+fn format_os_info(system: &System) -> String {
+    let pretty = system
+        .long_os_version()
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty());
+
+    let kernel = system
+        .kernel_version()
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty());
+
+    match (pretty, kernel) {
+        (Some(p), Some(k)) => format!("{p} (kernel {k})"),
+        (Some(p), None) => p,
+        (None, Some(k)) => format!("Kernel {k}"),
+        (None, None) => "Unknown OS".to_string(),
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemHardwareInfo {
+    pub cpu: String,
+    pub gpu: String,
+    pub ram: String,
+    pub os: String,
+}
+
+#[tauri::command]
+pub fn system_hardware_info() -> Result<SystemHardwareInfo, String> {
+    let mut system = System::new_all();
+    system.refresh_all();
+
+    let info = SystemHardwareInfo {
+        cpu: format_cpu_info(&system),
+        gpu: format_gpu_info(&system),
+        ram: format_ram_info(&system),
+        os: format_os_info(&system),
+    };
+
+    Ok(info)
 }
 
 fn ensure_settings_defaults(settings: &mut ComfyUISettings) -> bool {
@@ -1663,10 +1806,15 @@ fn extract_ace_prompts(data: &Value) -> Result<AceWorkflowPrompts, String> {
                         .get("widgets_values")
                         .and_then(Value::as_array)
                         .map(|arr| {
-                            let seconds = arr.get(0).and_then(Value::as_f64).unwrap_or(ACE_DEFAULT_SECONDS);
+                            let seconds = arr
+                                .get(0)
+                                .and_then(Value::as_f64)
+                                .unwrap_or(ACE_DEFAULT_SECONDS);
                             let batch_size = arr
                                 .get(1)
-                                .and_then(|value| value.as_i64().or_else(|| value.as_f64().map(|v| v as i64)))
+                                .and_then(|value| {
+                                    value.as_i64().or_else(|| value.as_f64().map(|v| v as i64))
+                                })
                                 .unwrap_or(ACE_DEFAULT_BATCH_SIZE);
                             (seconds, batch_size)
                         })

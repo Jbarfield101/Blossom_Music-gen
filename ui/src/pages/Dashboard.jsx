@@ -3,6 +3,7 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import FeatureWheel from '../components/FeatureWheel.jsx';
 import Icon from '../components/Icon.jsx';
 import Screen from '../components/Screen.jsx';
+import useHardwareInfo from '../lib/useHardwareInfo.js';
 import './Dashboard.css';
 
 export default function Dashboard() {
@@ -15,6 +16,7 @@ export default function Dashboard() {
   const comfyFailureCountRef = useRef(0);
   const comfySeenSuccessRef = useRef(false);
   const isTauriEnvRef = useRef(false);
+  const hardware = useHardwareInfo();
 
   const clearComfyPollTimer = () => {
     if (comfyPollTimerRef.current) {
@@ -160,6 +162,27 @@ export default function Dashboard() {
     { to: '/settings', icon: 'Settings', title: 'Settings' },
   ];
 
+  const hardwareDetails =
+    hardware.status === 'ready' && hardware.info
+      ? [
+          { label: 'CPU', value: hardware.info.cpu },
+          { label: 'GPU', value: hardware.info.gpu },
+          { label: 'RAM', value: hardware.info.ram },
+          { label: 'OS', value: hardware.info.os },
+        ]
+      : null;
+
+  let hardwareNote = '';
+  if (!hardwareDetails) {
+    if (hardware.status === 'error') {
+      hardwareNote = 'Hardware info unavailable right now.';
+    } else if (hardware.status === 'unsupported') {
+      hardwareNote = 'Launch the desktop app to see system hardware details.';
+    } else {
+      hardwareNote = 'Detecting your hardware…';
+    }
+  }
+
   return (
     <>
       <header className="dashboard-header">
@@ -190,6 +213,23 @@ export default function Dashboard() {
         <FeatureWheel items={items} />
         <div className="screen-wrapper">
           <Screen data-comfy-status={comfyStatus}>
+            <div className="dashboard-screen" aria-live="polite">
+              <div className="dashboard-hardware-card" data-status={hardware.status}>
+                <h2 className="dashboard-hardware-title">System hardware</h2>
+                {hardwareDetails ? (
+                  <dl className="dashboard-hardware-list">
+                    {hardwareDetails.map(({ label, value }) => (
+                      <div key={label} className="dashboard-hardware-row">
+                        <dt className="dashboard-hardware-term">{label}</dt>
+                        <dd className="dashboard-hardware-description">{value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : (
+                  <p className="dashboard-hardware-note">{hardwareNote}</p>
+                )}
+              </div>
+            </div>
           </Screen>
         </div>
       </section>

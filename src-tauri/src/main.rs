@@ -40,7 +40,9 @@ mod dnd_watcher;
 mod model_index;
 mod musiclang;
 mod util;
-use crate::commands::{album_concat, generate_musicgen, musicgen_env, riffusion_generate};
+use crate::commands::{
+    album_concat, generate_musicgen, musicgen_env, riffusion_generate, system_hardware_info,
+};
 use crate::util::list_from_dir;
 
 fn dreadhaven_root() -> PathBuf {
@@ -11310,7 +11312,10 @@ fn queue_ace_audio_job(app: AppHandle, registry: State<JobRegistry>) -> Result<u
             registry.append_job_stdout(job_id, &format!("  {}", trimmed));
         }
     }
-    registry.append_job_stdout(job_id, &format!("Clip length: {:.1} seconds", prompts.seconds));
+    registry.append_job_stdout(
+        job_id,
+        &format!("Clip length: {:.1} seconds", prompts.seconds),
+    );
     registry.append_job_stdout(job_id, &format!("Guidance: {:.3}", prompts.guidance));
     registry.append_job_stdout(job_id, &format!("Batch size: {}", prompts.batch_size));
     registry.append_job_stdout(job_id, "Submitting ACE Step workflow to ComfyUI...");
@@ -11327,8 +11332,16 @@ fn queue_ace_audio_job(app: AppHandle, registry: State<JobRegistry>) -> Result<u
             "[ACE] spawning render job {} (seconds={:.2}, guidance={:.3}, batch={})",
             job_id, seconds, guidance, batch_size
         );
-        run_ace_audio_job(app_handle, job_id, style_prompt, song_form, seconds, batch_size, guidance)
-            .await;
+        run_ace_audio_job(
+            app_handle,
+            job_id,
+            style_prompt,
+            song_form,
+            seconds,
+            batch_size,
+            guidance,
+        )
+        .await;
     });
 
     Ok(job_id)
@@ -11569,10 +11582,7 @@ async fn run_ace_audio_job(
             }
         }
         Err(err) => {
-            eprintln!(
-                "[ACE] job {} failed to submit to ComfyUI: {}",
-                job_id, err
-            );
+            eprintln!("[ACE] job {} failed to submit to ComfyUI: {}", job_id, err);
             final_message = Some(format!("Failed to submit workflow to ComfyUI: {}", err));
         }
     }
@@ -12255,6 +12265,7 @@ fn main() {
             commands::get_comfyui_settings,
             commands::update_comfyui_settings,
             commands::comfyui_status,
+            system_hardware_info,
             commands::comfyui_submit_stable_audio,
             commands::comfyui_submit_lofi_scene,
             commands::comfyui_submit_video_maker,
