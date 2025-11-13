@@ -378,6 +378,7 @@ export default function App() {
     error: null,
     enabled: false,
   });
+  const [hasGreetingPlayed, setHasGreetingPlayed] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -534,7 +535,15 @@ export default function App() {
       <VaultEventProvider>
         <div className="route-fade" key={location.pathname}>
           <Routes location={location} key={location.pathname}>
-            <Route element={<AppLayout greetingPlayback={greetingPlayback} />}>
+            <Route
+              element={
+                <AppLayout
+                  greetingPlayback={greetingPlayback}
+                  hasGreetingPlayed={hasGreetingPlayed}
+                  setHasGreetingPlayed={setHasGreetingPlayed}
+                />
+              }
+            >
             <Route path="/" element={<Dashboard />} />
           <Route path="/musicgen" element={<SoundLab />}>
             <Route path="musicgen" element={<MusicGen />} />

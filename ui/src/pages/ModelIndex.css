@@ -10,13 +10,15 @@
 
 .model-index-grid {
   display: grid;
-  gap: 1.75rem;
+  gap: 2.5rem;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   width: 100%;
   align-self: stretch;
   grid-auto-flow: row dense;
   align-items: stretch;
   justify-items: stretch;
+  padding: 1.5rem 1rem;
+  box-sizing: border-box;
 }
 
 @media (min-width: 900px) {
@@ -48,6 +50,8 @@
   border: 2px solid transparent;
   min-height: 220px;
   width: 100%;
+  padding: 1.25rem;
+  box-sizing: border-box;
 }
 
 .card.model-index-card.is-selected {
