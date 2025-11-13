@@ -4,12 +4,6 @@ import './Dnd.css';
 
 const sections = [
   {
-    to: '/dnd/inbox',
-    icon: 'Inbox',
-    title: 'Inbox',
-    description: 'Recently added or unfiled notes from your vault.',
-  },
-  {
     to: '/dnd/world',
     icon: 'Globe',
     title: 'World',

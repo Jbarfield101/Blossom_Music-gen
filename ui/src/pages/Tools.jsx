@@ -13,6 +13,9 @@ export default function Tools() {
         <Card to="/tools/agents" icon="Bot" title="Agents">
           Markdown agent library
         </Card>
+        <Card to="/dnd/inbox" icon="Inbox" title="D&D Inbox">
+          Recently added or unfiled notes from your vault.
+        </Card>
         <Card to="/fusion" icon="Atom" title="Fusion">
           Concept Combiner
         </Card>
