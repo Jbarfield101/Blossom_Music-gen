@@ -2,7 +2,7 @@
   "elevenlabs": {
     "daily": {
       "characters": 0,
-      "date": "2025-11-11"
+      "date": "2025-11-13"
     },
     "total": {
       "characters": 0,
@@ -12,17 +12,17 @@
   },
   "openai": {
     "daily": {
-      "completion_tokens": 0,
-      "date": "2025-11-11",
-      "prompt_tokens": 0,
-      "tokens": 0
+      "completion_tokens": 11,
+      "date": "2025-11-13",
+      "prompt_tokens": 59,
+      "tokens": 70
     },
     "total": {
-      "completion_tokens": 4993,
-      "prompt_tokens": 5451,
+      "completion_tokens": 5004,
+      "prompt_tokens": 5510,
       "since": "2025-10-21",
-      "tokens": 10444
+      "tokens": 10514
     },
-    "updated_at": "2025-10-22T20:43:20.776666Z"
+    "updated_at": "2025-11-13T18:09:33.257292Z"
   }
 }
