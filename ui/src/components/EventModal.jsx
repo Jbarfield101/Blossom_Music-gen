@@ -18,6 +18,49 @@ function parseTimeToMinutes(value) {
   return hours * 60 + minutes;
 }
 
+const QUARTER_MINUTES = 15;
+const MINUTES_PER_DAY = 24 * 60;
+const LATEST_QUARTER_MINUTE = MINUTES_PER_DAY - QUARTER_MINUTES;
+
+function minutesToTimeString(minutes) {
+  const safeMinutes = Math.max(0, Math.min(minutes, LATEST_QUARTER_MINUTE));
+  const hrs = Math.floor(safeMinutes / 60)
+    .toString()
+    .padStart(2, '0');
+  const mins = Math.floor(safeMinutes % 60)
+    .toString()
+    .padStart(2, '0');
+  return `${hrs}:${mins}`;
+}
+
+function snapMinutesToQuarter(minutes) {
+  if (!Number.isFinite(minutes)) {
+    return null;
+  }
+  const clamped = Math.max(0, Math.min(minutes, LATEST_QUARTER_MINUTE));
+  const snapped = Math.round(clamped / QUARTER_MINUTES) * QUARTER_MINUTES;
+  return Math.max(0, Math.min(snapped, LATEST_QUARTER_MINUTE));
+}
+
+function normalizeTimeValue(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+  const minutes = parseTimeToMinutes(trimmed);
+  if (Number.isNaN(minutes)) {
+    return trimmed;
+  }
+  const snapped = snapMinutesToQuarter(minutes);
+  if (snapped == null) {
+    return trimmed;
+  }
+  return minutesToTimeString(snapped);
+}
+
 function sanitizeCategory(value, categories) {
   if (typeof value !== 'string') {
     return categories[0]?.id ?? 'custom';
@@ -38,8 +81,8 @@ function createInitialValues(draft, categories) {
     description: draft?.description ?? '',
     category: sanitizeCategory(draft?.category ?? fallbackCategory, categories),
     date: draft?.date ?? '',
-    startTime: draft?.startTime ?? '09:00',
-    endTime: draft?.endTime ?? '10:00',
+    startTime: normalizeTimeValue(draft?.startTime ?? '09:00'),
+    endTime: normalizeTimeValue(draft?.endTime ?? '10:00'),
     recurrence: draft?.recurrence ?? 'none',
     reminderOffsetMinutes: draft?.reminderOffsetMinutes ?? 0,
     remoteId: draft?.remoteId ?? null,
@@ -121,9 +164,13 @@ export default function EventModal({
   const handleChange = useCallback((event) => {
     const { name, value } = event.target;
     setLocalError('');
+    const nextValue =
+      name === 'startTime' || name === 'endTime'
+        ? normalizeTimeValue(value)
+        : value;
     setValues((prev) => ({
       ...prev,
-      [name]: name === 'reminderOffsetMinutes' ? value : value,
+      [name]: name === 'reminderOffsetMinutes' ? value : nextValue,
     }));
   }, []);
 
@@ -289,7 +336,7 @@ export default function EventModal({
                 value={values.startTime}
                 onChange={handleChange}
                 disabled={disabled}
-                step="300"
+                step="900"
               />
             </label>
             <label className="event-modal-field">
@@ -300,7 +347,7 @@ export default function EventModal({
                 value={values.endTime}
                 onChange={handleChange}
                 disabled={disabled}
-                step="300"
+                step="900"
               />
             </label>
           </div>
