@@ -58,6 +58,7 @@ import DndPortraitMaker from './pages/DndPortraitMaker.jsx';
 import ModelIndex from './pages/ModelIndex.jsx';
 import Queue from './pages/Queue.jsx';
 import Tools from './pages/Tools.jsx';
+import Agents from './pages/Agents.jsx';
 import Fusion from './pages/Fusion.jsx';
 import Pipeline from './pages/Pipeline.jsx';
 import LoopMaker from './pages/LoopMaker.jsx';
@@ -522,6 +523,7 @@ export default function App() {
             <Route path="/tools/voices/piper" element={<DndPiperOnly />} />
             <Route path="/tools/voices/eleven" element={<DndElevenLabs />} />
             <Route path="/tools/voices/manage" element={<ManageVoices />} />
+            <Route path="/tools/agents" element={<Agents />} />
             <Route path="/dnd/discord" element={<DndDiscord />} />
             <Route path="/dnd/whisper" element={<DndDiscord />} />
             <Route path="/dnd/chat" element={<DndChat />} />
