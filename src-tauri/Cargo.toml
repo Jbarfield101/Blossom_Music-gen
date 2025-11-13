@@ -25,6 +25,7 @@ walkdir = "2"
 base64 = "0.21"
 uuid = { version = "1", features = ["v4"] }
 notify = "6"
+sysinfo = { version = "0.30", features = ["gpu"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

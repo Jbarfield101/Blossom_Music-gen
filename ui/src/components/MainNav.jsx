@@ -1,4 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
+import useHardwareInfo from '../lib/useHardwareInfo.js';
 
 const links = [
   { to: '/', label: 'Home', end: true },
@@ -18,6 +19,7 @@ function classNames(...values) {
 
 export default function MainNav({ isOpen, onNavigate, navId = 'main-navigation', backLink = null }) {
   const navigate = useNavigate();
+  const hardware = useHardwareInfo();
 
   const handleNavigate = () => {
     if (typeof onNavigate === 'function') {
@@ -89,6 +91,34 @@ export default function MainNav({ isOpen, onNavigate, navId = 'main-navigation',
             </NavLink>
           </li>
         ))}
+        <li className="main-nav__item main-nav__item--hardware" aria-live="polite">
+          <div className="main-nav__hardware">
+            <p className="main-nav__hardware-heading">System specs</p>
+            {hardware.status === 'ready' && hardware.info ? (
+              <dl className="main-nav__hardware-list">
+                {[
+                  { label: 'CPU', value: hardware.info.cpu },
+                  { label: 'GPU', value: hardware.info.gpu },
+                  { label: 'RAM', value: hardware.info.ram },
+                  { label: 'OS', value: hardware.info.os },
+                ].map(({ label, value }) => (
+                  <div key={label} className="main-nav__hardware-row">
+                    <dt className="main-nav__hardware-term">{label}</dt>
+                    <dd className="main-nav__hardware-description">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p className="main-nav__hardware-note">
+                {hardware.status === 'error'
+                  ? 'Hardware info unavailable'
+                  : hardware.status === 'unsupported'
+                    ? 'Hardware info available in the desktop app'
+                    : 'Detecting hardware…'}
+              </p>
+            )}
+          </div>
+        </li>
       </ul>
     </nav>
   );
