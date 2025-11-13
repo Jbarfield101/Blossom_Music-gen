@@ -3,7 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import BackButton from "../components/BackButton.jsx";
 import { synthWithPiper } from "../lib/piperSynth";
 import { listPiperVoices } from "../lib/piperVoices";
-import { fileSrc } from "../lib/paths";
+import { createAudioElementFromPath, disposeAudioElement } from "../lib/audio";
 import "./GeneralChat.css";
 
 const TARGET_SAMPLE_RATE = 16000;
@@ -110,9 +110,7 @@ export default function GeneralChat() {
     voiceEnabledRef.current = voiceEnabled;
     if (!voiceEnabled) {
       if (audioPlayerRef.current) {
-        try {
-          audioPlayerRef.current.pause();
-        } catch {}
+        disposeAudioElement(audioPlayerRef.current);
         audioPlayerRef.current = null;
       }
       setLiveStatus((prev) =>
@@ -280,14 +278,10 @@ export default function GeneralChat() {
       try {
         setLiveStatus("Speaking…");
         const path = await synthWithPiper(text, modelPath, configPath, {});
-        const url = fileSrc(path);
-        if (!url) return;
         if (audioPlayerRef.current) {
-          try {
-            audioPlayerRef.current.pause();
-          } catch {}
+          disposeAudioElement(audioPlayerRef.current);
         }
-        const audio = new Audio(url);
+        const audio = await createAudioElementFromPath(path);
         audio.volume = 1.0;
         audioPlayerRef.current = audio;
         audio.addEventListener("ended", () => {
@@ -803,9 +797,7 @@ export default function GeneralChat() {
     return () => {
       stopLiveResources();
       if (audioPlayerRef.current) {
-        try {
-          audioPlayerRef.current.pause();
-        } catch {}
+        disposeAudioElement(audioPlayerRef.current);
         audioPlayerRef.current = null;
       }
     };
