@@ -22,7 +22,11 @@ function getIsDesktop() {
     : false;
 }
 
-export default function AppLayout({ greetingPlayback = null }) {
+export default function AppLayout({
+  greetingPlayback = null,
+  hasGreetingPlayed = false,
+  setHasGreetingPlayed,
+}) {
   const location = useLocation();
   const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
   const showNav = normalizedPath !== '/';
@@ -179,7 +183,11 @@ export default function AppLayout({ greetingPlayback = null }) {
       if (greetingAudioRef.current !== audioElement) {
         greetingAudioRef.current = audioElement;
       }
-      setShouldShowGreetingPrompt(true);
+      if (!hasGreetingPlayed) {
+        setShouldShowGreetingPrompt(true);
+      } else {
+        setShouldShowGreetingPrompt(false);
+      }
       setLocalGreetingError('');
     };
 
@@ -223,7 +231,7 @@ export default function AppLayout({ greetingPlayback = null }) {
       audioElement.removeEventListener('loadeddata', handleReady);
       audioElement.removeEventListener('error', handleError);
     };
-  }, [isGreetingReady, greetingAudio]);
+  }, [isGreetingReady, greetingAudio, hasGreetingPlayed]);
 
   const playGreeting = useCallback(() => {
     const audioElement = greetingAudioRef.current;
@@ -261,6 +269,9 @@ export default function AppLayout({ greetingPlayback = null }) {
           isPlayingGreetingRef.current = false;
           setShouldShowGreetingPrompt(false);
           setLocalGreetingError('');
+          if (typeof setHasGreetingPlayed === 'function') {
+            setHasGreetingPlayed(true);
+          }
         })
         .catch((error) => {
           isPlayingGreetingRef.current = false;
@@ -272,8 +283,11 @@ export default function AppLayout({ greetingPlayback = null }) {
       isPlayingGreetingRef.current = false;
       setShouldShowGreetingPrompt(false);
       setLocalGreetingError('');
+      if (typeof setHasGreetingPlayed === 'function') {
+        setHasGreetingPlayed(true);
+      }
     }
-  }, []);
+  }, [setHasGreetingPlayed]);
 
   useEffect(() => {
     if (!shouldShowGreetingPrompt) {
