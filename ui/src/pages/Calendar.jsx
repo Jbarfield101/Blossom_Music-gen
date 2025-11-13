@@ -3,6 +3,7 @@ import { isTauri, invoke } from '@tauri-apps/api/core';
 import BackButton from '../components/BackButton.jsx';
 import Icon from '../components/Icon.jsx';
 import EventModal from '../components/EventModal.jsx';
+import { HOLIDAYS_BY_DATE, createHolidayEventsByDate } from '../data/holidays.js';
 import './Calendar.css';
 
 const WEEK_START_OPTIONS = [
@@ -49,6 +50,12 @@ const EVENT_CATEGORIES = [
     label: 'Job',
     accent: '#7c3aed',
     defaultTitle: 'Job shift',
+  },
+  {
+    id: 'holiday',
+    label: 'Holiday',
+    accent: '#0ea5a8',
+    defaultTitle: 'Holiday',
   },
   {
     id: 'dnd',
@@ -271,6 +278,8 @@ function normalizeEventRecord(record) {
     endMinutes,
     recurrence: recurrenceValue,
     reminderOffsetMinutes,
+    immutable: false,
+    allDay: false,
   };
 }
 
@@ -301,6 +310,39 @@ function normalizeEventsByDate(records) {
   });
 
   return byDate;
+}
+
+function sortEventsByTime(events) {
+  if (!Array.isArray(events)) {
+    return [];
+  }
+  return [...events].sort((a, b) => {
+    if (a.startMinutes !== b.startMinutes) {
+      return a.startMinutes - b.startMinutes;
+    }
+    if (a.endMinutes !== b.endMinutes) {
+      return a.endMinutes - b.endMinutes;
+    }
+    return (a.id ?? '').localeCompare(b.id ?? '');
+  });
+}
+
+function mergeEventsWithHolidays(userEventsByDate, holidayEventsByDate) {
+  const merged = {};
+  const userKeys = userEventsByDate ? Object.keys(userEventsByDate) : [];
+  const holidayKeys = holidayEventsByDate ? Object.keys(holidayEventsByDate) : [];
+  const keys = new Set([...userKeys, ...holidayKeys]);
+
+  keys.forEach((dateKey) => {
+    const holidayEvents = holidayEventsByDate?.[dateKey] ?? [];
+    const userEvents = userEventsByDate?.[dateKey] ?? [];
+    if (holidayEvents.length === 0 && userEvents.length === 0) {
+      return;
+    }
+    merged[dateKey] = sortEventsByTime([...holidayEvents, ...userEvents]);
+  });
+
+  return merged;
 }
 
 function createDefaultEventDraft(dateKey, category = 'Blossom_Task') {
@@ -347,7 +389,7 @@ export default function Calendar() {
   const [visibleMonth, setVisibleMonth] = useState(() => startOfMonth(today));
   const [selectedDate, setSelectedDate] = useState(() => today);
   const [weekStart, setWeekStart] = useState(WEEK_START_OPTIONS[0].value);
-  const [eventsByDate, setEventsByDate] = useState({});
+  const [remoteEventsByDate, setRemoteEventsByDate] = useState({});
   const [eventsLoading, setEventsLoading] = useState(true);
   const [eventsError, setEventsError] = useState('');
   const [isDayViewOpen, setDayViewOpen] = useState(false);
@@ -409,7 +451,7 @@ export default function Calendar() {
     try {
       const records = await invoke('list_events');
       if (!isMountedRef.current) return;
-      setEventsByDate(normalizeEventsByDate(records));
+      setRemoteEventsByDate(normalizeEventsByDate(records));
     } catch (error) {
       if (!isMountedRef.current) return;
       setEventsError(getErrorMessage(error));
@@ -540,7 +582,7 @@ export default function Calendar() {
   );
 
   const openEditModal = useCallback((event) => {
-    if (!event) return;
+    if (!event || event.immutable) return;
     setModalState({
       open: true,
       mode: 'edit',
@@ -699,6 +741,13 @@ export default function Calendar() {
     []
   );
 
+  const holidayEventsByDate = useMemo(() => createHolidayEventsByDate(HOLIDAYS_BY_DATE), []);
+
+  const eventsByDate = useMemo(
+    () => mergeEventsWithHolidays(remoteEventsByDate, holidayEventsByDate),
+    [remoteEventsByDate, holidayEventsByDate]
+  );
+
   const hourSlots = useMemo(() => generateQuarterHourSlots(), []);
 
   const dayEvents = selectedDateKey ? eventsByDate[selectedDateKey] ?? [] : [];
@@ -797,6 +846,10 @@ export default function Calendar() {
 
   const handleSaveDraft = useCallback(
     async (draft) => {
+      if (draft?.immutable) {
+        setMutationState((prev) => ({ ...prev, error: 'Holiday events cannot be modified.' }));
+        return;
+      }
       if (!isTauriEnv) {
         setMutationState((prev) => ({ ...prev, error: 'Desktop environment required.' }));
         return;
@@ -826,6 +879,10 @@ export default function Calendar() {
 
   const handleDeleteDraft = useCallback(
     async (draft) => {
+      if (draft?.immutable) {
+        setMutationState((prev) => ({ ...prev, error: 'Holiday events cannot be modified.' }));
+        return;
+      }
       if (!isTauriEnv || !draft?.remoteId) {
         setMutationState((prev) => ({ ...prev, error: 'Unable to delete this event.' }));
         return;
@@ -881,7 +938,9 @@ export default function Calendar() {
                   {monthLabel}
                 </span>
                 <span className="calendar-month-summary">
-                  {eventsLoading ? 'Loading events…' : `${Object.keys(eventsByDate).length} days with plans`}
+                  {eventsLoading
+                    ? 'Loading events…'
+                    : `${Object.keys(eventsByDate).length} days with plans or holidays`}
                 </span>
               </div>
               <button
@@ -988,15 +1047,15 @@ export default function Calendar() {
                             {eventsForDay.slice(0, 3).map((eventItem) => {
                               const meta = categoryMap[eventItem.category];
                               const color = meta?.accent || '#9ca3af';
+                              const timeLabel = eventItem.allDay
+                                ? 'All day'
+                                : formatMinutesRange(eventItem.startMinutes, eventItem.endMinutes);
                               return (
                                 <span
                                   key={eventItem.id}
                                   className="calendar-cell-event-chip"
                                   style={{ '--event-chip-color': color }}
-                                  title={`${eventItem.title} • ${formatMinutesRange(
-                                    eventItem.startMinutes,
-                                    eventItem.endMinutes
-                                  )}`}
+                                  title={`${eventItem.title} • ${timeLabel}`}
                                 >
                                   {eventItem.title}
                                 </span>
@@ -1101,10 +1160,12 @@ export default function Calendar() {
                                   <header className="calendar-event-chip-header">
                                     <span className="calendar-event-chip-title">{eventItem.title}</span>
                                     <span className="calendar-event-chip-time">
-                                      {formatMinutesRange(
-                                        eventItem.startMinutes,
-                                        eventItem.endMinutes
-                                      )}
+                                      {eventItem.allDay
+                                        ? 'All day'
+                                        : formatMinutesRange(
+                                            eventItem.startMinutes,
+                                            eventItem.endMinutes
+                                          )}
                                     </span>
                                   </header>
                                   {eventItem.description && (
@@ -1116,25 +1177,27 @@ export default function Calendar() {
                                     <span className="calendar-event-chip-category">
                                       {meta?.label ?? 'Custom'}
                                     </span>
-                                    <div className="calendar-event-chip-actions">
-                                      <button
-                                        type="button"
-                                        className="calendar-event-chip-button"
-                                        onClick={() => openEditModal(eventItem)}
-                                        aria-label={`Edit ${eventItem.title}`}
-                                      >
-                                        <Icon name="PenLine" size={16} />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        className="calendar-event-chip-button calendar-event-chip-button--danger"
-                                        onClick={() => handleDeleteDraft({ ...eventItem })}
-                                        aria-label={`Delete ${eventItem.title}`}
-                                        disabled={mutationState.deleting}
-                                      >
-                                        <Icon name="Trash2" size={16} />
-                                      </button>
-                                    </div>
+                                    {!eventItem.immutable && (
+                                      <div className="calendar-event-chip-actions">
+                                        <button
+                                          type="button"
+                                          className="calendar-event-chip-button"
+                                          onClick={() => openEditModal(eventItem)}
+                                          aria-label={`Edit ${eventItem.title}`}
+                                        >
+                                          <Icon name="PenLine" size={16} />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="calendar-event-chip-button calendar-event-chip-button--danger"
+                                          onClick={() => handleDeleteDraft({ ...eventItem })}
+                                          aria-label={`Delete ${eventItem.title}`}
+                                          disabled={mutationState.deleting}
+                                        >
+                                          <Icon name="Trash2" size={16} />
+                                        </button>
+                                      </div>
+                                    )}
                                   </footer>
                                 </article>
                               );
