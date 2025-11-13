@@ -110,10 +110,18 @@ function formatMinutesRange(startMinutes, endMinutes) {
   return `${minutesToTimeString(startMinutes)} – ${minutesToTimeString(endMinutes)}`;
 }
 
-function generateHourLabels() {
-  return Array.from({ length: 24 }, (_, hour) => {
-    const label = `${hour.toString().padStart(2, '0')}:00`;
-    return { hour, label };
+const QUARTER_HOUR_MINUTES = 15;
+const QUARTER_SLOTS_PER_DAY = (24 * 60) / QUARTER_HOUR_MINUTES;
+
+function generateQuarterHourSlots() {
+  return Array.from({ length: QUARTER_SLOTS_PER_DAY }, (_, index) => {
+    const startMinutes = index * QUARTER_HOUR_MINUTES;
+    const hours = Math.floor(startMinutes / 60)
+      .toString()
+      .padStart(2, '0');
+    const minutes = String(startMinutes % 60).padStart(2, '0');
+    const label = `${hours}:${minutes}`;
+    return { index, label, startMinutes };
   });
 }
 
@@ -691,9 +699,29 @@ export default function Calendar() {
     []
   );
 
-  const hourSlots = useMemo(() => generateHourLabels(), []);
+  const hourSlots = useMemo(() => generateQuarterHourSlots(), []);
 
   const dayEvents = selectedDateKey ? eventsByDate[selectedDateKey] ?? [] : [];
+
+  const dayEventsBySlot = useMemo(() => {
+    if (!dayEvents || dayEvents.length === 0) {
+      return {};
+    }
+    return dayEvents.reduce((acc, eventItem) => {
+      const rawIndex = Math.floor(eventItem.startMinutes / QUARTER_HOUR_MINUTES);
+      const clampedIndex = Number.isFinite(rawIndex)
+        ? Math.min(Math.max(rawIndex, 0), QUARTER_SLOTS_PER_DAY - 1)
+        : null;
+      if (clampedIndex == null) {
+        return acc;
+      }
+      if (!acc[clampedIndex]) {
+        acc[clampedIndex] = [];
+      }
+      acc[clampedIndex].push(eventItem);
+      return acc;
+    }, {});
+  }, [dayEvents]);
 
   const handleOverlayClick = useCallback(
     (event) => {
@@ -1052,18 +1080,16 @@ export default function Calendar() {
                     : 'No events scheduled yet.'}
                 </p>
                 <div className="calendar-day-grid" role="list">
-                  {hourSlots.map(({ hour, label }) => {
-                    const eventsForHour = dayEvents.filter(
-                      (eventItem) => Math.floor(eventItem.startMinutes / 60) === hour
-                    );
+                  {hourSlots.map(({ index, label }) => {
+                    const eventsForSlot = dayEventsBySlot[index] ?? [];
                     return (
                       <div key={label} className="calendar-day-hour" role="listitem">
                         <span className="calendar-day-hour-label">{label}</span>
                         <div className="calendar-day-hour-events">
-                          {eventsForHour.length === 0 ? (
+                          {eventsForSlot.length === 0 ? (
                             <span className="calendar-day-hour-empty">—</span>
                           ) : (
-                            eventsForHour.map((eventItem) => {
+                            eventsForSlot.map((eventItem) => {
                               const meta = categoryMap[eventItem.category];
                               const chipColor = meta?.accent || '#9ca3af';
                               return (
