@@ -85,95 +85,12 @@ import DndLoreClasses from './pages/DndLoreClasses.jsx';
 import DndLoreRules from './pages/DndLoreRules.jsx';
 import DndLoreBackgroundRules from './pages/DndLoreBackgroundRules.jsx';
 import { Store } from '@tauri-apps/plugin-store';
-import { readFile } from '@tauri-apps/plugin-fs';
 import { useEffect, useId, useRef, useState } from 'react';
 import { setPiper as apiSetPiper, listPiper as apiListPiper } from './api/models';
 import { synthWithPiper } from './lib/piperSynth';
-import { fileSrc } from './lib/paths.js';
 import { listPiperVoices, resolveVoiceResources } from './lib/piperVoices';
 import { VaultEventProvider } from './lib/vaultEvents.jsx';
-
-function isTauriEnvironment() {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  return Boolean(window.__TAURI_INTERNALS__ || window.__TAURI_METADATA__);
-}
-
-function inferAudioMime(path) {
-  if (typeof path !== 'string') {
-    return 'audio/wav';
-  }
-  const normalized = path.toLowerCase();
-  if (normalized.endsWith('.mp3')) {
-    return 'audio/mpeg';
-  }
-  if (normalized.endsWith('.ogg')) {
-    return 'audio/ogg';
-  }
-  if (normalized.endsWith('.flac')) {
-    return 'audio/flac';
-  }
-  return 'audio/wav';
-}
-
-async function createAudioElementFromPath(path) {
-  if (!path) {
-    throw new Error('Missing audio path.');
-  }
-
-  const mime = inferAudioMime(path);
-  let resolvedSrc = '';
-
-  if (isTauriEnvironment()) {
-    try {
-      const data = await readFile(path);
-      const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
-      const blob = new Blob([bytes], { type: mime });
-      resolvedSrc = URL.createObjectURL(blob);
-    } catch (error) {
-      console.warn('Failed to create blob URL for greeting audio; falling back to fileSrc', error);
-    }
-  }
-
-  if (!resolvedSrc) {
-    resolvedSrc = fileSrc(path);
-  }
-
-  if (!resolvedSrc) {
-    throw new Error('Unable to resolve greeting audio source.');
-  }
-
-  const audio = new Audio(resolvedSrc);
-  if (resolvedSrc.startsWith('blob:')) {
-    try {
-      audio.dataset = audio.dataset || {};
-      audio.dataset.greetingBlobUrl = resolvedSrc;
-    } catch {
-      // dataset might be read-only in some environments; ignore.
-    }
-  }
-  return audio;
-}
-
-function disposeGreetingAudio(audio) {
-  if (!(audio instanceof Audio)) {
-    return;
-  }
-  try {
-    audio.pause();
-  } catch {
-    // ignore pause errors
-  }
-  try {
-    const blobUrl = audio.dataset?.greetingBlobUrl;
-    if (blobUrl && typeof URL !== 'undefined') {
-      URL.revokeObjectURL(blobUrl);
-    }
-  } catch {
-    // best-effort cleanup
-  }
-}
+import { createAudioElementFromPath, disposeAudioElement } from './lib/audio';
 
 function UserSelectorOverlay({ onClose }) {
   const [users, setUsers] = useState([]);
@@ -403,7 +320,7 @@ export default function App() {
 
   useEffect(() => () => {
     if (audioCacheRef.current instanceof HTMLAudioElement) {
-      disposeGreetingAudio(audioCacheRef.current);
+      disposeAudioElement(audioCacheRef.current);
       audioCacheRef.current = null;
     }
   }, []);
@@ -499,7 +416,7 @@ export default function App() {
           const audio = await createAudioElementFromPath(wavPath);
           audio.volume = 1.0;
           if (audioCacheRef.current instanceof HTMLAudioElement) {
-            disposeGreetingAudio(audioCacheRef.current);
+            disposeAudioElement(audioCacheRef.current);
           }
           audioCacheRef.current = audio;
           setGreetingPlayback({ audio, ready: true, error: null, enabled: true });
