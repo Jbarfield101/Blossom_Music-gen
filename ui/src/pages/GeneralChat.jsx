@@ -41,7 +41,7 @@ export default function GeneralChat() {
   const voiceQueueRef = useRef([]);
   const liveEnabledRef = useRef(liveEnabled);
   const voiceEnabledRef = useRef(voiceEnabled);
-  const voicePathsRef = useRef(voicePaths);
+  const voicePathsRef = useRef({ modelPath: "", configPath: "" });
   const lastStatusAtRef = useRef(Date.now());
   const vadStateRef = useRef({
     noiseFloor: 0.01,
@@ -135,7 +135,10 @@ export default function GeneralChat() {
   }, [voiceEnabled]);
 
   useEffect(() => {
-    voicePathsRef.current = voicePaths;
+    voicePathsRef.current = {
+      modelPath: voicePaths.model,
+      configPath: voicePaths.config,
+    };
   }, [voicePaths]);
 
   useEffect(() => {
@@ -236,8 +239,9 @@ export default function GeneralChat() {
         chosen = voices[0];
       }
       if (!chosen) {
+        voicePathsRef.current = { modelPath: "", configPath: "" };
         setVoicePaths({ model: "", config: "" });
-        return;
+        return null;
       }
       let modelPath = "";
       let configPath = "";
@@ -249,13 +253,19 @@ export default function GeneralChat() {
         configPath = chosen.configPath;
       }
       if (!modelPath || !configPath) {
+        voicePathsRef.current = { modelPath: "", configPath: "" };
         setVoicePaths({ model: "", config: "" });
-        return;
+        return null;
       }
+      const resolved = { modelPath, configPath };
+      voicePathsRef.current = resolved;
       setVoicePaths({ model: modelPath, config: configPath });
+      return resolved;
     } catch (err) {
       console.warn("Failed to refresh Piper voice", err);
+      voicePathsRef.current = { modelPath: "", configPath: "" };
       setVoicePaths({ model: "", config: "" });
+      return null;
     }
   }, []);
 
@@ -272,12 +282,21 @@ export default function GeneralChat() {
   const speakWithPiper = useCallback(
     async (text) => {
       if (!voiceEnabledRef.current) return;
-      let { model: modelPath, config: configPath } = voicePathsRef.current;
+      let { modelPath, configPath } = voicePathsRef.current;
       if (!modelPath || !configPath) {
-        await refreshVoiceSelection();
-        ({ model: modelPath, config: configPath } = voicePathsRef.current);
+        const refreshed = await refreshVoiceSelection();
+        if (refreshed) {
+          ({ modelPath, configPath } = refreshed);
+        } else {
+          ({ modelPath, configPath } = voicePathsRef.current);
+        }
       }
       if (!modelPath || !configPath) {
+        setLiveStatus((prev) =>
+          prev && prev.startsWith("Voice playback failed")
+            ? prev
+            : "Voice playback unavailable: no voice selected."
+        );
         return;
       }
       try {
