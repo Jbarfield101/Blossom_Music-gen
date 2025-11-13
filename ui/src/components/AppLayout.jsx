@@ -148,10 +148,6 @@ export default function AppLayout({ greetingPlayback = null }) {
   const greetingEnabled = Boolean(greetingPlayback && (greetingPlayback.enabled || greetingPlayback.ready));
   const remoteGreetingError = greetingEnabled && greetingPlayback && greetingPlayback.error ? greetingPlayback.error : '';
   const hasGreetingError = Boolean(localGreetingError || remoteGreetingError);
-  const currentGreetingErrorKey = hasGreetingError
-    ? `${remoteGreetingError || ''}||${localGreetingError || ''}`
-    : '';
-  const [dismissedGreetingErrorKey, setDismissedGreetingErrorKey] = useState(null);
   const isGreetingReady = Boolean(
     greetingPlayback &&
       greetingPlayback.ready &&
@@ -301,12 +297,9 @@ export default function AppLayout({ greetingPlayback = null }) {
       errorDismissTimeoutRef.current = null;
     }
 
-    if (!currentGreetingErrorKey) {
-      setDismissedGreetingErrorKey(null);
+    if (!hasGreetingError) {
       return undefined;
     }
-
-    setDismissedGreetingErrorKey(null);
 
     if (typeof window === 'undefined') {
       return undefined;
@@ -320,7 +313,6 @@ export default function AppLayout({ greetingPlayback = null }) {
         setLocalGreetingError('');
       }
       setShouldShowGreetingPrompt(false);
-      setDismissedGreetingErrorKey(currentGreetingErrorKey);
     }, 45000);
 
     errorDismissTimeoutRef.current = timeoutId;
@@ -331,11 +323,13 @@ export default function AppLayout({ greetingPlayback = null }) {
         errorDismissTimeoutRef.current = null;
       }
     };
-  }, [currentGreetingErrorKey, localGreetingError]);
+  }, [hasGreetingError, localGreetingError, remoteGreetingError]);
 
-  const shouldDisplayGreetingToast =
-    shouldShowGreetingPrompt ||
-    (greetingEnabled && currentGreetingErrorKey && currentGreetingErrorKey !== dismissedGreetingErrorKey);
+  useEffect(() => {
+    if (remoteGreetingError) {
+      console.warn('Greeting playback reported an error', remoteGreetingError);
+    }
+  }, [remoteGreetingError]);
 
   const navContextValue = useMemo(
     () => ({
@@ -388,57 +382,6 @@ export default function AppLayout({ greetingPlayback = null }) {
         >
           <Outlet />
         </main>
-        {shouldDisplayGreetingToast && (
-          <div
-            className="app-layout__greeting-toast"
-            role={shouldShowGreetingPrompt ? 'dialog' : 'alert'}
-            aria-live="polite"
-            style={{
-              position: 'fixed',
-              right: '1.5rem',
-              bottom: '1.5rem',
-              background: 'rgba(24, 24, 24, 0.92)',
-              color: 'var(--text, #fff)',
-              borderRadius: '0.75rem',
-              padding: '1rem',
-              boxShadow: '0 0.5rem 1.5rem rgba(0, 0, 0, 0.25)',
-              width: 'min(320px, calc(100vw - 3rem))',
-              zIndex: 1000,
-              display: 'grid',
-              gap: '0.5rem',
-            }}
-          >
-            <div style={{ fontWeight: 600 }}>
-              {shouldShowGreetingPrompt ? 'Greeting ready' : 'Greeting unavailable'}
-            </div>
-            {shouldShowGreetingPrompt && (
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  playGreeting();
-                }}
-                style={{
-                  borderRadius: '999px',
-                  padding: '0.5rem 0.75rem',
-                  fontSize: '0.9rem',
-                  background: 'var(--accent, #7c5cff)',
-                  color: 'var(--on-accent, #fff)',
-                  border: 'none',
-                  cursor: 'pointer',
-                  justifySelf: 'start',
-                }}
-              >
-                Play greeting
-              </button>
-            )}
-            {(localGreetingError || remoteGreetingError) && (
-              <div style={{ fontSize: '0.85rem', opacity: 0.85 }}>
-                {localGreetingError || remoteGreetingError}
-              </div>
-            )}
-          </div>
-        )}
         <CommandPalette />
       </div>
     </NavContext.Provider>
