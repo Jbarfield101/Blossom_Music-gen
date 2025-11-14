@@ -17,8 +17,19 @@ Blossom is a toolkit for algorithmic arrangement, MusicGen-powered synthesis, an
    ```bash
    python -m venv .venv              # py -3.10 -m venv .venv on Windows
    source .venv/bin/activate         # .\.venv\Scripts\activate on Windows
+   # CPU / default stack
    pip install -r requirements.txt
    ```
+
+   * **CPU-only workflows** (MusicGen, Piper, desktop shell) only need `requirements.txt`.
+   * **NVIDIA GPU Riffusion workflows** require the pinned CUDA 12.4 wheels:
+
+     ```bash
+     pip install --extra-index-url https://download.pytorch.org/whl/cu124 \
+       -r requirements-riffusion.txt
+     ```
+
+     Install this after the base requirements so the pinned Torch/Diffusers stack overlays cleanly.
 
    Optional helpers:
 
