@@ -3,7 +3,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tempfile::NamedTempFile;
 
 use crate::{project_root, settings_store};
@@ -11,7 +11,7 @@ use reqwest::blocking::Client;
 use reqwest::header::CONTENT_TYPE;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Number, Value};
-use sysinfo::{CpuExt, GpuExt, System, SystemExt};
+use sysinfo::{Networks, System};
 use tauri::{async_runtime, AppHandle, Manager};
 use tauri_plugin_store::Store;
 use tokio::time::sleep;
@@ -129,9 +129,9 @@ fn humanize_bytes(kib: u64) -> Option<String> {
     let formatted = if value >= 100.0 {
         format!("{:.0} {}", value.round(), unit)
     } else if value >= 10.0 {
-        format!("{:.1} {}", value)
+        format!("{:.1} {}", value, unit)
     } else {
-        format!("{:.2} {}", value)
+        format!("{:.2} {}", value, unit)
     };
 
     Some(formatted)
@@ -159,35 +159,8 @@ fn format_cpu_info(system: &System) -> String {
     }
 }
 
-fn format_gpu_info(system: &System) -> String {
-    let gpus = system.gpus();
-    if gpus.is_empty() {
-        return "Unknown GPU".to_string();
-    }
-
-    let descriptions: Vec<String> = gpus
-        .iter()
-        .map(|gpu| {
-            let name = gpu.name().trim();
-            let vendor = gpu.vendor().trim();
-
-            let mut parts: Vec<String> = Vec::new();
-            if !name.is_empty() {
-                parts.push(name.to_string());
-            }
-            if !vendor.is_empty() && vendor.to_lowercase() != name.to_lowercase() {
-                parts.push(vendor.to_string());
-            }
-
-            if parts.is_empty() {
-                "GPU".to_string()
-            } else {
-                parts.join(" · ")
-            }
-        })
-        .collect();
-
-    descriptions.join(", ")
+fn format_gpu_info(_system: &System) -> String {
+    "GPU info unavailable".to_string()
 }
 
 fn format_ram_info(system: &System) -> String {
@@ -196,14 +169,12 @@ fn format_ram_info(system: &System) -> String {
         .unwrap_or_else(|| "Unknown RAM".to_string())
 }
 
-fn format_os_info(system: &System) -> String {
-    let pretty = system
-        .long_os_version()
+fn format_os_info() -> String {
+    let pretty = System::long_os_version()
         .map(|text| text.trim().to_string())
         .filter(|text| !text.is_empty());
 
-    let kernel = system
-        .kernel_version()
+    let kernel = System::kernel_version()
         .map(|text| text.trim().to_string())
         .filter(|text| !text.is_empty());
 
@@ -224,6 +195,53 @@ pub struct SystemHardwareInfo {
     pub os: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CpuUsageSnapshot {
+    pub percent: f64,
+    pub frequency_mhz: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryUsageSnapshot {
+    pub used_bytes: u64,
+    pub total_bytes: u64,
+    pub percent: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkUsageSnapshot {
+    pub interface: String,
+    pub interface_type: String,
+    pub rx_mbps: f64,
+    pub tx_mbps: f64,
+    pub percent: f64,
+    pub capacity_mbps: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GpuUsageSnapshot {
+    pub name: String,
+    pub percent: f64,
+    pub memory_percent: f64,
+    pub memory_used_mb: Option<f64>,
+    pub memory_total_mb: Option<f64>,
+    pub temperature_c: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SystemUsageSnapshot {
+    pub cpu: CpuUsageSnapshot,
+    pub memory: MemoryUsageSnapshot,
+    pub gpu: Option<GpuUsageSnapshot>,
+    pub network: Option<NetworkUsageSnapshot>,
+    pub timestamp_ms: u64,
+}
+
 #[tauri::command]
 pub fn system_hardware_info() -> Result<SystemHardwareInfo, String> {
     let mut system = System::new_all();
@@ -233,10 +251,223 @@ pub fn system_hardware_info() -> Result<SystemHardwareInfo, String> {
         cpu: format_cpu_info(&system),
         gpu: format_gpu_info(&system),
         ram: format_ram_info(&system),
-        os: format_os_info(&system),
+        os: format_os_info(),
     };
 
     Ok(info)
+}
+
+const NETWORK_SAMPLE_MS: u64 = 350;
+const FALLBACK_ETHERNET_CAPACITY_MBPS: f64 = 1000.0;
+const FALLBACK_WIFI_CAPACITY_MBPS: f64 = 600.0;
+
+fn clamp_percent(value: f64) -> f64 {
+    if !value.is_finite() {
+        return 0.0;
+    }
+    value.clamp(0.0, 100.0)
+}
+
+fn kib_to_bytes(value: u64) -> u64 {
+    value.saturating_mul(1024)
+}
+
+fn classify_network_interface(name: &str) -> (&'static str, f64) {
+    let lower = name.to_ascii_lowercase();
+    if lower.contains("wi-fi") || lower.contains("wifi") || lower.contains("wireless") || lower.contains("wlan") {
+        ("wifi", FALLBACK_WIFI_CAPACITY_MBPS)
+    } else {
+        ("ethernet", FALLBACK_ETHERNET_CAPACITY_MBPS)
+    }
+}
+
+fn should_skip_interface(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    ["loopback", "virtual", "vmware", "npcap", "bluetooth"]
+        .iter()
+        .any(|token| lower.contains(token))
+}
+
+fn bytes_to_mbps(bytes: u64, elapsed_secs: f64) -> f64 {
+    if elapsed_secs <= f64::EPSILON {
+        0.0
+    } else {
+        (bytes as f64 * 8.0) / (elapsed_secs * 1_000_000.0)
+    }
+}
+
+fn sample_cpu_percent(system: &mut System) -> f64 {
+    system.refresh_cpu_usage();
+    std::thread::sleep(Duration::from_millis(200));
+    system.refresh_cpu_usage();
+    clamp_percent(system.global_cpu_info().cpu_usage() as f64)
+}
+
+fn sample_network_usage(window: Duration) -> Option<NetworkUsageSnapshot> {
+    let mut networks = Networks::new_with_refreshed_list();
+    let start = Instant::now();
+    std::thread::sleep(window);
+    networks.refresh();
+
+    let elapsed = start.elapsed().as_secs_f64();
+    if elapsed <= f64::EPSILON {
+        return None;
+    }
+
+    let mut active: Option<NetworkUsageSnapshot> = None;
+
+    for (name, stats) in networks.list().iter() {
+        if should_skip_interface(name) {
+            continue;
+        }
+        let rx_mbps = bytes_to_mbps(stats.received(), elapsed);
+        let tx_mbps = bytes_to_mbps(stats.transmitted(), elapsed);
+        let total = rx_mbps + tx_mbps;
+        let (kind, capacity) = classify_network_interface(name);
+        let percent = if capacity > 0.0 {
+            clamp_percent((total / capacity) * 100.0)
+        } else {
+            0.0
+        };
+
+        let snapshot = NetworkUsageSnapshot {
+            interface: name.clone(),
+            interface_type: kind.to_string(),
+            rx_mbps,
+            tx_mbps,
+            percent,
+            capacity_mbps: capacity,
+        };
+
+        match &active {
+            Some(existing) if existing.rx_mbps + existing.tx_mbps >= total => {}
+            _ => active = Some(snapshot),
+        }
+    }
+
+    if active.is_some() {
+        return active;
+    }
+
+    for (name, _) in networks.list().iter() {
+        if should_skip_interface(name) {
+            continue;
+        }
+        let (kind, capacity) = classify_network_interface(name);
+        return Some(NetworkUsageSnapshot {
+            interface: name.clone(),
+            interface_type: kind.to_string(),
+            rx_mbps: 0.0,
+            tx_mbps: 0.0,
+            percent: 0.0,
+            capacity_mbps: capacity,
+        });
+    }
+
+    None
+}
+
+fn parse_numeric_field(parts: &[String], idx: usize) -> Option<f64> {
+    parts.get(idx).and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("n/a") {
+            None
+        } else {
+            trimmed.parse::<f64>().ok()
+        }
+    })
+}
+
+fn query_nvidia_gpu_usage() -> Option<GpuUsageSnapshot> {
+    let output = Command::new("nvidia-smi")
+        .args([
+            "--query-gpu=name,utilization.gpu,utilization.memory,memory.used,memory.total,temperature.gpu",
+            "--format=csv,noheader,nounits",
+        ])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let line = stdout.lines().find(|line| !line.trim().is_empty())?;
+    let parts: Vec<String> = line.split(',').map(|part| part.trim().to_string()).collect();
+
+    if parts.is_empty() {
+        return None;
+    }
+
+    let raw_name = parts.get(0).map(|value| value.trim()).unwrap_or("");
+    let name = if raw_name.is_empty() {
+        "NVIDIA GPU".to_string()
+    } else {
+        raw_name.to_string()
+    };
+
+    let gpu_percent = parse_numeric_field(&parts, 1).unwrap_or(0.0);
+    let mem_util = parse_numeric_field(&parts, 2);
+    let mem_used = parse_numeric_field(&parts, 3);
+    let mem_total = parse_numeric_field(&parts, 4);
+    let temperature = parse_numeric_field(&parts, 5);
+
+    let derived_mem_percent = match (mem_used, mem_total) {
+        (Some(used), Some(total)) if total > 0.0 => Some((used / total) * 100.0),
+        _ => None,
+    };
+
+    Some(GpuUsageSnapshot {
+        name,
+        percent: clamp_percent(gpu_percent),
+        memory_percent: clamp_percent(mem_util.or(derived_mem_percent).unwrap_or(0.0)),
+        memory_used_mb: mem_used,
+        memory_total_mb: mem_total,
+        temperature_c: temperature,
+    })
+}
+
+#[tauri::command]
+pub fn system_usage_snapshot() -> Result<SystemUsageSnapshot, String> {
+    if !sysinfo::IS_SUPPORTED_SYSTEM {
+        return Err("System inspection is not supported on this platform".to_string());
+    }
+
+    let mut system = System::new_all();
+    let cpu_percent = sample_cpu_percent(&mut system);
+
+    system.refresh_memory();
+    let total_memory_kib = system.total_memory();
+    let used_memory_kib = system.used_memory();
+    let memory_percent = if total_memory_kib > 0 {
+        clamp_percent((used_memory_kib as f64 / total_memory_kib as f64) * 100.0)
+    } else {
+        0.0
+    };
+
+    let cpu_frequency = system.global_cpu_info().frequency();
+    let gpu = query_nvidia_gpu_usage();
+    let network = sample_network_usage(Duration::from_millis(NETWORK_SAMPLE_MS));
+
+    let timestamp_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_millis() as u64)
+        .unwrap_or(0);
+
+    Ok(SystemUsageSnapshot {
+        cpu: CpuUsageSnapshot {
+            percent: cpu_percent,
+            frequency_mhz: (cpu_frequency > 0).then_some(cpu_frequency),
+        },
+        memory: MemoryUsageSnapshot {
+            used_bytes: kib_to_bytes(used_memory_kib),
+            total_bytes: kib_to_bytes(total_memory_kib),
+            percent: memory_percent,
+        },
+        gpu,
+        network,
+        timestamp_ms,
+    })
 }
 
 fn ensure_settings_defaults(settings: &mut ComfyUISettings) -> bool {
@@ -3398,3 +3629,4 @@ pub async fn video_to_image_extract(
         pattern,
     })
 }
+

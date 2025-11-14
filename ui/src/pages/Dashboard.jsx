@@ -4,7 +4,41 @@ import FeatureWheel from '../components/FeatureWheel.jsx';
 import Icon from '../components/Icon.jsx';
 import Screen from '../components/Screen.jsx';
 import useHardwareInfo from '../lib/useHardwareInfo.js';
+import useSystemMetrics from '../lib/useSystemMetrics.js';
 import './Dashboard.css';
+
+const formatPercentText = (value) => {
+  if (typeof value !== 'number' || Number.isNaN(value)) return '—';
+  return `${Math.round(value)}%`;
+};
+
+const clampPercentValue = (value) => {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 0;
+  return Math.min(Math.max(value, 0), 100);
+};
+
+const shortenGpuName = (name) => {
+  if (!name || typeof name !== 'string') return 'GPU';
+  const trimmed = name.trim();
+  if (!trimmed) return 'GPU';
+  return trimmed
+    .replace(/^NVIDIA\s+/i, '')
+    .replace(/^GeForce\s+/i, '')
+    .trim() || 'GPU';
+};
+
+const formatThroughput = (value) => {
+  if (typeof value !== 'number' || Number.isNaN(value)) return '0 Mb/s';
+  if (value >= 1000) {
+    return `${(value / 1000).toFixed(1)} Gb/s`;
+  }
+  return `${value.toFixed(1)} Mb/s`;
+};
+
+const formatFrequency = (mhz) => {
+  if (typeof mhz !== 'number' || Number.isNaN(mhz) || mhz <= 0) return null;
+  return `${(mhz / 1000).toFixed(2)} GHz`;
+};
 
 export default function Dashboard() {
   const [version, setVersion] = useState("");
@@ -17,6 +51,7 @@ export default function Dashboard() {
   const comfySeenSuccessRef = useRef(false);
   const isTauriEnvRef = useRef(false);
   const hardware = useHardwareInfo();
+  const metrics = useSystemMetrics(2200);
 
   const clearComfyPollTimer = () => {
     if (comfyPollTimerRef.current) {
@@ -46,7 +81,6 @@ export default function Dashboard() {
     (async () => {
       try {
         const res = await invoke('app_version');
-        // res is expected to be { app: string, python: string }
         const appVer = (res && res.app) ? String(res.app) : "";
         if (mounted) setVersion(appVer);
       } catch {
@@ -162,6 +196,48 @@ export default function Dashboard() {
     { to: '/settings', icon: 'Settings', title: 'Settings' },
   ];
 
+  const metricsReady = metrics.status === 'ready' && metrics.snapshot;
+  const usageSnapshot = metricsReady ? metrics.snapshot : null;
+  const usageBlocks = usageSnapshot
+    ? [
+        {
+          id: 'cpu',
+          label: 'CPU',
+          percent: usageSnapshot.cpu?.percent ?? null,
+          detail:
+            formatFrequency(usageSnapshot.cpu?.frequencyMhz ?? null) ??
+            hardware.info?.cpu ??
+            'CPU usage',
+        },
+        {
+          id: 'gpu',
+          label: shortenGpuName(
+            usageSnapshot.gpu?.name ?? hardware.info?.gpu ?? 'GPU',
+          ),
+          percent: usageSnapshot.gpu?.percent ?? null,
+          detail: usageSnapshot.gpu
+            ? typeof usageSnapshot.gpu.memoryPercent === 'number'
+              ? `${Math.round(usageSnapshot.gpu.memoryPercent)}% VRAM`
+              : 'VRAM usage'
+            : hardware.info?.gpu ?? 'GPU metrics',
+        },
+        {
+          id: 'network',
+          label: usageSnapshot.network
+            ? usageSnapshot.network.interfaceType === 'wifi'
+              ? 'Wi-Fi'
+              : 'Ethernet'
+            : 'Network',
+          percent: usageSnapshot.network?.percent ?? null,
+          detail: usageSnapshot.network
+            ? `Down ${formatThroughput(usageSnapshot.network.rxMbps)} / Up ${formatThroughput(
+                usageSnapshot.network.txMbps,
+              )}`
+            : 'Monitoring adapter',
+        },
+      ]
+    : [];
+
   const hardwareDetails =
     hardware.status === 'ready' && hardware.info
       ? [
@@ -179,9 +255,27 @@ export default function Dashboard() {
     } else if (hardware.status === 'unsupported') {
       hardwareNote = 'Launch the desktop app to see system hardware details.';
     } else {
-      hardwareNote = 'Detecting your hardware…';
+      hardwareNote = 'Detecting your hardware.';
     }
   }
+
+  let metricsNote = '';
+  if (!usageBlocks.length) {
+    if (metrics.status === 'unsupported') {
+      metricsNote = 'Launch the desktop app to stream live usage.';
+    } else if (metrics.status === 'error') {
+      metricsNote = metrics.error || 'Hardware usage unavailable right now.';
+    } else {
+      metricsNote = 'Sampling performance data...';
+    }
+  }
+
+  const comfyMessage =
+    comfyStatus === 'online'
+      ? 'ComfyUI is online. Kick off a new render from Sound Lab or Visual Generator.'
+      : comfyStatus === 'starting'
+        ? 'ComfyUI is warming up. Your ACE, lofi, and video jobs will queue as soon as it finishes booting.'
+        : 'ComfyUI is offline. Open Settings → Advanced to relaunch it when you need it.';
 
   return (
     <>
@@ -211,26 +305,61 @@ export default function Dashboard() {
       </header>
       <section className="dashboard-main">
         <FeatureWheel items={items} />
-        <div className="screen-wrapper">
-          <Screen data-comfy-status={comfyStatus}>
-            <div className="dashboard-screen" aria-live="polite">
-              <div className="dashboard-hardware-card" data-status={hardware.status}>
+        <div className="dashboard-stack">
+          <div className="dashboard-hardware-card" data-status={hardware.status}>
+            <div className="dashboard-hardware-heading">
+              <div>
                 <h2 className="dashboard-hardware-title">System hardware</h2>
-                {hardwareDetails ? (
-                  <dl className="dashboard-hardware-list">
-                    {hardwareDetails.map(({ label, value }) => (
-                      <div key={label} className="dashboard-hardware-row">
-                        <dt className="dashboard-hardware-term">{label}</dt>
-                        <dd className="dashboard-hardware-description">{value}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                ) : (
-                  <p className="dashboard-hardware-note">{hardwareNote}</p>
-                )}
+                <p className="dashboard-hardware-subtitle">
+                  Live CPU, GPU, and network usage from your rig.
+                </p>
               </div>
             </div>
-          </Screen>
+            {usageBlocks.length ? (
+              <div className="dashboard-hardware-usage" aria-live="polite">
+                {usageBlocks.map((block) => (
+                  <div key={block.id} className="hardware-usage-block">
+                    <div className="hardware-usage-header">
+                      <span className="hardware-usage-label">{block.label}</span>
+                      <span className="hardware-usage-percent">
+                        {formatPercentText(block.percent)}
+                      </span>
+                    </div>
+                    <div className="hardware-usage-bar" role="presentation">
+                      <span
+                        className="hardware-usage-bar-fill"
+                        style={{ width: `${clampPercentValue(block.percent)}%` }}
+                      />
+                    </div>
+                    {block.detail && (
+                      <p className="hardware-usage-detail">{block.detail}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="dashboard-hardware-note">{metricsNote}</p>
+            )}
+            {hardwareDetails ? (
+              <div className="dashboard-hardware-specs">
+                {hardwareDetails.map(({ label, value }) => (
+                  <dl key={label} className="dashboard-hardware-spec">
+                    <dt className="dashboard-hardware-term">{label}</dt>
+                    <dd className="dashboard-hardware-description">{value}</dd>
+                  </dl>
+                ))}
+              </div>
+            ) : (
+              <p className="dashboard-hardware-note">{hardwareNote}</p>
+            )}
+          </div>
+          <div className="screen-wrapper">
+            <Screen data-comfy-status={comfyStatus}>
+              <div className="dashboard-screen" aria-live="polite">
+                <p className="dashboard-screen-copy">{comfyMessage}</p>
+              </div>
+            </Screen>
+          </div>
         </div>
       </section>
     </>

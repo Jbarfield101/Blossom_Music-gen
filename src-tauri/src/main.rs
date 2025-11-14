@@ -42,6 +42,7 @@ mod musiclang;
 mod util;
 use crate::commands::{
     album_concat, generate_musicgen, musicgen_env, riffusion_generate, system_hardware_info,
+    system_usage_snapshot,
 };
 use crate::util::list_from_dir;
 
@@ -12266,6 +12267,7 @@ fn main() {
             commands::update_comfyui_settings,
             commands::comfyui_status,
             system_hardware_info,
+            system_usage_snapshot,
             commands::comfyui_submit_stable_audio,
             commands::comfyui_submit_lofi_scene,
             commands::comfyui_submit_video_maker,

@@ -152,15 +152,23 @@
 .dashboard-main {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(0, 300px) minmax(520px, 1fr);
+  grid-template-columns: minmax(0, 320px) minmax(540px, 1fr);
   gap: var(--space-xl);
-  align-items: center;
-  align-content: center;
+  align-items: start;
+  align-content: start;
   width: 100%;
   max-width: 1200px;
   margin: 0 auto;
-  padding: 0 var(--space-xl) 0 0;
-  justify-items: start;
+  padding: 0 var(--space-xl) var(--space-xl) 0;
+  justify-items: stretch;
+  box-sizing: border-box;
+}
+
+.dashboard-stack {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
 }
 
 .screen-wrapper {
@@ -229,7 +237,8 @@
 }
 
 .dashboard-hardware-card {
-  width: min(420px, 90%);
+  width: 100%;
+  max-width: 840px;
   padding: clamp(1.25rem, 3vw, 1.75rem);
   border-radius: 1.25rem;
   background: color-mix(in srgb, var(--card-bg) 75%, transparent 25%);
@@ -240,25 +249,24 @@
   backdrop-filter: blur(12px);
 }
 
+.dashboard-hardware-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
 .dashboard-hardware-title {
   margin: 0 0 0.75rem;
   font-size: clamp(1.1rem, 2.2vw, 1.4rem);
   letter-spacing: 0.03em;
 }
 
-.dashboard-hardware-list {
+.dashboard-hardware-subtitle {
   margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-}
-
-.dashboard-hardware-row {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.75rem;
-  align-items: start;
+  font-size: clamp(0.85rem, 1.8vw, 1rem);
+  color: color-mix(in srgb, var(--text) 70%, transparent 30%);
 }
 
 .dashboard-hardware-term {
@@ -280,6 +288,89 @@
   font-size: clamp(0.9rem, 2vw, 1.05rem);
   line-height: 1.45;
   opacity: 0.8;
+}
+
+.dashboard-hardware-usage {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.hardware-usage-block {
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent 82%);
+  border-radius: 1rem;
+  padding: 0.9rem 1.1rem;
+  background: color-mix(in srgb, var(--card-hover-bg) 65%, transparent 35%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.hardware-usage-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-xs);
+}
+
+.hardware-usage-label {
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.hardware-usage-percent {
+  font-size: clamp(1.4rem, 3vw, 1.9rem);
+  font-weight: 600;
+}
+
+.hardware-usage-bar {
+  position: relative;
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 12%, transparent 88%);
+  overflow: hidden;
+}
+
+.hardware-usage-bar-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 75%, var(--text)));
+}
+
+.hardware-usage-detail {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--text) 78%, transparent 22%);
+}
+
+.dashboard-hardware-specs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-sm);
+  border-top: 1px solid color-mix(in srgb, var(--text) 12%, transparent 88%);
+  padding-top: var(--space-md);
+  margin-top: var(--space-sm);
+}
+
+.dashboard-hardware-spec {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.dashboard-screen-copy {
+  margin: 0;
+  font-size: clamp(1rem, 2.4vw, 1.35rem);
+  max-width: 520px;
+  line-height: 1.5;
+  text-align: center;
 }
 
 .screen-title {
@@ -335,10 +426,10 @@
 .dashboard-main {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(240px, 320px) minmax(520px, 1fr);
+  grid-template-columns: minmax(0, 320px) minmax(540px, 1fr);
   gap: var(--space-xl);
-  align-items: center;
-  align-content: center;
+  align-items: start;
+  align-content: start;
   width: 100%;
   max-width: 1200px;
   margin: 0 auto;
@@ -364,6 +455,10 @@
   .feature-wheel,
   .screen-wrapper {
     justify-self: center;
+  }
+
+  .dashboard-stack {
+    width: 100%;
   }
 
   .screen {
