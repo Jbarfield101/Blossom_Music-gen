@@ -40,3 +40,70 @@
   margin-top: var(--space-xs);
 }
 
+.settings-on-start h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.settings-on-start-description {
+  margin: 0;
+  font-size: 0.95rem;
+  color: color-mix(in srgb, var(--text) 78%, transparent);
+}
+
+.settings-on-start-message {
+  margin: 0;
+  font-size: 0.9rem;
+  color: color-mix(in srgb, var(--text) 70%, transparent);
+}
+
+.settings-on-start-message--error {
+  color: var(--error-text, #ff8a80);
+}
+
+.settings-audio-greeting h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.settings-audio-greeting-description {
+  margin: 0;
+  font-size: 0.95rem;
+  color: color-mix(in srgb, var(--text) 78%, transparent);
+}
+
+.settings-audio-greeting-fields {
+  display: grid;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+}
+
+.settings-audio-greeting-input {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.settings-audio-greeting-input input {
+  width: 100%;
+  max-width: 28rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--text) 15%, transparent);
+  background: var(--bg);
+  color: inherit;
+}
+
+.settings-audio-greeting-input small {
+  color: color-mix(in srgb, var(--text) 70%, transparent);
+}
+
+.settings-audio-greeting-message {
+  margin-top: var(--space-sm);
+  font-size: 0.9rem;
+  color: color-mix(in srgb, var(--text) 70%, transparent);
+}
+
+.settings-audio-greeting-message--error {
+  color: var(--error-text, #ff8a80);
+}
+

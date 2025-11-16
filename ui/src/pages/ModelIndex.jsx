@@ -10,6 +10,8 @@ import './ModelIndex.css';
 const INITIAL_BASE_MODELS = ['SDXL 1.0', 'Flux .1 D', 'WAN Video', 'Qwen', 'Other'];
 const INITIAL_TOP_TAGS = ['Flux', 'DND', 'Fantasy', 'LoFi', 'Portrait', 'Character', 'Sci-Fi', 'Nature', 'Cinematic', 'Abstract'];
 const MAX_TOP_TAGS = 10;
+const UNLABELED_BASE_LABEL = 'Unlabeled';
+const ALL_BASE_FILTER = 'all';
 
 const MODEL_INDEX_PATH = 'D:/Documents/DreadHaven/model_index.json';
 const MODEL_TEST_IMAGE_ROOT = 'D:/Blossom/Blossom_Music/assets/images/lora_examples';
@@ -232,6 +234,14 @@ function combineTopTags(dynamicTags) {
   return unique;
 }
 
+function deriveBaseLabel(model) {
+  if (!model || typeof model !== 'object') {
+    return UNLABELED_BASE_LABEL;
+  }
+  const candidate = normalizeString(model.baseModel);
+  return candidate || UNLABELED_BASE_LABEL;
+}
+
 export default function ModelIndex() {
   const [isLoRaWizardOpen, setIsLoRaWizardOpen] = useState(false);
   const [loRaName, setLoRaName] = useState('');
@@ -262,8 +272,84 @@ export default function ModelIndex() {
   const [testSteps, setTestSteps] = useState('');
   const [testCfg, setTestCfg] = useState('');
   const [testDenoise, setTestDenoise] = useState('');
+  const [baseFilter, setBaseFilter] = useState(ALL_BASE_FILTER);
+  const [activeTagFilters, setActiveTagFilters] = useState([]);
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+
+  const resetTestDialogState = useCallback(() => {
+    setIsTestDialogOpen(false);
+    setTestPositivePrompt('');
+    setTestNegativePrompt('');
+    setTestImages([]);
+    setTestError('');
+    setTestSuccessMessage('');
+    setTestSeed('');
+    setTestSteps('');
+    setTestCfg('');
+    setTestDenoise('');
+  }, []);
 
   const modelCount = indexedModels.length;
+
+  const availableBaseFilters = useMemo(() => {
+    const unique = new Set();
+    indexedModels.forEach((model) => {
+      unique.add(deriveBaseLabel(model));
+    });
+    return Array.from(unique).sort((a, b) => a.localeCompare(b));
+  }, [indexedModels]);
+
+  useEffect(() => {
+    if (baseFilter !== ALL_BASE_FILTER && !availableBaseFilters.includes(baseFilter)) {
+      setBaseFilter(ALL_BASE_FILTER);
+    }
+  }, [availableBaseFilters, baseFilter]);
+
+  const availableTagFilters = useMemo(() => {
+    const unique = new Set();
+    indexedModels.forEach((model) => {
+      (model.tags || []).forEach((tag) => {
+        const normalized = normalizeString(tag);
+        if (normalized) {
+          unique.add(normalized);
+        }
+      });
+    });
+    if (!unique.size) {
+      topTagSuggestions.forEach((tag) => {
+        const normalized = normalizeString(tag);
+        if (normalized) {
+          unique.add(normalized);
+        }
+      });
+    }
+    return Array.from(unique).sort((a, b) => a.localeCompare(b));
+  }, [indexedModels, topTagSuggestions]);
+
+  useEffect(() => {
+    setActiveTagFilters((previous) =>
+      previous.filter((tag) => availableTagFilters.includes(tag)),
+    );
+  }, [availableTagFilters]);
+
+  const filteredModels = useMemo(() => {
+    return indexedModels.filter((model) => {
+      if (baseFilter !== ALL_BASE_FILTER) {
+        if (deriveBaseLabel(model) !== baseFilter) {
+          return false;
+        }
+      }
+      if (activeTagFilters.length > 0) {
+        const lowerTags = new Set((model.tags || []).map((tag) => tag.toLowerCase()));
+        const matches = activeTagFilters.every((tag) => lowerTags.has(tag.toLowerCase()));
+        if (!matches) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [indexedModels, baseFilter, activeTagFilters]);
+
   const secondaryButtonStyle = useMemo(
     () => ({
       border: '1px solid rgba(15, 23, 42, 0.2)',
@@ -276,6 +362,24 @@ export default function ModelIndex() {
     }),
     [],
   );
+
+  const toggleTagFilter = useCallback((tag) => {
+    setActiveTagFilters((previous) => {
+      if (previous.includes(tag)) {
+        return previous.filter((value) => value !== tag);
+      }
+      return [...previous, tag];
+    });
+  }, []);
+
+  const clearTagFilters = useCallback(() => {
+    setActiveTagFilters([]);
+  }, []);
+
+  const handleCardSelect = useCallback((modelId) => {
+    setSelectedModelId(modelId);
+    setIsDetailsOpen(true);
+  }, []);
 
   const openLoRaWizard = () => {
     setIsLoRaWizardOpen(true);
@@ -345,22 +449,20 @@ export default function ModelIndex() {
     setIsEditingModel(false);
     setEditDraft(null);
     setEditError('');
-    setIsTestDialogOpen(false);
-    setTestPositivePrompt('');
-    setTestNegativePrompt('');
-    setTestImages([]);
-    setTestError('');
-    setTestSuccessMessage('');
-    setTestSeed('');
-    setTestSteps('');
-    setTestCfg('');
-    setTestDenoise('');
-  }, [selectedModelId]);
+    resetTestDialogState();
+  }, [selectedModelId, resetTestDialogState]);
 
   const selectedModel = useMemo(
     () => indexedModels.find((model) => model.id === selectedModelId) || null,
     [indexedModels, selectedModelId],
   );
+  const detailHeadingId = selectedModel ? `model-index-detail-title-${selectedModel.id}` : undefined;
+
+  useEffect(() => {
+    if (!selectedModel) {
+      setIsDetailsOpen(false);
+    }
+  }, [selectedModel]);
 
   const testOutputDirectory = useMemo(() => {
     if (!selectedModel) {
@@ -389,6 +491,26 @@ export default function ModelIndex() {
     setEditDraft(null);
     setEditError('');
   }, []);
+
+  const closeDetailsPanel = useCallback(() => {
+    setIsDetailsOpen(false);
+    cancelEditingModel();
+    resetTestDialogState();
+  }, [cancelEditingModel, resetTestDialogState]);
+
+  useEffect(() => {
+    if (!isDetailsOpen) {
+      return undefined;
+    }
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeDetailsPanel();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isDetailsOpen, closeDetailsPanel]);
 
   const formatTimestamp = useCallback((value) => {
     if (!value) {
@@ -996,13 +1118,65 @@ export default function ModelIndex() {
             <span className="card-caption">Refreshing index...</span>
           )}
         </div>
-        {indexedModels.length === 0 ? (
+        <div className="model-index-filters">
+          <label className="model-index-filter">
+            <span>Base Model</span>
+            <select
+              value={baseFilter}
+              onChange={(event) => setBaseFilter(event.target.value)}
+            >
+              <option value={ALL_BASE_FILTER}>All base models</option>
+              {availableBaseFilters.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="model-index-filter-tags">
+            <div className="model-index-filter-tags__header">
+              <span>Tags</span>
+              {activeTagFilters.length > 0 && (
+                <button
+                  type="button"
+                  className="model-index-filter-clear"
+                  onClick={clearTagFilters}
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+            <div className="model-index-filter-tags__list">
+              {availableTagFilters.length ? (
+                availableTagFilters.map((tag) => {
+                  const isActive = activeTagFilters.includes(tag);
+                  return (
+                    <button
+                      type="button"
+                      key={tag}
+                      className={`model-index-filter-tag${isActive ? ' is-active' : ''}`}
+                      onClick={() => toggleTagFilter(tag)}
+                      aria-pressed={isActive}
+                    >
+                      {tag}
+                    </button>
+                  );
+                })
+              ) : (
+                <span className="card-caption">No tags indexed yet.</span>
+              )}
+            </div>
+          </div>
+        </div>
+        {filteredModels.length === 0 ? (
           <p className="card-caption">
-            No LoRa models indexed yet. Save one to populate this list.
+            {indexedModels.length === 0
+              ? 'No LoRa models indexed yet. Save one to populate this list.'
+              : 'No models match the current filters.'}
           </p>
         ) : (
           <div className="model-index-grid">
-            {indexedModels.map((model) => {
+            {filteredModels.map((model) => {
               const isSelected = selectedModelId === model.id;
               const visibleTags = model.tags.slice(0, 4);
               const hiddenTagCount = Math.max(0, model.tags.length - visibleTags.length);
@@ -1019,11 +1193,11 @@ export default function ModelIndex() {
                   tabIndex={0}
                   aria-pressed={isSelected}
                   aria-label={`Select ${model.name}`}
-                  onClick={() => setSelectedModelId(model.id)}
+                  onClick={() => handleCardSelect(model.id)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();
-                      setSelectedModelId(model.id);
+                      handleCardSelect(model.id);
                     }
                   }}
                   className={`card model-index-card${isSelected ? ' is-selected' : ''}`}
@@ -1112,481 +1286,502 @@ export default function ModelIndex() {
         )}
       </section>
 
-      {selectedModel && (
-        <section
-          className="card"
-          style={{
-            marginTop: '1rem',
-            display: 'grid',
-            gap: '0.75rem',
-          }}
+      {selectedModel && isDetailsOpen && (
+        <div
+          className="model-index-detail-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={detailHeadingId}
+          onClick={closeDetailsPanel}
         >
-          <header
-            style={{
-              display: 'flex',
-              alignItems: 'flex-start',
-              justifyContent: 'space-between',
-              gap: '1rem',
-              flexWrap: 'wrap',
-            }}
+          <div
+            className="model-index-detail-dialog"
+            role="document"
+            onClick={(event) => event.stopPropagation()}
           >
-            <div style={{ display: 'grid', gap: '0.35rem' }}>
-              <h2 style={{ margin: 0 }}>{selectedModel.name}</h2>
-              <span className="card-caption">
-                Saved {formatTimestamp(selectedModel.createdAt)}
-              </span>
-              {selectedModel.lastTest?.ranAt && (
-                <span className="card-caption">
-                  Last tested {formatTimestamp(selectedModel.lastTest.ranAt)}
-                </span>
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              {isEditingModel ? (
-                <span className="card-caption" style={{ fontWeight: 600 }}>
-                  Editing metadata
-                </span>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={beginEditingModel}
-                    style={secondaryButtonStyle}
-                  >
-                    Edit
-                  </button>
-                  <PrimaryButton type="button" onClick={openTestDialog}>
-                    Test Model
-                  </PrimaryButton>
-                </>
-              )}
-            </div>
-          </header>
-          {testSuccessMessage && (
-            <span className="card-caption" style={{ color: 'var(--success, #16a34a)' }}>
-              {testSuccessMessage}
-            </span>
-          )}
-          {editError && (
-            <span className="card-caption" style={{ color: 'var(--accent)' }}>
-              {editError}
-            </span>
-          )}
-          {isEditingModel && editDraft ? (
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                handleEditSave();
-              }}
-              style={{
-                display: 'grid',
-                gap: '0.75rem',
-              }}
+            <button
+              type="button"
+              className="model-index-detail-close"
+              onClick={closeDetailsPanel}
+              aria-label="Close model details"
             >
-              <label style={{ display: 'grid', gap: '0.35rem' }}>
-                <span style={{ fontWeight: 600 }}>Model Name</span>
-                <input
-                  type="text"
-                  value={editDraft.name}
-                  onChange={(event) => updateEditDraftField('name', event.target.value)}
-                  placeholder="My LoRa Model"
-                  style={{
-                    padding: '0.65rem',
-                    borderRadius: '10px',
-                    border: '1px solid rgba(15, 23, 42, 0.2)',
-                    background: 'var(--card-bg)',
-                    color: 'var(--text)',
-                    fontSize: '1rem',
-                  }}
-                />
-              </label>
-              <label style={{ display: 'grid', gap: '0.35rem' }}>
-                <span style={{ fontWeight: 600 }}>Base Model</span>
-                <input
-                  type="text"
-                  value={editDraft.baseModel}
-                  onChange={(event) => updateEditDraftField('baseModel', event.target.value)}
-                  placeholder="SDXL 1.0"
-                  style={{
-                    padding: '0.65rem',
-                    borderRadius: '10px',
-                    border: '1px solid rgba(15, 23, 42, 0.2)',
-                    background: 'var(--card-bg)',
-                    color: 'var(--text)',
-                    fontSize: '1rem',
-                  }}
-                />
-              </label>
-              <label style={{ display: 'grid', gap: '0.35rem' }}>
-                <span style={{ fontWeight: 600 }}>Tags</span>
-                <textarea
-                  value={editDraft.tags}
-                  onChange={(event) => updateEditDraftField('tags', event.target.value)}
-                  rows={2}
-                  placeholder="Flux, DND, etc."
-                  style={{
-                    padding: '0.65rem',
-                    borderRadius: '10px',
-                    border: '1px solid rgba(15, 23, 42, 0.2)',
-                    background: 'var(--card-bg)',
-                    color: 'var(--text)',
-                    fontSize: '1rem',
-                    resize: 'vertical',
-                  }}
-                />
-                <span className="card-caption">Separate tags with commas.</span>
-              </label>
-              <label style={{ display: 'grid', gap: '0.35rem' }}>
-                <span style={{ fontWeight: 600 }}>Trigger Words</span>
-                <textarea
-                  value={editDraft.triggerWords}
-                  onChange={(event) => updateEditDraftField('triggerWords', event.target.value)}
-                  rows={2}
-                  placeholder="Cinematic lighting, high detail"
-                  style={{
-                    padding: '0.65rem',
-                    borderRadius: '10px',
-                    border: '1px solid rgba(15, 23, 42, 0.2)',
-                    background: 'var(--card-bg)',
-                    color: 'var(--text)',
-                    fontSize: '1rem',
-                    resize: 'vertical',
-                  }}
-                />
-                <span className="card-caption">Separate trigger words with commas.</span>
-              </label>
-              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <PrimaryButton type="submit">Save Changes</PrimaryButton>
-                <button
-                  type="button"
-                  onClick={cancelEditingModel}
-                  style={secondaryButtonStyle}
-                >
-                  Cancel
-                </button>
-              </div>
-            </form>
-          ) : (
-            <>
-              <dl
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-                  gap: '0.75rem',
-                  margin: 0,
-                }}
-              >
-                <div style={{ display: 'grid', gap: '0.25rem' }}>
-                  <dt style={{ fontWeight: 600 }}>Base Model</dt>
-                  <dd style={{ margin: 0 }}>{selectedModel.baseModel || 'Not set'}</dd>
-                </div>
-                <div style={{ display: 'grid', gap: '0.25rem' }}>
-                  <dt style={{ fontWeight: 600 }}>Tags</dt>
-                  <dd style={{ margin: 0 }}>
-                    {selectedModel.tags.length ? selectedModel.tags.join(', ') : 'None'}
-                  </dd>
-                </div>
-                <div style={{ display: 'grid', gap: '0.25rem' }}>
-                  <dt style={{ fontWeight: 600 }}>Trigger Words</dt>
-                  <dd style={{ margin: 0 }}>
-                    {selectedModel.triggerWords.length
-                      ? selectedModel.triggerWords.join(', ')
-                      : 'None'}
-                  </dd>
-                </div>
-              </dl>
-              {selectedModel.lastTest && (
-                <div style={{ display: 'grid', gap: '0.35rem' }}>
-                  <h3 style={{ margin: 0 }}>Last Test</h3>
-                  <span className="card-caption">
-                    Ran {formatTimestamp(selectedModel.lastTest.ranAt)} ·{' '}
-                    {selectedModel.lastTest.images?.length || 0} image
-                    {selectedModel.lastTest.images?.length === 1 ? '' : 's'}
-                  </span>
-                  {(selectedModel.lastTest.seed ||
-                    selectedModel.lastTest.steps !== null ||
-                    selectedModel.lastTest.cfg !== null ||
-                    selectedModel.lastTest.denoise !== null) && (
-                    <div
+              <Icon name="X" size={18} />
+            </button>
+                  <section
+                    className="card"
+                    style={{
+                      marginTop: '1rem',
+                      display: 'grid',
+                      gap: '0.75rem',
+                    }}
+                  >
+                    <header
                       style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-                        gap: '0.5rem',
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        justifyContent: 'space-between',
+                        gap: '1rem',
+                        flexWrap: 'wrap',
                       }}
                     >
-                      {selectedModel.lastTest.seed && (
-                        <div style={{ display: 'grid', gap: '0.15rem' }}>
-                          <span className="card-caption" style={{ fontWeight: 600 }}>
-                            Seed
+                      <div style={{ display: 'grid', gap: '0.35rem' }}>
+                        <h2 id={detailHeadingId} style={{ margin: 0 }}>{selectedModel.name}</h2>
+                        <span className="card-caption">
+                          Saved {formatTimestamp(selectedModel.createdAt)}
+                        </span>
+                        {selectedModel.lastTest?.ranAt && (
+                          <span className="card-caption">
+                            Last tested {formatTimestamp(selectedModel.lastTest.ranAt)}
                           </span>
-                          <span>{selectedModel.lastTest.seed}</span>
-                        </div>
-                      )}
-                      {selectedModel.lastTest.steps !== null && (
-                        <div style={{ display: 'grid', gap: '0.15rem' }}>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        {isEditingModel ? (
                           <span className="card-caption" style={{ fontWeight: 600 }}>
-                            Steps
+                            Editing metadata
                           </span>
-                          <span>{selectedModel.lastTest.steps}</span>
-                        </div>
-                      )}
-                      {selectedModel.lastTest.cfg !== null && (
-                        <div style={{ display: 'grid', gap: '0.15rem' }}>
-                          <span className="card-caption" style={{ fontWeight: 600 }}>
-                            CFG
-                          </span>
-                          <span>{selectedModel.lastTest.cfg}</span>
-                        </div>
-                      )}
-                      {selectedModel.lastTest.denoise !== null && (
-                        <div style={{ display: 'grid', gap: '0.15rem' }}>
-                          <span className="card-caption" style={{ fontWeight: 600 }}>
-                            Denoise
-                          </span>
-                          <span>{selectedModel.lastTest.denoise}</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {selectedModel.lastTest.positivePrompt && (
-                    <div style={{ display: 'grid', gap: '0.15rem' }}>
-                      <span style={{ fontWeight: 600 }}>Positive Prompt</span>
-                      <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
-                        {selectedModel.lastTest.positivePrompt}
-                      </p>
-                    </div>
-                  )}
-                  {selectedModel.lastTest.negativePrompt && (
-                    <div style={{ display: 'grid', gap: '0.15rem' }}>
-                      <span style={{ fontWeight: 600 }}>Negative Prompt</span>
-                      <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
-                        {selectedModel.lastTest.negativePrompt}
-                      </p>
-                    </div>
-                  )}
-                  {selectedModel.thumbnailPath && (
-                    <div style={{ display: 'grid', gap: '0.25rem' }}>
-                      <span style={{ fontWeight: 600 }}>Preview</span>
-                      <img
-                        src={fileSrc(selectedModel.thumbnailPath)}
-                        alt={`${selectedModel.name} preview`}
-                        style={{
-                          width: '100%',
-                          maxWidth: '280px',
-                          borderRadius: '12px',
-                          objectFit: 'cover',
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={beginEditingModel}
+                              style={secondaryButtonStyle}
+                            >
+                              Edit
+                            </button>
+                            <PrimaryButton type="button" onClick={openTestDialog}>
+                              Test Model
+                            </PrimaryButton>
+                          </>
+                        )}
+                      </div>
+                    </header>
+                    {testSuccessMessage && (
+                      <span className="card-caption" style={{ color: 'var(--success, #16a34a)' }}>
+                        {testSuccessMessage}
+                      </span>
+                    )}
+                    {editError && (
+                      <span className="card-caption" style={{ color: 'var(--accent)' }}>
+                        {editError}
+                      </span>
+                    )}
+                    {isEditingModel && editDraft ? (
+                      <form
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          handleEditSave();
                         }}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-          <footer style={{ display: 'grid', gap: '0.25rem' }}>
-            <span className="card-caption">
-              Stored in {indexLocationLabel || MODEL_INDEX_PATH}
-            </span>
-            <span className="card-caption">
-              Entry ID: {selectedModel.id}
-            </span>
-          </footer>
-        </section>
+                        style={{
+                          display: 'grid',
+                          gap: '0.75rem',
+                        }}
+                      >
+                        <label style={{ display: 'grid', gap: '0.35rem' }}>
+                          <span style={{ fontWeight: 600 }}>Model Name</span>
+                          <input
+                            type="text"
+                            value={editDraft.name}
+                            onChange={(event) => updateEditDraftField('name', event.target.value)}
+                            placeholder="My LoRa Model"
+                            style={{
+                              padding: '0.65rem',
+                              borderRadius: '10px',
+                              border: '1px solid rgba(15, 23, 42, 0.2)',
+                              background: 'var(--card-bg)',
+                              color: 'var(--text)',
+                              fontSize: '1rem',
+                            }}
+                          />
+                        </label>
+                        <label style={{ display: 'grid', gap: '0.35rem' }}>
+                          <span style={{ fontWeight: 600 }}>Base Model</span>
+                          <input
+                            type="text"
+                            value={editDraft.baseModel}
+                            onChange={(event) => updateEditDraftField('baseModel', event.target.value)}
+                            placeholder="SDXL 1.0"
+                            style={{
+                              padding: '0.65rem',
+                              borderRadius: '10px',
+                              border: '1px solid rgba(15, 23, 42, 0.2)',
+                              background: 'var(--card-bg)',
+                              color: 'var(--text)',
+                              fontSize: '1rem',
+                            }}
+                          />
+                        </label>
+                        <label style={{ display: 'grid', gap: '0.35rem' }}>
+                          <span style={{ fontWeight: 600 }}>Tags</span>
+                          <textarea
+                            value={editDraft.tags}
+                            onChange={(event) => updateEditDraftField('tags', event.target.value)}
+                            rows={2}
+                            placeholder="Flux, DND, etc."
+                            style={{
+                              padding: '0.65rem',
+                              borderRadius: '10px',
+                              border: '1px solid rgba(15, 23, 42, 0.2)',
+                              background: 'var(--card-bg)',
+                              color: 'var(--text)',
+                              fontSize: '1rem',
+                              resize: 'vertical',
+                            }}
+                          />
+                          <span className="card-caption">Separate tags with commas.</span>
+                        </label>
+                        <label style={{ display: 'grid', gap: '0.35rem' }}>
+                          <span style={{ fontWeight: 600 }}>Trigger Words</span>
+                          <textarea
+                            value={editDraft.triggerWords}
+                            onChange={(event) => updateEditDraftField('triggerWords', event.target.value)}
+                            rows={2}
+                            placeholder="Cinematic lighting, high detail"
+                            style={{
+                              padding: '0.65rem',
+                              borderRadius: '10px',
+                              border: '1px solid rgba(15, 23, 42, 0.2)',
+                              background: 'var(--card-bg)',
+                              color: 'var(--text)',
+                              fontSize: '1rem',
+                              resize: 'vertical',
+                            }}
+                          />
+                          <span className="card-caption">Separate trigger words with commas.</span>
+                        </label>
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          <PrimaryButton type="submit">Save Changes</PrimaryButton>
+                          <button
+                            type="button"
+                            onClick={cancelEditingModel}
+                            style={secondaryButtonStyle}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <>
+                        <dl
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                            gap: '0.75rem',
+                            margin: 0,
+                          }}
+                        >
+                          <div style={{ display: 'grid', gap: '0.25rem' }}>
+                            <dt style={{ fontWeight: 600 }}>Base Model</dt>
+                            <dd style={{ margin: 0 }}>{selectedModel.baseModel || 'Not set'}</dd>
+                          </div>
+                          <div style={{ display: 'grid', gap: '0.25rem' }}>
+                            <dt style={{ fontWeight: 600 }}>Tags</dt>
+                            <dd style={{ margin: 0 }}>
+                              {selectedModel.tags.length ? selectedModel.tags.join(', ') : 'None'}
+                            </dd>
+                          </div>
+                          <div style={{ display: 'grid', gap: '0.25rem' }}>
+                            <dt style={{ fontWeight: 600 }}>Trigger Words</dt>
+                            <dd style={{ margin: 0 }}>
+                              {selectedModel.triggerWords.length
+                                ? selectedModel.triggerWords.join(', ')
+                                : 'None'}
+                            </dd>
+                          </div>
+                        </dl>
+                        {selectedModel.lastTest && (
+                          <div style={{ display: 'grid', gap: '0.35rem' }}>
+                            <h3 style={{ margin: 0 }}>Last Test</h3>
+                            <span className="card-caption">
+                              Ran {formatTimestamp(selectedModel.lastTest.ranAt)} ·{' '}
+                              {selectedModel.lastTest.images?.length || 0} image
+                              {selectedModel.lastTest.images?.length === 1 ? '' : 's'}
+                            </span>
+                            {(selectedModel.lastTest.seed ||
+                              selectedModel.lastTest.steps !== null ||
+                              selectedModel.lastTest.cfg !== null ||
+                              selectedModel.lastTest.denoise !== null) && (
+                              <div
+                                style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                                  gap: '0.5rem',
+                                }}
+                              >
+                                {selectedModel.lastTest.seed && (
+                                  <div style={{ display: 'grid', gap: '0.15rem' }}>
+                                    <span className="card-caption" style={{ fontWeight: 600 }}>
+                                      Seed
+                                    </span>
+                                    <span>{selectedModel.lastTest.seed}</span>
+                                  </div>
+                                )}
+                                {selectedModel.lastTest.steps !== null && (
+                                  <div style={{ display: 'grid', gap: '0.15rem' }}>
+                                    <span className="card-caption" style={{ fontWeight: 600 }}>
+                                      Steps
+                                    </span>
+                                    <span>{selectedModel.lastTest.steps}</span>
+                                  </div>
+                                )}
+                                {selectedModel.lastTest.cfg !== null && (
+                                  <div style={{ display: 'grid', gap: '0.15rem' }}>
+                                    <span className="card-caption" style={{ fontWeight: 600 }}>
+                                      CFG
+                                    </span>
+                                    <span>{selectedModel.lastTest.cfg}</span>
+                                  </div>
+                                )}
+                                {selectedModel.lastTest.denoise !== null && (
+                                  <div style={{ display: 'grid', gap: '0.15rem' }}>
+                                    <span className="card-caption" style={{ fontWeight: 600 }}>
+                                      Denoise
+                                    </span>
+                                    <span>{selectedModel.lastTest.denoise}</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {selectedModel.lastTest.positivePrompt && (
+                              <div style={{ display: 'grid', gap: '0.15rem' }}>
+                                <span style={{ fontWeight: 600 }}>Positive Prompt</span>
+                                <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+                                  {selectedModel.lastTest.positivePrompt}
+                                </p>
+                              </div>
+                            )}
+                            {selectedModel.lastTest.negativePrompt && (
+                              <div style={{ display: 'grid', gap: '0.15rem' }}>
+                                <span style={{ fontWeight: 600 }}>Negative Prompt</span>
+                                <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+                                  {selectedModel.lastTest.negativePrompt}
+                                </p>
+                              </div>
+                            )}
+                            {selectedModel.thumbnailPath && (
+                              <div style={{ display: 'grid', gap: '0.25rem' }}>
+                                <span style={{ fontWeight: 600 }}>Preview</span>
+                                <img
+                                  src={fileSrc(selectedModel.thumbnailPath)}
+                                  alt={`${selectedModel.name} preview`}
+                                  style={{
+                                    width: '100%',
+                                    maxWidth: '280px',
+                                    borderRadius: '12px',
+                                    objectFit: 'cover',
+                                  }}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )}
+                    <footer style={{ display: 'grid', gap: '0.25rem' }}>
+                      <span className="card-caption">
+                        Stored in {indexLocationLabel || MODEL_INDEX_PATH}
+                      </span>
+                      <span className="card-caption">
+                        Entry ID: {selectedModel.id}
+                      </span>
+                    </footer>
+                  </section>
+            {isTestDialogOpen && (
+                    <section
+                      className="card"
+                      style={{
+                        marginTop: '1rem',
+                        display: 'grid',
+                        gap: '0.75rem',
+                      }}
+                    >
+                      <header style={{ display: 'grid', gap: '0.25rem' }}>
+                        <h2 style={{ margin: 0 }}>Test {selectedModel.name}</h2>
+                        <span className="card-caption">
+                          Test assets will be stored in {testOutputDirectory}
+                        </span>
+                      </header>
+                      <form
+                        onSubmit={handleTestSubmit}
+                        style={{
+                          display: 'grid',
+                          gap: '0.75rem',
+                        }}
+                      >
+                        <label style={{ display: 'grid', gap: '0.35rem' }}>
+                          <span style={{ fontWeight: 600 }}>Positive Prompt</span>
+                          <textarea
+                            value={testPositivePrompt}
+                            onChange={(event) => setTestPositivePrompt(event.target.value)}
+                            rows={3}
+                            placeholder="Describe what the model should produce..."
+                            style={{
+                              padding: '0.65rem',
+                              borderRadius: '10px',
+                              border: '1px solid rgba(15, 23, 42, 0.2)',
+                              background: 'var(--card-bg)',
+                              color: 'var(--text)',
+                              fontSize: '1rem',
+                              resize: 'vertical',
+                            }}
+                          />
+                        </label>
+                        <label style={{ display: 'grid', gap: '0.35rem' }}>
+                          <span style={{ fontWeight: 600 }}>Negative Prompt</span>
+                          <textarea
+                            value={testNegativePrompt}
+                            onChange={(event) => setTestNegativePrompt(event.target.value)}
+                            rows={3}
+                            placeholder="List attributes to avoid..."
+                            style={{
+                              padding: '0.65rem',
+                              borderRadius: '10px',
+                              border: '1px solid rgba(15, 23, 42, 0.2)',
+                              background: 'var(--card-bg)',
+                              color: 'var(--text)',
+                              fontSize: '1rem',
+                              resize: 'vertical',
+                            }}
+                          />
+                        </label>
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                            gap: '0.75rem',
+                          }}
+                        >
+                          <label style={{ display: 'grid', gap: '0.35rem' }}>
+                            <span style={{ fontWeight: 600 }}>Seed</span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              pattern="[0-9]*"
+                              value={testSeed}
+                              onChange={(event) => setTestSeed(event.target.value)}
+                              placeholder="Optional seed"
+                              style={{
+                                padding: '0.65rem',
+                                borderRadius: '10px',
+                                border: '1px solid rgba(15, 23, 42, 0.2)',
+                                background: 'var(--card-bg)',
+                                color: 'var(--text)',
+                                fontSize: '1rem',
+                              }}
+                            />
+                          </label>
+                          <label style={{ display: 'grid', gap: '0.35rem' }}>
+                            <span style={{ fontWeight: 600 }}>Steps</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={testSteps}
+                              onChange={(event) => setTestSteps(event.target.value)}
+                              placeholder="e.g. 30"
+                              style={{
+                                padding: '0.65rem',
+                                borderRadius: '10px',
+                                border: '1px solid rgba(15, 23, 42, 0.2)',
+                                background: 'var(--card-bg)',
+                                color: 'var(--text)',
+                                fontSize: '1rem',
+                              }}
+                            />
+                          </label>
+                          <label style={{ display: 'grid', gap: '0.35rem' }}>
+                            <span style={{ fontWeight: 600 }}>CFG</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.1"
+                              value={testCfg}
+                              onChange={(event) => setTestCfg(event.target.value)}
+                              placeholder="e.g. 7.5"
+                              style={{
+                                padding: '0.65rem',
+                                borderRadius: '10px',
+                                border: '1px solid rgba(15, 23, 42, 0.2)',
+                                background: 'var(--card-bg)',
+                                color: 'var(--text)',
+                                fontSize: '1rem',
+                              }}
+                            />
+                          </label>
+                          <label style={{ display: 'grid', gap: '0.35rem' }}>
+                            <span style={{ fontWeight: 600 }}>Denoise</span>
+                            <input
+                              type="number"
+                              min="0"
+                              max="1"
+                              step="0.05"
+                              value={testDenoise}
+                              onChange={(event) => setTestDenoise(event.target.value)}
+                              placeholder="e.g. 0.7"
+                              style={{
+                                padding: '0.65rem',
+                                borderRadius: '10px',
+                                border: '1px solid rgba(15, 23, 42, 0.2)',
+                                background: 'var(--card-bg)',
+                                color: 'var(--text)',
+                                fontSize: '1rem',
+                              }}
+                            />
+                          </label>
+                        </div>
+                        <label style={{ display: 'grid', gap: '0.35rem' }}>
+                          <span style={{ fontWeight: 600 }}>Reference Images</span>
+                          <input type="file" accept="image/*" multiple onChange={handleTestImageChange} />
+                          <span className="card-caption">Select one or more generated outputs to archive.</span>
+                        </label>
+                        {testImages.length > 0 && (
+                          <ul
+                            style={{
+                              margin: 0,
+                              paddingLeft: '1.25rem',
+                              display: 'grid',
+                              gap: '0.25rem',
+                              fontSize: '0.9rem',
+                            }}
+                          >
+                            {testImages.map((file, index) => (
+                              <li key={`${file.name}-${index}`} className="card-caption">
+                                {file.name}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                        {testError && (
+                          <span className="card-caption" style={{ color: 'var(--accent)' }}>
+                            {testError}
+                          </span>
+                        )}
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          <PrimaryButton
+                            type="submit"
+                            loading={isRunningTest}
+                            loadingText="Saving..."
+                            disabled={isRunningTest}
+                          >
+                            Save Test Run
+                          </PrimaryButton>
+                          <button
+                            type="button"
+                            onClick={closeTestDialog}
+                            style={secondaryButtonStyle}
+                            disabled={isRunningTest}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </form>
+                    </section>
+            )}
+          </div>
+        </div>
       )}
 
-      {isTestDialogOpen && selectedModel && (
-        <section
-          className="card"
-          style={{
-            marginTop: '1rem',
-            display: 'grid',
-            gap: '0.75rem',
-          }}
-        >
-          <header style={{ display: 'grid', gap: '0.25rem' }}>
-            <h2 style={{ margin: 0 }}>Test {selectedModel.name}</h2>
-            <span className="card-caption">
-              Test assets will be stored in {testOutputDirectory}
-            </span>
-          </header>
-          <form
-            onSubmit={handleTestSubmit}
-            style={{
-              display: 'grid',
-              gap: '0.75rem',
-            }}
-          >
-            <label style={{ display: 'grid', gap: '0.35rem' }}>
-              <span style={{ fontWeight: 600 }}>Positive Prompt</span>
-              <textarea
-                value={testPositivePrompt}
-                onChange={(event) => setTestPositivePrompt(event.target.value)}
-                rows={3}
-                placeholder="Describe what the model should produce..."
-                style={{
-                  padding: '0.65rem',
-                  borderRadius: '10px',
-                  border: '1px solid rgba(15, 23, 42, 0.2)',
-                  background: 'var(--card-bg)',
-                  color: 'var(--text)',
-                  fontSize: '1rem',
-                  resize: 'vertical',
-                }}
-              />
-            </label>
-            <label style={{ display: 'grid', gap: '0.35rem' }}>
-              <span style={{ fontWeight: 600 }}>Negative Prompt</span>
-              <textarea
-                value={testNegativePrompt}
-                onChange={(event) => setTestNegativePrompt(event.target.value)}
-                rows={3}
-                placeholder="List attributes to avoid..."
-                style={{
-                  padding: '0.65rem',
-                  borderRadius: '10px',
-                  border: '1px solid rgba(15, 23, 42, 0.2)',
-                  background: 'var(--card-bg)',
-                  color: 'var(--text)',
-                  fontSize: '1rem',
-                  resize: 'vertical',
-                }}
-              />
-            </label>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-                gap: '0.75rem',
-              }}
-            >
-              <label style={{ display: 'grid', gap: '0.35rem' }}>
-                <span style={{ fontWeight: 600 }}>Seed</span>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  value={testSeed}
-                  onChange={(event) => setTestSeed(event.target.value)}
-                  placeholder="Optional seed"
-                  style={{
-                    padding: '0.65rem',
-                    borderRadius: '10px',
-                    border: '1px solid rgba(15, 23, 42, 0.2)',
-                    background: 'var(--card-bg)',
-                    color: 'var(--text)',
-                    fontSize: '1rem',
-                  }}
-                />
-              </label>
-              <label style={{ display: 'grid', gap: '0.35rem' }}>
-                <span style={{ fontWeight: 600 }}>Steps</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={testSteps}
-                  onChange={(event) => setTestSteps(event.target.value)}
-                  placeholder="e.g. 30"
-                  style={{
-                    padding: '0.65rem',
-                    borderRadius: '10px',
-                    border: '1px solid rgba(15, 23, 42, 0.2)',
-                    background: 'var(--card-bg)',
-                    color: 'var(--text)',
-                    fontSize: '1rem',
-                  }}
-                />
-              </label>
-              <label style={{ display: 'grid', gap: '0.35rem' }}>
-                <span style={{ fontWeight: 600 }}>CFG</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={testCfg}
-                  onChange={(event) => setTestCfg(event.target.value)}
-                  placeholder="e.g. 7.5"
-                  style={{
-                    padding: '0.65rem',
-                    borderRadius: '10px',
-                    border: '1px solid rgba(15, 23, 42, 0.2)',
-                    background: 'var(--card-bg)',
-                    color: 'var(--text)',
-                    fontSize: '1rem',
-                  }}
-                />
-              </label>
-              <label style={{ display: 'grid', gap: '0.35rem' }}>
-                <span style={{ fontWeight: 600 }}>Denoise</span>
-                <input
-                  type="number"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={testDenoise}
-                  onChange={(event) => setTestDenoise(event.target.value)}
-                  placeholder="e.g. 0.7"
-                  style={{
-                    padding: '0.65rem',
-                    borderRadius: '10px',
-                    border: '1px solid rgba(15, 23, 42, 0.2)',
-                    background: 'var(--card-bg)',
-                    color: 'var(--text)',
-                    fontSize: '1rem',
-                  }}
-                />
-              </label>
-            </div>
-            <label style={{ display: 'grid', gap: '0.35rem' }}>
-              <span style={{ fontWeight: 600 }}>Reference Images</span>
-              <input type="file" accept="image/*" multiple onChange={handleTestImageChange} />
-              <span className="card-caption">Select one or more generated outputs to archive.</span>
-            </label>
-            {testImages.length > 0 && (
-              <ul
-                style={{
-                  margin: 0,
-                  paddingLeft: '1.25rem',
-                  display: 'grid',
-                  gap: '0.25rem',
-                  fontSize: '0.9rem',
-                }}
-              >
-                {testImages.map((file, index) => (
-                  <li key={`${file.name}-${index}`} className="card-caption">
-                    {file.name}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {testError && (
-              <span className="card-caption" style={{ color: 'var(--accent)' }}>
-                {testError}
-              </span>
-            )}
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <PrimaryButton
-                type="submit"
-                loading={isRunningTest}
-                loadingText="Saving..."
-                disabled={isRunningTest}
-              >
-                Save Test Run
-              </PrimaryButton>
-              <button
-                type="button"
-                onClick={closeTestDialog}
-                style={secondaryButtonStyle}
-                disabled={isRunningTest}
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        </section>
-      )}
 
     </>
   );
 }
-
